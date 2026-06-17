@@ -20,11 +20,13 @@ services:
       timeout: 5s
       retries: 10
 
-  app:
+  user:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: victoryfairy-app
+      args:
+        MODULE: user
+    container_name: victoryfairy-user
     restart: unless-stopped
     depends_on:
       mysql:
@@ -38,6 +40,48 @@ services:
       DB_PASSWORD: ${DB_PASSWORD}
     ports:
       - "8080:8080"
+
+  quiz:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: quiz
+    container_name: victoryfairy-quiz
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE}
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "8081:8081"
+
+  create:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: create
+    container_name: victoryfairy-create
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE}
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "8082:8082"
 
 volumes:
   mysql-data:
