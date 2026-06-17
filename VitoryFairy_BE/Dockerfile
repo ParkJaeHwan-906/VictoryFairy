@@ -24,4 +24,6 @@ COPY --from=builder /app/build/libs/*.jar app.jar
 
 EXPOSE 8080
 
-ENTRYPOINT ["java", "-jar", "app.jar"]
+ENV SPRING_PROFILES_ACTIVE=dev
+
+ENTRYPOINT ["sh", "-c", "case \",$SPRING_PROFILES_ACTIVE,\" in *,prod,*) exec java -jar app.jar ;; *) echo \"SPRING_PROFILES_ACTIVE=$SPRING_PROFILES_ACTIVE: skipping Spring application startup\"; exec tail -f /dev/null ;; esac"]
