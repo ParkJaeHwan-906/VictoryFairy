@@ -1,13 +1,13 @@
-package com.skhynix.vitoryfairy_be;
+package com.skhynix.victoryfairy_be;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
-public class VitoryFairyBeApplication {
+public class VictoryFairyBeApplication {
 
     public static void main(String[] args) {
-        SpringApplication.run(VitoryFairyBeApplication.class, args);
+        SpringApplication.run(VictoryFairyBeApplication.class, args);
     }
 
 }

@@ -1,4 +1,4 @@
-package com.skhynix.vitoryfairy_be.global.config;
+package com.skhynix.victoryfairy_be.global.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
