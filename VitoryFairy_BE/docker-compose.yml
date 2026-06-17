@@ -1,19 +1,21 @@
 services:
   mysql:
-    image: mysql:8.4
-    container_name: vitoryfairy-mysql
+    image: mysql:8.0
+    container_name: victoryfairy-mysql
+    env_file:
+      - .env
     restart: unless-stopped
     environment:
-      MYSQL_DATABASE: ${MYSQL_DATABASE}
-      MYSQL_USER: ${MYSQL_USER}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USERNAME}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
     ports:
       - "3306:3306"
     volumes:
       - mysql-data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD}"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -22,7 +24,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: vitoryfairy-app
+    container_name: victoryfairy-app
     restart: unless-stopped
     depends_on:
       mysql:
