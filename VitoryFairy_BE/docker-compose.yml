@@ -21,6 +21,7 @@ services:
       retries: 10
 
   user:
+    profiles: ["prod"]
     build:
       context: .
       dockerfile: Dockerfile
@@ -42,6 +43,7 @@ services:
       - "8080:8080"
 
   quiz:
+    profiles: ["prod"]
     build:
       context: .
       dockerfile: Dockerfile
@@ -63,6 +65,7 @@ services:
       - "8081:8081"
 
   create:
+    profiles: ["prod"]
     build:
       context: .
       dockerfile: Dockerfile
