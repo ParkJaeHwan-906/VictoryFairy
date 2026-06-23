@@ -6,17 +6,17 @@ import com.skhynix.domain.user.entity.UserRefreshToken;
 import com.skhynix.domain.user.repository.UserAccountRepository;
 import com.skhynix.domain.user.repository.UserRefreshTokenRepository;
 import com.skhynix.domain.user.repository.UserRepository;
+import com.skhynix.common.error.BusinessException;
+import com.skhynix.common.error.ErrorCode;
 import com.skhynix.user.auth.dto.LoginRequest;
 import com.skhynix.user.auth.dto.SignupRequest;
 import com.skhynix.user.auth.dto.TokenResponse;
 import com.skhynix.user.global.jwt.JwtTokenProvider;
 import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
 
 @Service
 @RequiredArgsConstructor
@@ -32,13 +32,13 @@ public class AuthService {
     @Transactional
     public Long signup(SignupRequest request) {
         if (userRepository.existsByEmail(request.email())) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "이미 사용 중인 이메일입니다.");
+            throw new BusinessException(ErrorCode.DUPLICATE_EMAIL);
         }
         if (userRepository.existsByTel(request.tel())) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "이미 사용 중인 전화번호입니다.");
+            throw new BusinessException(ErrorCode.DUPLICATE_TEL);
         }
         if (userAccountRepository.existsByNickname(request.nickname())) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "이미 사용 중인 닉네임입니다.");
+            throw new BusinessException(ErrorCode.DUPLICATE_NICKNAME);
         }
 
         User user = userRepository.save(User.builder()
@@ -60,12 +60,10 @@ public class AuthService {
     @Transactional
     public TokenResponse login(LoginRequest request) {
         UserAccount account = userAccountRepository.findByUser_Email(request.email())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED,
-                        "이메일 또는 비밀번호가 올바르지 않습니다."));
+                .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_CREDENTIALS));
 
         if (!passwordEncoder.matches(request.password(), account.getPassword())) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,
-                    "이메일 또는 비밀번호가 올바르지 않습니다.");
+            throw new BusinessException(ErrorCode.INVALID_CREDENTIALS);
         }
 
         return issueTokens(account);
@@ -74,16 +72,14 @@ public class AuthService {
     @Transactional
     public TokenResponse reissue(String refreshToken) {
         if (!tokenProvider.validateToken(refreshToken) || !tokenProvider.isRefreshToken(refreshToken)) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "유효하지 않은 리프레시 토큰입니다.");
+            throw new BusinessException(ErrorCode.INVALID_REFRESH_TOKEN);
         }
 
         UserRefreshToken stored = userRefreshTokenRepository.findByRefreshToken(refreshToken)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED,
-                        "만료되었거나 이미 사용된 리프레시 토큰입니다."));
+                .orElseThrow(() -> new BusinessException(ErrorCode.EXPIRED_REFRESH_TOKEN));
 
         if (!stored.getExpiredAt().isAfter(LocalDateTime.now())) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,
-                    "만료되었거나 이미 무효화된 리프레시 토큰입니다.");
+            throw new BusinessException(ErrorCode.EXPIRED_REFRESH_TOKEN);
         }
 
         // issueTokens가 이 토큰을 포함한 account의 유효 토큰을 모두 만료시킨 뒤 새로 발급한다.
