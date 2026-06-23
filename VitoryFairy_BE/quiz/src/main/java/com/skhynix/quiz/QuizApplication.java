@@ -5,7 +5,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.persistence.autoconfigure.EntityScan;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 
-@SpringBootApplication(scanBasePackages = "com.skhynix")
+@SpringBootApplication(scanBasePackages = "com.skhynix.quiz")
 @EntityScan("com.skhynix")
 @EnableJpaRepositories(basePackages = "com.skhynix")
 public class QuizApplication {
