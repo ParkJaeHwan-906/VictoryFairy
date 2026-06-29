@@ -50,6 +50,7 @@ jobs:
               - '.github/workflows/deploy.yml'
             compose:
               - 'VitoryFairy_BE/docker-compose.prod.yml'
+              - 'VitoryFairy_BE/nginx.conf'
 
       - name: Compute build set (dependency graph)
         id: set
@@ -142,14 +143,16 @@ jobs:
       - name: Checkout (compose 파일 전송용)
         uses: actions/checkout@v4
 
-      - name: Copy docker-compose.prod.yml to EC2
+      - name: Copy compose & nginx config to EC2
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          source: ${{ env.PROJECT_DIR }}/docker-compose.prod.yml
-          strip_components: 1
+          source: |
+            ${{ env.PROJECT_DIR }}/docker-compose.prod.yml
+            ${{ env.PROJECT_DIR }}/nginx.conf
+          strip_components: 1   # VitoryFairy_BE/ 접두사 제거 → ~/app/{docker-compose.prod.yml,nginx.conf}
           target: ~/app
 
       - name: Deploy on EC2

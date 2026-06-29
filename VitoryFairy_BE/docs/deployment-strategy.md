@@ -60,10 +60,14 @@
 - 앱 비밀값(DB_PASSWORD, JWT_SECRET)은 **GitHub 에 넣지 않는다.** 빌드는 비밀이 필요 없고, 실행 시 EC2 의 `.env` 만 읽으면 되기 때문.
 
 ### 6. 리버스 프록시(nginx)와 포트 보안
-- 외부에는 nginx(80, 추후 443)만 노출. nginx 가 경로별로 컨테이너로 분배
-  (`/api/auth`→8080, `/api/quiz`→8081, `/api/create`→8082, 설정: `infra/nginx/victoryfairy.conf`).
-- 컨테이너 포트는 `docker-compose.prod.yml` 에서 `127.0.0.1:` 로 한정 → 외부 직접 접근 차단, nginx 만 접근.
+- nginx 를 **compose 서비스**로 운영(`docker-compose.prod.yml` 의 `nginx`). 외부엔 80(추후 443)만 노출.
+- 설정은 `nginx.conf`(repo) → deploy 단계에서 `~/app/nginx.conf` 로 scp → 컨테이너에 마운트.
+- 같은 도커 네트워크라 앱을 **서비스명**으로 프록시: `/api/auth`→`user:8080`, `/api/quiz`→`quiz:8081`, `/api/create`→`create:8082`.
+  (호스트 `127.0.0.1` 바인딩이 아닌 도커 DNS 사용 → k8s Service 개념과 유사, 전환 시 Ingress 규칙으로 이전)
+- 앱 컨테이너 포트는 `127.0.0.1:` 로 한정(디버그용), 외부 직접 접근 차단.
 - AWS 보안 그룹: 80/443/22 만 개방, 8080~8082·3306 은 닫음.
+- 참고: `infra/nginx/victoryfairy.conf` 는 **호스트 nginx** 용 대안(현재는 compose nginx 사용).
+- k8s 전환 시: 이 nginx 는 **Ingress Controller + 클라우드 LB** 로 대체. 라우팅 규칙/이미지/파이프라인은 그대로 이전.
 
 ### 7. 데이터베이스: prod 는 AWS RDS
 - prod 는 mysql 컨테이너 대신 **AWS RDS(MySQL)** 사용 → `docker-compose.prod.yml` 에 mysql 서비스 없음.
