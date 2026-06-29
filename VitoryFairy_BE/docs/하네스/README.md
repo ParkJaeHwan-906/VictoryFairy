@@ -14,7 +14,17 @@
             ├─ 모듈이 명확 → 바로 진행
             └─ 불명확 → AskUserQuestion(user/quiz/create/infra)
                  └─ 선택된 .claude/modules/<선택>.md 만 Read → 슬림 컨텍스트로 작업
+                      └─ 작업(코드/배포) 완료 → module-verifier 에이전트로 검증
 ```
+
+## 작업 후 검증 (module-verifier)
+
+코드 변경·배포를 마치면 `module-verifier` 서브에이전트가 변경이 의도대로 동작하는지 **증거 기반**으로 확인한다(코드는 수정하지 않음).
+
+- **user/quiz/create**: 컴파일 → (테스트) → 엔드포인트 정적 확인 → 가능하면 부팅 후 컨트롤러 호출로 상태코드·응답값 검증
+- **infra**: 배포 워크플로 상태(`gh run`) → 토폴로지 파악 → health 엔드포인트 reachability
+
+호출 방식: 작업 완료 시 메인 에이전트가 자동 호출(SessionStart 지침), 또는 사용자가 `/verify [모듈]`로 수동 호출.
 
 ## 구성 요소
 
@@ -26,6 +36,8 @@
 | `.claude/modules/quiz.md` | quiz 모듈(스켈레톤) 슬림 컨텍스트 |
 | `.claude/modules/create.md` | create 모듈(부트스트랩) 슬림 컨텍스트 |
 | `.claude/modules/infra.md` | 배포·인프라(EC2→Docker→K8s) 학습/운영 컨텍스트 |
+| `.claude/agents/module-verifier.md` | 작업 후 변경을 검증하는 서브에이전트 |
+| `.claude/commands/verify.md` | 검증을 수동 호출하는 `/verify` 슬래시 커맨드 |
 
 ## 동작 원리 (훅)
 
