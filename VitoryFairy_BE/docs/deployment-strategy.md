@@ -20,7 +20,7 @@
                                           ├ docker compose pull
                                           └ docker compose up -d
                                                     │
-   인터넷 ──80/443──► [nginx] ──► 127.0.0.1:8080~8082 컨테이너 ──► MySQL
+   인터넷 ──80/443──► [nginx] ──► 127.0.0.1:8080~8082 컨테이너 ──► AWS RDS(MySQL)
 ```
 
 등장하는 컴퓨터는 4개이며 책임이 분리돼 있다.
@@ -65,7 +65,14 @@
 - 컨테이너 포트는 `docker-compose.prod.yml` 에서 `127.0.0.1:` 로 한정 → 외부 직접 접근 차단, nginx 만 접근.
 - AWS 보안 그룹: 80/443/22 만 개방, 8080~8082·3306 은 닫음.
 
-### 7. HTTPS (보류)
+### 7. 데이터베이스: prod 는 AWS RDS
+- prod 는 mysql 컨테이너 대신 **AWS RDS(MySQL)** 사용 → `docker-compose.prod.yml` 에 mysql 서비스 없음.
+- 앱은 `.env` 의 `DB_HOST`(RDS 엔드포인트)로 접속. EC2 `~/app/.env` 의 `DB_HOST` 를 RDS 주소로 설정.
+- 이점: 1GB EC2 에서 mysql 컨테이너(~400MB) 부담 제거 → OOM 위험 완화, DB 백업/관리는 RDS 가 담당.
+- 전제: RDS 보안 그룹에서 **EC2 의 접근(3306)** 허용, prod 프로파일 `ddl-auto: none` 이므로 **스키마가 RDS 에 미리 있어야** 함.
+- 로컬 개발용 `docker-compose.yml` 은 기존대로 mysql 컨테이너 사용 가능(dev).
+
+### 8. HTTPS (보류)
 - 무료 인증서(Let's Encrypt)는 **도메인이 필요** → 도메인 확보 후 진행 예정.
 - 절차: 도메인 DNS A레코드 → EC2(EIP) → 443 개방 → `certbot --nginx` (기존 리버스 프록시 설정 위에 TLS 만 추가됨).
 - 도메인 없이 가능한 대안: 무료 서브도메인(DuckDNS/nip.io)+Let's Encrypt, 또는 self-signed(브라우저 경고).

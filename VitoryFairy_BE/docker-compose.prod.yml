@@ -1,42 +1,17 @@
 # EC2 운영용 compose: 이미지를 직접 빌드하지 않고 GHCR에서 받은 이미지를 실행한다.
 # (빌드는 GitHub Actions에서 수행 → t2.micro 1GB RAM에서 OOM 방지)
 #
+# DB는 AWS RDS 사용 → mysql 컨테이너를 띄우지 않고 .env 의 RDS 주소(DB_HOST)로 접속한다.
 # 사용 예) IMAGE_PREFIX=ghcr.io/parkjaehwan-906  IMAGE_TAG=latest  docker compose -f docker-compose.prod.yml up -d
 services:
-  mysql:
-    image: mysql:8.0
-    container_name: victoryfairy-mysql
-    env_file:
-      - .env
-    restart: unless-stopped
-    environment:
-      MYSQL_DATABASE: ${DB_NAME}
-      MYSQL_USER: ${DB_USERNAME}
-      MYSQL_PASSWORD: ${DB_PASSWORD}
-      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
-    volumes:
-      - mysql-data:/var/lib/mysql
-    # DB는 외부에 직접 노출하지 않음. 같은 도커 네트워크의 앱들은 host "mysql"로 접근.
-    # (외부 DB 툴이 꼭 필요하면 SSH 터널을 쓰고, 이 포트는 열지 말 것)
-    ports:
-      - "127.0.0.1:3306:3306"
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD}"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
   user:
     image: ${IMAGE_PREFIX}/victoryfairy-user:${IMAGE_TAG:-latest}
     container_name: victoryfairy-user
     restart: unless-stopped
-    depends_on:
-      mysql:
-        condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE}
-      DB_HOST: mysql
-      DB_PORT: 3306
+      DB_HOST: ${DB_HOST}          # RDS 엔드포인트 (.env 에서 주입)
+      DB_PORT: ${DB_PORT}
       DB_NAME: ${DB_NAME}
       DB_USERNAME: ${DB_USERNAME}
       DB_PASSWORD: ${DB_PASSWORD}
@@ -49,13 +24,10 @@ services:
     image: ${IMAGE_PREFIX}/victoryfairy-quiz:${IMAGE_TAG:-latest}
     container_name: victoryfairy-quiz
     restart: unless-stopped
-    depends_on:
-      mysql:
-        condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE}
-      DB_HOST: mysql
-      DB_PORT: 3306
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
       DB_NAME: ${DB_NAME}
       DB_USERNAME: ${DB_USERNAME}
       DB_PASSWORD: ${DB_PASSWORD}
@@ -67,19 +39,13 @@ services:
     image: ${IMAGE_PREFIX}/victoryfairy-create:${IMAGE_TAG:-latest}
     container_name: victoryfairy-create
     restart: unless-stopped
-    depends_on:
-      mysql:
-        condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE}
-      DB_HOST: mysql
-      DB_PORT: 3306
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
       DB_NAME: ${DB_NAME}
       DB_USERNAME: ${DB_USERNAME}
       DB_PASSWORD: ${DB_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
     ports:
       - "127.0.0.1:8082:8082"
-
-volumes:
-  mysql-data:
