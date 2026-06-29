@@ -71,21 +71,26 @@ chmod 600 ~/app/.env
 
 ---
 
-## ⚠️ RAM 경고 (중요)
+## ⚠️ RAM 전략 (중요 — 실제 사고로 배운 부분)
 
-빌드뿐 아니라 **실행**도 t2.micro 1GB에서는 빠듯하다.
-Spring Boot 앱 3개 + MySQL을 동시에 띄우면 1GB를 초과해 OOM/스왑이 발생할 수 있다.
+실행 메모리가 부족하면 **부팅 시 컨테이너가 자동 기동 → OOM → sshd 무응답**으로 서버에 접속조차 못 하는 악순환에 빠진다(`restart: unless-stopped` + 1GB RAM 조합). 실제로 1GB(t2/t3.micro)에서 Spring 앱 3개 동시 기동 시 락아웃 발생.
 
-대응 옵션:
-1. **스왑 메모리 추가** (학습용 임시방편)
-   ```bash
-   sudo dd if=/dev/zero of=/swapfile bs=128M count=16   # 2GB
-   sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
-   echo '/swapfile swap swap defaults 0 0' | sudo tee -a /etc/fstab
-   ```
-2. **JVM 힙 제한** — 각 모듈 Dockerfile/실행에 `-XX:MaxRAMPercentage=25` 등
-3. **인스턴스 업그레이드** — `t3.small`(2GB) 이상 권장
-4. 모듈을 모두 띄우지 말고 필요한 것만 실행
+### 채택한 방식 (스왑 의존 X)
+- **인스턴스**: `t3.small`(2GB) — 앱 3개를 안정적으로 돌릴 최소선.
+- **컨테이너 메모리 상한**: `docker-compose.prod.yml` 의 `mem_limit: 500m`
+  → 한 앱이 폭주해도 그 컨테이너만 OOM-kill, **호스트는 생존(SSH 유지)**.
+- **JVM 힙 자동 산정**: `JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=70.0`
+  → 컨테이너 상한의 70%를 힙으로(≈350m).
+- 예산: 2048MB − (OS/도커/nginx ~500MB) = ~1500MB ÷ 3앱 = 앱당 ~500MB.
+
+### 스왑에 대하여
+- 스왑은 **JVM 워크로드에 부적합**: 힙이 디스크로 밀리면 GC가 디스크를 훑어 앱이 멈춘 듯 느려진다.
+- 따라서 스왑으로 "RAM보다 많은 JVM"을 돌리지 말 것. 부팅 스파이크용 **작은 완충재(≤1GB)** 정도만 선택적.
+
+### 락아웃 복구 (서버 접속 불가 시)
+1. 콘솔에서 **Stop → 인스턴스 유형 t3.small 로 변경 → Start** (RAM 늘려 부팅 시 SSH 숨통 확보)
+2. 접속되면 즉시: `docker update --restart=no $(docker ps -aq)` → `docker stop $(docker ps -aq)`
+3. 위 메모리 전략 적용 후 재기동
 
 ---
 
