@@ -1,8 +1,8 @@
 name: Deploy to EC2
 
 # main 브랜치에 push(= PR merge)되면 자동 배포. UI에서 수동 실행도 가능.
+# 변경이 감지된 모듈(+ 그에 의존하는 모듈)만 빌드한다.
 # 주의: 저장소 루트는 VictoryFairy/ 이고 프로젝트는 VitoryFairy_BE/ 하위에 있다.
-#       (GitHub Actions 는 루트의 .github/workflows 만 인식하므로 이 파일은 루트에 둔다)
 on:
   push:
     branches: [main]
@@ -10,19 +10,96 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  # 프로젝트가 들어있는 하위 디렉터리 (빌드 컨텍스트)
   PROJECT_DIR: VitoryFairy_BE
 
 jobs:
-  # 1단계: 모듈 3개 이미지를 GitHub 러너에서 빌드 → GHCR push
+  # 0단계: 어떤 모듈을 빌드/배포할지 판단 (의존성 그래프 반영)
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      modules: ${{ steps.set.outputs.modules }}   # 빌드할 모듈 JSON 배열 (예: ["quiz"])
+      deploy: ${{ steps.set.outputs.deploy }}      # 배포 필요 여부 true/false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed paths
+        id: filter
+        if: github.event_name == 'push'
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            common:
+              - 'VitoryFairy_BE/common/**'
+            domain:
+              - 'VitoryFairy_BE/domain/**'
+            user:
+              - 'VitoryFairy_BE/user/**'
+            quiz:
+              - 'VitoryFairy_BE/quiz/**'
+            create:
+              - 'VitoryFairy_BE/create/**'
+            root:
+              - 'VitoryFairy_BE/build.gradle'
+              - 'VitoryFairy_BE/settings.gradle'
+              - 'VitoryFairy_BE/gradlew'
+              - 'VitoryFairy_BE/gradle/**'
+              - 'VitoryFairy_BE/Dockerfile'
+              - '.github/workflows/deploy.yml'
+            compose:
+              - 'VitoryFairy_BE/docker-compose.prod.yml'
+
+      - name: Compute build set (dependency graph)
+        id: set
+        run: |
+          set -e
+          declare -A want
+          all() { want[user]=1; want[quiz]=1; want[create]=1; }
+
+          if [ "${{ github.event_name }}" != "push" ]; then
+            # 수동 실행(workflow_dispatch) → 안전하게 전체 빌드
+            all
+          else
+            R='${{ steps.filter.outputs.root }}'
+            C='${{ steps.filter.outputs.common }}'
+            D='${{ steps.filter.outputs.domain }}'
+            U='${{ steps.filter.outputs.user }}'
+            Q='${{ steps.filter.outputs.quiz }}'
+            CR='${{ steps.filter.outputs.create }}'
+            if [ "$R" = "true" ] || [ "$C" = "true" ] || [ "$D" = "true" ]; then
+              all                                   # 루트/공통 변경 → 전체
+            else
+              [ "$U" = "true" ]  && { want[user]=1; want[quiz]=1; }  # quiz 가 user 의존
+              [ "$Q" = "true" ]  && want[quiz]=1
+              [ "$CR" = "true" ] && want[create]=1
+            fi
+          fi
+
+          mods=$(printf '%s\n' "${!want[@]}" | sort | jq -R . | jq -cs .)
+          [ -z "$mods" ] && mods='[]'
+          echo "modules=$mods" >> "$GITHUB_OUTPUT"
+
+          # 빌드할 모듈이 있거나 compose 가 바뀌었으면 배포 수행
+          if [ "$mods" != "[]" ] || [ "${{ steps.filter.outputs.compose }}" = "true" ] || [ "${{ github.event_name }}" != "push" ]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "→ build modules = $mods"
+
+  # 1단계: 변경된 모듈만 빌드 → GHCR push
   build-and-push:
+    needs: detect
+    if: needs.detect.outputs.modules != '[]'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     strategy:
       matrix:
-        module: [user, quiz, create]
+        module: ${{ fromJson(needs.detect.outputs.modules) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -55,9 +132,11 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.module }}
           cache-to: type=gha,mode=max,scope=${{ matrix.module }}
 
-  # 2단계: EC2에 SSH 접속 → 최신 이미지 pull & 재시작
+  # 2단계: EC2에 SSH 접속 → 최신(latest) 이미지 pull & 변경분만 재기동
   deploy:
-    needs: build-and-push
+    needs: [detect, build-and-push]
+    # 배포가 필요하고(모듈 빌드 or compose 변경), 빌드가 실패하지 않았을 때만
+    if: ${{ !cancelled() && needs.detect.outputs.deploy == 'true' && needs.build-and-push.result != 'failure' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout (compose 파일 전송용)
@@ -70,7 +149,7 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           source: ${{ env.PROJECT_DIR }}/docker-compose.prod.yml
-          strip_components: 1   # VitoryFairy_BE/ 접두사 제거 → ~/app/docker-compose.prod.yml 로 안착
+          strip_components: 1
           target: ~/app
 
       - name: Deploy on EC2
@@ -82,17 +161,12 @@ jobs:
           script: |
             set -e
             cd ~/app
-
-            # GHCR 로그인 (private 패키지 pull 위해 필요)
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-            # 이미지 prefix/tag 주입
+            # latest 태그 기반: 바뀐 모듈만 새 이미지로 갱신되고, 안 바뀐 모듈은 기존 유지
             export IMAGE_PREFIX="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
-            export IMAGE_TAG="${{ github.sha }}"
+            export IMAGE_TAG=latest
 
-            # 최신 이미지 받아서 무중단에 가깝게 재기동
             docker compose -f docker-compose.prod.yml pull
-            docker compose -f docker-compose.prod.yml up -d
-
-            # 안 쓰는 이미지 정리 (디스크 절약)
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans
             docker image prune -f
