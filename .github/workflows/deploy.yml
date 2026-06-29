@@ -149,9 +149,7 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          source: |
-            ${{ env.PROJECT_DIR }}/docker-compose.prod.yml
-            ${{ env.PROJECT_DIR }}/nginx.conf
+          source: "${{ env.PROJECT_DIR }}/docker-compose.prod.yml,${{ env.PROJECT_DIR }}/nginx.conf"
           strip_components: 1   # VitoryFairy_BE/ 접두사 제거 → ~/app/{docker-compose.prod.yml,nginx.conf}
           target: ~/app
 
