@@ -1,0 +1,18 @@
+spring:
+  application:
+    name: quiz
+  main:
+    web-application-type: servlet
+  config:
+    import:
+      - optional:file:.env[.properties]
+      - optional:file:../.env[.properties]
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+
+server:
+  port: 8081
+
+jwt:
+  # 토큰 검증만 수행. user와 반드시 동일한 secret이어야 검증됨 (.env의 JWT_SECRET 공유)
+  secret: ${JWT_SECRET:local-dev-secret-please-change-this-to-a-32byte-plus-random-value}

@@ -37,5 +37,5 @@ out/
 .vscode/
 
 ### Application config ###
-src/main/resources/application.yaml
-src/main/resources/application-*.yaml
+# application*.yaml 는 비밀값 없이(placeholder만) 구조만 담으므로 git 으로 추적한다.
+# 빌드 시 jar 에 포함되어야 CI/CD 빌드가 정상 동작한다. 실제 비밀값은 .env 로만 주입.

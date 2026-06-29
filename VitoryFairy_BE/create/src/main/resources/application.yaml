@@ -1,0 +1,14 @@
+spring:
+  application:
+    name: create
+  main:
+    web-application-type: servlet
+  config:
+    import:
+      - optional:file:.env[.properties]
+      - optional:file:../.env[.properties]
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+
+server:
+  port: 8082

@@ -1,0 +1,23 @@
+spring:
+  application:
+    name: user
+  main:
+    web-application-type: servlet
+  config:
+    import:
+      - optional:file:.env[.properties]
+      - optional:file:../.env[.properties]
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+  web:
+    error:
+      include-message: always
+
+server:
+  port: 8080
+
+jwt:
+  # 기본값 절대 사용 X -> .env의 JWT_SECRET으로 덮어쓸 것 (32바이트 이상)
+  secret: ${JWT_SECRET:local-dev-secret-please-change-this-to-a-32byte-plus-random-value}
+  access-token-validity: 10800000      # 3시간 (ms)
+  refresh-token-validity: 1209600000  # 14일 (ms)
