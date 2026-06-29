@@ -1,14 +1,17 @@
 name: Deploy to EC2
 
 # main 브랜치에 push(= PR merge)되면 자동 배포. UI에서 수동 실행도 가능.
+# 주의: 저장소 루트는 VictoryFairy/ 이고 프로젝트는 VitoryFairy_BE/ 하위에 있다.
+#       (GitHub Actions 는 루트의 .github/workflows 만 인식하므로 이 파일은 루트에 둔다)
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
 env:
-  # GHCR 이미지 prefix. github.repository_owner 를 소문자로 변환해 사용.
   REGISTRY: ghcr.io
+  # 프로젝트가 들어있는 하위 디렉터리 (빌드 컨텍스트)
+  PROJECT_DIR: VitoryFairy_BE
 
 jobs:
   # 1단계: 모듈 3개 이미지를 GitHub 러너에서 빌드 → GHCR push
@@ -41,8 +44,8 @@ jobs:
       - name: Build and push ${{ matrix.module }}
         uses: docker/build-push-action@v6
         with:
-          context: .
-          file: ./Dockerfile
+          context: ./${{ env.PROJECT_DIR }}
+          file: ./${{ env.PROJECT_DIR }}/Dockerfile
           build-args: |
             MODULE=${{ matrix.module }}
           push: true
@@ -66,7 +69,8 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          source: docker-compose.prod.yml
+          source: ${{ env.PROJECT_DIR }}/docker-compose.prod.yml
+          strip_components: 1   # VitoryFairy_BE/ 접두사 제거 → ~/app/docker-compose.prod.yml 로 안착
           target: ~/app
 
       - name: Deploy on EC2
