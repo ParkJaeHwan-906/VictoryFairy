@@ -1,0 +1,32 @@
+# 모듈별 컨테이너 오케스트레이션
+#   docker compose up validation analysis     # 두 API 서버 기동
+#   docker compose --profile batch run --rm pipeline   # 배치 파이프라인 1회 실행
+services:
+  validation:
+    build:
+      context: .
+      dockerfile: validation/Dockerfile
+    image: victoryfairy-validation
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  analysis:
+    build:
+      context: .
+      dockerfile: analysis/Dockerfile
+    image: victoryfairy-analysis
+    ports:
+      - "8001:8001"
+    restart: unless-stopped
+
+  # 배치 러너: 상시 기동이 아니라 필요 시 실행(profile). data/ 를 볼륨 마운트.
+  pipeline:
+    build:
+      context: .
+      dockerfile: pipeline/Dockerfile
+    image: victoryfairy-pipeline
+    volumes:
+      - ./data:/app/data
+    profiles:
+      - batch

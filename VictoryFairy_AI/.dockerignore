@@ -1,0 +1,24 @@
+# 빌드 컨텍스트에서 제외(이미지 경량화). 모듈 사전 core/data 는 코드라 포함됨.
+.git/
+.gitignore
+.venv/
+venv/
+env/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+
+# Claude 하네스·개인설정(런타임 불필요)
+.claude/
+CLAUDE.md
+docs/
+
+# 로컬 전용 파일 저장소(pipeline 은 볼륨으로 마운트)
+data/
+
+# 환경변수·HF 캐시·OS
+.env
+.env*
+.hf-cache/
+.DS_Store
