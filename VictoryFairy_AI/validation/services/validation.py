@@ -1,5 +1,5 @@
 from validation.core.patterns import CATEGORY_PATTERNS, EXCEPTION_PATTERN
-from validation.core.preprocess import preprocess
+from validation.core.preprocess import build_match_views
 from validation.schemas.validation import ValidationRequest, ValidationResponse
 
 # 카테고리 코드 → 사용자에게 보여줄 한글 라벨
@@ -14,7 +14,8 @@ class ValidationService:
     """
     문장 검증 서비스
     - 문장 내 욕설 필터링 (정규 표현식 기반)
-    - 매칭 전 preprocess()로 텍스트를 정규화해 우회 표현을 무력화한다.
+    - 입력을 여러 형태(원문/정규화/압축/한글/영어)로 변환해 각각 매칭한다(다중 패스).
+      한 형태에서 놓친 우회 표기(예: '씨@발')를 다른 형태('씨발')에서 잡기 위함이다.
     - 매칭 전 예외 표현(정상 표현)을 제거해 오탐을 방지한다.
     """
 
@@ -25,21 +26,20 @@ class ValidationService:
         - request: ValidationRequest
         - return: ValidationResponse
         """
-        # 1) 전처리: 소문자화 · 유사문자 치환 · 공백/특수문자 제거
-        normalized = preprocess(request.line)
+        # 입력을 여러 뷰(원문·정규화·압축·한글·영어)로 변환해 순서대로 검사한다.
+        for _view_name, view in build_match_views(request.line):
+            # 오탐 방지: 정상 표현(예: '보지도 못했다')을 먼저 제거한다.
+            cleaned = EXCEPTION_PATTERN.sub("", view)
 
-        # 2) 오탐 방지: 정상 표현(예: '보지도 못했다')을 먼저 제거한다.
-        normalized = EXCEPTION_PATTERN.sub("", normalized)
-
-        # 3) 카테고리별로 비속어 패턴 검색
-        for category, pattern in CATEGORY_PATTERNS.items():
-            match = pattern.search(normalized)
-            if match:
-                label = _CATEGORY_LABELS.get(category, category)
-                return ValidationResponse(
-                    is_valid=False,
-                    message=f"{label}이(가) 감지되었습니다: '{match.group()}'",
-                )
+            # 카테고리별로 비속어 패턴 검색 — 첫 매칭 시 폐기.
+            for category, pattern in CATEGORY_PATTERNS.items():
+                match = pattern.search(cleaned)
+                if match:
+                    label = _CATEGORY_LABELS.get(category, category)
+                    return ValidationResponse(
+                        is_valid=False,
+                        message=f"{label}이(가) 감지되었습니다: '{match.group()}'",
+                    )
 
         return ValidationResponse(
             is_valid=True,
