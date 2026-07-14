@@ -40,5 +40,27 @@ CATEGORY_PATTERNS: dict[str, Pattern[str]] = {
     category: _compile_pattern(words) for category, words in BANNED_WORDS.items()
 }
 
+# 완성형 한글 음절(가-힣)로만 이루어진 욕설 정규식.
+_SYLLABLE_ONLY = re.compile(r"^[가-힣]+$")
+
+
+def _compile_syllable_pattern(words: Iterable[str]) -> Pattern[str]:
+    """완성형 음절 욕설만으로 패턴을 컴파일한다(초성·자모·로마자 제외).
+
+    '키보드' 뷰 전용: 영단어를 자판 복원하면 낱자 초성(ㅁㅊ, ㅗ 등)이 남아
+    초성 욕설과 대량 오탐을 낸다. 키보드 뷰는 '시발' 같은 완성 음절만 매칭한다.
+    """
+    normalized = [word for word in _normalize_words(words) if _SYLLABLE_ONLY.match(word)]
+    if not normalized:
+        return re.compile(r"(?!x)x")
+    normalized.sort(key=len, reverse=True)
+    return re.compile("|".join(re.escape(word) for word in normalized))
+
+
+# 키보드 뷰 전용 패턴(완성형 음절 욕설만).
+KEYBOARD_PATTERNS: dict[str, Pattern[str]] = {
+    category: _compile_syllable_pattern(words) for category, words in BANNED_WORDS.items()
+}
+
 # 예외 표현 패턴: 검사 전에 정상 표현을 문장에서 제거해 오탐을 방지한다.
 EXCEPTION_PATTERN: Pattern[str] = _compile_pattern(EXCEPTIONS)

@@ -1,4 +1,8 @@
-from validation.core.patterns import CATEGORY_PATTERNS, EXCEPTION_PATTERN
+from validation.core.patterns import (
+    CATEGORY_PATTERNS,
+    EXCEPTION_PATTERN,
+    KEYBOARD_PATTERNS,
+)
 from validation.core.preprocess import build_match_views
 from validation.schemas.validation import ValidationRequest, ValidationResponse
 
@@ -26,13 +30,16 @@ class ValidationService:
         - request: ValidationRequest
         - return: ValidationResponse
         """
-        # 입력을 여러 뷰(원문·정규화·압축·한글·영어)로 변환해 순서대로 검사한다.
-        for _view_name, view in build_match_views(request.line):
+        # 입력을 여러 뷰(원문·정규화·압축·한글·영어·키보드)로 변환해 순서대로 검사한다.
+        for view_name, view in build_match_views(request.line):
             # 오탐 방지: 정상 표현(예: '보지도 못했다')을 먼저 제거한다.
             cleaned = EXCEPTION_PATTERN.sub("", view)
 
+            # '키보드' 뷰는 오탐이 커서 완성형 음절 욕설만 검사한다(초성 욕설 제외).
+            patterns = KEYBOARD_PATTERNS if view_name == "키보드" else CATEGORY_PATTERNS
+
             # 카테고리별로 비속어 패턴 검색 — 첫 매칭 시 폐기.
-            for category, pattern in CATEGORY_PATTERNS.items():
+            for category, pattern in patterns.items():
                 match = pattern.search(cleaned)
                 if match:
                     label = _CATEGORY_LABELS.get(category, category)
