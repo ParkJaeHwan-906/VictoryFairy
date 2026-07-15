@@ -1,0 +1,6 @@
+# 배치 러너는 validation·analysis 서비스를 직접 import 한다(HTTP 서버는 불필요).
+# torch 는 Dockerfile 에서 CPU 빌드로 별도 설치한다.
+pydantic==2.7.4
+pydantic-settings==2.3.4
+kiwipiepy==0.23.2
+transformers==4.44.2
