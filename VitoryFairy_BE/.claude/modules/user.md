@@ -11,11 +11,11 @@ JWT 기반 인증/인가. signup·login·refresh·logout. **포트 8080.**
 - `SecurityConfig` — stateless + JWT 필터 통합
 - `JwtTokenProvider` (HS256 생성/검증), `JwtAuthenticationFilter` (Bearer 파싱), `JwtProperties`
 - `GlobalExceptionHandler` (`@RestControllerAdvice`)
-- DTO는 전부 **record**: `SignupRequest/Response`, `LoginRequest`, `TokenRequest/Response`
+- DTO는 전부 **record**: `SignupRequest`, `LoginRequest`, `TokenRequest/Response` (`SignupResponse`는 `AuthController`에 import만 되어 있고 미사용 — signup은 `ResponseEntity<Boolean>` 반환)
 
 ## 엔드포인트
 ```
-POST /api/auth/signup    SignupRequest → Boolean
+POST /api/auth/signup    SignupRequest → Boolean (201)
 POST /api/auth/login     LoginRequest  → TokenResponse
 POST /api/auth/refresh   TokenRequest  → TokenResponse
 POST /api/auth/logout    TokenRequest  → 204

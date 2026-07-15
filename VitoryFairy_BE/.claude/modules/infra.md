@@ -2,22 +2,21 @@
 
 > 이 파일은 infra/배포 작업 시에만 로드되는 슬림 컨텍스트다.
 > EC2 → Docker → Kubernetes 단계적 학습 + 이 백엔드의 실제 배포(nginx, docker-compose.prod, deploy.yml)를 다룬다.
-> 최종 업데이트: 2026-06-26
+> 최종 업데이트: 2026-07-15
 
-## 관련 위치 (이 레포)
-- `nginx.conf`, `docker-compose.prod.yml`, `docker-compose.yml`, `Dockerfile`
-- `infra/` 디렉터리
-- `.github/workflows/deploy.yml` (CI/CD)
-- `docs/deployment-strategy.md`, `docs/cicd-runbook.md`
+## 관련 위치
+- (이 레포 `VitoryFairy_BE/`) `nginx.conf`, `docker-compose.prod.yml`, `docker-compose.yml`, `Dockerfile`, `infra/` 디렉터리, `docs/deployment-strategy.md`, `docs/cicd-runbook.md`
+- (**상위 레포** `VictoryFairy/.github/workflows/deploy.yml`, CI/CD) — 이 레포(`VitoryFairy_BE/`)에는 `.github`가 없다. 저장소 루트가 한 단계 위임에 주의 (deploy.yml 자신도 이를 경고).
 
 ---
 
 ## 현재 인프라 상태
-- **인스턴스**: EC2 `t2.micro` (1 vCPU / 1GB RAM)
+- **인스턴스**: EC2 `t3.small` (2 vCPU / 2GB RAM) — **교체 예정** (시기·후신 스펙 미정, 아래 세부는 교체 시 무효화됨)
+  - 이 스펙이 `docker-compose.prod.yml`의 `mem_limit` 예산(앱 N개 × 500m + nginx 128m + OS/도커 여유)의 근거다. 예산 총합이 호스트 RAM을 넘으면 호스트가 죽으므로, 서비스 추가/변경 시 이 값 기준으로 재계산할 것. **이 파일이 스펙의 유일한 출처**(compose-manager 등 에이전트 정의가 여기를 참조).
 - **OS**: Amazon Linux 2023 (al2023)
 - **리전**: ap-northeast-2 (서울)
-- **사설 IP**: 10.0.0.5 / **VPC CIDR**: 10.0.0.0/24
-- **인스턴스 ID**: i-0dba661111b28bfcf
+- **사설 IP**: 10.0.0.5 / **VPC CIDR**: 10.0.0.0/24 (교체 시 변경될 수 있음)
+- **인스턴스 ID**: i-0dba661111b28bfcf (교체 시 변경될 수 있음)
 
 ### 보안 그룹 (launch-wizard-2) — 인바운드
 - 22 (SSH) / TCP / 0.0.0.0/0
@@ -25,7 +24,10 @@
 - 443 (HTTPS) / TCP / 0.0.0.0/0
 
 ### nginx
-- 호스트 설치(`dnf install nginx`) → Docker 컨테이너 전환 작업 중
+- **컨테이너 전환 완료** (호스트 설치 → `docker-compose.prod.yml`의 `nginx` 서비스, `nginx:1.27-alpine`)
+- 설정 파일 2개가 존재하며 용도가 갈린다:
+  - `nginx.conf` (루트) — **현재 사용 중**. compose 컨테이너에 마운트되고, CI(`deploy.yml`)가 EC2로 scp하는 것도 이 파일뿐.
+  - `infra/nginx/victoryfairy.conf` — **레거시**. EC2 호스트 nginx 시절 설정으로, 어떤 파이프라인에서도 참조하지 않음 (삭제 후보).
 
 ---
 
@@ -47,6 +49,13 @@
 
 ---
 
+## 배포 파이프라인 알려진 갭
+- **create 모듈 이미지 낭비**: `docker-compose.yml` / `docker-compose.prod.yml` 둘 다 `create` 서비스가 주석 처리(의도적 미배포)인데, `deploy.yml`의 `detect` 잡은 여전히 create를 빌드 대상에 포함해 GHCR에 push한다. → 배포되지 않는 이미지가 계속 쌓임. create를 compose에 되살리기 전엔 CI `detect` 로직에서도 빼는 게 맞음.
+- **헬스체크 부재**: `docker-compose.prod.yml`에 healthcheck 없음. nginx의 `/healthz`는 nginx 자신이 200을 반환할 뿐 백엔드를 보지 않는다. user/quiz의 SecurityConfig에는 `GET /health` permit 규칙만 있고 이를 처리하는 컨트롤러/actuator가 **아예 없어** 실제 호출 시 404 — nginx 라우팅 노출 여부와 무관하게 **운영 앱이 실제로 살아있는지 확인할 수단 자체가 없다.** 선결 과제는 nginx 노출이 아니라 health 엔드포인트 구현.
+- **롤백 전략 없음**: CI가 `:latest`와 `:${{ github.sha }}` 둘 다 push하지만 EC2 배포 스크립트는 `IMAGE_TAG=latest` 고정이라 sha 태그를 쓸 방법이 없고, 배포 스크립트의 `docker image prune -f`가 EC2에 남은 이전 이미지를 지워버려 롤백용 이미지도 안 남는다.
+
+---
+
 ## 비용 메모
 | 동작 | 컴퓨팅 | EBS(디스크) | 데이터 |
 |------|:---:|:---:|:---:|
@@ -61,7 +70,8 @@
 
 ## 로드맵
 
-### STEP 1 — Docker로 nginx 띄우기 (다음 차례)
+### STEP 1 — Docker로 nginx 띄우기 (완료)
+운영에는 아래 단발 `docker run`이 아니라 `docker-compose.prod.yml`의 `nginx` 서비스로 정착함 (nginx 섹션 참고). 명령어는 학습 이력으로 남김.
 ```bash
 # 호스트 nginx 제거
 sudo systemctl stop nginx && sudo systemctl disable nginx
@@ -88,8 +98,8 @@ sudo docker ps && curl localhost
 - nginx Deployment 띄우고 kubectl 익히기
 
 ### STEP 4 — 멀티노드 클러스터 (EC2)
-- **주의: t2.micro는 control plane 불가** (최소 2vCPU/2GB → `t3.small` 이상)
-- kubeadm 직접 구축: 신규 EC2(t3.small+) → control plane(`kubeadm init`) / worker(`kubeadm join`)
+- **주의: control plane 최소 2vCPU/2GB 필요.** 현재 인스턴스(t3.small, 2vCPU/2GB)가 이 최소치를 충족하지만 교체 예정이므로, 후신 인스턴스도 최소 2vCPU/2GB는 유지해야 함
+- kubeadm 직접 구축: control plane(`kubeadm init`) / worker(`kubeadm join`)용 EC2 준비 (최소 2vCPU/2GB)
 - 또는 **EKS**(control plane을 AWS가 관리, 월 ~7-8만원)
 - 노드 간 통신 포트(6443, 10250 등) 보안 그룹 개방 필요
 
@@ -102,6 +112,7 @@ sudo docker ps && curl localhost
 ---
 
 ## 미결정 사항
+- [ ] 인스턴스 교체: 시기 / 후신 스펙 (현재 t3.small, 2vCPU/2GB)
 - [ ] 쿠버네티스 목적: 학습용 vs 실서비스
 - [ ] 클러스터 방식: kubeadm 직접 구축 vs EKS
 - [ ] 도메인 보유 여부 (HTTPS 진행 시 필요)
