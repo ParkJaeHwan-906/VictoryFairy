@@ -29,15 +29,15 @@
 
 메인 에이전트는 **직접 작업하지 않고 위임**한다(단순 질문·읽기·한 줄 수정은 예외).
 
-### 코드 (user · quiz · create)
+### 코드 (user · quiz · create · domain)
 
 | 에이전트 | 역할 | 수정 범위 | model |
 |---|---|:---:|---|
-| `spring-dev` | Java Spring 기능 구현 (컨트롤러·서비스·DTO·설정) | 코드 | inherit |
+| `spring-dev` | Java Spring 기능 구현 (컨트롤러·서비스·DTO·설정). domain이면 엔티티·리포지토리 | 코드 | inherit |
 | `test-writer` | JUnit/MockMvc 테스트 코드 작성 | 코드 | sonnet |
 | `test-data` | 목업·시드·픽스처 데이터 | 코드 | sonnet |
-| `module-verifier` | gradle 컴파일→bootRun→엔드포인트 호출→응답 검증 | ❌ 읽기전용 | sonnet |
-| `api-documenter` | `docs/api/<module>.md` 명세 생성·갱신 | 문서만 | sonnet |
+| `module-verifier` | gradle 컴파일→bootRun→엔드포인트 호출→응답 검증 (domain은 포트가 없어 컴파일·테스트까지만) | ❌ 읽기전용 | sonnet |
+| `api-documenter` | `docs/api/<module>.md` 명세 생성·갱신 (domain은 엔드포인트가 없어 대상 아님) | 문서만 | sonnet |
 | `spring-optimizer` | 트랜잭션 경계·open-in-view·커넥션풀·설정 | 코드 | inherit |
 | `jpa-query-tuner` | SQL/JPA 쿼리·N+1·fetch join·인덱스·페이징 | 코드 | inherit |
 | `code-commenter` | 로직 의도('왜') 주석·Javadoc | 주석만 | sonnet |
@@ -57,6 +57,9 @@
 | 에이전트 | 역할 | 수정 범위 | model |
 |---|---|:---:|---|
 | `context-keeper` | 모듈 컨텍스트를 코드와 일치하게 유지 | `.claude/`만 | sonnet |
+| `commit-writer` | 워킹 트리 변경을 의도 단위로 쪼개 커밋 (push 안 함) | ❌ git만 | inherit |
+
+`commit-writer`는 **사용자가 커밋을 요청했을 때만** 호출한다. 작업이 끝났다고 자동으로 부르지 않는다 — 언제 무엇을 커밋할지는 사용자의 결정이다. `Write`/`Edit` 도구가 없어 커밋할 코드를 고칠 수 없고, push는 규칙으로 금지해 **되돌릴 수 없는 조작을 하지 않는다**.
 
 **검증 담당이 둘로 나뉜다**: 코드는 `module-verifier`(gradle), 인프라는 `docker-runner`(컨테이너). 둘 다 `Write`/`Edit` 도구가 없어 **구조적으로 코드를 못 고친다** — 검증자가 자기가 검증할 대상을 고치는 이해충돌을 도구 수준에서 막았다.
 
@@ -83,7 +86,7 @@
 | `modules/<module>.md` | **모듈 사실** — 포트·엔드포인트·정책·엔티티 위치 | `context-keeper` (자동) |
 | `agents/<agent>.md` | **역할 지침** — 어떻게 일하는가 | 사람 (드물게) |
 
-13개 에이전트가 "작업 전 `.claude/modules/<module>.md`를 먼저 Read하라"는 지시를 갖는다(`context-keeper`만 예외 — 모듈 파일이 작업 *대상*이라 절차 안에서 읽는다). 메인 에이전트는 프롬프트에 **"어느 모듈 + 무엇을/왜"만** 주면 되고, 모듈 사실을 길게 복사하지 않는다.
+13개 에이전트가 "작업 전 `.claude/modules/<module>.md`를 먼저 Read하라"는 지시를 갖는다. 공통 에이전트 2개가 예외다 — `context-keeper`는 모듈 파일이 작업 *대상*이라 절차 안에서 읽고, `commit-writer`는 git 히스토리를 다룰 뿐 모듈 사실이 필요 없다(커밋 컨벤션의 출처는 모듈 파일이 아니라 `git log`다). 메인 에이전트는 프롬프트에 **"어느 모듈 + 무엇을/왜"만** 주면 되고, 모듈 사실을 길게 복사하지 않는다.
 
 역할에 따라 컨텍스트를 쓰는 방식이 다르다:
 - `code-commenter` — 모듈 컨텍스트의 "주의/컨벤션"이 곧 **주석 소재**
@@ -140,7 +143,7 @@
 | `.claude/modules/create.md` | create 모듈(부트스트랩) 슬림 컨텍스트 |
 | `.claude/modules/domain.md` | domain 모듈(공유 JPA 엔티티/리포지토리) 슬림 컨텍스트 |
 | `.claude/modules/infra.md` | 배포·인프라(EC2→Docker→K8s) 학습/운영 컨텍스트 |
-| `.claude/agents/*.md` | 역할별 서브에이전트 14개 — 코드 8 · 인프라 5 · 공통 1 (위 "에이전트 구성" 표) |
+| `.claude/agents/*.md` | 역할별 서브에이전트 15개 — 코드 8 · 인프라 5 · 공통 2 (위 "에이전트 구성" 표) |
 | `.claude/commands/verify.md` | 검증을 수동 호출하는 `/verify` 슬래시 커맨드 |
 
 ## 동작 원리 (훅)
