@@ -15,7 +15,7 @@
   └─ SessionStart 훅 실행 → 모듈 선택 + 에이전트 분배 지침 주입
        └─ 사용자 첫 요청
             ├─ 모듈이 명확 → 바로 진행
-            └─ 불명확 → AskUserQuestion(user/quiz/create/infra)
+            └─ 불명확 → AskUserQuestion(user/quiz/create/domain/infra)
                  └─ 선택된 .claude/modules/<선택>.md 만 Read → 슬림 컨텍스트 확보
                       └─ 메인 에이전트가 작업 유형별로 서브에이전트에 위임
                            코드   spring-dev → test-writer → module-verifier
@@ -138,6 +138,7 @@
 | `.claude/modules/user.md` | user 모듈(JWT 인증) 슬림 컨텍스트 |
 | `.claude/modules/quiz.md` | quiz 모듈(스켈레톤) 슬림 컨텍스트 |
 | `.claude/modules/create.md` | create 모듈(부트스트랩) 슬림 컨텍스트 |
+| `.claude/modules/domain.md` | domain 모듈(공유 JPA 엔티티/리포지토리) 슬림 컨텍스트 |
 | `.claude/modules/infra.md` | 배포·인프라(EC2→Docker→K8s) 학습/운영 컨텍스트 |
 | `.claude/agents/*.md` | 역할별 서브에이전트 14개 — 코드 8 · 인프라 5 · 공통 1 (위 "에이전트 구성" 표) |
 | `.claude/commands/verify.md` | 검증을 수동 호출하는 `/verify` 슬래시 커맨드 |
