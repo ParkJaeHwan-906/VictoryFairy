@@ -2,7 +2,6 @@ package com.skhynix.user.auth.controller;
 
 import com.skhynix.user.auth.dto.LoginRequest;
 import com.skhynix.user.auth.dto.SignupRequest;
-import com.skhynix.user.auth.dto.SignupResponse;
 import com.skhynix.user.auth.dto.TokenRequest;
 import com.skhynix.user.auth.dto.TokenResponse;
 import com.skhynix.user.auth.service.AuthService;
