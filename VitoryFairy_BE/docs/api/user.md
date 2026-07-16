@@ -1,22 +1,73 @@
 # user API 명세
 
 > 코드 기준 자동 작성. 포트 **8080**(`user/src/main/resources/application.yaml`의 `server.port: 8080`), `server.servlet.context-path` 미설정이므로 base URL은 `http://localhost:8080`.
-> 최종 갱신: 2026-07-15
+> 최종 갱신: 2026-07-16
 > 대상 컨트롤러: `user/src/main/java/com/skhynix/user/auth/controller/AuthController.java` (`@RequestMapping("/api/auth")`) — user 모듈의 유일한 컨트롤러.
-> 인증: JWT Bearer (`Authorization: Bearer <accessToken>`). `SecurityConfig`에서 `/api/auth/**` 전체가 `permitAll()`이므로 **본 문서의 4개 엔드포인트는 모두 인증 불필요**. 이 외 경로는 `anyRequest().authenticated()`.
+> 인증: JWT Bearer (`Authorization: Bearer <accessToken>`). `SecurityConfig`에서 `/api/auth/**` 전체가 `permitAll()`이므로 **본 문서의 5개 엔드포인트는 모두 인증 불필요**. 이 외 경로는 `anyRequest().authenticated()`.
 
 ## 공통 사항
 
 ### 응답 포맷 — 주의: 엔드포인트별로 다름
-`AuthController`는 `ApiResponse<T>`(`:common`)를 쓰지 않고 **`ResponseEntity<T>`를 직접 반환**한다. 즉 signup/login/refresh/logout의 **성공 응답 본문은 `ApiResponse`로 감싸이지 않는다.**
+`AuthController`의 signup/login/refresh/logout 4개는 `ApiResponse<T>`(`:common`)를 쓰지 않고 **`ResponseEntity<T>`를 직접 반환**한다. 즉 이 4개의 **성공 응답 본문은 `ApiResponse`로 감싸이지 않는다.**
 
-반면 **에러 응답은 `GlobalExceptionHandler`(`user/src/main/java/com/skhynix/user/global/error/GlobalExceptionHandler.java`)가 `ApiResponse`로 감싸서 반환**한다. 즉 이 모듈은 "성공은 raw, 실패는 ApiResponse"인 비대칭 구조다.
+**단, `POST /api/auth/password/validate`만 예외**로 성공 응답도 `ApiResponse<PasswordValidationResponse>`로 감싼다(`ResponseEntity<ApiResponse<PasswordValidationResponse>>` 직접 반환, `ApiResponse.ok(result)` 사용). 컨트롤러 안에서도 응답 포맷이 갈리므로 엔드포인트마다 확인할 것.
+
+반면 **에러 응답은 `GlobalExceptionHandler`(`user/src/main/java/com/skhynix/user/global/error/GlobalExceptionHandler.java`)가 `ApiResponse`로 감싸서 반환**한다. 즉 이 모듈은 "성공은 (validate 제외) raw, 실패는 ApiResponse"인 비대칭 구조다.
 
 - 비즈니스 예외(`BusinessException`) → `ApiResponse<Void>` = `{ "success": false, "data": null, "message": "<ErrorCode 메시지>" }`, 상태코드는 `ErrorCode.getStatus()`.
 - Bean Validation 실패(`MethodArgumentNotValidException`) → `ApiResponse<Map<String,String>>` = `{ "success": false, "data": {"필드명":"메시지", ...}, "message": "입력값이 올바르지 않습니다." }`, 상태코드 `400 Bad Request`. `data`에는 실패한 필드별 검증 메시지가 담긴다(모든 필드가 아니라 **위반한 필드만**).
 
 ### 인증 방식
-JWT HS256. `JwtTokenProvider`가 access(3h, 10800000ms)/refresh(14d, 1209600000ms) 토큰을 발급하며 claim `type: access|refresh`로 구분한다. 이 문서의 4개 엔드포인트는 `SecurityConfig`에서 permitAll이라 Authorization 헤더가 필요 없다(로그인/재발급 전 단계이므로 당연함).
+JWT HS256. `JwtTokenProvider`가 access(3h, 10800000ms)/refresh(14d, 1209600000ms) 토큰을 발급하며 claim `type: access|refresh`로 구분한다. 이 문서의 5개 엔드포인트는 `SecurityConfig`에서 permitAll이라 Authorization 헤더가 필요 없다(로그인/재발급 전 단계이므로 당연함).
+
+---
+
+## POST /api/auth/password/validate
+비밀번호 정책 **사전 검사**. 프론트가 비밀번호 입력창에 문자가 들어올 때마다(타이핑마다) 실시간으로 호출하는 용도로, DB 조회 없이 순수하게 정책만 판정한다.
+
+**인증** 불필요
+
+**왜 GET이 아니라 POST인가**: 비밀번호가 URL·쿼리스트링·서버 접근 로그에 평문으로 남는 것을 막기 위해 요청 본문(body)에 실어 보내는 POST를 쓴다.
+
+**계약: 이 엔드포인트는 정책 위반이어도 항상 HTTP 200을 반환한다.** "정책 위반"은 검사가 정상적으로 수행된 하나의 결과일 뿐 요청 자체의 오류가 아니므로 400이 아니다(`PasswordValidationRequest`에는 `@Valid`/Bean Validation 애노테이션을 의도적으로 붙이지 않는다). 프론트는 이 엔드포인트를 4xx/5xx catch 대상이 아니라 `data.valid`/`data.message`로만 판정하면 된다.
+
+**요청** `PasswordValidationRequest`
+
+| 필드 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| password | String | 없음(검증 애노테이션 미부착) | 검사할 비밀번호(평문). `null`/`""`도 허용 — 길이 위반으로 판정됨 |
+
+**응답 200 OK** `ApiResponse<PasswordValidationResponse>`
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| success | boolean | 항상 `true` (엔드포인트 자체는 항상 정상 처리) |
+| data.valid | boolean | 정책 만족 여부 |
+| data.message | String | 위반 시 위반 규칙 메시지 1개(길이 위반이 구성 위반보다 우선), 통과 시 `"사용 가능한 비밀번호입니다."` |
+| message | null | 최상위 `message`는 사용되지 않음(`ApiResponse.ok()`는 항상 `message: null`) |
+
+**중요한 계약: `/signup`과 메시지가 100% 동일하다.** 두 엔드포인트 모두 `PasswordPolicy.findViolation()` 하나만 판정 로직으로 공유하므로(`PasswordPolicy`가 단일 출처), 이 엔드포인트가 특정 비밀번호에 대해 `valid:false` + 메시지 X를 반환하면 같은 비밀번호로 `/signup`을 호출했을 때도 반드시 400 + 동일 메시지 X가 난다. 프론트는 이 엔드포인트의 판정 결과를 신뢰하고 가입 폼의 최종 검증으로 재사용해도 된다.
+
+**실패**: 없음. 항상 200이다.
+
+**예시**
+```bash
+curl -i -X POST http://localhost:8080/api/auth/password/validate \
+  -H 'Content-Type: application/json' \
+  -d '{"password":"Passw0rd!"}'
+```
+응답(정책 만족):
+```json
+{"success":true,"data":{"valid":true,"message":"사용 가능한 비밀번호입니다."},"message":null}
+```
+응답(길이 위반 — `"abc"`처럼 길이와 구성을 동시에 위반해도 길이 메시지만 반환):
+```json
+{"success":true,"data":{"valid":false,"message":"비밀번호는 8~12자여야 합니다."},"message":null}
+```
+응답(구성 위반 — 길이만 만족, 문자 종류 미충족):
+```json
+{"success":true,"data":{"valid":false,"message":"비밀번호는 영문, 숫자, 특수문자(!@#$%^&* 등)를 각각 1자 이상 포함해야 합니다."},"message":null}
+```
 
 ---
 
@@ -34,7 +85,7 @@ JWT HS256. `JwtTokenProvider`가 access(3h, 10800000ms)/refresh(14d, 1209600000m
 | email | String | `@NotBlank` `@Email` `@Size(max=100)` | 이메일 |
 | gender | Gender (`MALE`\|`FEMALE`) | `@NotNull` | 성별. **DB에는 ORDINAL로 저장**(MALE=0, FEMALE=1) |
 | nickname | String | `@NotBlank` `@Size(max=100)` | 닉네임 |
-| password | String | `@NotBlank` `@Size(min=8, max=64)` (메시지: "비밀번호는 8~64자여야 합니다.") | 비밀번호(평문, 서버에서 BCrypt로 인코딩 후 저장) |
+| password | String | `@ValidPassword` (아래 "비밀번호 정책" 참고) | 비밀번호(평문, 서버에서 BCrypt로 인코딩 후 저장) |
 
 **응답 201 Created** `Boolean` (raw, `ApiResponse` 미사용)
 ```json
@@ -42,11 +93,22 @@ true
 ```
 참고: `AuthService.signup()`은 생성된 `userAccountId`(Long)를 반환하지만 컨트롤러는 이를 쓰지 않고 항상 `true`만 응답한다. `SignupResponse` DTO(`userAccountId` 필드)는 `AuthController`에 import만 되어 있고 실제로 응답에 쓰이지 않는다(미사용 DTO).
 
+**비밀번호 정책** (`com.skhynix.user.auth.policy.PasswordPolicy` — 단일 출처, 위 `POST /api/auth/password/validate` 절과 완전히 동일한 규칙·메시지를 공유)
+
+| 규칙 | 내용 | 위반 메시지 |
+|---|---|---|
+| 길이 | 8~12자 (포함) | `비밀번호는 8~12자여야 합니다.` |
+| 구성 | 영문(대소문자 무관) 1자 이상 + 숫자 1자 이상 + 특수문자(`!@#$%^&*()_+=-[]{};:'",.<>/?\|`~`) 1자 이상 각각 포함. 공백은 특수문자로 인정되지 않음 | `비밀번호는 영문, 숫자, 특수문자(!@#$%^&* 등)를 각각 1자 이상 포함해야 합니다.` |
+
+- 두 규칙을 동시에 위반해도(예: `"abc"`) 위반 메시지는 **항상 1개만** 응답한다. **길이 위반이 구성 위반보다 우선**한다.
+- `password`가 `null`이거나 `""`인 경우도 `PasswordPolicy.findViolation()`이 예외 없이 처리하며, **길이 위반 메시지**로 응답한다(`@NotBlank`를 걸지 않으므로 "공백일 수 없습니다" 류의 메시지는 나오지 않는다).
+- `SignupRequest.password`에는 `@ValidPassword` 단일 애노테이션만 붙어 있다. `@NotBlank`·`@Size`·`@Pattern`을 겹쳐 걸면 동시 위반 시 `GlobalExceptionHandler`가 `Map`에 `put`하는 순서가 비결정적이라 응답 메시지가 호출마다 달라지는 문제가 있어(과거 이슈) 의도적으로 배제했다.
+
 **실패**
 
 | 상태 | ErrorCode | 조건 |
 |---|---|---|
-| 400 | (검증 실패, ErrorCode 없음) | 위 제약 위반 |
+| 400 | (검증 실패, ErrorCode 없음) | `name`/`tel`/`email`/`gender`/`nickname`/`password` 제약 위반. 응답 형태는 `{"success":false,"data":{"password":"<메시지>"},"message":"입력값이 올바르지 않습니다."}`처럼 위반 필드만 `data`에 담김 |
 | 409 | DUPLICATE_EMAIL | `userRepository.existsByEmail()` true |
 | 409 | DUPLICATE_TEL | `userRepository.existsByTel()` true |
 | 409 | DUPLICATE_NICKNAME | `userAccountRepository.existsByNickname()` true |
@@ -63,13 +125,18 @@ curl -i -X POST http://localhost:8080/api/auth/signup \
     "email": "user@example.com",
     "gender": "MALE",
     "nickname": "gildong",
-    "password": "password123"
+    "password": "Passw0rd!"
   }'
 ```
 
 실패 예시(닉네임 중복, 409):
 ```json
 { "success": false, "data": null, "message": "이미 사용 중인 닉네임입니다." }
+```
+
+실패 예시(비밀번호 정책 위반, 400 — 길이 위반이 구성 위반보다 우선하므로 `"abc"`처럼 둘 다 위반해도 길이 메시지만 응답):
+```json
+{ "success": false, "data": { "password": "비밀번호는 8~12자여야 합니다." }, "message": "입력값이 올바르지 않습니다." }
 ```
 
 ---
