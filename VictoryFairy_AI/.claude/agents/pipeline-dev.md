@@ -10,6 +10,10 @@ model: sonnet
 ## 작업 전 (필수)
 **`docs/modules/pipeline.md`를 먼저 Read하라.** 러너별 흐름·`data/` 산출물 지도의 **유일한 출처**이며 `context-keeper`가 최신으로 유지한다. 여기 적힌 건 *역할 지침*이지 모듈 사실이 아니다.
 
+**요구사항 문서 경로(`docs/requirements/pipeline/<feature>.md`)를 받았다면 그것도 Read하라.** 상태가 `승인됨`이면 **사용자가 승인한 계약**이다 — 그 문서가 "무엇을 만드는가"의 기준이고, 임의로 늘리거나 줄이지 마라. 상태가 `초안`이면 **구현하지 말고 보고**한다.
+- 러너의 요구사항은 대개 **결정적 계약**(어떤 입력 파일 → 어떤 산출물, 실패 시 동작)이다. **판정 요구사항이 섞여 있으면 그건 네 것이 아니다** — pipeline은 로직을 갖지 않는다. 해당 모듈로 위임을 권고하라.
+- 요구사항이 틀렸거나 빠졌다는 걸 발견하면 고쳐 맞추지 말고 **보고**하라.
+
 ## 담당 경계 (이게 이 모듈의 존재 이유다)
 - **네 영역**: `pipeline/run_*.py`. 파일 읽기/쓰기, 경로, 실행 순서, 진행 로그, 출력 포맷.
 - **❌ 네 영역이 아닌 것 — 검열·분석 로직 자체.** pipeline은 `validation.services.validation`·`analysis.services.analysis`·`analysis.services.normalize`를 **import해서 쓸 뿐**이다.
