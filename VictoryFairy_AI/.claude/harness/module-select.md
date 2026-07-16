@@ -22,6 +22,7 @@
 **진실의 출처**: 모듈 사실(진입점·라우트·기능 단위·한계)은 `docs/modules/<module>.md` 가 유일한 출처이고 `context-keeper` 가 유지한다. 에이전트 정의(`.claude/agents/*.md`)에는 역할 지침만 있다. 이 분리를 깨고 사실을 여기저기 복사하지 마라.
 
 ### 코드
+- **requirements-writer** — 구현 전 EARS 요구사항 정의 (`docs/requirements/<module>/<feature>.md`). 문서만, 코드·사전 안 씀. 사용자에게 직접 질문하지 못하니 '미해결 질문'을 돌려주고, 묻는 건 네 몫이다
 - **fastapi-dev** — validation·analysis 의 FastAPI 기능 구현 (라우트·스키마·서비스·core)
 - **pipeline-dev** — pipeline 배치 러너 (파일 입출력 배선. 로직은 각 모듈 소관)
 - **dict-curator** — 사전 8개 JSON 관리 (banned_words·exceptions·normalization / persons·surnames·person_stopwords·organizations·aliases)
@@ -45,8 +46,29 @@
 
 ## 3. 표준 흐름
 
-- **기능 구현**: fastapi-dev(또는 pipeline-dev) → test-writer(+필요시 test-data) → module-verifier → API면 api-documenter → context-keeper
+- **기능 구현**: requirements-writer → (사용자 승인) → fastapi-dev(또는 pipeline-dev) → test-writer(+필요시 test-data) → module-verifier → API면 api-documenter → context-keeper
 - **정확도 작업**: accuracy-tuner 가 측정·판단 → 사전으로 풀 것은 dict-curator 위임 → test-writer 로 회귀 확인 → context-keeper 로 "한계" 갱신
+  - 단, **판정 규칙 자체를 새로/다르게 정의**하는 요청(무엇을 잡고 무엇을 안 잡을지가 바뀜)이면 accuracy-tuner 앞에 requirements-writer 를 태운다. 튜닝은 목표가 있어야 한다.
+
+### 3-1. 요구사항 단계 — 코드보다 먼저
+
+**언제 태우나**: 새 라우트·판정 규칙·러너 단계가 생기는 '기능 구현' 요청. 버그 수정·오타·한 줄 수정·리팩터링·질문·**사전에 단어 몇 개 추가(→dict-curator)** 는 태우지 않는다 — 자명한 일에 계약을 쓰는 건 하네스가 막으려는 그 비대함이다. 애매하면 지어내 판단하지 말고 물어라("요구사항부터 정리할까요, 바로 구현할까요?").
+
+**루프**: requirements-writer 호출 → 돌아온 '미해결 질문'과 '(가정)' 항목을 AskUserQuestion 으로 사용자에게 묻는다(네가 지어내 답하면 이 단계의 존재 이유가 사라진다) → 답을 들고 SendMessage 로 같은 에이전트를 다시 불러 개정(새 Agent 호출은 문맥을 잃는다) → 미해결이 없어지고 사용자가 승인할 때까지 반복. **승인 없이 fastapi-dev·pipeline-dev 를 부르지 마라. 승인은 사용자만 한다.**
+
+**이 프로젝트에서 특히 볼 것**:
+- 요구사항은 **결정적 계약**(라우트·스키마·응답 — EARS 그대로)과 **판정 요구사항**("이건 잡아야 / 이건 잡히면 안 됨" — 케이스 + 목표치)으로 갈라 쓴다. 검열·NER 에 "모든 우회 표기를 탐지한다"고 쓰면 **달성도 검증도 불가능한 거짓 계약**이다.
+- **판정 요구사항에 오탐 쪽이 비어 있으면 반려하라.** 재현율만 있으면 "오탐은 얼마든 늘려도 된다"는 뜻이 되고, 뷰 매칭이 단어 경계를 없애는 이 시스템은 **구조적으로** 그 방향으로 무너진다.
+- **모듈 문서 "한계"와 충돌하면 최우선 보고 대상.** 과거에 대량 오탐으로 기각된 방식을 계약으로 되살리는 것일 수 있다 — "예전에 이래서 기각됐는데 그래도 갈까요"를 사용자에게 물어라.
+- 사용자만 답할 수 있는 대표 질문: **오탐과 미탐 중 어느 쪽이 더 비싼가.** 이게 없으면 목표치를 정할 수 없다.
+
+**인계**: 승인된 문서 '경로'를 하류에 넘긴다(본문을 프롬프트에 복사하지 말 것 — 사본은 낡는다).
+- **판정 요구사항이 있으면 test-data 를 먼저** — 대표 케이스만으론 측정이 안 된다. "각 ID의 케이스 클래스를 본격 세트로 확장하라".
+- test-writer: "요구사항 ID와 테스트를 1:1로 대응시키고 미커버 ID를 보고하라"
+- module-verifier: "인수 기준과 대조하라"
+- 목표치에 못 미치면 accuracy-tuner 에 문서 경로를 주고 달성을 맡긴다(요구사항이 목표, 달성은 그쪽 일).
+
+사용자가 `/requirements` 로 직접 태울 수도 있다.
 - **인프라**: dockerfile-manager / compose-manager → docker-runner 로 검증
 - **주의**: 여러 에이전트가 같은 파일을 동시에 고치면 충돌한다. 파일이 겹치면 순차로 돌린다.
 
