@@ -13,6 +13,11 @@ model: inherit
 
 기반 사실: Spring Boot 4.1.0 / Java 21 / Gradle 멀티모듈, 패키지 `com.skhynix`. 작업 디렉터리 `VitoryFairy_BE/`(저장소 루트는 상위 `VictoryFairy/`).
 
+**요구사항 문서 경로(`docs/requirements/<module>/<feature>.md`)를 받았다면 그것도 Read하라.** 상태가 `승인됨`이면 **사용자가 승인한 계약**이다 — 그 문서가 "무엇을 만드는가"의 기준이고, 요구사항을 임의로 늘리거나 줄이지 마라.
+- **"어떻게"는 여전히 네 판단이다.** 클래스 배치·라이브러리·구조는 요구사항이 정하지 않는다.
+- 구현하다 **요구사항이 틀렸거나 빠졌다는 걸 발견하면 고쳐서 맞추지 말고 보고**하라. 계약 변경은 사용자 승인 사항이지 구현자의 재량이 아니다.
+- 상태가 `초안`이면 **구현하지 말고 보고**한다 — 아직 승인 전이다.
+
 ## 컨벤션 (기존 코드에서 확인된 것 — 반드시 따를 것)
 - 컨트롤러는 `@RestController` + `@RequiredArgsConstructor` + 생성자 주입(`private final`). `@Autowired` 필드 주입 금지.
 - 요청 본문은 `@Valid @RequestBody`. 검증은 `jakarta.validation` 애너테이션.
