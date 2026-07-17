@@ -1,5 +1,6 @@
 package com.skhynix.domain.record.entity;
 
+import com.skhynix.domain.game.entity.Game;
 import com.skhynix.domain.player.entity.Player;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -35,8 +36,10 @@ public class BatterRecord {
     @OnDelete(action = OnDeleteAction.CASCADE)
     private Player player;
 
-    @Column(name = "game_date", nullable = false)
-    private LocalDateTime gameDate;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "game_id", nullable = false)
+    @OnDelete(action = OnDeleteAction.CASCADE)
+    private Game game;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "bat_result_id", nullable = false)
@@ -48,9 +51,9 @@ public class BatterRecord {
     private LocalDateTime createdAt;
 
     @Builder
-    private BatterRecord(Player player, LocalDateTime gameDate, BatResult batResult) {
+    private BatterRecord(Player player, Game game, BatResult batResult) {
         this.player = player;
-        this.gameDate = gameDate;
+        this.game = game;
         this.batResult = batResult;
     }
 }
