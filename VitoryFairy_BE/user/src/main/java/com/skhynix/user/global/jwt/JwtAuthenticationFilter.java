@@ -42,11 +42,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         String token = resolveToken(request);
         if (token != null && tokenProvider.validateToken(token) && !tokenProvider.isRefreshToken(token)) {
-            // uid에 해당하는 계정이 없으면(탈퇴/삭제 등) 인증하지 않고 통과시킨다.
+            // uid에 해당하는 활성 계정이 없으면(탈퇴/삭제 등) 인증하지 않고 통과시킨다.
             // SecurityContext가 빈 채로 남으면 authorizeHttpRequests의 authenticated() 규칙이
             // AuthenticationException을 던지고, 이를 받은 ExceptionTranslationFilter가
             // SecurityConfig에 등록된 AuthenticationEntryPoint를 호출해 401을 내린다.
-            Optional<Long> accountId = userAccountRepository.findIdByUid(tokenProvider.getUid(token));
+            // access 토큰은 stateless(3h)라 서버가 폐기할 수 없으므로, 탈퇴 계정이 남은 유효 기간
+            // 동안 인증되는 것을 막는 지점이 바로 이 조회다.
+            Optional<Long> accountId = userAccountRepository.findActiveIdByUid(tokenProvider.getUid(token));
             if (accountId.isPresent()) {
                 UsernamePasswordAuthenticationToken authentication =
                         new UsernamePasswordAuthenticationToken(

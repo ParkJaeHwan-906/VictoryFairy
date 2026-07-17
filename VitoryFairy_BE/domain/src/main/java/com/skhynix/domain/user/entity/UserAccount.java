@@ -70,4 +70,29 @@ public class UserAccount {
         this.password = password;
         this.exitAt = exitAt;
     }
+
+    /**
+     * 이 계정을 탈퇴 처리한다. {@code exitAt}은 "탈퇴 예정 시각"이 아니라 <b>탈퇴 완료 시각</b>이다
+     * (유예 기간·취소 없음).
+     *
+     * <p>이미 탈퇴한 계정이면 아무것도 하지 않고 최초 탈퇴 시각을 그대로 보존한다 — 한 번 기록된
+     * {@code exit_at}은 이후 변경되지 않아야 한다. 상태 전이를 엔티티가 직접 책임지므로
+     * {@code @Setter}를 두지 않는다.
+     *
+     * @param exitAt 탈퇴 시각. 같은 트랜잭션의 다른 작업(refresh 토큰 만료)과 시각을 정확히 맞출 수
+     *               있도록 엔티티가 {@code now()}를 직접 읽지 않고 호출자에게서 받는다.
+     */
+    public void withdraw(LocalDateTime exitAt) {
+        if (isWithdrawn()) {
+            return;
+        }
+        this.exitAt = exitAt;
+    }
+
+    /**
+     * 탈퇴한 계정인지 여부. {@code exit_at}이 채워져 있으면 탈퇴가 완료된 계정이다.
+     */
+    public boolean isWithdrawn() {
+        return exitAt != null;
+    }
 }
