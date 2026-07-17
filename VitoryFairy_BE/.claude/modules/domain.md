@@ -23,7 +23,8 @@
 
 ## 엔티티 작성 컨벤션 (새 엔티티 추가 시 따를 것)
 - `@Entity` + `@Table(name = 복수형_스네이크)`, `@Getter`, `@NoArgsConstructor(access = PROTECTED)`. `@Setter` 두지 않음.
-- PK: `@GeneratedValue(IDENTITY)` + `@Column(name = "id")`
+- PK: `@GeneratedValue(IDENTITY)` + `@Column(name = "id")` — **내부 전용**, API·URL에 노출하지 않는다
+- 외부 노출이 필요하면 `id`와 별개로 `uid` 컬럼을 둔다(예: `UserAccount.uid`): `VARCHAR(36)` + UUID v4(`UUID.randomUUID().toString()`)를 **애플리케이션에서** 생성, private 생성자 본문에서 채우고 `@Builder` 파라미터로는 받지 않는다(타임스탬프와 같은 계열의 컨벤션). 목적은 순차 PK 열거 방지. Hibernate `@UuidGenerator`는 쓰지 않음.
 - 모든 컬럼에 `length`/`nullable` 명시, 기본은 `nullable = false`
 - 생성은 `private` 생성자 + `@Builder`. **타임스탬프는 생성자 파라미터로 받지 않는다** (Hibernate가 자동 채움)
 - 타임스탬프 정책: **마스터/기준 데이터**(`User`, `UserAccount`, `Team`, `Player`, `PitchResult`, `BatResult`)는 `@CreationTimestamp created_at`(updatable=false) + `@UpdateTimestamp updated_at` 둘 다. **기록성 엔티티**(`UserRefreshToken`, `BatterRecord`, `PitcherRecord` — 한 번 쌓이면 수정 안 함)는 `created_at`만.
@@ -34,6 +35,10 @@
 - 역방향 의존 없음 (`user`/`quiz`/`create` → `domain`, 이 방향만)
 
 ## 주의 / 열려있는 것
-- `UserRepository`(existsByEmail/existsByTel), `UserAccountRepository`(findByUser_Email/existsByNickname), `UserRefreshTokenRepository`(findByRefreshToken/deleteByUserAccount/expireValidTokens) 외에는 **전부 `JpaRepository` 뼈대뿐** — `TeamRepository`/`PlayerRepository`/`BatResultRepository`/`BatterRecordRepository`/`PitcherRecordRepository`/`PitchResultRepository`는 커스텀 조회 메서드 없음
+- `UserRepository`(existsByEmail/existsByTel), `UserAccountRepository`(findByUser_Email/existsByNickname/**findIdByUid**), `UserRefreshTokenRepository`(findByRefreshToken/deleteByUserAccount/expireValidTokens) 외에는 **전부 `JpaRepository` 뼈대뿐** — `TeamRepository`/`PlayerRepository`/`BatResultRepository`/`BatterRecordRepository`/`PitcherRecordRepository`/`PitchResultRepository`는 커스텀 조회 메서드 없음
+- `UserAccountRepository.findIdByUid(String)`은 `Optional<Long>`을 반환하는 `@Query("select ua.id from UserAccount ua where ua.uid = :uid")` — **파생 쿼리명이 아니라 명시적 `@Query`인 이유**: Spring Data의 메서드 이름 파싱은 `By` 앞 subject에서 `Distinct`/`First|Top`만 인식하고 나머지(`Id` 포함)는 버리므로 `findIdByUid`만으로는 엔티티 전체가 반환된다. id만 뽑으려면 `@Query`나 프로젝션으로 명시해야 함. **id 프로젝션인 이유**: InnoDB secondary index가 PK를 품어 `uid` unique 인덱스는 물리적으로 `(uid, id)`이므로 id만 SELECT하면 커버링 인덱스로 끝난다(실측: `select ua1_0.id from users_account ua1_0 where ua1_0.uid=?`, 클러스터드 인덱스 북마크 조회 없음). `user` 모듈의 `JwtAuthenticationFilter`가 uid→id 해석에 사용
 - `team`/`player`/`record` 엔티티를 소비하는 서비스·컨트롤러는 아직 없음 (현재 `user` 모듈만 이 모듈의 엔티티를 실사용)
 - `Team.name`에 unique 제약은 **의도적으로** 걸지 않음
+- `@Column`에 `columnDefinition`을 지정하면 **`length`가 DDL에서 무시된다** (실측: `UserAccount.uid`에서 `length`를 바꿔도 생성 DDL은 `columnDefinition`의 `VARCHAR(36)` 그대로). 길이를 바꾸려면 `length`와 `columnDefinition` 두 곳을 같이 고쳐야 함
+- `UserAccount.uid`는 JWT subject로는 쓰이기 시작했으나(`user` 모듈) API 응답·URL에 노출하는 작업은 아직 미착수. **prod DDL 반영도 미착수**(`ddl-auto=none`, Flyway 없음 — prod `users_account`에 `uid` 컬럼이 없으므로 **이 상태로 배포하면 인증 전체가 실패한다**, 배포 선행 조건)
+- `domain/src/test` 소스셋이 존재하지 않고 저장소 전체에 H2도 없음(DB를 실제로 띄우는 테스트는 저장소 전체에 없음, `user/src/test`는 전부 슬라이스/단위 테스트). `@DataJpaTest` 도입 시 H2는 `CHARACTER SET ascii COLLATE ascii_bin`을 파싱 못 해 스키마 생성이 실패하므로 Testcontainers MySQL이 정합적

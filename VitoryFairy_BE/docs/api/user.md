@@ -1,7 +1,7 @@
 # user API 명세
 
 > 코드 기준 자동 작성. 포트 **8080**(`user/src/main/resources/application.yaml`의 `server.port: 8080`), `server.servlet.context-path` 미설정이므로 base URL은 `http://localhost:8080`.
-> 최종 갱신: 2026-07-16
+> 최종 갱신: 2026-07-17
 > 대상 컨트롤러: `user/src/main/java/com/skhynix/user/auth/controller/AuthController.java` (`@RequestMapping("/api/auth")`) — user 모듈의 유일한 컨트롤러.
 > 인증: JWT Bearer (`Authorization: Bearer <accessToken>`). `SecurityConfig`에서 `/api/auth/**` 전체가 `permitAll()`이므로 **본 문서의 5개 엔드포인트는 모두 인증 불필요**. 이 외 경로는 `anyRequest().authenticated()`.
 
@@ -19,6 +19,22 @@
 
 ### 인증 방식
 JWT HS256. `JwtTokenProvider`가 access(3h, 10800000ms)/refresh(14d, 1209600000ms) 토큰을 발급하며 claim `type: access|refresh`로 구분한다. 이 문서의 5개 엔드포인트는 `SecurityConfig`에서 permitAll이라 Authorization 헤더가 필요 없다(로그인/재발급 전 단계이므로 당연함).
+
+**토큰 payload 구조** (`login`/`refresh`가 발급하는 accessToken/refreshToken 공통 — JWT는 서명만 되고 암호화는 안 되므로 base64 디코드만으로 누구나 읽을 수 있음, 실제 발급 payload 예시):
+```json
+{"jti":"72c6e5fa-0e33-4537-9d50-72ae3bd9a3c8","sub":"36f050ef-321a-413e-8f87-998b2031ec69","type":"access","iat":1784272512,"exp":1784283312}
+```
+
+| claim | 의미 |
+|---|---|
+| `sub` | **`UserAccount.uid`(UUID v4)**. `JwtTokenProvider.createToken()`이 subject로 uid만 싣는다 — 내부 PK `id`는 어떤 claim에도 담기지 않는다(순차 PK 열거 방지가 목적) |
+| `type` | `access` \| `refresh`. `isRefreshToken()`이 이 claim으로 판정 |
+| `jti` | 토큰(발급 건)마다 랜덤 생성되는 UUID. **계정/사용자 식별자가 아니다** — `sub`와 혼동하지 말 것 |
+| `iat` / `exp` | 발급/만료 시각(epoch seconds) |
+
+`JwtAuthenticationFilter`는 요청마다 `sub`(uid)를 `UserAccountRepository.findIdByUid()`로 내부 `id`로 변환해 그 `id`를 principal로 사용한다(uid에 해당하는 계정이 없으면 인증 없이 그대로 통과). **이 문서의 어떤 엔드포인트도 응답 본문에 `uid`를 노출하지 않는다** — `POST /api/auth/signup`도 여전히 `Boolean`만 반환한다(아래 참고). `uid`는 오직 발급된 토큰의 `sub` 안에만 존재하며, 클라이언트가 이를 응답 body나 URL에서 직접 얻을 방법은 현재 없다.
+
+**참고: user 모듈에 실제로 인증이 걸리는 엔드포인트는 없다.** `SecurityConfig`에 `anyRequest().authenticated()` 규칙이 있지만 `/api/auth/**`가 전부 permitAll이라 이 모듈 안에서 걸리는 경로가 없다. 다만 이 필터는 다른 모듈에서도 재사용될 수 있으므로 기록해 둠: 인증 실패(토큰 없음/무효) 시 실제 응답은 **401이 아니라 403**이다 — `formLogin`/`httpBasic` 둘 다 disable, 커스텀 `AuthenticationEntryPoint` 없어 Spring Security 기본값(`Http403ForbiddenEntryPoint`)이 적용된다(앱을 띄워 실측 확인). `JwtAuthenticationFilter`의 코드 주석(`// SecurityContext가 빈 채로 남아 authorizeHttpRequests 규칙이 401을 내려준다`)은 이 실측과 다르다 — 코드 주석이 낡은 것으로 보이며, 401 vs 403 정책 자체는 아직 미결로 남아 있다.
 
 ---
 
@@ -246,3 +262,5 @@ curl -i -X POST http://localhost:8080/api/auth/logout \
 
 ## 확인 필요 / 코드 미확인
 - `SignupResponse` DTO는 코드상 정의되어 있으나 `AuthController.signup()`에서 실제로 사용되지 않는 죽은 코드로 확인됨(import만 존재).
+- `JwtAuthenticationFilter`의 코드 주석은 인증 실패 시 "401을 내려준다"고 적혀 있지만, 실제(앱 기동 후 측정) 응답은 403이다(`Http403ForbiddenEntryPoint` 기본값 적용, 커스텀 엔트리포인트 없음). 코드 주석과 실제 동작이 어긋나 있음 — 수정은 이 문서의 소관이 아니므로 사실만 기록.
+- `uid`를 응답 body/URL에 노출하는 엔드포인트는 아직 없음(현재는 토큰 `sub` claim 안에만 존재). 향후 `uid`를 응답에 싣는 변경이 생기면 이 문서를 다시 갱신해야 함.
