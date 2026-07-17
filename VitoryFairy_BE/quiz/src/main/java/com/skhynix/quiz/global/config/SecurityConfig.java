@@ -1,5 +1,6 @@
 package com.skhynix.quiz.global.config;
 
+import com.skhynix.domain.user.repository.UserAccountRepository;
 import com.skhynix.user.global.jwt.JwtAuthenticationFilter;
 import com.skhynix.user.global.jwt.JwtTokenProvider;
 import com.skhynix.user.global.jwt.JwtVerificationConfig;
@@ -17,8 +18,8 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 public class SecurityConfig {
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtTokenProvider tokenProvider)
-            throws Exception {
+    public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtTokenProvider tokenProvider,
+            UserAccountRepository userAccountRepository) throws Exception {
         return http
                 .csrf(csrf -> csrf.disable())
                 .formLogin(formLogin -> formLogin.disable())
@@ -29,7 +30,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/health").permitAll()
                         .anyRequest().authenticated()
                 )
-                .addFilterBefore(new JwtAuthenticationFilter(tokenProvider),
+                .addFilterBefore(new JwtAuthenticationFilter(tokenProvider, userAccountRepository),
                         UsernamePasswordAuthenticationFilter.class)
                 .build();
     }

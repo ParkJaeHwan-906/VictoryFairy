@@ -96,8 +96,8 @@ public class AuthService {
         // 유저당 유효 refresh token 1개 유지: 기존 유효 토큰을 즉시 만료시킨 뒤 발급
         userRefreshTokenRepository.expireValidTokens(account, LocalDateTime.now());
 
-        String accessToken = tokenProvider.createAccessToken(account.getId());
-        String refreshToken = tokenProvider.createRefreshToken(account.getId());
+        String accessToken = tokenProvider.createAccessToken(account.getUid());
+        String refreshToken = tokenProvider.createRefreshToken(account.getUid());
 
         userRefreshTokenRepository.save(UserRefreshToken.builder()
                 .userAccount(account)
