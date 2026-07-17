@@ -1,5 +1,6 @@
 package com.skhynix.domain.game.entity;
 
+import com.skhynix.domain.stadium.entity.Stadium;
 import com.skhynix.domain.team.entity.Team;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -16,8 +17,6 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.OnDelete;
-import org.hibernate.annotations.OnDeleteAction;
 import org.hibernate.annotations.UpdateTimestamp;
 
 @Entity
@@ -31,30 +30,30 @@ public class Game {
     @Column(name = "id")
     private Long id;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "away_team_id", nullable = false)
-    @OnDelete(action = OnDeleteAction.CASCADE)
-    private Team awayTeam;
-
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "home_team_id", nullable = false)
-    @OnDelete(action = OnDeleteAction.CASCADE)
-    private Team homeTeam;
-
     @Column(name = "game_date", nullable = false)
     private LocalDateTime gameDate;
 
-    @Column(name = "away_score")
-    private Integer awayScore;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "home_team_id", nullable = false)
+    private Team homeTeam;
 
-    @Column(name = "home_score")
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "away_team_id", nullable = false)
+    private Team awayTeam;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = true)
+    @JoinColumn(name = "stadium_id", nullable = true)
+    private Stadium stadium;
+
+    @Column(name = "home_score", nullable = true)
     private Integer homeScore;
 
-    @Column(name = "winner", length = 10)
-    private String winner;
+    @Column(name = "away_score", nullable = true)
+    private Integer awayScore;
 
-    @Column(name = "stadium", length = 50)
-    private String stadium;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "game_status_id", nullable = false)
+    private GameStatus gameStatus;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -65,14 +64,14 @@ public class Game {
     private LocalDateTime updatedAt;
 
     @Builder
-    private Game(Team awayTeam, Team homeTeam, LocalDateTime gameDate, Integer awayScore,
-                 Integer homeScore, String winner, String stadium) {
-        this.awayTeam = awayTeam;
-        this.homeTeam = homeTeam;
+    private Game(LocalDateTime gameDate, Team homeTeam, Team awayTeam, Stadium stadium,
+            Integer homeScore, Integer awayScore, GameStatus gameStatus) {
         this.gameDate = gameDate;
-        this.awayScore = awayScore;
-        this.homeScore = homeScore;
-        this.winner = winner;
+        this.homeTeam = homeTeam;
+        this.awayTeam = awayTeam;
         this.stadium = stadium;
+        this.homeScore = homeScore;
+        this.awayScore = awayScore;
+        this.gameStatus = gameStatus;
     }
 }
