@@ -3,7 +3,7 @@
 > 코드 기준 자동 작성. 포트 **8080**(`user/src/main/resources/application.yaml`의 `server.port: 8080`), `server.servlet.context-path` 미설정이므로 base URL은 `http://localhost:8080`.
 > 최종 갱신: 2026-07-17
 > 대상 컨트롤러: `user/src/main/java/com/skhynix/user/auth/controller/AuthController.java` (`@RequestMapping("/api/auth")`) — user 모듈의 유일한 컨트롤러.
-> 인증: JWT Bearer (`Authorization: Bearer <accessToken>`). `SecurityConfig`에서 `/api/auth/**` 전체가 `permitAll()`이므로 **본 문서의 5개 엔드포인트는 모두 인증 불필요**. 이 외 경로는 `anyRequest().authenticated()`.
+> 인증: JWT Bearer (`Authorization: Bearer <accessToken>`). `SecurityConfig`에서 `/api/auth/**` 전체가 `permitAll()`이므로 **본 문서의 5개 엔드포인트는 모두 인증 불필요**(user 모듈에 실제로 인증이 걸리는 엔드포인트는 현재 없음). 이 외 경로는 `anyRequest().authenticated()`이며 미인증 시 **401**(`RestAuthenticationEntryPoint`) — 자세한 내용은 아래 "인증 방식" 절 참고.
 
 ## 공통 사항
 
@@ -34,7 +34,26 @@ JWT HS256. `JwtTokenProvider`가 access(3h, 10800000ms)/refresh(14d, 1209600000m
 
 `JwtAuthenticationFilter`는 요청마다 `sub`(uid)를 `UserAccountRepository.findIdByUid()`로 내부 `id`로 변환해 그 `id`를 principal로 사용한다(uid에 해당하는 계정이 없으면 인증 없이 그대로 통과). **이 문서의 어떤 엔드포인트도 응답 본문에 `uid`를 노출하지 않는다** — `POST /api/auth/signup`도 여전히 `Boolean`만 반환한다(아래 참고). `uid`는 오직 발급된 토큰의 `sub` 안에만 존재하며, 클라이언트가 이를 응답 body나 URL에서 직접 얻을 방법은 현재 없다.
 
-**참고: user 모듈에 실제로 인증이 걸리는 엔드포인트는 없다.** `SecurityConfig`에 `anyRequest().authenticated()` 규칙이 있지만 `/api/auth/**`가 전부 permitAll이라 이 모듈 안에서 걸리는 경로가 없다. 다만 이 필터는 다른 모듈에서도 재사용될 수 있으므로 기록해 둠: 인증 실패(토큰 없음/무효) 시 실제 응답은 **401이 아니라 403**이다 — `formLogin`/`httpBasic` 둘 다 disable, 커스텀 `AuthenticationEntryPoint` 없어 Spring Security 기본값(`Http403ForbiddenEntryPoint`)이 적용된다(앱을 띄워 실측 확인). `JwtAuthenticationFilter`의 코드 주석(`// SecurityContext가 빈 채로 남아 authorizeHttpRequests 규칙이 401을 내려준다`)은 이 실측과 다르다 — 코드 주석이 낡은 것으로 보이며, 401 vs 403 정책 자체는 아직 미결로 남아 있다.
+**참고: user 모듈에 실제로 인증이 걸리는 엔드포인트는 현재 하나도 없다.** `SecurityConfig`에 `anyRequest().authenticated()` 규칙이 있지만 `/api/auth/**`가 전부 permitAll이라 이 모듈 안에서 걸리는 경로가 없다. 아래는 다른 모듈(`quiz` 등)에도 그대로 재사용되는 정책이라 기록해 둔다.
+
+**미인증 요청 → 401**(403 아님). `RestAuthenticationEntryPoint`(`user/src/main/java/com/skhynix/user/global/error/RestAuthenticationEntryPoint.java`)가 `ExceptionTranslationFilter` 단계에서 직접 `ApiResponse` JSON을 직렬화해 401로 응답한다(`SecurityConfig`가 `exceptionHandling().authenticationEntryPoint(...)`로 명시 등록). 실측 원문(토큰 없음/`Bearer garbage`로 요청, user:8080·quiz:8081 양쪽 확인):
+```json
+{"success":false,"data":null,"message":"인증이 필요합니다."}
+```
+`formLogin`/`httpBasic`을 둘 다 disable하면 엔트리포인트를 등록하는 주체가 없어져 Spring Security 기본값(`Http403ForbiddenEntryPoint`, 403)으로 떨어지는 함정이 있었는데, 이번에 `RestAuthenticationEntryPoint`를 명시 등록해 401로 고정했다.
+
+**401이 2종류이며 상태 코드만으론 구분되지 않는다 — 메시지로만 구분된다:**
+
+| 상황 | 상태 | message | ErrorCode |
+|---|---|---|---|
+| 토큰 없음/무효/`sub`(uid)에 해당하는 계정 없음 (필터·엔트리포인트 단계, `ExceptionTranslationFilter`) | 401 | `"인증이 필요합니다."` | `UNAUTHENTICATED` |
+| `POST /api/auth/login` 자격 오답 (컨트롤러 단계, `GlobalExceptionHandler`) | 401 | `"이메일 또는 비밀번호가 올바르지 않습니다."` | `INVALID_CREDENTIALS` |
+| `POST /api/auth/refresh` 서명/만료 무효 또는 access 토큰 오용 | 401 | `"유효하지 않은 리프레시 토큰입니다."` | `INVALID_REFRESH_TOKEN` |
+| `POST /api/auth/refresh` DB에 없거나 이미 만료된 refresh 토큰 | 401 | `"만료되었거나 이미 무효화된 리프레시 토큰입니다."` | `EXPIRED_REFRESH_TOKEN` |
+
+이 4개 모두 401이지만 발생 경로는 둘로 나뉜다: `UNAUTHENTICATED`는 `RestAuthenticationEntryPoint`가 필터 단계(`DispatcherServlet` 바깥)에서 직접 직렬화하고, 나머지 3개는 컨트롤러가 던진 `BusinessException`을 `GlobalExceptionHandler`가 잡아 변환한다. 클라이언트 입장에서 이 구분이 중요한 이유: `UNAUTHENTICATED`는 "로그인하거나(토큰이 아예 없거나 계정이 사라짐) `/api/auth/refresh`로 access 토큰을 새로 받으라"는 신호이고, `INVALID_CREDENTIALS`/`INVALID_REFRESH_TOKEN`/`EXPIRED_REFRESH_TOKEN`은 각각 로그인 폼 재입력, refresh 자체의 재로그인 유도로 이어져야 한다는 뜻이다. 401 자체가 (403과 달리) "인증을 다시 하라"는 신호라는 점은 4개 공통이지만, 정확히 무엇을 다시 해야 하는지는 `message`로만 판별 가능하다.
+
+`AccessDeniedHandler`는 의도적으로 미도입 — `JwtAuthenticationFilter`가 인증된 principal의 권한을 항상 `Collections.emptyList()`로 채워 authority 기반 403이 발생할 경로 자체가 없다. **즉 이 API 전체에서 403은 나오지 않는다.**
 
 ---
 
@@ -262,5 +281,5 @@ curl -i -X POST http://localhost:8080/api/auth/logout \
 
 ## 확인 필요 / 코드 미확인
 - `SignupResponse` DTO는 코드상 정의되어 있으나 `AuthController.signup()`에서 실제로 사용되지 않는 죽은 코드로 확인됨(import만 존재).
-- `JwtAuthenticationFilter`의 코드 주석은 인증 실패 시 "401을 내려준다"고 적혀 있지만, 실제(앱 기동 후 측정) 응답은 403이다(`Http403ForbiddenEntryPoint` 기본값 적용, 커스텀 엔트리포인트 없음). 코드 주석과 실제 동작이 어긋나 있음 — 수정은 이 문서의 소관이 아니므로 사실만 기록.
 - `uid`를 응답 body/URL에 노출하는 엔드포인트는 아직 없음(현재는 토큰 `sub` claim 안에만 존재). 향후 `uid`를 응답에 싣는 변경이 생기면 이 문서를 다시 갱신해야 함.
+- (과거 기록, 정정됨) 이전 버전 문서에는 미인증 응답이 "401이 아니라 403"이라고 적혀 있었다 — `formLogin`/`httpBasic`을 disable하면 커스텀 엔트리포인트가 없는 한 Spring Security 기본값(`Http403ForbiddenEntryPoint`)으로 떨어지기 때문에 나온 실측이었다. 이후 `RestAuthenticationEntryPoint`가 도입되며 401로 고정됐다(위 "인증 방식" 절 참고). 과거 그 문서 기준 코드를 그대로 쓰고 있는 클라이언트가 있다면 401/403 처리 로직을 다시 확인할 것.
