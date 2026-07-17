@@ -29,16 +29,20 @@
 - 생성은 `private` 생성자 + `@Builder`. **타임스탬프는 생성자 파라미터로 받지 않는다** (Hibernate가 자동 채움)
 - 타임스탬프 정책: **마스터/기준 데이터**(`User`, `UserAccount`, `Team`, `Player`, `PitchResult`, `BatResult`)는 `@CreationTimestamp created_at`(updatable=false) + `@UpdateTimestamp updated_at` 둘 다. **기록성 엔티티**(`UserRefreshToken`, `BatterRecord`, `PitcherRecord` — 한 번 쌓이면 수정 안 함)는 `created_at`만.
 - Enum은 `@Enumerated(ORDINAL)` + `columnDefinition = "TINYINT"`, **선언 순서 변경 금지** (예: `Gender` MALE=0/FEMALE=1)
+- 상태 전이가 필요하면 `@Setter` 대신 **엔티티가 자신의 전이를 책임지는 의도 노출 메서드**를 둔다(예: `UserAccount.withdraw(LocalDateTime)`/`isWithdrawn()` — 이미 전이된 상태면 no-op으로 최초 값을 보존)
 
 ## 의존
 - `api project(':common')`, `implementation spring-boot-starter-data-jpa`
 - 역방향 의존 없음 (`user`/`quiz`/`create` → `domain`, 이 방향만)
 
 ## 주의 / 열려있는 것
-- `UserRepository`(existsByEmail/existsByTel), `UserAccountRepository`(findByUser_Email/existsByNickname/**findIdByUid**), `UserRefreshTokenRepository`(findByRefreshToken/deleteByUserAccount/expireValidTokens) 외에는 **전부 `JpaRepository` 뼈대뿐** — `TeamRepository`/`PlayerRepository`/`BatResultRepository`/`BatterRecordRepository`/`PitcherRecordRepository`/`PitchResultRepository`는 커스텀 조회 메서드 없음
-- `UserAccountRepository.findIdByUid(String)`은 `Optional<Long>`을 반환하는 `@Query("select ua.id from UserAccount ua where ua.uid = :uid")` — **파생 쿼리명이 아니라 명시적 `@Query`인 이유**: Spring Data의 메서드 이름 파싱은 `By` 앞 subject에서 `Distinct`/`First|Top`만 인식하고 나머지(`Id` 포함)는 버리므로 `findIdByUid`만으로는 엔티티 전체가 반환된다. id만 뽑으려면 `@Query`나 프로젝션으로 명시해야 함. **id 프로젝션인 이유**: InnoDB secondary index가 PK를 품어 `uid` unique 인덱스는 물리적으로 `(uid, id)`이므로 id만 SELECT하면 커버링 인덱스로 끝난다(실측: `select ua1_0.id from users_account ua1_0 where ua1_0.uid=?`, 클러스터드 인덱스 북마크 조회 없음). `user` 모듈의 `JwtAuthenticationFilter`가 uid→id 해석에 사용
+- `UserRepository`(existsByEmail/existsByTel), `UserAccountRepository`(findByUser_EmailAndExitAtIsNull/existsByNickname/**findActiveIdByUid**), `UserRefreshTokenRepository`(findByRefreshToken/deleteByUserAccount/expireValidTokens) 외에는 **전부 `JpaRepository` 뼈대뿐** — `TeamRepository`/`PlayerRepository`/`BatResultRepository`/`BatterRecordRepository`/`PitcherRecordRepository`/`PitchResultRepository`는 커스텀 조회 메서드 없음. `UserRefreshTokenRepository.deleteByUserAccount`는 **소비처가 0개인 죽은 메서드**(`logout`은 `findByRefreshToken`→`delete`를 씀)
+- `UserAccountRepository.findActiveIdByUid(String)`은 `Optional<Long>`을 반환하는 `@Query("select ua.id from UserAccount ua where ua.uid = :uid and ua.exitAt is null")` — **파생 쿼리명이 아니라 명시적 `@Query`인 이유**: Spring Data의 메서드 이름 파싱은 `By` 앞 subject에서 `Distinct`/`First|Top`만 인식하고 나머지(`Id` 포함)는 버리므로 이름만으로는 엔티티 전체가 반환된다. **`exit_at is null` 조건 때문에 커버링 인덱스를 의도적으로 포기했다**(옛 `findIdByUid`는 `uid` unique 인덱스만으로 커버링됐으나 `exit_at`이 인덱스에 없어 클러스터드 인덱스 조회가 부활). 그럼에도 감수하는 이유: 되살아나는 페이지는 대개 버퍼 풀 상주라 실이득 손실이 작고, 탈퇴 즉시 차단의 정확성(access 토큰이 stateless 3h라 이 조회가 유일한 차단점)이 우선이며, `(uid, exit_at)` 복합 인덱스는 100만 행 기준 ~45MB 대비 버퍼 풀 히트 1회 절약뿐이라 남는 게 없다(근거: `docs/requirements/user/withdraw.md` "결정 근거 2", 다시 조사하지 말 것). `user` 모듈의 `JwtAuthenticationFilter`가 uid→id 해석에 사용
+- `UserAccountRepository.findByUser_EmailAndExitAtIsNull`은 탈퇴 계정을 "못 찾음"으로 흡수해 미가입 이메일과 로그인 응답을 동일하게 만드는 용도(`user` 모듈 `AuthService.login`이 사용)
 - `team`/`player`/`record` 엔티티를 소비하는 서비스·컨트롤러는 아직 없음 (현재 `user` 모듈만 이 모듈의 엔티티를 실사용)
 - `Team.name`에 unique 제약은 **의도적으로** 걸지 않음
 - `@Column`에 `columnDefinition`을 지정하면 **`length`가 DDL에서 무시된다** (실측: `UserAccount.uid`에서 `length`를 바꿔도 생성 DDL은 `columnDefinition`의 `VARCHAR(36)` 그대로). 길이를 바꾸려면 `length`와 `columnDefinition` 두 곳을 같이 고쳐야 함
 - `UserAccount.uid`는 JWT subject로는 쓰이기 시작했으나(`user` 모듈) API 응답·URL에 노출하는 작업은 아직 미착수. **prod DDL 반영도 미착수**(`ddl-auto=none`, Flyway 없음 — prod `users_account`에 `uid` 컬럼이 없으므로 **이 상태로 배포하면 인증 전체가 실패한다**, 배포 선행 조건)
-- `domain/src/test` 소스셋이 존재하지 않고 저장소 전체에 H2도 없음(DB를 실제로 띄우는 테스트는 저장소 전체에 없음, `user/src/test`는 전부 슬라이스/단위 테스트). `@DataJpaTest` 도입 시 H2는 `CHARACTER SET ascii COLLATE ascii_bin`을 파싱 못 해 스키마 생성이 실패하므로 Testcontainers MySQL이 정합적
+- `UserAccount.exit_at`은 이제 실사용 컬럼이다(`withdraw()`로 기록, `findActiveIdByUid`/`findByUser_EmailAndExitAtIsNull`이 조회 조건으로 사용). `@Builder`가 `exitAt`을 파라미터로 계속 받아 생성 시점부터 탈퇴 계정을 만들 수도 있는 상태다 — `signup`은 안 넘겨 실질적 피해는 없지만 `withdraw()`가 생긴 지금은 어색한 잔재
+- 탈퇴한 계정의 email·tel·nickname은 영구 점유되어 **재가입이 불가**하다. `users.email`/`users.tel` UNIQUE + MySQL의 partial unique index 부재 + `UserAccount`↔`User` `@OneToOne(unique)`가 겹쳐 앱 코드만으로는 풀 수 없는 스키마 제약이다 — 근거는 `docs/requirements/user/withdraw.md`("결정 근거 1")에 있으니 다시 조사하지 말 것
+- `domain/src/test` 소스셋이 여전히 존재하지 않고 저장소 전체에 H2도 없음(DB를 실제로 띄우는 테스트는 저장소 전체에 없음). 엔티티 단위 테스트(`UserAccountWithdrawTest`)조차 `domain` 패키지 이름을 그대로 쓴 채 `user/src/test`에 얹혀 있다. `@DataJpaTest` 도입 시 H2는 `CHARACTER SET ascii COLLATE ascii_bin`을 파싱 못 해 스키마 생성이 실패하므로 Testcontainers MySQL이 정합적

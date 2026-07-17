@@ -2,13 +2,13 @@
 
 > 코드 기준 자동 작성. 포트 **8080**(`user/src/main/resources/application.yaml`의 `server.port: 8080`), `server.servlet.context-path` 미설정이므로 base URL은 `http://localhost:8080`.
 > 최종 갱신: 2026-07-17
-> 대상 컨트롤러: `user/src/main/java/com/skhynix/user/auth/controller/AuthController.java` (`@RequestMapping("/api/auth")`) — user 모듈의 유일한 컨트롤러.
-> 인증: JWT Bearer (`Authorization: Bearer <accessToken>`). `SecurityConfig`에서 `/api/auth/**` 전체가 `permitAll()`이므로 **본 문서의 5개 엔드포인트는 모두 인증 불필요**(user 모듈에 실제로 인증이 걸리는 엔드포인트는 현재 없음). 이 외 경로는 `anyRequest().authenticated()`이며 미인증 시 **401**(`RestAuthenticationEntryPoint`) — 자세한 내용은 아래 "인증 방식" 절 참고.
+> 대상 컨트롤러: `user/src/main/java/com/skhynix/user/auth/controller/AuthController.java` (`@RequestMapping("/api/auth")`), `user/src/main/java/com/skhynix/user/account/controller/UserAccountController.java` (`@RequestMapping("/api/users")`) — user 모듈의 컨트롤러 2개.
+> 인증: JWT Bearer (`Authorization: Bearer <accessToken>`). `SecurityConfig`에서 `/api/auth/**` 전체가 `permitAll()`이라 `AuthController`의 5개 엔드포인트는 인증 불필요. **`/api/users/me`(회원탈퇴)는 `anyRequest().authenticated()`에 걸리는 이 모듈의 첫 인증 필요 엔드포인트다** — 과거 이 문서에 "user 모듈에 실제로 인증이 걸리는 엔드포인트는 없다"고 적혀 있었다면 그건 이 엔드포인트가 생기기 전 사실이었다. 미인증 시 **401**(`RestAuthenticationEntryPoint`) — 자세한 내용은 아래 "인증 방식" 절 참고.
 
 ## 공통 사항
 
 ### 응답 포맷 — 주의: 엔드포인트별로 다름
-`AuthController`의 signup/login/refresh/logout 4개는 `ApiResponse<T>`(`:common`)를 쓰지 않고 **`ResponseEntity<T>`를 직접 반환**한다. 즉 이 4개의 **성공 응답 본문은 `ApiResponse`로 감싸이지 않는다.**
+`AuthController`의 signup/login/refresh/logout 4개와 `UserAccountController`의 회원탈퇴(`DELETE /api/users/me`)는 `ApiResponse<T>`(`:common`)를 쓰지 않고 **`ResponseEntity<T>`를 직접 반환**한다. 즉 이 5개의 **성공 응답 본문은 `ApiResponse`로 감싸이지 않는다**(탈퇴는 아예 본문이 없다).
 
 **단, `POST /api/auth/password/validate`만 예외**로 성공 응답도 `ApiResponse<PasswordValidationResponse>`로 감싼다(`ResponseEntity<ApiResponse<PasswordValidationResponse>>` 직접 반환, `ApiResponse.ok(result)` 사용). 컨트롤러 안에서도 응답 포맷이 갈리므로 엔드포인트마다 확인할 것.
 
@@ -18,7 +18,7 @@
 - Bean Validation 실패(`MethodArgumentNotValidException`) → `ApiResponse<Map<String,String>>` = `{ "success": false, "data": {"필드명":"메시지", ...}, "message": "입력값이 올바르지 않습니다." }`, 상태코드 `400 Bad Request`. `data`에는 실패한 필드별 검증 메시지가 담긴다(모든 필드가 아니라 **위반한 필드만**).
 
 ### 인증 방식
-JWT HS256. `JwtTokenProvider`가 access(3h, 10800000ms)/refresh(14d, 1209600000ms) 토큰을 발급하며 claim `type: access|refresh`로 구분한다. 이 문서의 5개 엔드포인트는 `SecurityConfig`에서 permitAll이라 Authorization 헤더가 필요 없다(로그인/재발급 전 단계이므로 당연함).
+JWT HS256. `JwtTokenProvider`가 access(3h, 10800000ms)/refresh(14d, 1209600000ms) 토큰을 발급하며 claim `type: access|refresh`로 구분한다. `AuthController`의 5개 엔드포인트는 `SecurityConfig`에서 permitAll이라 Authorization 헤더가 필요 없다(로그인/재발급 전 단계이므로 당연함). **`DELETE /api/users/me`(회원탈퇴)만 `Authorization: Bearer <accessToken>`이 필수**다.
 
 **토큰 payload 구조** (`login`/`refresh`가 발급하는 accessToken/refreshToken 공통 — JWT는 서명만 되고 암호화는 안 되므로 base64 디코드만으로 누구나 읽을 수 있음, 실제 발급 payload 예시):
 ```json
@@ -32,9 +32,9 @@ JWT HS256. `JwtTokenProvider`가 access(3h, 10800000ms)/refresh(14d, 1209600000m
 | `jti` | 토큰(발급 건)마다 랜덤 생성되는 UUID. **계정/사용자 식별자가 아니다** — `sub`와 혼동하지 말 것 |
 | `iat` / `exp` | 발급/만료 시각(epoch seconds) |
 
-`JwtAuthenticationFilter`는 요청마다 `sub`(uid)를 `UserAccountRepository.findIdByUid()`로 내부 `id`로 변환해 그 `id`를 principal로 사용한다(uid에 해당하는 계정이 없으면 인증 없이 그대로 통과). **이 문서의 어떤 엔드포인트도 응답 본문에 `uid`를 노출하지 않는다** — `POST /api/auth/signup`도 여전히 `Boolean`만 반환한다(아래 참고). `uid`는 오직 발급된 토큰의 `sub` 안에만 존재하며, 클라이언트가 이를 응답 body나 URL에서 직접 얻을 방법은 현재 없다.
+`JwtAuthenticationFilter`는 요청마다 `sub`(uid)를 `UserAccountRepository.findActiveIdByUid()`로 **활성(`exit_at IS NULL`) 계정의** 내부 `id`로 변환해 그 `id`를 principal로 사용한다(uid에 해당하는 활성 계정이 없으면 — 존재하지 않거나 **탈퇴한 계정이면** — 인증 없이 그대로 통과). **이 문서의 어떤 엔드포인트도 응답 본문에 `uid`를 노출하지 않는다** — `POST /api/auth/signup`도 여전히 `Boolean`만 반환한다(아래 참고). `uid`는 오직 발급된 토큰의 `sub` 안에만 존재하며, 클라이언트가 이를 응답 body나 URL에서 직접 얻을 방법은 현재 없다.
 
-**참고: user 모듈에 실제로 인증이 걸리는 엔드포인트는 현재 하나도 없다.** `SecurityConfig`에 `anyRequest().authenticated()` 규칙이 있지만 `/api/auth/**`가 전부 permitAll이라 이 모듈 안에서 걸리는 경로가 없다. 아래는 다른 모듈(`quiz` 등)에도 그대로 재사용되는 정책이라 기록해 둔다.
+**`/api/users/me`(회원탈퇴)가 이 모듈에서 실제로 인증이 걸리는 첫 엔드포인트다.** `SecurityConfig`에 `anyRequest().authenticated()` 규칙이 있고 `/api/auth/**`만 permitAll이라, 그 밖의 경로인 `/api/users/**`가 이 규칙에 실제로 걸린다. 아래 401 정책은 다른 모듈(`quiz` 등)에도 그대로 재사용된다.
 
 **미인증 요청 → 401**(403 아님). `RestAuthenticationEntryPoint`(`user/src/main/java/com/skhynix/user/global/error/RestAuthenticationEntryPoint.java`)가 `ExceptionTranslationFilter` 단계에서 직접 `ApiResponse` JSON을 직렬화해 401로 응답한다(`SecurityConfig`가 `exceptionHandling().authenticationEntryPoint(...)`로 명시 등록). 실측 원문(토큰 없음/`Bearer garbage`로 요청, user:8080·quiz:8081 양쪽 확인):
 ```json
@@ -46,14 +46,16 @@ JWT HS256. `JwtTokenProvider`가 access(3h, 10800000ms)/refresh(14d, 1209600000m
 
 | 상황 | 상태 | message | ErrorCode |
 |---|---|---|---|
-| 토큰 없음/무효/`sub`(uid)에 해당하는 계정 없음 (필터·엔트리포인트 단계, `ExceptionTranslationFilter`) | 401 | `"인증이 필요합니다."` | `UNAUTHENTICATED` |
-| `POST /api/auth/login` 자격 오답 (컨트롤러 단계, `GlobalExceptionHandler`) | 401 | `"이메일 또는 비밀번호가 올바르지 않습니다."` | `INVALID_CREDENTIALS` |
+| 토큰 없음/무효/`sub`(uid)에 해당하는 **활성** 계정 없음 — 미가입이거나 **탈퇴한 계정** (필터·엔트리포인트 단계, `ExceptionTranslationFilter`) | 401 | `"인증이 필요합니다."` | `UNAUTHENTICATED` |
+| `POST /api/auth/login` 자격 오답 또는 **해당 이메일 계정이 탈퇴함**(비밀번호 정답 여부 무관, 미가입 이메일과 응답 완전히 동일) (컨트롤러 단계, `GlobalExceptionHandler`) | 401 | `"이메일 또는 비밀번호가 올바르지 않습니다."` | `INVALID_CREDENTIALS` |
 | `POST /api/auth/refresh` 서명/만료 무효 또는 access 토큰 오용 | 401 | `"유효하지 않은 리프레시 토큰입니다."` | `INVALID_REFRESH_TOKEN` |
-| `POST /api/auth/refresh` DB에 없거나 이미 만료된 refresh 토큰 | 401 | `"만료되었거나 이미 무효화된 리프레시 토큰입니다."` | `EXPIRED_REFRESH_TOKEN` |
+| `POST /api/auth/refresh` DB에 없거나 이미 만료된 refresh 토큰, 또는 **탈퇴한 계정의 refresh 토큰**(탈퇴가 유효 토큰을 모두 만료시키므로 보통 이 경로로 먼저 걸리지만, 탈퇴와 로그인이 동시에 일어나 방금 발급된 토큰이 살아남는 경우를 대비해 `AuthService.reissue()`가 계정 상태로 한 번 더 판정) | 401 | `"만료되었거나 이미 무효화된 리프레시 토큰입니다."` | `EXPIRED_REFRESH_TOKEN` |
 
 이 4개 모두 401이지만 발생 경로는 둘로 나뉜다: `UNAUTHENTICATED`는 `RestAuthenticationEntryPoint`가 필터 단계(`DispatcherServlet` 바깥)에서 직접 직렬화하고, 나머지 3개는 컨트롤러가 던진 `BusinessException`을 `GlobalExceptionHandler`가 잡아 변환한다. 클라이언트 입장에서 이 구분이 중요한 이유: `UNAUTHENTICATED`는 "로그인하거나(토큰이 아예 없거나 계정이 사라짐) `/api/auth/refresh`로 access 토큰을 새로 받으라"는 신호이고, `INVALID_CREDENTIALS`/`INVALID_REFRESH_TOKEN`/`EXPIRED_REFRESH_TOKEN`은 각각 로그인 폼 재입력, refresh 자체의 재로그인 유도로 이어져야 한다는 뜻이다. 401 자체가 (403과 달리) "인증을 다시 하라"는 신호라는 점은 4개 공통이지만, 정확히 무엇을 다시 해야 하는지는 `message`로만 판별 가능하다.
 
 `AccessDeniedHandler`는 의도적으로 미도입 — `JwtAuthenticationFilter`가 인증된 principal의 권한을 항상 `Collections.emptyList()`로 채워 authority 기반 403이 발생할 경로 자체가 없다. **즉 이 API 전체에서 403은 나오지 않는다.**
+
+**참고: `UNAUTHENTICATED`는 아주 드물게 컨트롤러 단계에서도 발생할 수 있다.** `UserAccountService.withdraw()`는 필터가 이미 활성 계정으로 확인한 `id`를 다시 `findById()`로 조회하는데, 그 사이(같은 요청 처리 중) 계정이 사라졌다면 `BusinessException(UNAUTHENTICATED)`를 던진다. 메시지·상태는 엔트리포인트가 내는 것과 동일하게 `"인증이 필요합니다."` / 401이지만, 응답은 `GlobalExceptionHandler`가 만든다는 점만 다르다(코드 주석상 방어적 분기이며 정상 경로에서는 도달하지 않는다).
 
 ---
 
@@ -150,6 +152,8 @@ true
 
 중복 체크 순서는 email → tel → nickname이며, 여러 항목이 동시에 중복이어도 가장 먼저 걸린 하나만 응답한다.
 
+**탈퇴한 계정이 점유한 email/tel/nickname으로는 재가입할 수 없다.** `existsByEmail`/`existsByTel`/`existsByNickname`이 탈퇴 여부를 구분하지 않으므로(탈퇴해도 `users`/`users_account` 행이 삭제되지 않는 soft delete), 탈퇴한 계정의 이메일·전화번호·닉네임 그대로 가입을 시도하면 각각 `DUPLICATE_EMAIL`/`DUPLICATE_TEL`/`DUPLICATE_NICKNAME` 409로 막힌다. `users.email`/`users.tel`에 DB unique 제약이 걸려 있어 앱 로직만으로 재가입을 열 수 없다(스키마 재설계가 필요한 별개 결정 — `docs/requirements/user/withdraw.md`의 "결정 근거 1" 참고).
+
 **예시**
 ```bash
 curl -i -X POST http://localhost:8080/api/auth/signup \
@@ -204,9 +208,9 @@ curl -i -X POST http://localhost:8080/api/auth/signup \
 | 상태 | ErrorCode | 조건 |
 |---|---|---|
 | 400 | (검증 실패, ErrorCode 없음) | email/password 형식 위반 |
-| 401 | INVALID_CREDENTIALS | 이메일에 해당하는 `UserAccount`가 없거나(`findByUser_Email` 실패), 비밀번호가 `passwordEncoder.matches()`로 불일치 |
+| 401 | INVALID_CREDENTIALS | 이메일에 해당하는 **활성** `UserAccount`가 없거나(`findByUser_EmailAndExitAtIsNull` 실패 — 미가입이거나 **탈퇴한 계정**), 비밀번호가 `passwordEncoder.matches()`로 불일치 |
 
-이메일 미존재와 비밀번호 불일치를 동일한 `INVALID_CREDENTIALS`로 응답해 계정 존재 여부를 노출하지 않는다.
+이메일 미존재와 비밀번호 불일치를 동일한 `INVALID_CREDENTIALS`로 응답해 계정 존재 여부를 노출하지 않는다. **탈퇴한 계정의 이메일로 로그인을 시도하면(비밀번호가 정확해도) 조회 자체가 활성 계정만 대상으로 하므로 비밀번호 검사조차 하지 않고 곧바로 같은 401을 반환한다** — 미가입 이메일로 로그인했을 때와 응답이 완전히 동일해 그 이메일의 가입 이력(탈퇴 여부 포함)을 노출하지 않는다.
 
 **예시**
 ```bash
@@ -236,9 +240,9 @@ refresh 토큰으로 access/refresh 토큰 쌍을 재발급한다(refresh 토큰
 |---|---|---|
 | 400 | (검증 실패, ErrorCode 없음) | `refreshToken` 공백 |
 | 401 | INVALID_REFRESH_TOKEN | `tokenProvider.validateToken()` 실패(서명/만료 무효) 또는 `isRefreshToken()`이 false(즉 access 토큰을 넣은 경우) |
-| 401 | EXPIRED_REFRESH_TOKEN | DB에 저장된 토큰 레코드가 없음(`findByRefreshToken` 실패 — 이미 사용/무효화됨) 또는 `expiredAt`이 현재 시각 이전 |
+| 401 | EXPIRED_REFRESH_TOKEN | DB에 저장된 토큰 레코드가 없음(`findByRefreshToken` 실패 — 이미 사용/무효화됨) 또는 `expiredAt`이 현재 시각 이전, 또는 **토큰은 유효하지만 그 계정이 탈퇴함**(`account.isWithdrawn()`) |
 
-재발급 시에도 계정당 유효 refresh 토큰 1개 정책이 적용되어, 재발급 직전 해당 계정의 기존 유효 토큰이 모두 만료 처리된다(전달받은 토큰 자신 포함).
+재발급 시에도 계정당 유효 refresh 토큰 1개 정책이 적용되어, 재발급 직전 해당 계정의 기존 유효 토큰이 모두 만료 처리된다(전달받은 토큰 자신 포함). **탈퇴는 탈퇴 즉시 해당 계정의 유효 refresh 토큰을 전부 만료시키므로** 보통은 위 "만료된 토큰" 경로로 먼저 걸리지만, 탈퇴와 로그인이 정확히 동시에 일어나 만료 처리 직후 새 토큰이 발급되는 극히 드문 경우를 대비해 `AuthService.reissue()`가 계정의 `isWithdrawn()`도 별도로 확인한다. 두 경우 모두 같은 `EXPIRED_REFRESH_TOKEN`으로 응답해 계정 상태를 노출하지 않는다.
 
 **예시**
 ```bash
@@ -279,7 +283,58 @@ curl -i -X POST http://localhost:8080/api/auth/logout \
 
 ---
 
+## DELETE /api/users/me
+회원 탈퇴(soft delete). 대상 컨트롤러는 `AuthController`가 아니라 `UserAccountController`(`/api/users`)다.
+
+**인증 필요** — `Authorization: Bearer <accessToken>`. **이 모듈에서 `anyRequest().authenticated()`에 실제로 걸리는 첫(유일한) 엔드포인트**다. `/api/auth/**`는 전부 permitAll이라 탈퇴를 그쪽에 두면 인증이 걸리지 않으므로, 의도적으로 `/api/users/me`에 배치했다(`SecurityConfig` 변경 없이 기존 `anyRequest().authenticated()` 규칙에 자연히 포함됨).
+
+**왜 경로에 대상 식별자가 없는가**: 탈퇴 대상 계정은 URL이 아니라 access 토큰에서만 정해진다. `JwtAuthenticationFilter`가 토큰 `sub`(uid)를 활성 계정의 내부 `id`로 해석해 `@AuthenticationPrincipal Long userAccountId`로 주입하고, 컨트롤러는 이 `id`만으로 `UserAccountService.withdraw()`를 호출한다. `uid`는 여전히 응답 body나 URL 어디에도 노출되지 않는다.
+
+**요청**: 없음. 본문 없음(비밀번호 재확인 절차 없음).
+
+**응답 204 No Content** (`ResponseEntity<Void>`, raw — `ApiResponse` 미사용) — 본문 없음.
+
+내부 동작(`UserAccountService.withdraw()`, 한 트랜잭션):
+1. `UserAccount.withdraw(now)` — `exit_at`에 서버 현재 시각을 기록한다. **탈퇴는 즉시 완료이며 유예 기간·취소가 없다.** 이미 `exit_at`이 설정된 계정(이미 탈퇴한 계정)에 다시 호출해도 엔티티가 아무것도 하지 않고 최초 탈퇴 시각을 그대로 보존한다(멱등이 아니라 "덮어쓰지 않음" — 애초에 이미 탈퇴한 계정은 principal로 들어올 수 없어 재요청 자체가 아래 실패 표의 401로 막힌다).
+2. `UserRefreshTokenRepository.expireValidTokens(account, now)` — 해당 계정의 유효한 refresh 토큰을 모두 만료 처리한다.
+
+탈퇴 전에 발급받은 **access 토큰은 폐기되지 않는다**(stateless라 서버가 할 수 없음). 대신 이후의 모든 인증 필요 요청에서 `JwtAuthenticationFilter`가 `findActiveIdByUid()`로 매번 활성 여부를 다시 조회하므로, 탈퇴 순간부터 그 access 토큰은 남은 유효 기간(최대 3h)과 무관하게 즉시 인증되지 않는다.
+
+**실패**
+
+| 상태 | ErrorCode | 조건 |
+|---|---|---|
+| 401 | UNAUTHENTICATED | Authorization 헤더 없음/무효 토큰/**이미 탈퇴한 계정의 access 토큰**(필터가 활성 계정을 못 찾아 `SecurityContext`가 비고, `anyRequest().authenticated()`에 걸려 엔트리포인트가 401 응답) |
+
+(그 밖의 실패 없음 — 이 엔드포인트는 요청 본문이 없어 검증 실패가 발생할 수 없고, 서비스 내부의 `findById()` 방어적 분기가 던지는 `UNAUTHENTICATED`도 위와 같은 코드·메시지다.)
+
+탈퇴 후 외부에 드러나는 부수 효과(다른 엔드포인트에서 관찰됨 — 자세한 조건은 각 절 참고):
+
+| 이후 호출 | 결과 |
+|---|---|
+| 같은 access 토큰으로 `DELETE /api/users/me` 재호출 | 401 `UNAUTHENTICATED` |
+| 그 계정의 refresh 토큰으로 `POST /api/auth/refresh` | 401 `EXPIRED_REFRESH_TOKEN` |
+| 그 계정의 이메일 + 정확한 비밀번호로 `POST /api/auth/login` | 401 `INVALID_CREDENTIALS` (미가입 이메일과 응답 동일) |
+| 그 계정의 email/tel/nickname으로 `POST /api/auth/signup` | 409 `DUPLICATE_EMAIL`/`DUPLICATE_TEL`/`DUPLICATE_NICKNAME` (영구 재가입 불가) |
+
+**예시**
+```bash
+curl -i -X DELETE http://localhost:8080/api/users/me \
+  -H 'Authorization: Bearer eyJ...'
+```
+성공: `204 No Content`, 본문 없음.
+
+미인증 예시:
+```json
+{"success":false,"data":null,"message":"인증이 필요합니다."}
+```
+
+---
+
 ## 확인 필요 / 코드 미확인
 - `SignupResponse` DTO는 코드상 정의되어 있으나 `AuthController.signup()`에서 실제로 사용되지 않는 죽은 코드로 확인됨(import만 존재).
-- `uid`를 응답 body/URL에 노출하는 엔드포인트는 아직 없음(현재는 토큰 `sub` claim 안에만 존재). 향후 `uid`를 응답에 싣는 변경이 생기면 이 문서를 다시 갱신해야 함.
+- `uid`를 응답 body/URL에 노출하는 엔드포인트는 아직 없음(현재는 토큰 `sub` claim 안에만 존재). `DELETE /api/users/me`도 `uid`가 아니라 access 토큰으로만 대상을 식별하며 응답에 아무것도 담지 않는다. 향후 `uid`를 응답에 싣는 변경이 생기면 이 문서를 다시 갱신해야 함.
 - (과거 기록, 정정됨) 이전 버전 문서에는 미인증 응답이 "401이 아니라 403"이라고 적혀 있었다 — `formLogin`/`httpBasic`을 disable하면 커스텀 엔트리포인트가 없는 한 Spring Security 기본값(`Http403ForbiddenEntryPoint`)으로 떨어지기 때문에 나온 실측이었다. 이후 `RestAuthenticationEntryPoint`가 도입되며 401로 고정됐다(위 "인증 방식" 절 참고). 과거 그 문서 기준 코드를 그대로 쓰고 있는 클라이언트가 있다면 401/403 처리 로직을 다시 확인할 것.
+- (과거 기록, 정정됨) 이전 버전 문서에는 "user 모듈에 실제로 인증이 걸리는 엔드포인트는 현재 없다"고 적혀 있었다 — `DELETE /api/users/me` 추가로 더 이상 사실이 아니다.
+- **탈퇴 취소(복구) API·하드 딜리트·개인정보 파기 배치는 코드에 없다**(`docs/requirements/user/withdraw.md`가 범위 제외로 명시). `exit_at`은 표식만 남기고 행을 삭제하지 않는다.
+- `AccessDeniedHandler`가 미도입이라 이 엔드포인트를 포함해 이 API 전체에서 403은 발생하지 않는다(위 "인증 방식" 절과 동일).
