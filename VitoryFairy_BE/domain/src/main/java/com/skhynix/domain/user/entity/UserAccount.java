@@ -62,13 +62,13 @@ public class UserAccount {
     private LocalDateTime updatedAt;
 
     @Builder
-    private UserAccount(User user, String nickname, String password, LocalDateTime exitAt) {
-        // uid는 호출자가 지정할 수 없도록 @Builder 파라미터로 받지 않고 여기서 생성한다.
+    private UserAccount(User user, String nickname, String password) {
+        // uid·exitAt은 호출자가 지정할 수 없도록 @Builder 파라미터로 받지 않는다. uid는 여기서 생성하고,
+        // exitAt은 null(활성)로 시작해 withdraw()로만 전이한다 — 탈퇴 상태로 태어나는 계정을 막는다.
         this.uid = UUID.randomUUID().toString();
         this.user = user;
         this.nickname = nickname;
         this.password = password;
-        this.exitAt = exitAt;
     }
 
     /**
