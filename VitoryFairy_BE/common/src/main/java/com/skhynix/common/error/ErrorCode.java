@@ -11,6 +11,7 @@ public enum ErrorCode {
     DUPLICATE_NICKNAME(409, "이미 사용 중인 닉네임입니다."),
 
     // 401 Unauthorized
+    UNAUTHENTICATED(401, "인증이 필요합니다."),
     INVALID_CREDENTIALS(401, "이메일 또는 비밀번호가 올바르지 않습니다."),
     INVALID_REFRESH_TOKEN(401, "유효하지 않은 리프레시 토큰입니다."),
     EXPIRED_REFRESH_TOKEN(401, "만료되었거나 이미 무효화된 리프레시 토큰입니다.");

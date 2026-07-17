@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.skhynix.domain.user.entity.Gender;
+import com.skhynix.domain.user.repository.UserAccountRepository;
 import com.skhynix.user.auth.dto.SignupRequest;
 import com.skhynix.user.auth.service.AuthService;
 import com.skhynix.user.global.config.SecurityConfig;
@@ -38,7 +39,8 @@ import tools.jackson.databind.ObjectMapper;
  * 운영 {@link SecurityConfig}를 {@code @Import}해 실제 {@code permitAll} 규칙(/api/auth/**)이
  * 그대로 적용되는지까지 함께 검증한다. {@link JwtTokenProvider}는 요청에 토큰이 없으므로
  * 실제 호출되지 않지만, {@code SecurityFilterChain} 빈 구성에 필요해 {@code @MockitoBean}으로
- * 대체했다.
+ * 대체했다. {@code SecurityConfig#securityFilterChain}이 {@code UserAccountRepository}도
+ * 파라미터로 받게 되면서(uid → id 조회) 같은 이유로 {@code @MockitoBean}으로 추가했다.
  *
  * <p><b>{@code @ContextConfiguration(classes = AuthController.class)}를 추가한 이유</b>:
  * {@code UserApplication}이 {@code @EnableJpaRepositories(basePackages = "com.skhynix")}를
@@ -71,6 +73,9 @@ class AuthControllerSignupTest {
 
     @MockitoBean
     private JwtTokenProvider jwtTokenProvider;
+
+    @MockitoBean
+    private UserAccountRepository userAccountRepository;
 
     private SignupRequest requestWithPassword(String password) {
         return new SignupRequest("홍길동", "01012345678", "test@example.com", Gender.MALE, "nickname", password);
