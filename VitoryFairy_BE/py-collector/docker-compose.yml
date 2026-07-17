@@ -1,0 +1,37 @@
+# py-collector 전용 (Spring compose와 분리).
+#   크롤(실 S3):  docker compose run --rm collector <job> [--date YYYY-MM-DD]
+#   로컬 MySQL:   docker compose --profile db up -d mysql
+services:
+  collector:
+    build:
+      context: .
+      dockerfile: Dockerfile.run
+    env_file:
+      - .env
+    depends_on:
+      mysql:
+        condition: service_healthy
+        required: false
+    network_mode: host
+
+  mysql:
+    profiles: ["db"]
+    image: mysql:8.0
+    container_name: collector-mysql
+    environment:
+      MYSQL_DATABASE: ${COLLECTOR_DB_NAME:-victoryfairy}
+      MYSQL_USER: ${COLLECTOR_DB_USER:-vf}
+      MYSQL_PASSWORD: ${COLLECTOR_DB_PASSWORD:-vfpass}
+      MYSQL_ROOT_PASSWORD: ${COLLECTOR_DB_PASSWORD:-vfpass}
+    ports:
+      - "3306:3306"
+    volumes:
+      - collector-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${COLLECTOR_DB_PASSWORD:-vfpass}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  collector-mysql-data:

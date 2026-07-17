@@ -1,0 +1,7 @@
+# Lambda container runtime deps (boto3 is in the AWS Lambda base image).
+httpx
+tenacity
+beautifulsoup4
+lxml
+pydantic-settings
+PyYAML

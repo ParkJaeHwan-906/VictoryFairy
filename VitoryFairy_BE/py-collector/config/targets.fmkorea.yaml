@@ -1,0 +1,11 @@
+# FMKorea-only targets for the LOCAL (residential-IP) launchd job.
+#
+# FMKorea's anti-bot returns HTTP 430 to AWS datacenter IPs, so it can't run on
+# Lambda — only from a residential IP. The Lambda schedule uses config/targets.yaml
+# (DCInside only); this file is loaded via COLLECTOR_TARGETS_FILE by the local
+# runner (deploy/local/crawl_community.sh).
+#
+# category=4332282 is the baseball board's KBO category -> KBO popular posts only,
+# popularity-ordered (order: popular -> scanned as a bounded page window).
+targets:
+  - { source: FMKOREA, order: popular, url: "https://www.fmkorea.com/index.php?mid=baseball&category=4332282&sort_index=popular_docs&order_type=desc" }

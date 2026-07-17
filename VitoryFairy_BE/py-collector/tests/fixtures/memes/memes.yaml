@@ -1,0 +1,10 @@
+- player: { name: 김도영, team: HT }
+  memes:
+    - text: "월관보음"
+      origin: "월요일 관중석에서 보기 아까운 선수라는 팬 별명"
+      tags: [별명]
+- player: { name: 없는선수, team: LG }
+  memes:
+    - text: "유령밈"
+      origin: "매칭 실패 케이스"
+      tags: []

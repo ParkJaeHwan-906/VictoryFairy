@@ -1,0 +1,8 @@
+# Copy to terraform.tfvars and edit.
+region           = "ap-northeast-2"
+name             = "kbo-collector"
+data_bucket_name = "victoryfairy-crawl-local"
+architecture     = "arm64" # arm64 (cheaper) or x86_64
+# community_schedule = "rate(10 minutes)"
+# game_schedule      = "cron(0 18 * * ? *)"   # 03:00 KST
+# pii_salt         = ""                       # empty -> random generated
