@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.skhynix.domain.user.entity.Gender;
+import com.skhynix.domain.user.repository.UserAccountRepository;
 import com.skhynix.user.auth.dto.PasswordValidationRequest;
 import com.skhynix.user.auth.dto.SignupRequest;
 import com.skhynix.user.auth.service.AuthService;
@@ -34,7 +35,8 @@ import tools.jackson.databind.ObjectMapper;
  *
  * <p>슬라이스 구성은 {@code AuthControllerSignupTest}와 동일한 패턴을 따른다. 특히
  * {@code @ContextConfiguration(classes = AuthController.class)}로 {@code UserApplication}의
- * {@code @EnableJpaRepositories} 자동 병합을 우회하는 이유는 해당 클래스의 Javadoc을 참고.
+ * {@code @EnableJpaRepositories} 자동 병합을 우회하는 이유와, {@code UserAccountRepository}를 {@code @MockitoBean}으로
+ * 대체하는 이유(SecurityConfig의 securityFilterChain 빈 구성에 필요)는 해당 클래스의 Javadoc을 참고.
  */
 @WebMvcTest(AuthController.class)
 @ContextConfiguration(classes = AuthController.class)
@@ -56,6 +58,9 @@ class AuthControllerPasswordValidateTest {
 
     @MockitoBean
     private JwtTokenProvider jwtTokenProvider;
+
+    @MockitoBean
+    private UserAccountRepository userAccountRepository;
 
     private String validatePasswordJson(String password) throws Exception {
         return objectMapper.writeValueAsString(new PasswordValidationRequest(password));

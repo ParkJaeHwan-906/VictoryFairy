@@ -28,19 +28,23 @@ public class JwtTokenProvider {
         this.refreshTokenValidity = properties.getRefreshTokenValidity();
     }
 
-    public String createAccessToken(Long userAccountId) {
-        return createToken(userAccountId, TYPE_ACCESS, accessTokenValidity);
+    public String createAccessToken(String uid) {
+        return createToken(uid, TYPE_ACCESS, accessTokenValidity);
     }
 
-    public String createRefreshToken(Long userAccountId) {
-        return createToken(userAccountId, TYPE_REFRESH, refreshTokenValidity);
+    public String createRefreshToken(String uid) {
+        return createToken(uid, TYPE_REFRESH, refreshTokenValidity);
     }
 
-    private String createToken(Long userAccountId, String type, long validityMillis) {
+    /**
+     * subject에는 외부 노출용 {@code uid}만 담는다. JWT payload는 서명될 뿐 암호화되지 않아
+     * base64 디코드만으로 누구나 읽을 수 있으므로, 내부 PK({@code id})는 claim에 절대 넣지 않는다.
+     */
+    private String createToken(String uid, String type, long validityMillis) {
         long now = System.currentTimeMillis();
         return Jwts.builder()
                 .id(UUID.randomUUID().toString())
-                .subject(String.valueOf(userAccountId))
+                .subject(uid)
                 .claim(CLAIM_TYPE, type)
                 .issuedAt(new Date(now))
                 .expiration(new Date(now + validityMillis))
@@ -57,8 +61,8 @@ public class JwtTokenProvider {
         }
     }
 
-    public Long getUserAccountId(String token) {
-        return Long.valueOf(parse(token).getSubject());
+    public String getUid(String token) {
+        return parse(token).getSubject();
     }
 
     public boolean isRefreshToken(String token) {
