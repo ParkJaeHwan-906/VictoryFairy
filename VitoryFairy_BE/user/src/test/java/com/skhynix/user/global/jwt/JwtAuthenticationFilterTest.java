@@ -61,7 +61,7 @@ class JwtAuthenticationFilterTest {
         // given
         String uid = UUID.randomUUID().toString();
         Long accountId = 42L;
-        given(userAccountRepository.findIdByUid(uid)).willReturn(Optional.of(accountId));
+        given(userAccountRepository.findActiveIdByUid(uid)).willReturn(Optional.of(accountId));
         String token = tokenProvider.createAccessToken(uid);
         MockHttpServletRequest request = requestWithBearerToken(token);
         MockHttpServletResponse response = new MockHttpServletResponse();
@@ -80,11 +80,14 @@ class JwtAuthenticationFilterTest {
     }
 
     @Test
-    @DisplayName("uid에 해당하는 계정을 찾지 못하면(탈퇴 등) 예외 없이 SecurityContext를 비운 채 체인을 통과시킨다")
+    @DisplayName("[USER-WD-6, USER-WD-9] uid에 해당하는 활성 계정을 찾지 못하면(탈퇴 등) 예외 없이 "
+            + "SecurityContext를 비운 채 체인을 통과시킨다 — findActiveIdByUid가 탈퇴 계정을 "
+            + "\"찾지 못함\"으로 흡수하는 지점이라, 탈퇴 전에 발급된 access 토큰이라도 이후 요청은 "
+            + "인증되지 않는다(anyRequest().authenticated()에 걸려 최종적으로 401)")
     void validAccessToken_unknownUid_leavesContextEmptyWithoutException() throws Exception {
         // given
         String uid = UUID.randomUUID().toString();
-        given(userAccountRepository.findIdByUid(uid)).willReturn(Optional.empty());
+        given(userAccountRepository.findActiveIdByUid(uid)).willReturn(Optional.empty());
         String token = tokenProvider.createAccessToken(uid);
         MockHttpServletRequest request = requestWithBearerToken(token);
         MockHttpServletResponse response = new MockHttpServletResponse();
@@ -145,7 +148,7 @@ class JwtAuthenticationFilterTest {
         filter.doFilterInternal(request, response, filterChain);
 
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
-        verify(userAccountRepository, never()).findIdByUid(anyString());
+        verify(userAccountRepository, never()).findActiveIdByUid(anyString());
         verify(filterChain).doFilter(request, response);
     }
 
