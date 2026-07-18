@@ -14,7 +14,16 @@ public enum ErrorCode {
     UNAUTHENTICATED(401, "인증이 필요합니다."),
     INVALID_CREDENTIALS(401, "이메일 또는 비밀번호가 올바르지 않습니다."),
     INVALID_REFRESH_TOKEN(401, "유효하지 않은 리프레시 토큰입니다."),
-    EXPIRED_REFRESH_TOKEN(401, "만료되었거나 이미 무효화된 리프레시 토큰입니다.");
+    EXPIRED_REFRESH_TOKEN(401, "만료되었거나 이미 무효화된 리프레시 토큰입니다."),
+
+    // 400 Bad Request - 이메일 인증
+    INVALID_VERIFICATION_CODE(400, "인증번호가 일치하지 않습니다."),
+    EXPIRED_VERIFICATION_CODE(400, "만료되었거나 유효하지 않은 인증번호입니다."),
+    VERIFICATION_ATTEMPTS_EXCEEDED(400, "인증 시도 횟수를 초과했습니다. 인증번호를 다시 발송해 주세요."),
+    EMAIL_NOT_VERIFIED(400, "이메일 인증이 완료되지 않았습니다."),
+
+    // 429 Too Many Requests - 이메일 인증
+    EMAIL_SEND_COOLDOWN(429, "인증번호를 방금 발송했습니다. 잠시 후 다시 시도해 주세요.");
 
     private final int status;
     private final String message;
