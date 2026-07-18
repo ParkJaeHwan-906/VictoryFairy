@@ -1,23 +1,30 @@
-# FMKorea BACKFILL-only target: date-ordered (newest->oldest) walk.
+# FMKorea BACKFILL-only target: date-ordered (newest->oldest) walk over the
+# popularity-sorted board.
 #
 # Purpose: one-shot backfill of a past [from, to] date range via a single
-# continuous date-ordered walk (kbo_collector.run.land_community_range). The
-# daily cron keeps using config/targets.fmkorea.yaml (order: popular) -- do NOT
-# repoint the daily job here.
+# continuous newest->oldest walk (kbo_collector.run.land_community_range). The
+# daily cron keeps using config/targets.fmkorea.yaml -- do NOT repoint it here.
 #
-# Why a separate file: the popular sort (sort_index=popular_docs) has no usable
-# date order, so it can't walk into the past. Backfill needs the board's default
-# recency sort so paging goes strictly newest->oldest and the walk can stop the
-# moment it passes `from`.
+# Why sort_index=pop: FMKorea's `pop` sort returns the board's popular posts in
+# strict DATE-DESCENDING order, already pre-filtered to posts above a recommend
+# floor (verified from a residential IP: page 1 ~ today, page 25 ~ 4 days back,
+# page 150 ~ 17 days back). That is exactly what a popular-post backfill wants:
+# because it is date-ordered the walk can stop the moment it passes `from`, and
+# because it is popularity-pre-filtered we don't page through non-popular noise.
+# (The default regdate sort is also date-ordered but is NOT popularity-filtered,
+# so it would need to page the entire board -- far more requests.)
 #
-# category=4332282 is the baseball board's KBO category (same board as the daily
-# target). sort_index=regdate&order_type=desc = registration date, descending
-# (newest first). `order: date` (the default) tells the collector to date-walk
-# rather than scan a bounded popular window.
+# LAYOUT: the pop sort renders as the `.fm_best_widget` card grid ("webzine"
+# view), not the `table.bd_lst` list. parse_fmkorea_list auto-detects both; the
+# webzine card's authored date comes from the thumbnail cache-buster timestamp
+# (accurate to the day), falling back to the regdate cell.
 #
-# NOTE: this URL's sort params are a design value -- verify the actual paging
-# order from a residential IP (FMKorea 430s AWS/datacenter IPs) before a long run.
+# `order: date` (the default) tells the collector to date-walk with an early stop
+# at `from`, rather than scan a bounded popular window.
+#
+# NOTE: verify paging still works from a residential IP before a long run --
+# FMKorea 430s AWS/datacenter IPs.
 #
 # Run: deploy/local/backfill_fmkorea.sh (residential IP, conservative rate-limit).
 targets:
-  - { source: FMKOREA, order: date, url: "https://www.fmkorea.com/index.php?mid=baseball&category=4332282&sort_index=regdate&order_type=desc" }
+  - { source: FMKOREA, order: date, url: "https://www.fmkorea.com/index.php?mid=baseball&sort_index=pop&order_type=desc" }

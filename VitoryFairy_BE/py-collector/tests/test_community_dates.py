@@ -64,6 +64,75 @@ def test_fmkorea_list_reads_recommend_no_views():
     assert ref.views is None
 
 
+# --------------------------------------------------------------------------- webzine layout
+def _webzine_li(srl, count, title, *, thumb=None, regdate=None):
+    """A single FMKorea popularity ('webzine') card, matching the live markup."""
+    href = f"/index.php?mid=baseball&sort_index=pop&document_srl={srl}&listStyle=webzine"
+    img = (f'<a href="{href}"><img class="thumb" alt="{title}" '
+           f'data-original="{thumb}" src="//image.fmkorea.com/classes/lazy/img/transparent.gif"/></a>'
+           if thumb else "")
+    rd = f'<div><span class="regdate">{regdate}<!-- {regdate} --></span></div>' if regdate else ""
+    return f"""
+    <li class="li li_best2_pop0">
+      <div class="li">
+        <a class="pc_voted_count pc_voted_count_plus" href="{href}">
+          <span class="label">추천</span><span class="count">{count}</span></a>
+        {img}
+        <h3 class="title" data-title-ellipsis="true">
+          <a class="hotdeal_var8" href="{href}">
+            <span class="ellipsis-target">{title}</span>
+            <span class="comment_count">[11]</span></a></h3>
+        {rd}
+      </div>
+    </li>"""
+
+
+def _webzine(*lis):
+    return f'<div class="fm_best_widget"><ul>{"".join(lis)}</ul></div>'
+
+
+def test_fmkorea_webzine_parses_card_from_thumb_cachebuster():
+    # pop sort renders the .fm_best_widget card grid; the accurate authored date
+    # comes from the thumbnail cache-buster (?c=YYYYMMDDHHMMSS), not the HH:MM cell.
+    html = _webzine(_webzine_li(
+        "10095740302", "38", "웰뱅톱랭킹 투수 순위",
+        thumb="//image.fmkorea.com/filesn/cache/thumb/20260717/10095740302_70x50.crop.webp?c=20260717193332",
+        regdate="06:52"))
+    ref = community.parse_fmkorea_list(html, today="2026-07-18")[0]
+    assert ref.post_id == "10095740302"
+    assert ref.recommend == 38
+    assert ref.title == "웰뱅톱랭킹 투수 순위"
+    assert ref.post_date == "2026-07-17"        # thumb date, not the "06:52" cell (=today)
+    assert ref.url.endswith("/10095740302")
+
+
+def test_fmkorea_webzine_date_from_thumb_path_when_no_cachebuster():
+    html = _webzine(_webzine_li(
+        "555", "40", "t",
+        thumb="//image.fmkorea.com/filesn/cache/thumb/20260401/555_70x50.crop.webp"))
+    ref = community.parse_fmkorea_list(html, today="2026-07-18")[0]
+    assert ref.post_date == "2026-04-01"
+
+
+def test_fmkorea_webzine_date_falls_back_to_regdate_without_thumb():
+    # a card with no thumbnail -> use the (less precise) regdate cell, ignoring the
+    # duplicated HTML comment so MM.DD isn't corrupted into a double value.
+    html = _webzine(_webzine_li("777", "31", "t", regdate="04.15"))
+    ref = community.parse_fmkorea_list(html, today="2026-07-18")[0]
+    assert ref.post_id == "777"
+    assert ref.post_date == "2026-04-15"
+
+
+def test_fmkorea_list_prefers_table_over_webzine_when_both_present():
+    # The default recency list is a table; parser must use it, not any stray widget.
+    html = ('<table class="bd_lst"><tbody><tr>'
+            '<td class="title"><a href="/900">table글</a></td><td class="time">07.11</td>'
+            '<td class="m_no m_no_voted">12</td></tr></tbody></table>'
+            + _webzine(_webzine_li("999", "50", "webzine글", regdate="06:00")))
+    refs = community.parse_fmkorea_list(html, today="2026-07-14")
+    assert [r.post_id for r in refs] == ["900"]  # table layout wins
+
+
 def _ref(post_id, views=None, recommend=None):
     return community.PostRef(post_id=post_id, url=f"/{post_id}", views=views, recommend=recommend)
 

@@ -1,7 +1,7 @@
 import re
 from dataclasses import dataclass
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Comment
 
 from .masking import mask_author
 
@@ -72,7 +72,22 @@ def raw_post(source, post_id, url, title, body, engagement, comments, team, craw
 def parse_fmkorea_list(
     html: str, base: str = "https://www.fmkorea.com", today: str | None = None
 ) -> list[PostRef]:
+    """Parse a FMKorea board list, auto-detecting its layout.
+
+    The board renders in two skins depending on the sort: the default recency
+    (`sort_index=regdate`) list comes as a `table.bd_lst`, while the popularity
+    sorts (`sort_index=pop` / `popular_docs`) come as a `.fm_best_widget` card
+    grid ("webzine" view). The two carry the same fields in different markup, so
+    we try the table first and fall back to the webzine parser when it is empty.
+    """
     soup = BeautifulSoup(html, "lxml")
+    refs = _parse_fmkorea_table(soup, base, today)
+    if refs:
+        return refs
+    return _parse_fmkorea_webzine(soup, base, today)
+
+
+def _parse_fmkorea_table(soup, base: str, today: str | None) -> list[PostRef]:
     refs: list[PostRef] = []
     for tr in soup.select("table.bd_lst tbody tr"):
         if "notice" in (tr.get("class") or []):
@@ -95,6 +110,62 @@ def parse_fmkorea_list(
         refs.append(
             PostRef(post_id=post_id, url=f"{base}/{post_id}", title=_text(a),
                     post_date=post_date, recommend=recommend)
+        )
+    return refs
+
+
+def _webzine_regdate_text(li) -> str:
+    """First real text of the webzine `span.regdate`, ignoring its HTML comment.
+
+    The cell is e.g. `<span class="regdate">06:52<!-- 06:52 --></span>`; the
+    duplicated comment would otherwise double the value and corrupt MM.DD parsing.
+    """
+    rd = li.select_one("span.regdate")
+    if rd is None:
+        return ""
+    for node in rd.contents:
+        if isinstance(node, Comment):
+            continue
+        if isinstance(node, str) and node.strip():
+            return node.strip()
+    return ""
+
+
+def _fmkorea_webzine_date(li, today: str | None) -> str | None:
+    """Authored date for a webzine card.
+
+    The card's `span.regdate` only shows HH:MM (imprecise) for recent posts, so
+    prefer the thumbnail URL, whose cache-buster `?c=YYYYMMDDHHMMSS` (else the
+    `/thumb/YYYYMMDD/` path segment) is the thumbnail-generation time ~ the post
+    time. Posts without a thumbnail fall back to the regdate cell.
+    """
+    img = li.select_one("img.thumb")
+    if img is not None:
+        # the real URL sits in data-original; src is a lazy-load placeholder gif.
+        src = img.get("data-original") or img.get("src") or ""
+        m = re.search(r"[?&]c=(\d{4})(\d{2})(\d{2})\d{6}", src) or \
+            re.search(r"/thumb/(\d{4})(\d{2})(\d{2})/", src)
+        if m:
+            return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+    return _fmkorea_date(_webzine_regdate_text(li), today) if today else None
+
+
+def _parse_fmkorea_webzine(soup, base: str, today: str | None) -> list[PostRef]:
+    refs: list[PostRef] = []
+    for li in soup.select(".fm_best_widget li"):
+        a = li.select_one("a[href*='document_srl']")
+        if a is None:
+            continue
+        m = re.search(r"document_srl=(\d+)", a.get("href", ""))
+        if not m:
+            continue
+        post_id = m.group(1)
+        title_el = li.select_one("h3.title span.ellipsis-target") or li.select_one("h3.title a")
+        # recommend lives in the vote widget (a.pc_voted_count > span.count).
+        recommend = _num(_text(li.select_one("a.pc_voted_count span.count")))
+        refs.append(
+            PostRef(post_id=post_id, url=f"{base}/{post_id}", title=_text(title_el),
+                    post_date=_fmkorea_webzine_date(li, today), recommend=recommend)
         )
     return refs
 
