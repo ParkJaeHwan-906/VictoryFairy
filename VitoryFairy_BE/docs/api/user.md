@@ -1,16 +1,16 @@
 # user API 명세
 
 > 코드 기준 자동 작성. 포트 **8080**(`user/src/main/resources/application.yaml`의 `server.port: 8080`), `server.servlet.context-path` 미설정이므로 base URL은 `http://localhost:8080`.
-> 최종 갱신: 2026-07-18
+> 최종 갱신: 2026-07-18 (nickname/duplicate 추가)
 > 대상 컨트롤러: `user/src/main/java/com/skhynix/user/auth/controller/AuthController.java` (`@RequestMapping("/api/auth")`), `user/src/main/java/com/skhynix/user/account/controller/UserAccountController.java` (`@RequestMapping("/api/users")`) — user 모듈의 컨트롤러 2개.
-> 인증: JWT Bearer (`Authorization: Bearer <accessToken>`). `SecurityConfig`에서 `/api/auth/**` 전체가 `permitAll()`이라 `AuthController`의 6개 엔드포인트는 인증 불필요. **`/api/users/me`(회원탈퇴)는 `anyRequest().authenticated()`에 걸리는 이 모듈의 첫 인증 필요 엔드포인트다** — 과거 이 문서에 "user 모듈에 실제로 인증이 걸리는 엔드포인트는 없다"고 적혀 있었다면 그건 이 엔드포인트가 생기기 전 사실이었다. 미인증 시 **401**(`RestAuthenticationEntryPoint`) — 자세한 내용은 아래 "인증 방식" 절 참고.
+> 인증: JWT Bearer (`Authorization: Bearer <accessToken>`). `SecurityConfig`에서 `/api/auth/**` 전체가 `permitAll()`이라 `AuthController`의 7개 엔드포인트는 인증 불필요. **`/api/users/me`(회원탈퇴)는 `anyRequest().authenticated()`에 걸리는 이 모듈의 첫 인증 필요 엔드포인트다** — 과거 이 문서에 "user 모듈에 실제로 인증이 걸리는 엔드포인트는 없다"고 적혀 있었다면 그건 이 엔드포인트가 생기기 전 사실이었다. 미인증 시 **401**(`RestAuthenticationEntryPoint`) — 자세한 내용은 아래 "인증 방식" 절 참고.
 
 ## 공통 사항
 
 ### 응답 포맷 — 주의: 엔드포인트별로 다름
 `AuthController`의 signup/login/refresh/logout 4개와 `UserAccountController`의 회원탈퇴(`DELETE /api/users/me`)는 `ApiResponse<T>`(`:common`)를 쓰지 않고 **`ResponseEntity<T>`를 직접 반환**한다. 즉 이 5개의 **성공 응답 본문은 `ApiResponse`로 감싸이지 않는다**(탈퇴는 아예 본문이 없다).
 
-**단, `POST /api/auth/password/validate`와 `POST /api/auth/nickname/validate`만 예외**로 성공 응답도 각각 `ApiResponse<PasswordValidationResponse>`/`ApiResponse<NicknameValidationResponse>`로 감싼다(`ResponseEntity<ApiResponse<T>>` 직접 반환, `ApiResponse.ok(result)` 사용). 컨트롤러 안에서도 응답 포맷이 갈리므로 엔드포인트마다 확인할 것.
+**단, `POST /api/auth/password/validate`, `POST /api/auth/nickname/validate`, `POST /api/auth/nickname/duplicate`만 예외**로 성공 응답도 각각 `ApiResponse<PasswordValidationResponse>`/`ApiResponse<NicknameValidationResponse>`/`ApiResponse<NicknameValidationResponse>`로 감싼다(`ResponseEntity<ApiResponse<T>>` 직접 반환, `ApiResponse.ok(result)` 사용). 컨트롤러 안에서도 응답 포맷이 갈리므로 엔드포인트마다 확인할 것.
 
 반면 **에러 응답은 `GlobalExceptionHandler`(`user/src/main/java/com/skhynix/user/global/error/GlobalExceptionHandler.java`)가 `ApiResponse`로 감싸서 반환**한다. 즉 이 모듈은 "성공은 (validate 제외) raw, 실패는 ApiResponse"인 비대칭 구조다.
 
@@ -18,7 +18,7 @@
 - Bean Validation 실패(`MethodArgumentNotValidException`) → `ApiResponse<Map<String,String>>` = `{ "success": false, "data": {"필드명":"메시지", ...}, "message": "입력값이 올바르지 않습니다." }`, 상태코드 `400 Bad Request`. `data`에는 실패한 필드별 검증 메시지가 담긴다(모든 필드가 아니라 **위반한 필드만**).
 
 ### 인증 방식
-JWT HS256. `JwtTokenProvider`가 access(3h, 10800000ms)/refresh(14d, 1209600000ms) 토큰을 발급하며 claim `type: access|refresh`로 구분한다. `AuthController`의 6개 엔드포인트는 `SecurityConfig`에서 permitAll이라 Authorization 헤더가 필요 없다(로그인/재발급 전 단계이므로 당연함). **`DELETE /api/users/me`(회원탈퇴)만 `Authorization: Bearer <accessToken>`이 필수**다.
+JWT HS256. `JwtTokenProvider`가 access(3h, 10800000ms)/refresh(14d, 1209600000ms) 토큰을 발급하며 claim `type: access|refresh`로 구분한다. `AuthController`의 7개 엔드포인트는 `SecurityConfig`에서 permitAll이라 Authorization 헤더가 필요 없다(로그인/재발급 전 단계이므로 당연함). **`DELETE /api/users/me`(회원탈퇴)만 `Authorization: Bearer <accessToken>`이 필수**다.
 
 **토큰 payload 구조** (`login`/`refresh`가 발급하는 accessToken/refreshToken 공통 — JWT는 서명만 되고 암호화는 안 되므로 base64 디코드만으로 누구나 읽을 수 있음, 실제 발급 payload 예시):
 ```json
@@ -164,6 +164,51 @@ curl -i -X POST http://localhost:8080/api/auth/nickname/validate \
 {"success":true,"data":{"valid":false,"message":"닉네임은 한글, 영문, 숫자만 사용할 수 있습니다."},"message":null}
 ```
 응답(중복 — 정책은 통과했으나 이미 사용 중이거나 탈퇴 계정이 점유):
+```json
+{"success":true,"data":{"valid":false,"message":"이미 사용 중인 닉네임입니다."},"message":null}
+```
+
+---
+
+## POST /api/auth/nickname/duplicate
+닉네임 중복 **단독** 검사(정책 미검사, DB 중복만). `AuthController.checkNicknameDuplicate()` → `AuthService.checkNicknameDuplicate()`가 담당. 프론트가 정책 검사를 이미 통과시킨 화면에서 "중복 확인" 버튼처럼 중복만 다시 확인하는 용도.
+
+**인증** 불필요
+
+**`/nickname/validate`와의 차이(핵심)**: `/nickname/validate`는 정책(길이→문자 구성) → 중복 **2단계**를 모두 수행하지만, 이 엔드포인트는 **`AuthService.checkNicknameDuplicate()`가 `isNicknameDuplicated()`(= `existsByNickname`) 딱 하나만** 호출한다 — 정책은 아예 판정하지 않는다. 그 결과 **정책 위반이지만 미점유인 닉네임(예: `"hi!"`)에도 이 엔드포인트는 `valid:true`를 반환할 수 있다.** 이때 `valid:true`("사용 가능한 닉네임입니다.")는 **"DB에 중복이 없다"는 뜻일 뿐 가입 가능을 보장하지 않는다** — 같은 닉네임으로 실제 `/signup`을 호출하면 `@ValidNickname`(정책)에 걸려 400이 날 수 있다. 정책까지 포함해 판정하려면 `POST /api/auth/nickname/validate`를 쓸 것.
+
+**계약: 이 엔드포인트는 중복이어도 항상 HTTP 200을 반환한다.** "중복"도 검사가 정상 수행된 결과일 뿐 요청 자체의 오류가 아니므로 409가 아니다(`NicknameValidationRequest`에 `@Valid`/Bean Validation 애노테이션을 붙이지 않는다 — 임의 문자열 허용). **주의: signup(`POST /api/auth/signup`)의 닉네임 중복은 이와 달리 여전히 409(`DUPLICATE_NICKNAME`)를 반환한다** — 사전검사와 실제 가입은 상태 코드 계약이 다르다(`/nickname/validate`와 동일한 설계).
+
+**요청** `NicknameValidationRequest` (`/nickname/validate`와 동일한 DTO를 재사용)
+
+| 필드 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| nickname | String | 없음(검증 애노테이션 미부착) | 중복 여부만 검사할 닉네임. `null`/`""`도 허용 |
+
+**응답 200 OK** `ApiResponse<NicknameValidationResponse>`
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| success | boolean | 항상 `true` (엔드포인트 자체는 항상 정상 처리) |
+| data.valid | boolean | DB 중복 여부만 반영(정책과 무관). 미중복이면 `true`, 중복이면 `false` |
+| data.message | String | 중복 시 `"이미 사용 중인 닉네임입니다."`(`ErrorCode.DUPLICATE_NICKNAME`의 메시지 문구를 그대로 재사용하되 상태 코드는 200), 통과 시 `"사용 가능한 닉네임입니다."` |
+| message | null | 최상위 `message`는 사용되지 않음(`ApiResponse.ok()`는 항상 `message: null`) |
+
+**판정 규칙**: `userAccountRepository.existsByNickname()` 단 하나(`AuthService.isNicknameDuplicated()` 재사용 — signup·`/nickname/validate`의 3단계와 동일한 쿼리). `exit_at`을 거르지 않으므로 **탈퇴한 계정이 점유한 닉네임도 중복으로 판정**한다(signup·`/nickname/validate`와 동일한 동작).
+
+**실패**: 없음. 항상 200이다.
+
+**예시**
+```bash
+curl -i -X POST http://localhost:8080/api/auth/nickname/duplicate \
+  -H 'Content-Type: application/json' \
+  -d '{"nickname":"길동이"}'
+```
+응답(미중복 — 정책은 검사하지 않으므로 `"hi!"`처럼 정책 위반 문자열도 미점유이면 `valid:true`가 나온다):
+```json
+{"success":true,"data":{"valid":true,"message":"사용 가능한 닉네임입니다."},"message":null}
+```
+응답(중복 — 이미 사용 중이거나 탈퇴 계정이 점유):
 ```json
 {"success":true,"data":{"valid":false,"message":"이미 사용 중인 닉네임입니다."},"message":null}
 ```
