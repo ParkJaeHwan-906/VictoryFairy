@@ -28,9 +28,15 @@ public class AuthService {
     private final UserRefreshTokenRepository userRefreshTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider tokenProvider;
+    private final EmailVerificationService emailVerificationService;
 
     @Transactional
     public Long signup(SignupRequest request) {
+        // 검사 순서: 형식(@Valid, 400) → 이메일 인증완료 여부(EMAIL_NOT_VERIFIED) → 중복(409).
+        // 인증완료 상태(USER-EMV-15)가 선행 조건이며, 미인증/만료(키 부재)는 EMAIL_NOT_VERIFIED로 거부한다.
+        if (!emailVerificationService.isEmailVerified(request.email())) {
+            throw new BusinessException(ErrorCode.EMAIL_NOT_VERIFIED);
+        }
         if (userRepository.existsByEmail(request.email())) {
             throw new BusinessException(ErrorCode.DUPLICATE_EMAIL);
         }
@@ -53,6 +59,9 @@ public class AuthService {
                 .nickname(request.nickname())
                 .password(passwordEncoder.encode(request.password()))
                 .build());
+
+        // 가입 성공 시 인증완료 상태를 소비(1회용) — 같은 이메일 재가입 시 재인증을 강제한다(USER-EMV-18).
+        emailVerificationService.consumeVerified(request.email());
 
         return account.getId();
     }
