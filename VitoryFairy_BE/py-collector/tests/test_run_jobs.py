@@ -236,6 +236,130 @@ def test_land_community_list_parse_failure_records_list_fail_and_continues(
     assert n == 0  # nothing landed, but no exception propagated
 
 
+# --------------------------------------------------------------------------- community range backfill
+def _fm_list_page(rows):
+    """FMKorea list page HTML. rows: (post_id, 'YYYY.MM.DD', recommend|None)."""
+    trs = ""
+    for pid, d, rec in rows:
+        rec_td = f'<td class="m_no m_no_voted">{rec}</td>' if rec is not None else ""
+        trs += (f'<tr><td class="title"><a href="/{pid}">t{pid}</a></td>'
+                f'<td class="time">{d}</td>{rec_td}</tr>')
+    return f'<table class="bd_lst"><tbody>{trs}</tbody></table>'
+
+
+def _fm_range_target(settings, tmp_path, monkeypatch):
+    # single date-ordered FMKorea target so the backfill walk is deterministic
+    tfile = tmp_path / "targets.yaml"
+    tfile.write_text(
+        'targets:\n  - { source: FMKOREA, order: date, url: "https://www.fmkorea.com/list" }\n',
+        encoding="utf-8")
+    monkeypatch.setattr(settings, "targets_file", str(tfile))
+    monkeypatch.setattr(settings, "community_max_pages", 10)
+
+
+@respx.mock
+def test_land_community_range_walks_filters_and_stops(settings, s3_bucket, tmp_path, monkeypatch):
+    # One continuous newest->oldest walk over [2026-03-28, 2026-07-18]:
+    #  - 2026-07-20 is newer than `to`   -> skipped (keep walking)
+    #  - 2026-07-09 recommend 5 (<30)    -> popularity-filtered out
+    #  - 2026-07-10 / 2026-05-01         -> landed under their OWN post_date key
+    #  - 2026-03-01 is older than `from` -> ends the walk (page 3 never fetched)
+    _fm_range_target(settings, tmp_path, monkeypatch)
+    pages = {
+        1: _fm_list_page([("900", "2026.07.20", 99), ("710", "2026.07.10", 50),
+                          ("709", "2026.07.09", 5)]),
+        2: _fm_list_page([("501", "2026.05.01", 40), ("301", "2026.03.01", 80),
+                          ("201", "2026.02.01", 90)]),
+    }
+    fetched_pages: list[int] = []
+
+    def list_handler(request):
+        page = int(request.url.params["page"])
+        fetched_pages.append(page)
+        return httpx.Response(200, text=pages.get(page, _fm_list_page([])))
+
+    detail_html = (FIX / "community" / "fmkorea_detail.html").read_text(encoding="utf-8")
+    respx.get(url__startswith="https://www.fmkorea.com/list").mock(side_effect=list_handler)
+    respx.get(url__regex=r"https://www\.fmkorea\.com/\d+$").mock(
+        return_value=httpx.Response(200, text=detail_html))
+
+    sink = S3RawSink(settings)
+    with fetch.build_client(settings) as client:
+        n = run.land_community_range(
+            "2026-03-28", "2026-07-18", settings=settings, sink=sink, client=client,
+            journal=_journal(settings, "community", tmp_path),
+            sleep=lambda _s: None, today="2026-07-18", min_recommend=30, view_factor=0)
+    assert n == 2                       # only 710 and 501
+    assert fetched_pages == [1, 2]      # stopped at page 2's older-than-`from` row; page 3 untouched
+    keys = {o["Key"] for o in sink.client.list_objects_v2(
+        Bucket=s3_bucket, Prefix="community/fmkorea/").get("Contents", [])}
+    assert keys == {
+        "community/fmkorea/2026-07-10/710.json",   # in-range, keyed by its own post_date
+        "community/fmkorea/2026-05-01/501.json",
+    }  # 07-20 (newer), 07-09 (below threshold), 03-01/02-01 (older) all absent
+
+
+@respx.mock
+def test_land_community_range_idempotent_rerun_lands_nothing(settings, s3_bucket, tmp_path, monkeypatch):
+    # re-running the same range must write nothing new (sink.exists checkpoint).
+    _fm_range_target(settings, tmp_path, monkeypatch)
+    pages = {1: _fm_list_page([("710", "2026.07.10", 50), ("301", "2026.03.01", 80)])}
+
+    def list_handler(request):
+        return httpx.Response(200, text=pages.get(int(request.url.params["page"]), _fm_list_page([])))
+
+    detail_html = (FIX / "community" / "fmkorea_detail.html").read_text(encoding="utf-8")
+    respx.get(url__startswith="https://www.fmkorea.com/list").mock(side_effect=list_handler)
+    respx.get(url__regex=r"https://www\.fmkorea\.com/\d+$").mock(
+        return_value=httpx.Response(200, text=detail_html))
+
+    sink = S3RawSink(settings)
+    with fetch.build_client(settings) as client:
+        n1 = run.land_community_range(
+            "2026-03-28", "2026-07-18", settings=settings, sink=sink, client=client,
+            journal=_journal(settings, "community", tmp_path),
+            sleep=lambda _s: None, today="2026-07-18", min_recommend=30, view_factor=0)
+        n2 = run.land_community_range(
+            "2026-03-28", "2026-07-18", settings=settings, sink=sink, client=client,
+            journal=_journal(settings, "community", tmp_path),
+            sleep=lambda _s: None, today="2026-07-18", min_recommend=30, view_factor=0)
+    assert n1 == 1  # 710 landed on the first pass
+    assert n2 == 0  # already in S3 -> skipped, re-run lands nothing
+
+
+def _stub_main_io(monkeypatch):
+    monkeypatch.setattr(run, "S3RawSink", lambda settings: object())
+    import kbo_collector.fetch as fetch_mod
+    monkeypatch.setattr(fetch_mod, "build_client",
+                        lambda settings: __import__("contextlib").nullcontext(object()))
+
+
+def test_main_community_with_from_to_calls_range_not_single(monkeypatch):
+    calls = []
+    monkeypatch.setattr(run, "land_community_range",
+                        lambda *a, **k: calls.append(("range", a, k)))
+    monkeypatch.setattr(run, "land_community", lambda *a, **k: calls.append(("single", a, k)))
+    _stub_main_io(monkeypatch)
+    rc = run.main(["community", "--from", "2026-03-28", "--to", "2026-07-18",
+                   "--min-recommend", "30", "--concurrency", "1"])
+    assert rc == 0
+    assert [c[0] for c in calls] == ["range"]           # range only; single not called
+    _, a, k = calls[0]
+    assert a == ("2026-03-28", "2026-07-18")            # start, end passed positionally
+    assert k["min_recommend"] == 30 and k["concurrency"] == 1
+
+
+def test_main_community_without_from_to_calls_single(monkeypatch):
+    # no --from/--to -> unchanged single-date land_community (regression guard).
+    calls = []
+    monkeypatch.setattr(run, "land_community_range", lambda *a, **k: calls.append("range"))
+    monkeypatch.setattr(run, "land_community", lambda *a, **k: calls.append("single"))
+    _stub_main_io(monkeypatch)
+    rc = run.main(["community", "--date", "2026-07-10", "--min-recommend", "30"])
+    assert rc == 0
+    assert calls == ["single"]
+
+
 def test_main_game_job_runs_schedule_result_relay_not_community(monkeypatch):
     calls = []
     monkeypatch.setattr(run, "land_schedule", lambda *a, **k: (calls.append("schedule") or ["g1"]))

@@ -139,6 +139,36 @@ def land_relays(date, game_ids, *, settings, sink, client, journal, force=False)
     return landed
 
 
+def _fetch_list_page_refs(target, url, *, settings, client, journal, today, sleep):
+    """Fetch+parse one list page, tolerating an intermittent failure.
+
+    Re-attempts the same page with a growing pause (e.g. FMKorea's 430 rate-limit)
+    and treats a 200-with-zero-rows page as a rate-limit/interstitial (cool down &
+    retry, not the end of the board). Returns the parsed refs, or None once
+    `community_list_retries` is exhausted -- a persistent block or the genuine end
+    of the listing -- recording a single 'list-fail' journal entry in that case.
+    Shared by the date-filtered daily walk and the range backfill walk.
+    """
+    source = target["source"]
+    last_err = None
+    for attempt in range(settings.community_list_retries):
+        try:
+            list_resp = fetch.fetch(client, url, settings=settings, accept="text/html")
+            parsed = _parse_list(source, list_resp.text, today)
+        except Exception as exc:
+            last_err = exc
+            sleep(settings.fetch_delay_ms / 1000 * (attempt + 2))  # back off, then retry page
+            continue
+        if parsed:
+            return parsed
+        # 200 but zero post rows is usually a rate-limit / interstitial page,
+        # not the real end of the board -> cool down, then retry before believing it.
+        last_err = "empty page (0 post rows)"
+        sleep(settings.rate_limit_cooldown_s + random.uniform(0, settings.retry_backoff_base))
+    journal.record(status="list-fail", source=source, item_id=url, error=str(last_err)[:200])
+    return None
+
+
 def _collect_refs_for_date(target, date, *, settings, client, journal, today, sleep, cap=0,
                            sink=None, incremental=False):
     """Page a target's list, collecting refs authored on `date`.
@@ -158,31 +188,10 @@ def _collect_refs_for_date(target, date, *, settings, client, journal, today, sl
     log = logging.getLogger("kbo_collector.community")
     for page in range(1, max_pages + 1):
         url = _page_url(target["url"], page)
-        # Tolerate an intermittent list-page failure (e.g. FMKorea's 430
-        # rate-limit): re-attempt the same page with a growing pause before
-        # giving up on the whole target.
-        refs = None
-        last_err = None
-        for attempt in range(settings.community_list_retries):
-            try:
-                list_resp = fetch.fetch(client, url, settings=settings, accept="text/html")
-                parsed = _parse_list(source, list_resp.text, today)
-            except Exception as exc:
-                last_err = exc
-                sleep(settings.fetch_delay_ms / 1000 * (attempt + 2))  # back off, then retry page
-                continue
-            if parsed:
-                refs = parsed
-                break
-            # 200 but zero post rows is usually a rate-limit / interstitial page,
-            # not the real end of the board -> cool down, then retry before believing it.
-            last_err = "empty page (0 post rows)"
-            sleep(settings.rate_limit_cooldown_s + random.uniform(0, settings.retry_backoff_base))
+        refs = _fetch_list_page_refs(target, url, settings=settings, client=client,
+                                     journal=journal, today=today, sleep=sleep)
         if refs is None:
-            # exhausted retries: a persistent block, or the genuine end of listing.
-            journal.record(status="list-fail", source=source, item_id=url,
-                           error=str(last_err)[:200])
-            break
+            break  # persistent list block, or the genuine end of listing
         done = False
         for ref in refs:
             if ref.post_date is None or ref.post_date > date:
@@ -315,6 +324,93 @@ def land_community(date, *, settings, sink, client, journal, force=False,
                 elif status == "dead":
                     dead.append(dead_item)
     _write_manifest(sink, "community", date, run_id, landed_keys, dead)
+    return landed
+
+
+def land_community_range(start, end, *, settings, sink, client, journal, force=False,
+                         sleep=time.sleep, today=None, concurrency=None, sources=None,
+                         min_recommend=None, view_factor=None) -> int:
+    """[start, end] 날짜 구간 백필: 날짜순(최신->과거) 리스트 walk **한 번**으로 훑는다.
+
+    날짜별로 land_community(단일 date)를 반복 호출하면 뒤 날짜일수록 앞 날짜를 매번
+    재fetch해 O(N^2)가 되고 FMKorea의 430 rate-limit을 유발한다. 그래서 [start, end]를
+    한 번의 연속 walk로 처리한다(리스트는 date-ordered, 최신->과거 정렬 전제):
+      - post_date > end        -> 아직 범위보다 최신 -> skip(계속 탐색)
+      - start <= post_date <= end -> 인기 필터 통과분을 글의 post_date별 키로 적재
+      - post_date < start      -> 이후는 전부 더 오래됨 -> walk 종료
+    각 글은 keys.community_key(source, post_date, post_id)로 적재되고, sink.exists로
+    이미 적재된 글은 skip(멱등: 재실행 안전). 디테일 fetch/적재는 _land_one_detail을
+    date=post_date로 그대로 재사용한다. community_max_pages backstop,
+    community_list_retries, rate_limit_cooldown, _polite 지터 딜레이도 재사용.
+    인기 필터(_filter_popular)는 페이지 단위로 적용한다(view arm의 평균은 페이지별).
+    FMKorea는 조회수가 없어 recommend arm(--min-recommend)만 유효하며, 그 경우 그룹핑과
+    무관하게 결과가 동일하다.
+    """
+    run_id = journal.run_id
+    today = today or _kst_today()
+    if concurrency is None:
+        concurrency = settings.community_concurrency
+    if min_recommend is None:
+        min_recommend = settings.community_min_recommend
+    if view_factor is None:
+        view_factor = settings.community_view_factor
+    workers = max(1, concurrency)
+    only = {s.upper() for s in sources} if sources else None
+    jlock = threading.Lock()
+    log = logging.getLogger("kbo_collector.community")
+    landed = 0
+    landed_keys: list[str] = []
+    dead: list[str] = []
+    for target in load_targets(settings.targets_file):
+        source = target["source"]
+        team = target.get("team")
+        if only and source.upper() not in only:
+            continue  # --source filter
+        # One continuous newest->oldest walk. List paging stays serial: the
+        # date early-stop depends on page order (detail fetches parallelize).
+        stop = False
+        for page in range(1, settings.community_max_pages + 1):
+            url = _page_url(target["url"], page)
+            refs = _fetch_list_page_refs(target, url, settings=settings, client=client,
+                                         journal=journal, today=today, sleep=sleep)
+            if refs is None:
+                break  # persistent list block, or the genuine end of listing
+            in_range: list = []
+            for ref in refs:
+                if ref.post_date is None or ref.post_date > end:
+                    continue  # unknown/newer than the range -> keep looking
+                if ref.post_date < start:
+                    stop = True  # date-ordered: everything after is older -> stop
+                    break
+                in_range.append(ref)  # start <= post_date <= end
+            kept = _filter_popular(in_range, min_recommend, view_factor)
+            if len(kept) != len(in_range):
+                journal.record(status="filtered", source=source,
+                               item_id=f"{source}-popular", bytes=len(kept))
+            journal.record(status="page", source=source, item_id=f"{source}-p{page}",
+                           bytes=len(kept))
+            with ThreadPoolExecutor(max_workers=workers) as ex:
+                futures = [
+                    ex.submit(_land_one_detail, ref, source=source, team=team,
+                              date=ref.post_date, settings=settings, sink=sink,
+                              client=client, run_id=run_id, journal=journal,
+                              jlock=jlock, force=force, sleep=sleep)
+                    for ref in kept
+                ]
+                for fut in as_completed(futures):  # accumulate on the main thread
+                    status, key, dead_item = fut.result()
+                    if status == "ok":
+                        landed += 1
+                        landed_keys.append(key)
+                    elif status == "dead":
+                        dead.append(dead_item)
+            if stop:
+                break
+            _polite(sleep, settings)  # jittered polite delay between list pages
+        log.info("%s %s: range %s..%s landed=%d", source, team or "", start, end, landed)
+    # One manifest for the whole range (date param -> "<start>_<end>" so it never
+    # collides with a single-date community manifest).
+    _write_manifest(sink, "community", f"{start}_{end}", run_id, landed_keys, dead)
     return landed
 
 
@@ -496,12 +592,24 @@ def main(argv=None) -> int:
                             journal=Journal("relay", date, run_id, settings.journal_dir),
                             force=args.force)
         if args.job in ("community", "all"):
-            land_community(date, settings=settings, sink=sink, client=client,
-                           journal=Journal("community", date, run_id, settings.journal_dir),
-                           force=args.force, cap=args.cap, concurrency=args.concurrency,
-                           sources=args.source.split(",") if args.source else None,
-                           incremental=args.incremental,
-                           min_recommend=args.min_recommend, view_factor=args.view_factor)
+            sources = args.source.split(",") if args.source else None
+            if args.job == "community" and (args.from_date or args.to_date):
+                # Date-range backfill: one continuous newest->oldest walk over
+                # [from, to]. Needs a date-ordered target file (order != popular),
+                # e.g. config/targets.fmkorea.backfill.yaml.
+                start = args.from_date or args.to_date
+                end = args.to_date or args.from_date
+                land_community_range(
+                    start, end, settings=settings, sink=sink, client=client,
+                    journal=Journal("community", f"{start}_{end}", run_id, settings.journal_dir),
+                    force=args.force, concurrency=args.concurrency, sources=sources,
+                    min_recommend=args.min_recommend, view_factor=args.view_factor)
+            else:
+                land_community(date, settings=settings, sink=sink, client=client,
+                               journal=Journal("community", date, run_id, settings.journal_dir),
+                               force=args.force, cap=args.cap, concurrency=args.concurrency,
+                               sources=sources, incremental=args.incremental,
+                               min_recommend=args.min_recommend, view_factor=args.view_factor)
     return 0
 
 
