@@ -1,11 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  launchd LaunchAgent: run the FMKorea popular-KBO catch-up once a day (13:00 KST).
+  launchd LaunchAgent: FMKorea popular-KBO top-up every 30 minutes.
 
-  WHY launchd, not cron: if the Mac is asleep or off at 13:00, cron skips the run
-  entirely. launchd instead runs the missed job ONCE when the Mac next wakes/boots.
-  Combined with catchup_fmkorea.sh's lookback window (default 7 days), a few skipped
-  days are filled the next time the laptop is on. Idempotent, so an extra run is a no-op.
+  WHY launchd, not cron: cron skips runs while the Mac is asleep; launchd fires a
+  missed StartInterval ONCE on the next wake. Combined with catchup_fmkorea.sh's
+  lookback window, gaps up to LOOKBACK_DAYS are filled the next time the laptop is
+  on. Idempotent (S3 dedup), so frequent runs only fetch posts not yet landed.
+  launchd never starts a second instance while one is still running, and
+  catchup_fmkorea.sh itself skips when a manual backfill_fmkorea.sh is active,
+  so runs cannot pile up on FMKorea.
 
   INSTALL (FIRST replace every /ABS/PATH/TO/REPO below with your clone's location,
   e.g. /Users/you/VictoryFairy -- launchd needs absolute paths, no ~ or env expansion):
@@ -35,17 +38,20 @@
         <!-- launchd starts with a bare PATH; add Homebrew (aws) + system dirs. -->
         <key>PATH</key>
         <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
-        <!-- Optional: widen the gap the window tolerates if you skip many days. -->
+        <!-- 3-day window: each 30-min run re-walks only ~7-8 popularity-sorted list
+             pages (S3-deduped), yet a weekend with the laptop off still gets filled
+             on the next run. Widen if you skip more days. -->
         <key>LOOKBACK_DAYS</key>
-        <string>7</string>
+        <string>3</string>
+        <!-- One pass per firing: the next firing is 30 min away anyway, so the
+             runner's multi-pass/block-cooldown loop would only add FMKorea load. -->
+        <key>MAX_RUNS</key>
+        <string>1</string>
     </dict>
 
-    <!-- Daily at 13:00 (local time), when the laptop is likely on/awake. -->
-    <key>StartCalendarInterval</key>
-    <dict>
-        <key>Hour</key><integer>13</integer>
-        <key>Minute</key><integer>0</integer>
-    </dict>
+    <!-- Every 30 minutes while awake; one catch-up firing after a sleep/boot gap. -->
+    <key>StartInterval</key>
+    <integer>1800</integer>
 
     <!-- Don't fire the moment you `launchctl load` it; wait for the schedule. -->
     <key>RunAtLoad</key>
