@@ -81,6 +81,24 @@ public class AuthService {
     }
 
     /**
+     * 닉네임 중복 <b>단독</b> 검사. {@link #validateNickname(String)}와 달리 정책(길이·문자) 검사 없이
+     * {@link #isNicknameDuplicated(String)}만 호출한다 — 프론트에서 정책 검사를 이미 통과한 뒤 "중복
+     * 확인" 버튼처럼 중복만 다시 확인하는 용도다.
+     *
+     * <p><b>주의</b>: 정책을 보지 않으므로 정책 위반이지만 미점유인 닉네임(예: {@code "hi!"})에도
+     * {@link NicknameValidationResponse#passed()}(valid:true)를 반환한다 — 이 응답의 "사용 가능"은
+     * <b>중복이 아니라는 뜻</b>일 뿐 가입 가능 보장이 아니다. 정책까지 함께 판정하려면
+     * {@link #validateNickname(String)}를 쓴다. 중복 판정은 signup과 동일한 {@code existsByNickname}
+     * 재사용이라 탈퇴 닉네임도 점유로 잡는다. 컨트롤러는 이 결과를 항상 200으로 응답한다.
+     */
+    public NicknameValidationResponse checkNicknameDuplicate(String nickname) {
+        if (isNicknameDuplicated(nickname)) {
+            return NicknameValidationResponse.violated(ErrorCode.DUPLICATE_NICKNAME.getMessage());
+        }
+        return NicknameValidationResponse.passed();
+    }
+
+    /**
      * 1단계: 정책 검사(순수, DB 미조회). {@link NicknamePolicy#findViolation(String)}에 위임한다.
      * signup 검증({@code @ValidNickname})과 문자 그대로 같은 함수를 공유한다.
      *

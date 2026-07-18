@@ -65,6 +65,23 @@ public class AuthController {
         return ResponseEntity.ok(ApiResponse.ok(result));
     }
 
+    /**
+     * 닉네임 중복 단독 검사. {@code /nickname/validate}가 정책→중복 2단계를 모두 도는 것과 달리, 이
+     * 엔드포인트는 <b>중복(DB)만</b> 확인한다(정책 미검사). 정책 검사를 이미 마친 화면에서 "중복 확인"만
+     * 다시 수행하는 용도다.
+     *
+     * <p>{@code /nickname/validate}와 동일하게 <b>항상 200</b> + {@code valid} 결과로 응답하고 요청에
+     * {@code @Valid}를 걸지 않는다(임의 문자열 허용). 다만 정책을 보지 않으므로 {@code valid:true}는
+     * "중복이 아니다"일 뿐 가입 가능 보장이 아니다({@link AuthService#checkNicknameDuplicate(String)}
+     * 참고). signup의 중복은 기존대로 409를 유지한다.
+     */
+    @PostMapping("/nickname/duplicate")
+    public ResponseEntity<ApiResponse<NicknameValidationResponse>> checkNicknameDuplicate(
+            @RequestBody NicknameValidationRequest request) {
+        NicknameValidationResponse result = authService.checkNicknameDuplicate(request.nickname());
+        return ResponseEntity.ok(ApiResponse.ok(result));
+    }
+
     @PostMapping("/signup")
     public ResponseEntity<Boolean> signup(@Valid @RequestBody SignupRequest request) {
         Long userAccountId = authService.signup(request);
