@@ -37,8 +37,13 @@ EventBridge 스케줄이 컨테이너-이미지 Lambda를 호출합니다:
 배포는 `deploy/lambda/`(핸들러 + Dockerfile + Terraform). 자세한 건 [`deploy/lambda/README.md`](deploy/lambda/README.md).
 
 ## 문서
+- 디렉토리 구조(어디 고치면 뭐 바뀌나): [`docs/directory-structure.md`](docs/directory-structure.md)
 - 크롤링 플로우: [`docs/crawl-flow.md`](docs/crawl-flow.md)
-- 데이터 포맷: [`docs/data-formats.md`](docs/data-formats.md)
+- 데이터 포맷(원본·RawPost): [`docs/data-formats.md`](docs/data-formats.md)
+- question-source envelope(질문생성 인계): [`docs/envelope-format.md`](docs/envelope-format.md)
+- 전체 개요·요구사항 검토: [`docs/current-crawl-overview.md`](docs/current-crawl-overview.md) · [`docs/data-pipeline-requirements.md`](docs/data-pipeline-requirements.md)
+
+> Claude Code로 이 디렉토리를 작업한다면 [`CLAUDE.md`](CLAUDE.md)가 문서 맵·주의사항 진입점입니다.
 
 ## 구조
 ```

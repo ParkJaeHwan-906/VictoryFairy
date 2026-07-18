@@ -330,3 +330,10 @@ FMKorea·DCInside 글을 파싱해 만든 통일 스키마. **정형 3종과 달
 | 저장 | S3 | S3 | S3 | **MySQL(정규화)** | S3 |
 | 스키마 소유 | 네이버 | 네이버 | 네이버 | 네이버(원본)→우리(테이블) | **우리(v2)** |
 | 가공 | 없음(원본) | 없음(원본) | 없음(원본) | 파싱→정규화 적재 | HTML 파싱 + 작성자 마스킹 |
+
+---
+
+## 관련 문서
+
+- 여기(원본·RawPost) 다음 단계인 질문생성 인계 산출물: [`envelope-format.md`](./envelope-format.md)
+- 파일 배치·MySQL 테이블 스키마: [`directory-structure.md`](./directory-structure.md) · [`current-crawl-overview.md`](./current-crawl-overview.md)

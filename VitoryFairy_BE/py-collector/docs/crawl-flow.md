@@ -143,6 +143,8 @@ flowchart TD
 
 ## 관련 문서
 
+- 파일 배치(어디 고치면 뭐 바뀌나): [`directory-structure.md`](./directory-structure.md)
 - 적재되는 JSON의 필드/구조: [`data-formats.md`](./data-formats.md)
+- question-source 최종 산출물(envelope): [`envelope-format.md`](./envelope-format.md)
 - 현재 크롤링 개요(미팅용): [`current-crawl-overview.md`](./current-crawl-overview.md)
 - 실행용 노트북: [`../notebooks/run_crawler.ipynb`](../notebooks/run_crawler.ipynb)
