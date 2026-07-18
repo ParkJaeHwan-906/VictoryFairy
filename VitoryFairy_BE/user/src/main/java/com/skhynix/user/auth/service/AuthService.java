@@ -9,10 +9,13 @@ import com.skhynix.domain.user.repository.UserRepository;
 import com.skhynix.common.error.BusinessException;
 import com.skhynix.common.error.ErrorCode;
 import com.skhynix.user.auth.dto.LoginRequest;
+import com.skhynix.user.auth.dto.NicknameValidationResponse;
 import com.skhynix.user.auth.dto.SignupRequest;
 import com.skhynix.user.auth.dto.TokenResponse;
+import com.skhynix.user.auth.policy.NicknamePolicy;
 import com.skhynix.user.global.jwt.JwtTokenProvider;
 import java.time.LocalDateTime;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -55,6 +58,44 @@ public class AuthService {
                 .build());
 
         return account.getId();
+    }
+
+    /**
+     * 닉네임 사전 검사(2단 파이프라인). <b>정책 검사 → 중복 검사</b> 순서로 수행하며, 세 결과 모두
+     * 예외 없이 {@link NicknameValidationResponse}로 반환한다(컨트롤러가 항상 200으로 응답).
+     *
+     * <p>단계는 각각 독립된 판정 메서드로 분리돼 있고({@link #findNicknamePolicyViolation(String)},
+     * {@link #isNicknameDuplicated(String)}), 이 메서드는 그 둘을 순서대로 호출하는 오케스트레이션만
+     * 담당한다. <b>정책이 위반이면 즉시 반환하고 중복(DB) 검사는 수행하지 않는다</b>(우선순위:
+     * 길이 → 문자 → 중복). 정책을 통과했을 때만 중복 검사로 넘어간다.
+     */
+    public NicknameValidationResponse validateNickname(String nickname) {
+        Optional<String> policyViolation = findNicknamePolicyViolation(nickname);
+        if (policyViolation.isPresent()) {
+            return NicknameValidationResponse.violated(policyViolation.get());
+        }
+        if (isNicknameDuplicated(nickname)) {
+            return NicknameValidationResponse.violated(ErrorCode.DUPLICATE_NICKNAME.getMessage());
+        }
+        return NicknameValidationResponse.passed();
+    }
+
+    /**
+     * 1단계: 정책 검사(순수, DB 미조회). {@link NicknamePolicy#findViolation(String)}에 위임한다.
+     * signup 검증({@code @ValidNickname})과 문자 그대로 같은 함수를 공유한다.
+     *
+     * @return 위반 시 정책 위반 메시지, 통과 시 {@link Optional#empty()}
+     */
+    public Optional<String> findNicknamePolicyViolation(String nickname) {
+        return NicknamePolicy.findViolation(nickname);
+    }
+
+    /**
+     * 2단계: 중복 검사(DB 조회). signup과 동일한 {@code existsByNickname}을 재사용해 두 경로의 중복
+     * 판정이 어긋나지 않게 한다. 이 메서드는 {@code exit_at}을 거르지 않아 탈퇴 닉네임도 점유로 잡는다.
+     */
+    public boolean isNicknameDuplicated(String nickname) {
+        return userAccountRepository.existsByNickname(nickname);
     }
 
     @Transactional
