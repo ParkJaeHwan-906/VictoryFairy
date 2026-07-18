@@ -1,8 +1,23 @@
-# Copy to terraform.tfvars and edit.
+# Copy to a per-environment tfvars file and edit.
+#
+# dev/prod are SEPARATE stacks. `name` drives the ECR repo, Lambda function, IAM
+# roles, and EventBridge rule names, so give each environment its own `name` and
+# `data_bucket_name`, and isolate their state with a terraform workspace
+# (see deploy/lambda/README.md "배포 (dev/prod 별도 스택)").
+#
+#   dev : cp this -> terraform.dev.tfvars  ; terraform apply -var-file=terraform.dev.tfvars
+#   prod: cp this -> terraform.prod.tfvars ; terraform apply -var-file=terraform.prod.tfvars
+
+# --- dev stack ---
 region           = "ap-northeast-2"
-name             = "kbo-collector"
-data_bucket_name = "victoryfairy-crawl-local"
+name             = "kbo-collector-dev"
+data_bucket_name = "victoryfairy-crawl-dev"   # 버킷은 미리 생성돼 있어야 함(terraform이 안 만듦)
 architecture     = "arm64" # arm64 (cheaper) or x86_64
+# pii_salt       = ""      # empty -> random; dev/prod salt는 서로 다르게 두는 걸 권장
+
+# --- prod stack (별도 workspace + 별도 tfvars) ---
+# name             = "kbo-collector"
+# data_bucket_name = "victoryfairy-crawl-prod"
+
 # community_schedule = "rate(10 minutes)"
 # game_schedule      = "cron(0 18 * * ? *)"   # 03:00 KST
-# pii_salt         = ""                       # empty -> random generated
