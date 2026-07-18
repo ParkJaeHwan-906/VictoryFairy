@@ -15,7 +15,9 @@ JWT 기반 인증/인가 + 회원 탈퇴. signup·login·refresh·logout·withdr
 - `global.error.RestAuthenticationEntryPoint` — 미인증 요청 401 + `ApiResponse` JSON. `ExceptionTranslationFilter` 단계(`DispatcherServlet` 밖)에서 호출돼 `@RestControllerAdvice`가 못 잡는 경로라 직접 직렬화한다. `quiz`가 그대로 import해 공유(`JwtAuthenticationFilter`와 동일한 커플링 — 생성자 바뀌면 quiz도 같이 고칠 것)
 - `auth.policy.PasswordPolicy` — 비밀번호 정책(길이 8~12, 영문+숫자+특수문자)의 **단일 출처**. `findViolation()`을 signup 검증과 `/password/validate`가 공유
 - `auth.policy.ValidPassword`/`PasswordValidator` — `PasswordPolicy.findViolation()`에 위임하는 커스텀 제약
-- DTO는 전부 **record**: `SignupRequest`, `LoginRequest`, `TokenRequest/Response`, `PasswordValidationRequest/Response` (`SignupResponse`는 `AuthController`에 import만 되어 있고 미사용 — signup은 `ResponseEntity<Boolean>` 반환)
+- `auth.policy.NicknamePolicy` — 닉네임 정책(허용 문자 화이트리스트 `[가-힣ㄱ-ㅎㅏ-ㅣa-zA-Z0-9]`, 길이 1~10, 위반 우선순위 길이→문자)의 **단일 출처**. `PasswordPolicy`와 동일 구조. `findViolation()`을 signup 검증과 `/nickname/validate`가 공유(중복은 여기서 판정하지 않음)
+- `auth.policy.ValidNickname`/`NicknameValidator` — `ValidPassword`/`PasswordValidator`를 그대로 미러링해 `NicknamePolicy.findViolation()`에 위임하는 커스텀 제약
+- DTO는 전부 **record**: `SignupRequest`, `LoginRequest`, `TokenRequest/Response`, `PasswordValidationRequest/Response`, `NicknameValidationRequest/Response` (`SignupResponse`는 `AuthController`에 import만 되어 있고 미사용 — signup은 `ResponseEntity<Boolean>` 반환)
 
 ## 엔드포인트
 ```
@@ -24,6 +26,8 @@ POST /api/auth/login              LoginRequest  → TokenResponse
 POST /api/auth/refresh            TokenRequest  → TokenResponse
 POST /api/auth/logout             TokenRequest  → 204
 POST /api/auth/password/validate  PasswordValidationRequest → ApiResponse<PasswordValidationResponse> (항상 200)
+POST /api/auth/nickname/validate  NicknameValidationRequest → ApiResponse<NicknameValidationResponse> (항상 200)
+POST /api/auth/nickname/duplicate NicknameValidationRequest → ApiResponse<NicknameValidationResponse> (항상 200, 중복만 검사)
 DELETE /api/users/me              (본문 없음, access 필수) → 204
 ```
 `/api/users/me`는 `/api/auth/**` 밖의 첫 엔드포인트이자 `anyRequest().authenticated()`에 실제로 걸리는 첫 경로다(`SecurityConfig` 수정 불필요 — 기존 규칙에 그대로 걸림). `/api/auth/**`는 전부 `permitAll`이라 탈퇴를 그쪽에 두면 인증이 걸리지 않는다.
@@ -50,5 +54,8 @@ DELETE /api/users/me              (본문 없음, access 필수) → 204
 - 비번: 저장 `passwordEncoder.encode()`, 검증 `matches()`
 - 설정: `jwt.secret`(32B+), access 3h(10800000ms) / refresh 14d(1209600000ms)
 - DB 환경변수: `DB_HOST/PORT/NAME/USERNAME/PASSWORD` · dev `ddl-auto=create`
-- **`SignupRequest.password`에 `@Size`/`@Pattern`을 겹쳐 걸지 말 것**: `@ValidPassword` 단일 애노테이션만 사용. 동시 위반 시 `GlobalExceptionHandler`가 `Map<필드명,메시지>`에 `put`하는 구조라 위반이 2개면 순회 순서 비보장으로 응답 메시지가 비결정적이 된다. `/validate`와 signup 메시지가 항상 같아야 하는 이유도 동일(둘 다 `PasswordPolicy` 공유, 길이 위반 우선)
-- `user/src/test`: 11개 클래스 76개 테스트(`AuthControllerPasswordValidateTest` 20 · `AuthControllerSignupTest` 9 · `PasswordPolicyViolationCountTest` 7 · `JwtTokenProviderTest` 8 · `JwtAuthenticationFilterTest` 5 · `RestAuthenticationEntryPointTest` 2 · `AuthControllerAuthenticationEntryPointTest` 4 · `AuthServiceTest` 10 · `UserAccountControllerTest` 5 · `UserAccountServiceTest` 3 · `UserAccountWithdrawTest` 3), 전부 통과. 컨트롤러 슬라이스: `UserApplication`이 `@EnableJpaRepositories(basePackages="com.skhynix")`를 들고 있어 `@WebMvcTest`만으로는 `entityManagerFactory` 부재로 컨텍스트 로딩 실패 → `@ContextConfiguration(classes = AuthController.class)`로 자동 병합을 끄고 `@Import({SecurityConfig, GlobalExceptionHandler})`로 필요한 빈만 명시하는 패턴 사용. **`SecurityFilterChain` 빈 구성에 `UserAccountRepository`도 필요해 `@MockitoBean`으로 같이 넣어야 함**(빠뜨리면 컨텍스트 로딩 실패). `RestAuthenticationEntryPointTest`는 스프링 컨텍스트 없이 단위로 직렬화만 검증. `AuthServiceTest`는 이 모듈 첫 `AuthService` 유닛 테스트
+- **`SignupRequest.password`/`nickname`에 `@Size`/`@Pattern`(nickname은 `@NotBlank`도)을 겹쳐 걸지 말 것**: 각각 `@ValidPassword`/`@ValidNickname` 단일 애노테이션만 사용. 동시 위반 시 `GlobalExceptionHandler`가 `Map<필드명,메시지>`에 `put`하는 구조라 위반이 2개면 순회 순서 비보장으로 응답 메시지가 비결정적이 된다. `/validate`류와 signup 메시지가 항상 같아야 하는 이유도 동일(각각 `PasswordPolicy`/`NicknamePolicy` 공유, 길이 위반 우선)
+- **닉네임 사전 검사는 정책→중복 2단 파이프라인**(비밀번호 사전 검사와 다름): `AuthService.validateNickname()`이 `findNicknamePolicyViolation()`(순수, DB 미조회) → `isNicknameDuplicated()`(`existsByNickname` 위임) 순서로 호출하고, 정책 위반이면 중복 조회를 생략한다. **validate의 중복은 200, signup의 중복은 409**(둘 다 같은 `existsByNickname`을 공유하지만 상태 코드는 의도적으로 다름 — signup만 실제 가입 실패라 409). 탈퇴 닉네임도 `existsByNickname`이 걸러내지 않아 두 경로 모두 점유로 판정(재가입 불가 정책과 일치)
+- **`checkNicknameDuplicate()`은 중복만 보는 단독 검사**(`/nickname/duplicate`): 정책(`findNicknamePolicyViolation`) 없이 `isNicknameDuplicated()`만 호출 — `validateNickname()`의 정책→중복 2단과 달리 1단이다. 정책 위반이지만 미점유인 닉네임(예: `"hi!"`)에도 `valid:true`가 나올 수 있음(의도된 동작, "사용 가능"=중복 아님일 뿐 가입 가능 보장 아님). 프론트에서 정책 검사를 이미 통과시킨 뒤 "중복 확인" 버튼 용도로 분리
+- `user/src/test`: 19개 클래스 143개 테스트(`AuthControllerPasswordValidateTest` 20 · `AuthControllerSignupTest` 9 · `PasswordPolicyViolationCountTest` 7 · `JwtTokenProviderTest` 8 · `JwtAuthenticationFilterTest` 5 · `RestAuthenticationEntryPointTest` 2 · `AuthControllerAuthenticationEntryPointTest` 4 · `AuthServiceTest` 10 · `UserAccountControllerTest` 5 · `UserAccountServiceTest` 3 · `UserAccountWithdrawTest` 3 · `NicknamePolicyTest` 19 · `NicknamePolicyViolationCountTest` 8 · `AuthServiceValidateNicknameTest` 9 · `NicknamePolicyCrossCheckTest` 9 · `AuthControllerNicknameValidateTest` 7 · `AuthControllerSignupNicknameTest` 8 · `AuthServiceCheckNicknameDuplicateTest` 4 · `AuthControllerNicknameDuplicateTest` 3), 전부 통과. 컨트롤러 슬라이스: `UserApplication`이 `@EnableJpaRepositories(basePackages="com.skhynix")`를 들고 있어 `@WebMvcTest`만으로는 `entityManagerFactory` 부재로 컨텍스트 로딩 실패 → `@ContextConfiguration(classes = AuthController.class)`로 자동 병합을 끄고 `@Import({SecurityConfig, GlobalExceptionHandler})`로 필요한 빈만 명시하는 패턴 사용. **`SecurityFilterChain` 빈 구성에 `UserAccountRepository`도 필요해 `@MockitoBean`으로 같이 넣어야 함**(빠뜨리면 컨텍스트 로딩 실패). `RestAuthenticationEntryPointTest`는 스프링 컨텍스트 없이 단위로 직렬화만 검증. `AuthServiceTest`는 이 모듈 첫 `AuthService` 유닛 테스트
+- **로컬 실측 함정**: `GRADLE_USER_HOME`이 한글 경로를 포함하면 Gradle 테스트 워커가 죽는다 — ASCII 전용 임시 홈(`-Dgradle.user.home=<ascii-path>` 또는 `GRADLE_USER_HOME` 재설정)으로 우회해야 로컬에서 테스트가 돈다. 코드 문제 아님, 재조사하지 말 것
