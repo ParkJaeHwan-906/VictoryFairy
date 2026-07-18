@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd LaunchAgent: run the FMKorea popular-KBO catch-up once a day (13:00 KST).
+
+  WHY launchd, not cron: if the Mac is asleep or off at 13:00, cron skips the run
+  entirely. launchd instead runs the missed job ONCE when the Mac next wakes/boots.
+  Combined with catchup_fmkorea.sh's lookback window (default 7 days), a few skipped
+  days are filled the next time the laptop is on. Idempotent, so an extra run is a no-op.
+
+  INSTALL (FIRST replace every /ABS/PATH/TO/REPO below with your clone's location,
+  e.g. /Users/you/VictoryFairy -- launchd needs absolute paths, no ~ or env expansion):
+    cp deploy/local/com.victoryfairy.fmkorea-catchup.plist ~/Library/LaunchAgents/
+    # then edit the copied file's 3 paths, and:
+    launchctl load ~/Library/LaunchAgents/com.victoryfairy.fmkorea-catchup.plist
+  RUN NOW (test):   launchctl start com.victoryfairy.fmkorea-catchup
+  STATUS:           launchctl list | grep fmkorea-catchup
+  UNINSTALL:        launchctl unload ~/Library/LaunchAgents/com.victoryfairy.fmkorea-catchup.plist
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.victoryfairy.fmkorea-catchup</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/ABS/PATH/TO/REPO/VitoryFairy_BE/py-collector/deploy/local/catchup_fmkorea.sh</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <!-- Target bucket for the dev stack. AWS creds come from ~/.aws automatically. -->
+        <key>COLLECTOR_S3_BUCKET</key>
+        <string>victoryfairy-crawl-dev</string>
+        <!-- launchd starts with a bare PATH; add Homebrew (aws) + system dirs. -->
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <!-- Optional: widen the gap the window tolerates if you skip many days. -->
+        <key>LOOKBACK_DAYS</key>
+        <string>7</string>
+    </dict>
+
+    <!-- Daily at 13:00 (local time), when the laptop is likely on/awake. -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key><integer>13</integer>
+        <key>Minute</key><integer>0</integer>
+    </dict>
+
+    <!-- Don't fire the moment you `launchctl load` it; wait for the schedule. -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/ABS/PATH/TO/REPO/VitoryFairy_BE/py-collector/logs/launchd-catchup.out</string>
+    <key>StandardErrorPath</key>
+    <string>/ABS/PATH/TO/REPO/VitoryFairy_BE/py-collector/logs/launchd-catchup.err</string>
+</dict>
+</plist>
