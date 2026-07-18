@@ -232,12 +232,19 @@ def _filter_popular(refs, min_recommend, view_factor):
         return refs
     seen_views = [r.views for r in refs if r.views is not None]
     avg = (sum(seen_views) / len(seen_views)) if seen_views else None
+    # 배치가 인기 신호를 조금이라도 제공하면(어느 행이든 recommend/views 값 있음),
+    # 값이 빠진 행은 0으로 간주해 임계와 비교한다 — FMKorea 추천란 빈칸(None)은
+    # 추천 ~0이라 min_recommend에 미달해 걸러진다. 배치 전체가 신호가 없을 때만
+    # (모든 값이 None인 소스/픽스처) 판단 불가로 보고 그대로 둔다.
+    has_rec = any(r.recommend is not None for r in refs)
+    has_view = any(r.views is not None for r in refs)
     kept = []
     for r in refs:
-        if r.recommend is None and r.views is None:
+        if not has_rec and not has_view:
             kept.append(r)
             continue
-        by_rec = min_recommend > 0 and r.recommend is not None and r.recommend >= min_recommend
+        rec = r.recommend if r.recommend is not None else 0
+        by_rec = min_recommend > 0 and rec >= min_recommend
         by_view = (view_factor > 0 and r.views is not None and avg
                    and r.views >= view_factor * avg)
         if by_rec or by_view:

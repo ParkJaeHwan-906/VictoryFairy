@@ -92,10 +92,19 @@ def test_filter_popular_or_semantics():
 
 
 def test_filter_popular_keeps_signalless_and_disabled():
+    # 배치 전체가 무신호(views/recommend 모두 None)면 판단 불가 -> 전부 keep
+    signalless = [_ref("a"), _ref("b")]
+    assert {r.post_id for r in run._filter_popular(signalless, 10, 3.0)} == {"a", "b"}
+    # 임계 0/0이면 필터 비활성 -> 전부 keep
     refs = [_ref("nosig"), _ref("low", views=1, recommend=0)]
-    # both-None kept; disabled (0/0) keeps everything
-    assert [r.post_id for r in run._filter_popular(refs, 10, 3.0)] == ["nosig"]
     assert run._filter_popular(refs, 0, 0) == refs
+
+
+def test_filter_popular_blank_recommend_treated_as_zero():
+    # FMKorea: 배치에 추천 신호가 있으면 추천란 빈칸(None)은 0으로 간주해 미달 drop.
+    refs = [_ref("blank"), _ref("hot", recommend=50)]
+    kept = run._filter_popular(refs, min_recommend=30, view_factor=0)
+    assert [r.post_id for r in kept] == ["hot"]
 
 
 def test_dcinside_list_reads_post_date_from_title():
