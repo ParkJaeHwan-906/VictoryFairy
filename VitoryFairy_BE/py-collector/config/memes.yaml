@@ -1,0 +1,16 @@
+# 선수-밈 사전 (사람이 직접 관리). 형식:
+#   - player: { name: <등록명>, team: <팀코드 OB LG SS KT WO HT HH NC LT SK> }
+#     memes:
+#       - text: "<밈/별명>"
+#         origin: "<유래 한 줄>"
+#         tags: [별명]        # 선택
+- player: { name: 김도영, team: HT }
+  memes:
+    - text: "KIA의 젊은 핵심"
+      origin: "2024년 이후 KIA 타선의 중심으로 자리잡은 내야수라는 평가"
+      tags: [별명]
+- player: { name: 오스틴, team: LG }
+  memes:
+    - text: "오카도"
+      origin: "오스틴+아보카도 합성 팬 별명"
+      tags: [별명]

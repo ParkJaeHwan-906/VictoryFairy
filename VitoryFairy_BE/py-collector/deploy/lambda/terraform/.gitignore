@@ -1,0 +1,10 @@
+# Terraform local state, vars, and provider cache — never commit.
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+.terraform/
+.terraform.lock.hcl
+crash.log
+# Saved plan output (regenerable, binary)
+tfplan

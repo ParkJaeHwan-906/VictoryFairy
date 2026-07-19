@@ -1,0 +1,10 @@
+{
+  "result": {
+    "textRelayData": {
+      "textRelays": [
+        {"seqno": 1, "text": "1번타자 안타"},
+        {"seqno": 2, "text": "2번타자 삼진"}
+      ]
+    }
+  }
+}
