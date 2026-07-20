@@ -28,6 +28,7 @@
 - 설정 파일 2개가 존재하며 용도가 갈린다:
   - `nginx.conf` (루트) — **현재 사용 중**. compose 컨테이너에 마운트되고, CI(`deploy.yml`)가 EC2로 scp하는 것도 이 파일뿐.
   - `infra/nginx/victoryfairy.conf` — **레거시**. EC2 호스트 nginx 시절 설정으로, 어떤 파이프라인에서도 참조하지 않음 (삭제 후보).
+- 경로 라우팅(`nginx.conf`): `/api/auth`→`user:8080` · `/api/quiz`, `/api/chat`→`quiz:8081`. SSE 구독 경로(`~ ^/api/chat/rooms/[^/]+/subscribe$`)는 일반 `/api/chat` 블록보다 먼저 매치되는 별도 `location`으로 `proxy_buffering off`·`proxy_cache off`·`proxy_read_timeout 3600s`(앱 SSE 타임아웃 30분보다 여유)·`proxy_http_version 1.1`+keep-alive(`Connection ''`)를 준다. 이 블록에서 `proxy_set_header`를 하나라도 지정하면 서버 블록의 Host/X-Real-IP/X-Forwarded-For/X-Forwarded-Proto 상속이 통째로 끊기는 nginx 특성 때문에 4개 헤더를 전부 재선언한다. `/api/chat`이 배포되면 quiz의 첫 실동작 엔드포인트가 외부에 노출된다(이전엔 quiz에 컨트롤러가 없어 `/api/quiz`가 사실상 항상 404였음).
 
 ---
 
