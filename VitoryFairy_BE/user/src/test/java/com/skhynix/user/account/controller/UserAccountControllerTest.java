@@ -14,8 +14,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.skhynix.domain.user.repository.UserAccountRepository;
 import com.skhynix.user.account.service.UserAccountService;
 import com.skhynix.user.global.config.SecurityConfig;
-import com.skhynix.user.global.error.GlobalExceptionHandler;
-import com.skhynix.user.global.jwt.JwtTokenProvider;
+import com.skhynix.websupport.error.GlobalExceptionHandler;
+import com.skhynix.websupport.jwt.JwtTokenProvider;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;

@@ -28,6 +28,7 @@
 - 설정 파일 2개가 존재하며 용도가 갈린다:
   - `nginx.conf` (루트) — **현재 사용 중**. compose 컨테이너에 마운트되고, CI(`deploy.yml`)가 EC2로 scp하는 것도 이 파일뿐.
   - `infra/nginx/victoryfairy.conf` — **레거시**. EC2 호스트 nginx 시절 설정으로, 어떤 파이프라인에서도 참조하지 않음 (삭제 후보).
+- 경로 라우팅(`nginx.conf`): `/api/auth`→`user:8080` · `/api/quiz`, `/api/chat`→`quiz:8081`. SSE 구독 경로(`~ ^/api/chat/rooms/[^/]+/subscribe$`)는 일반 `/api/chat` 블록보다 먼저 매치되는 별도 `location`으로 `proxy_buffering off`·`proxy_cache off`·`proxy_read_timeout 3600s`(앱 SSE 타임아웃 30분보다 여유)·`proxy_http_version 1.1`+keep-alive(`Connection ''`)를 준다. 이 블록에서 `proxy_set_header`를 하나라도 지정하면 서버 블록의 Host/X-Real-IP/X-Forwarded-For/X-Forwarded-Proto 상속이 통째로 끊기는 nginx 특성 때문에 4개 헤더를 전부 재선언한다. `/api/chat`이 배포되면 quiz의 첫 실동작 엔드포인트가 외부에 노출된다(이전엔 quiz에 컨트롤러가 없어 `/api/quiz`가 사실상 항상 404였음).
 
 ---
 
@@ -50,7 +51,6 @@
 ---
 
 ## 배포 파이프라인 알려진 갭
-- **create 모듈 이미지 낭비**: `docker-compose.yml` / `docker-compose.prod.yml` 둘 다 `create` 서비스가 주석 처리(의도적 미배포)인데, `deploy.yml`의 `detect` 잡은 여전히 create를 빌드 대상에 포함해 GHCR에 push한다. → 배포되지 않는 이미지가 계속 쌓임. create를 compose에 되살리기 전엔 CI `detect` 로직에서도 빼는 게 맞음.
 - **헬스체크 부재(redis 포함)**: `docker-compose.prod.yml`에 healthcheck가 없다. nginx의 `/healthz`는 nginx 자신이 200을 반환할 뿐 백엔드를 보지 않는다. user/quiz의 SecurityConfig에는 `GET /health` permit 규칙만 있고 이를 처리하는 컨트롤러/actuator가 **아예 없어** 실제 호출 시 404 — nginx 라우팅 노출 여부와 무관하게 **운영 앱이 실제로 살아있는지 확인할 수단 자체가 없다.** 선결 과제는 nginx 노출이 아니라 health 엔드포인트 구현. `redis` 서비스(이메일 인증 상태 저장, `user`가 의존)도 prod에서는 healthcheck·조건부 `depends_on`이 없어 같은 갭을 그대로 물려받았다(로컬 `docker-compose.yml`은 `healthcheck` + `depends_on: redis: condition: service_healthy`로 구성돼 있어 prod와 다름).
 - **롤백 전략 없음**: CI가 `:latest`와 `:${{ github.sha }}` 둘 다 push하지만 EC2 배포 스크립트는 `IMAGE_TAG=latest` 고정이라 sha 태그를 쓸 방법이 없고, 배포 스크립트의 `docker image prune -f`가 EC2에 남은 이전 이미지를 지워버려 롤백용 이미지도 안 남는다.
 

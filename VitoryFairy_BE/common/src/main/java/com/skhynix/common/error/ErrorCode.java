@@ -22,6 +22,13 @@ public enum ErrorCode {
     VERIFICATION_ATTEMPTS_EXCEEDED(400, "인증 시도 횟수를 초과했습니다. 인증번호를 다시 발송해 주세요."),
     EMAIL_NOT_VERIFIED(400, "이메일 인증이 완료되지 않았습니다."),
 
+    // 403 Forbidden
+    SELF_REPORT_NOT_ALLOWED(403, "자신의 메시지는 신고할 수 없습니다."),
+
+    // 404 Not Found
+    CHATROOM_NOT_FOUND(404, "존재하지 않는 채팅방입니다."),
+    CHAT_MESSAGE_NOT_FOUND(404, "존재하지 않는 메시지입니다."),
+
     // 429 Too Many Requests - 이메일 인증
     EMAIL_SEND_COOLDOWN(429, "인증번호를 방금 발송했습니다. 잠시 후 다시 시도해 주세요.");
 

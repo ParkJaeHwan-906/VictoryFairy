@@ -9,6 +9,21 @@ spring:
       - optional:file:../.env[.properties]
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:dev}
+  jpa:
+    # REST/SSE 전용 앱이라 OSIV 불필요. 모든 LAZY 접근(Chat.userAccount.nickname,
+    # Chatroom.team.name)은 @Transactional 서비스 메서드 안에서 끝나고 컨트롤러 경계는
+    # DTO 레코드만 넘어간다. OSIV=true면 SSE 롱커넥션이 응답이 끝날 때까지 JPA 커넥션을
+    # 잡아 mem_limit 500m / Hikari 기본 풀에서 고갈 위험 → 전 프로파일 false로 고정.
+    # LAZY 접근을 트랜잭션 밖으로 옮기지 않는 한 되돌리지 말 것. (미측정: 정합성 기반 판단)
+    open-in-view: false
+  mvc:
+    async:
+      # SSE는 SseEmitterRegistry.EMITTER_TIMEOUT_MS(30분) + 15초 하트비트로 수명을 관리한다.
+      # SseEmitter의 명시 타임아웃은 DeferredResult로 전파돼 이 전역값을 개별 오버라이드하므로
+      # 현재 SSE는 이 설정과 무관하게 30분까지 유지된다(동작 변화 없음). 이 값은 타임아웃 없이
+      # new SseEmitter()로 만들어질 미래의 emitter나 여타 async 요청이 톰캣 기본 30초에 조기
+      # 종료되는 것을 막는 안전망이다. SSE emitter 타임아웃보다 낮추지 말 것.
+      request-timeout: 30m
 
 server:
   port: 8081

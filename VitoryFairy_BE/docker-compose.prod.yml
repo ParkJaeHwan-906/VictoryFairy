@@ -20,7 +20,6 @@ services:
     depends_on:
       - user
       - quiz
-#      - create
     ports:
       - "80:80"
     volumes:
@@ -79,20 +78,3 @@ services:
       JWT_SECRET: ${JWT_SECRET}
     ports:
       - "127.0.0.1:8081:8081"
-
-#  create:
-#    image: ${IMAGE_PREFIX}/victoryfairy-create:${IMAGE_TAG:-latest}
-#    container_name: victoryfairy-create
-#    restart: unless-stopped
-#    mem_limit: 500m
-#    environment:
-#      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=70.0"
-#      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE}
-#      DB_HOST: ${DB_HOST}
-#      DB_PORT: ${DB_PORT}
-#      DB_NAME: ${DB_NAME}
-#      DB_USERNAME: ${DB_USERNAME}
-#      DB_PASSWORD: ${DB_PASSWORD}
-#      JWT_SECRET: ${JWT_SECRET}
-#    ports:
-#      - "127.0.0.1:8082:8082"

@@ -1,10 +1,11 @@
 package com.skhynix.quiz.global.config;
 
 import com.skhynix.domain.user.repository.UserAccountRepository;
-import com.skhynix.user.global.error.RestAuthenticationEntryPoint;
-import com.skhynix.user.global.jwt.JwtAuthenticationFilter;
-import com.skhynix.user.global.jwt.JwtTokenProvider;
-import com.skhynix.user.global.jwt.JwtVerificationConfig;
+import com.skhynix.websupport.error.GlobalExceptionHandler;
+import com.skhynix.websupport.error.RestAuthenticationEntryPoint;
+import com.skhynix.websupport.jwt.JwtAuthenticationFilter;
+import com.skhynix.websupport.jwt.JwtTokenProvider;
+import com.skhynix.websupport.jwt.JwtVerificationConfig;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
@@ -16,7 +17,10 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import tools.jackson.databind.ObjectMapper;
 
 @Configuration
-@Import(JwtVerificationConfig.class) // user의 토큰 검증 부품만 가져옴 (발급 로직은 제외)
+// web-support가 컴포넌트 스캔(com.skhynix.quiz) 밖이라 자동 감지되지 않으므로 명시적으로 끌어온다.
+// JwtVerificationConfig: 토큰 검증 부품(JwtTokenProvider 빈, 발급 로직은 제외)
+// GlobalExceptionHandler: BusinessException/검증 예외를 ApiResponse 포맷으로 처리하는 @RestControllerAdvice
+@Import({JwtVerificationConfig.class, GlobalExceptionHandler.class})
 public class SecurityConfig {
 
     @Bean

@@ -1,9 +1,9 @@
 package com.skhynix.user.global.config;
 
 import com.skhynix.domain.user.repository.UserAccountRepository;
-import com.skhynix.user.global.error.RestAuthenticationEntryPoint;
-import com.skhynix.user.global.jwt.JwtAuthenticationFilter;
-import com.skhynix.user.global.jwt.JwtTokenProvider;
+import com.skhynix.websupport.error.RestAuthenticationEntryPoint;
+import com.skhynix.websupport.jwt.JwtAuthenticationFilter;
+import com.skhynix.websupport.jwt.JwtTokenProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;

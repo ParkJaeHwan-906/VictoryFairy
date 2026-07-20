@@ -12,7 +12,7 @@
  (코드 작성)        (코드+레시피 보관)    (빌드 전용 임시 PC)        (앱 실행)
 
  git push / PR ──► main 에 merge ──► Actions 발동
-                                      ├ user/quiz/create 이미지 빌드
+                                      ├ user/quiz 이미지 빌드
                                       └ GHCR 로 push (:latest, :<sha>)
                                                     │
                                                     ▼
@@ -20,7 +20,7 @@
                                           ├ docker compose pull
                                           └ docker compose up -d
                                                     │
-   인터넷 ──80/443──► [nginx] ──► 127.0.0.1:8080~8082 컨테이너 ──► AWS RDS(MySQL)
+   인터넷 ──80/443──► [nginx] ──► 127.0.0.1:8080~8081 컨테이너 ──► AWS RDS(MySQL)
 ```
 
 등장하는 컴퓨터는 4개이며 책임이 분리돼 있다.
@@ -62,10 +62,10 @@
 ### 6. 리버스 프록시(nginx)와 포트 보안
 - nginx 를 **compose 서비스**로 운영(`docker-compose.prod.yml` 의 `nginx`). 외부엔 80(추후 443)만 노출.
 - 설정은 `nginx.conf`(repo) → deploy 단계에서 `~/app/nginx.conf` 로 scp → 컨테이너에 마운트.
-- 같은 도커 네트워크라 앱을 **서비스명**으로 프록시: `/api/auth`→`user:8080`, `/api/quiz`→`quiz:8081`, `/api/create`→`create:8082`.
+- 같은 도커 네트워크라 앱을 **서비스명**으로 프록시: `/api/auth`→`user:8080`, `/api/quiz`→`quiz:8081`.
   (호스트 `127.0.0.1` 바인딩이 아닌 도커 DNS 사용 → k8s Service 개념과 유사, 전환 시 Ingress 규칙으로 이전)
 - 앱 컨테이너 포트는 `127.0.0.1:` 로 한정(디버그용), 외부 직접 접근 차단.
-- AWS 보안 그룹: 80/443/22 만 개방, 8080~8082·3306 은 닫음.
+- AWS 보안 그룹: 80/443/22 만 개방, 8080~8081·3306 은 닫음.
 - 참고: `infra/nginx/victoryfairy.conf` 는 **호스트 nginx** 용 대안(현재는 compose nginx 사용).
 - k8s 전환 시: 이 nginx 는 **Ingress Controller + 클라우드 LB** 로 대체. 라우팅 규칙/이미지/파이프라인은 그대로 이전.
 
@@ -86,7 +86,7 @@
 ### 9. 선택적 빌드 (변경 모듈만)
 - `detect` 잡이 변경 경로를 보고 **의존성 그래프**에 따라 빌드 대상을 계산 → 동적 matrix.
 - 규칙: `common`/`domain`/루트(build.gradle·Dockerfile·워크플로) 변경 → **전체**;
-  `user` 변경 → user+quiz(quiz가 user 의존); `quiz`/`create` 변경 → 해당 모듈만.
+  `user` 변경 → user+quiz(quiz가 user 의존); `quiz` 변경 → 해당 모듈만.
 - 배포는 **`:latest` 태그 기반** → 바뀐 모듈만 새 이미지로 갱신되고 `up -d`가 그 컨테이너만 재기동.
 - compose 만 바뀌어도(모듈 빌드 없이) 배포는 수행(`deploy=true`).
 - 전제: 각 모듈의 `:latest` 가 GHCR 에 이미 존재(최초 1회 전체 빌드 후 성립).
@@ -103,7 +103,7 @@
 | `.env` | 비밀값 (git 제외, 머신별) |
 
 ## 첫 배포 전 체크리스트
-- [ ] user/quiz/create yaml 커밋 (gitignore 규칙 제거 완료)
+- [ ] user/quiz yaml 커밋 (gitignore 규칙 제거 완료)
 - [ ] GitHub Secrets: `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY`
 - [ ] EC2: `~/app/.env` 생성(prod 값) + `docker compose` 설치 확인
 - [ ] EC2: 스왑 메모리 추가 (1GB RAM 에 앱3+MySQL → OOM 방지)

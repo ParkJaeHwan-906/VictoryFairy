@@ -23,14 +23,12 @@ model: sonnet
 - `user`(8080)·`quiz`(8081) — **`profiles: ["prod"]`**, `build: Dockerfile` + `args: MODULE`, `depends_on: mysql (service_healthy)`, `DB_HOST: mysql`(도커 DNS).
 - **로컬 기본 실행은 mysql만 뜬다**(앱은 prod 프로파일 뒤에 숨어 있다). 앱까지 띄우려면 `--profile prod`.
   - `.env`에 `COMPOSE_PROFILES` 키가 있으니, 이걸로 프로파일이 정해질 수도 있다 — **값을 확인하고 판단할 것.**
-- `create`는 **주석 처리** — 의도된 구성이다.
 
 ### `docker-compose.prod.yml` (EC2)
 - **빌드하지 않는다.** GHCR 이미지를 pull: `${IMAGE_PREFIX}/victoryfairy-<module>:${IMAGE_TAG:-latest}`. 빌드는 GitHub Actions 소관.
 - `nginx`(`nginx:1.27-alpine`, `mem_limit: 128m`, `80:80`, `./nginx.conf` → `/etc/nginx/conf.d/default.conf:ro`) + `user`·`quiz`.
 - **DB는 AWS RDS** — mysql 컨테이너 없음. `.env`의 `DB_HOST`로 접속.
 - 앱 포트는 **`127.0.0.1:8080:8080`** 형태 — 외부 직접 접근 차단, nginx만 통과시킨다. **이 바인딩을 `0.0.0.0`으로 바꾸면 인증 없는 앱이 인터넷에 노출된다. 절대 하지 말 것.**
-- `create` 주석 처리 — 의도된 구성.
 - 배포 시 이 파일은 **`~/app/docker-compose.prod.yml`로 scp** 된다(`deploy.yml`, `strip_components: 1`).
 
 ## 메모리 예산 (이 프로젝트의 핵심 제약 — 산술이 실제로 빠듯하다)
@@ -54,7 +52,6 @@ model: sonnet
 - **`JWT_SECRET`은 user·quiz가 동일해야 한다** — 불일치 시 quiz의 토큰 검증이 전부 실패한다.
 - **`docker compose down -v`는 `mysql-data` 볼륨을 삭제한다.** 네가 실행하지 말 것(docker-runner 소관이고, 거기서도 승인 필요).
 - 문법 검증은 `docker compose -f <file> config`로 가볍게 가능하다. **실제 기동은 docker-runner에 위임**한다.
-- 요청 없이 `create` 주석을 풀지 말 것.
 
 ## 출력 형식
 ```

@@ -10,9 +10,8 @@
 | `domain` | Entity, Repository 등 도메인 모듈 | 실행 모듈 아님 |
 | `user` | 사용자 기능 애플리케이션 | 실행 가능 |
 | `quiz` | 퀴즈 기능 애플리케이션 | 실행 가능 |
-| `create` | 생성 기능 애플리케이션 | 실행 가능 |
 
-실행 가능한 애플리케이션은 `user`, `quiz`, `create` 세 개입니다.
+실행 가능한 애플리케이션은 `user`, `quiz` 두 개입니다.
 
 ## 포트
 
@@ -20,7 +19,6 @@
 | --- | --- |
 | `user` | `8080` |
 | `quiz` | `8081` |
-| `create` | `8082` |
 | `mysql` | `3306` |
 
 ## 로컬 환경 변수
@@ -50,10 +48,6 @@ user/src/main/resources/application-prod.yaml
 quiz/src/main/resources/application.yaml
 quiz/src/main/resources/application-dev.yaml
 quiz/src/main/resources/application-prod.yaml
-
-create/src/main/resources/application.yaml
-create/src/main/resources/application-dev.yaml
-create/src/main/resources/application-prod.yaml
 ```
 
 ## 프로필 설정
@@ -115,27 +109,27 @@ spring:
 
 ## ddl-auto 운영 전략 (중요)
 
-`user`, `quiz`, `create` 세 애플리케이션은 **같은 DB를 공유**하며, 각각 `@EntityScan("com.skhynix")` 설정으로 **동일한 엔티티 전체를 스캔**합니다. 따라서 세 앱은 모두 같은 테이블 집합을 인식합니다.
+`user`, `quiz` 두 애플리케이션은 **같은 DB를 공유**하며, 각각 `@EntityScan("com.skhynix")` 설정으로 **동일한 엔티티 전체를 스캔**합니다. 따라서 두 앱은 모두 같은 테이블 집합을 인식합니다.
 
 이 구조에서 `ddl-auto` 값을 어떻게 주느냐가 데이터 보존에 직접적인 영향을 줍니다.
 
-### 세 앱 모두 `create`로 두면 안 되는 이유
+### 두 앱 모두 `create`로 두면 안 되는 이유
 
 `ddl-auto: create`는 **앱이 기동될 때마다 기존 테이블을 DROP하고 다시 생성**합니다.
 
-같은 DB를 공유하는 세 앱이 모두 `create`이면:
+같은 DB를 공유하는 두 앱이 모두 `create`이면:
 
 - 앱을 시작/재시작할 때마다 서로의 테이블과 데이터가 통째로 삭제됩니다.
 - 예: `user`로 데이터를 넣은 뒤 `quiz`를 띄우면, `quiz` 기동 시 전체 테이블이 drop & recreate 되어 데이터가 사라집니다.
 - 기동 순서에 따라 결과가 달라지는 race가 발생합니다.
 
-> 현재 dev 설정은 세 앱 모두 `ddl-auto: create`이므로 주의가 필요합니다.
+> 현재 dev 설정은 두 앱 모두 `ddl-auto: create`이므로 주의가 필요합니다.
 
 ### 권장 방식
 
 **옵션 A — 한 앱만 스키마 생성 담당 (단순, 권장)**
 
-한 앱만 `create`로 두고 나머지 둘은 `validate`로 설정합니다. "스키마 소유자"를 한 곳으로 명확히 고정하는 방식입니다.
+한 앱만 `create`로 두고 나머지 하나는 `validate`로 설정합니다. "스키마 소유자"를 한 곳으로 명확히 고정하는 방식입니다.
 
 ```yaml
 # 스키마 담당 앱 1개만
@@ -143,7 +137,7 @@ jpa:
   hibernate:
     ddl-auto: create   # 최초 테이블 생성용
 
-# 나머지 2개 앱
+# 나머지 1개 앱
 jpa:
   hibernate:
     ddl-auto: validate # 엔티티-테이블 매핑만 검증, 스키마 변경 안 함
@@ -151,7 +145,7 @@ jpa:
 
 **옵션 B — 최초 1회만 `create`, 이후 전부 `update`**
 
-최초 1회만 한 앱을 `create`로 띄워 테이블을 만든 뒤, 세 앱 모두 `update`로 변경합니다. `update`는 없는 테이블/컬럼만 추가하고 기존 것을 drop하지 않으므로 데이터가 보존됩니다.
+최초 1회만 한 앱을 `create`로 띄워 테이블을 만든 뒤, 두 앱 모두 `update`로 변경합니다. `update`는 없는 테이블/컬럼만 추가하고 기존 것을 drop하지 않으므로 데이터가 보존됩니다.
 
 ```yaml
 jpa:
@@ -161,13 +155,13 @@ jpa:
 
 ### prod 프로필
 
-운영 환경에서는 세 앱 모두 스키마를 자동 변경하지 않습니다. `application-prod.yaml`은 `ddl-auto: none`으로 설정되어 있습니다.
+운영 환경에서는 두 앱 모두 스키마를 자동 변경하지 않습니다. `application-prod.yaml`은 `ddl-auto: none`으로 설정되어 있습니다.
 
 | 환경 | 권장 ddl-auto |
 | --- | --- |
 | dev (최초 생성) | 한 앱만 `create`, 나머지 `validate` |
-| dev (운영 중) | 세 앱 모두 `update` |
-| prod | 세 앱 모두 `none` (현재 설정) |
+| dev (운영 중) | 두 앱 모두 `update` |
+| prod | 두 앱 모두 `none` (현재 설정) |
 
 ## Gradle 빌드
 
@@ -182,7 +176,6 @@ jpa:
 ```bash
 ./gradlew :user:build
 ./gradlew :quiz:build
-./gradlew :create:build
 ```
 
 실행 가능한 JAR 생성:
@@ -190,7 +183,6 @@ jpa:
 ```bash
 ./gradlew :user:bootJar
 ./gradlew :quiz:bootJar
-./gradlew :create:bootJar
 ```
 
 생성 위치:
@@ -198,7 +190,6 @@ jpa:
 ```text
 user/build/libs/user.jar
 quiz/build/libs/quiz.jar
-create/build/libs/create.jar
 ```
 
 ## 로컬 실행
@@ -208,7 +199,6 @@ create/build/libs/create.jar
 ```bash
 ./gradlew :user:bootRun
 ./gradlew :quiz:bootRun
-./gradlew :create:bootRun
 ```
 
 ### JAR로 실행
@@ -218,7 +208,6 @@ create/build/libs/create.jar
 ```bash
 ./gradlew :user:bootJar
 ./gradlew :quiz:bootJar
-./gradlew :create:bootJar
 ```
 
 실행:
@@ -226,7 +215,6 @@ create/build/libs/create.jar
 ```bash
 java -jar user/build/libs/user.jar
 java -jar quiz/build/libs/quiz.jar
-java -jar create/build/libs/create.jar
 ```
 
 ## IntelliJ IDEA에서 main 실행
@@ -237,7 +225,6 @@ java -jar create/build/libs/create.jar
 | --- | --- | --- |
 | `user` | `com.skhynix.user.UserApplication` | `VitoryFairy_BE.user.main` |
 | `quiz` | `com.skhynix.quiz.QuizApplication` | `VitoryFairy_BE.quiz.main` |
-| `create` | `com.skhynix.create.CreateApplication` | `VitoryFairy_BE.create.main` |
 
 Run Configuration에서 `Use classpath of module` 값이 위 표와 일치해야 합니다.
 
@@ -246,7 +233,6 @@ Run Configuration에서 `Use classpath of module` 값이 위 표와 일치해야
 ```text
 quiz.main
 user.main
-create.main
 ```
 
 올바른 예:
@@ -254,7 +240,6 @@ create.main
 ```text
 VitoryFairy_BE.quiz.main
 VitoryFairy_BE.user.main
-VitoryFairy_BE.create.main
 ```
 
 IDE 빌드가 실패하면 Gradle Reload를 먼저 수행합니다.
@@ -274,7 +259,6 @@ docker compose up -d --build
 | `victoryfairy-mysql` | `mysql` | `3306` |
 | `victoryfairy-user` | `user` | `8080` |
 | `victoryfairy-quiz` | `quiz` | `8081` |
-| `victoryfairy-create` | `create` | `8082` |
 
 상태 확인:
 
@@ -287,7 +271,6 @@ docker compose ps
 ```bash
 docker compose logs -f user
 docker compose logs -f quiz
-docker compose logs -f create
 docker compose logs -f mysql
 ```
 
@@ -324,11 +307,6 @@ quiz:
   build:
     args:
       MODULE: quiz
-
-create:
-  build:
-    args:
-      MODULE: create
 ```
 
 ## 자주 발생하는 문제
@@ -386,8 +364,6 @@ user/src/main/resources/application.yaml
 user/src/main/resources/application-*.yaml
 quiz/src/main/resources/application.yaml
 quiz/src/main/resources/application-*.yaml
-create/src/main/resources/application.yaml
-create/src/main/resources/application-*.yaml
 .env
 .env.*
 ```
