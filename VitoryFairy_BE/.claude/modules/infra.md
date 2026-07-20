@@ -2,7 +2,7 @@
 
 > 이 파일은 infra/배포 작업 시에만 로드되는 슬림 컨텍스트다.
 > EC2 → Docker → Kubernetes 단계적 학습 + 이 백엔드의 실제 배포(nginx, docker-compose.prod, deploy.yml)를 다룬다.
-> 최종 업데이트: 2026-07-15
+> 최종 업데이트: 2026-07-18
 
 ## 관련 위치
 - (이 레포 `VitoryFairy_BE/`) `nginx.conf`, `docker-compose.prod.yml`, `docker-compose.yml`, `Dockerfile`, `infra/` 디렉터리, `docs/deployment-strategy.md`, `docs/cicd-runbook.md`
@@ -12,7 +12,7 @@
 
 ## 현재 인프라 상태
 - **인스턴스**: EC2 `t3.small` (2 vCPU / 2GB RAM) — **교체 예정** (시기·후신 스펙 미정, 아래 세부는 교체 시 무효화됨)
-  - 이 스펙이 `docker-compose.prod.yml`의 `mem_limit` 예산(앱 N개 × 500m + nginx 128m + OS/도커 여유)의 근거다. 예산 총합이 호스트 RAM을 넘으면 호스트가 죽으므로, 서비스 추가/변경 시 이 값 기준으로 재계산할 것. **이 파일이 스펙의 유일한 출처**(compose-manager 등 에이전트 정의가 여기를 참조).
+  - 이 스펙이 `docker-compose.prod.yml`의 `mem_limit` 예산(user 500m + quiz 500m + **redis 64m** + nginx 128m = 1192m + OS/도커 여유, create는 주석 처리라 예산 미포함)의 근거다. 예산 총합이 호스트 RAM을 넘으면 호스트가 죽으므로, 서비스 추가/변경 시 이 값 기준으로 재계산할 것. **이 파일이 스펙의 유일한 출처**(compose-manager 등 에이전트 정의가 여기를 참조).
 - **OS**: Amazon Linux 2023 (al2023)
 - **리전**: ap-northeast-2 (서울)
 - **사설 IP**: 10.0.0.5 / **VPC CIDR**: 10.0.0.0/24 (교체 시 변경될 수 있음)
@@ -51,8 +51,15 @@
 ---
 
 ## 배포 파이프라인 알려진 갭
-- **헬스체크 부재**: `docker-compose.prod.yml`에 healthcheck 없음. nginx의 `/healthz`는 nginx 자신이 200을 반환할 뿐 백엔드를 보지 않는다. user/quiz의 SecurityConfig에는 `GET /health` permit 규칙만 있고 이를 처리하는 컨트롤러/actuator가 **아예 없어** 실제 호출 시 404 — nginx 라우팅 노출 여부와 무관하게 **운영 앱이 실제로 살아있는지 확인할 수단 자체가 없다.** 선결 과제는 nginx 노출이 아니라 health 엔드포인트 구현.
+- **헬스체크 부재(redis 포함)**: `docker-compose.prod.yml`에 healthcheck가 없다. nginx의 `/healthz`는 nginx 자신이 200을 반환할 뿐 백엔드를 보지 않는다. user/quiz의 SecurityConfig에는 `GET /health` permit 규칙만 있고 이를 처리하는 컨트롤러/actuator가 **아예 없어** 실제 호출 시 404 — nginx 라우팅 노출 여부와 무관하게 **운영 앱이 실제로 살아있는지 확인할 수단 자체가 없다.** 선결 과제는 nginx 노출이 아니라 health 엔드포인트 구현. `redis` 서비스(이메일 인증 상태 저장, `user`가 의존)도 prod에서는 healthcheck·조건부 `depends_on`이 없어 같은 갭을 그대로 물려받았다(로컬 `docker-compose.yml`은 `healthcheck` + `depends_on: redis: condition: service_healthy`로 구성돼 있어 prod와 다름).
 - **롤백 전략 없음**: CI가 `:latest`와 `:${{ github.sha }}` 둘 다 push하지만 EC2 배포 스크립트는 `IMAGE_TAG=latest` 고정이라 sha 태그를 쓸 방법이 없고, 배포 스크립트의 `docker image prune -f`가 EC2에 남은 이전 이미지를 지워버려 롤백용 이미지도 안 남는다.
+
+## redis 서비스 (이메일 인증 상태 저장, user 전용)
+- `redis:7.2-alpine`. 로컬(`docker-compose.yml`): `6379` 노출 + healthcheck(`redis-cli ping`), `user`가 `condition: service_healthy`로 대기. prod(`docker-compose.prod.yml`): 외부 미노출(포트 매핑 없음), `mem_limit: 64m`, healthcheck 없음(위 갭 참고), 영속 볼륨 없음(TTL 기반 휘발성 데이터라 재기동 시 초기화돼도 무방).
+- `user` 서비스에 `SPRING_DATA_REDIS_HOST`/`SPRING_DATA_REDIS_PORT`(둘 다 `redis`/`6379`) 주입 — `quiz`는 redis 미의존.
+
+## 이메일 발송 (Brevo SMTP, user 전용, prod만)
+- `docker-compose.prod.yml`의 `user` 서비스에 `MAIL_HOST=smtp-relay.brevo.com`(하드코딩) / `MAIL_PORT=587`(하드코딩) / `MAIL_USERNAME`·`MAIL_PASSWORD`(시크릿, `.env`) / `MAIL_FROM`(기본값 `no-reply@victoryfairy.com`) 주입 — `SmtpEmailSender`(`@Profile("prod")`)가 이 값으로 이메일 인증번호를 실발송. dev/test는 `LogEmailSender`(mock)라 이 변수들 불필요.
 
 ---
 

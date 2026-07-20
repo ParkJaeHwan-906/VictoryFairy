@@ -12,9 +12,19 @@ spring:
   web:
     error:
       include-message: always
+  # 이메일 인증 상태 저장소. 로컬 기본 localhost:6379, 배포 시 환경변수로 override.
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
 
 server:
   port: 8080
+
+# 인증번호 메일 발신자 주소. 실제 SMTP 발송은 prod 프로파일에서만 일어난다(dev/test는 mock 로그).
+app:
+  mail:
+    from: ${MAIL_FROM:no-reply@victoryfairy.com}
 
 jwt:
   # 기본값 절대 사용 X -> .env의 JWT_SECRET으로 덮어쓸 것 (32바이트 이상)

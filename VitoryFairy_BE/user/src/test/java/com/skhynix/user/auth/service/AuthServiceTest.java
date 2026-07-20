@@ -55,6 +55,9 @@ class AuthServiceTest {
     @Mock
     private JwtTokenProvider tokenProvider;
 
+    @Mock
+    private EmailVerificationService emailVerificationService;
+
     @InjectMocks
     private AuthService authService;
 
@@ -223,6 +226,7 @@ class AuthServiceTest {
     void signup_emailAlreadyOccupiedRegardlessOfWithdrawal_throwsDuplicateEmail() {
         // given: existsByEmail은 exit_at을 구분하지 않는 쿼리라, 탈퇴 계정이 점유한 이메일도 true로 잡힌다.
         SignupRequest request = signupRequest();
+        given(emailVerificationService.isEmailVerified(request.email())).willReturn(true);
         given(userRepository.existsByEmail(request.email())).willReturn(true);
 
         // when & then
@@ -239,6 +243,7 @@ class AuthServiceTest {
     void signup_telAlreadyOccupiedRegardlessOfWithdrawal_throwsDuplicateTel() {
         // given
         SignupRequest request = signupRequest();
+        given(emailVerificationService.isEmailVerified(request.email())).willReturn(true);
         given(userRepository.existsByEmail(request.email())).willReturn(false);
         given(userRepository.existsByTel(request.tel())).willReturn(true);
 
@@ -257,6 +262,7 @@ class AuthServiceTest {
     void signup_nicknameAlreadyOccupiedRegardlessOfWithdrawal_throwsDuplicateNickname() {
         // given
         SignupRequest request = signupRequest();
+        given(emailVerificationService.isEmailVerified(request.email())).willReturn(true);
         given(userRepository.existsByEmail(request.email())).willReturn(false);
         given(userRepository.existsByTel(request.tel())).willReturn(false);
         given(userAccountRepository.existsByNickname(request.nickname())).willReturn(true);
@@ -275,6 +281,7 @@ class AuthServiceTest {
     void signup_allUnique_encodesPasswordAndSavesAccount() {
         // given
         SignupRequest request = signupRequest();
+        given(emailVerificationService.isEmailVerified(request.email())).willReturn(true);
         given(userRepository.existsByEmail(request.email())).willReturn(false);
         given(userRepository.existsByTel(request.tel())).willReturn(false);
         given(userAccountRepository.existsByNickname(request.nickname())).willReturn(false);
@@ -290,5 +297,61 @@ class AuthServiceTest {
         verify(userAccountRepository).save(accountCaptor.capture());
         assertThat(accountCaptor.getValue().getPassword()).isEqualTo("encoded-password");
         assertThat(accountCaptor.getValue().getNickname()).isEqualTo(request.nickname());
+    }
+
+    @Test
+    @DisplayName("[USER-EMV-18] 회원가입에 성공하면 해당 이메일의 인증완료 상태를 소비(제거)한다")
+    void signup_allUnique_consumesEmailVerifiedState() {
+        // given
+        SignupRequest request = signupRequest();
+        given(emailVerificationService.isEmailVerified(request.email())).willReturn(true);
+        given(userRepository.existsByEmail(request.email())).willReturn(false);
+        given(userRepository.existsByTel(request.tel())).willReturn(false);
+        given(userAccountRepository.existsByNickname(request.nickname())).willReturn(false);
+        given(passwordEncoder.encode(request.password())).willReturn("encoded-password");
+        given(userRepository.save(any(User.class))).willAnswer(invocation -> invocation.getArgument(0));
+        given(userAccountRepository.save(any(UserAccount.class))).willAnswer(invocation -> invocation.getArgument(0));
+
+        // when
+        authService.signup(request);
+
+        // then
+        verify(emailVerificationService).consumeVerified(request.email());
+    }
+
+    @Test
+    @DisplayName("[USER-EMV-16] 이메일 인증완료 상태가 아니면(미인증) 형식·중복 검사보다 먼저 EMAIL_NOT_VERIFIED로 "
+            + "가입을 거부하고, 어떤 중복 검사도 조회하지 않는다")
+    void signup_emailNotVerified_throwsEmailNotVerifiedBeforeDuplicateChecks() {
+        // given
+        SignupRequest request = signupRequest();
+        given(emailVerificationService.isEmailVerified(request.email())).willReturn(false);
+
+        // when & then
+        assertThatThrownBy(() -> authService.signup(request))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.EMAIL_NOT_VERIFIED);
+
+        verifyNoInteractions(userRepository);
+        verify(userAccountRepository, never()).existsByNickname(anyString());
+        verify(userAccountRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("[USER-EMV-17] 인증완료 상태가 만료(30분 경과)돼 저장소에 키가 없는 이메일도 "
+            + "미인증과 동일하게 EMAIL_NOT_VERIFIED로 가입을 거부한다(만료·미인증 동일 응답)")
+    void signup_emailVerificationExpired_throwsSameEmailNotVerifiedAsNeverVerified() {
+        // given: 서비스 계층에서 만료는 isEmailVerified()==false로 흡수되므로 미인증과 구분되지 않는다.
+        SignupRequest request = signupRequest();
+        given(emailVerificationService.isEmailVerified(request.email())).willReturn(false);
+
+        // when & then
+        assertThatThrownBy(() -> authService.signup(request))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.EMAIL_NOT_VERIFIED);
+
+        verify(emailVerificationService, never()).consumeVerified(anyString());
     }
 }

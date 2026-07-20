@@ -15,6 +15,7 @@ import com.skhynix.user.auth.dto.NicknameValidationResponse;
 import com.skhynix.user.auth.dto.SignupRequest;
 import com.skhynix.user.auth.policy.NicknamePolicy;
 import com.skhynix.user.auth.service.AuthService;
+import com.skhynix.user.auth.service.EmailVerificationService;
 import com.skhynix.user.global.config.SecurityConfig;
 import com.skhynix.websupport.error.GlobalExceptionHandler;
 import com.skhynix.websupport.jwt.JwtTokenProvider;
@@ -53,6 +54,9 @@ class AuthControllerNicknameValidateTest {
 
     @MockitoBean
     private AuthService authService;
+
+    @MockitoBean
+    private EmailVerificationService emailVerificationService;
 
     @MockitoBean
     private JwtTokenProvider jwtTokenProvider;
