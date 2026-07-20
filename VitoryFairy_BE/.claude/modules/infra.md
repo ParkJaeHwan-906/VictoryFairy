@@ -50,7 +50,6 @@
 ---
 
 ## 배포 파이프라인 알려진 갭
-- **create 모듈 이미지 낭비**: `docker-compose.yml` / `docker-compose.prod.yml` 둘 다 `create` 서비스가 주석 처리(의도적 미배포)인데, `deploy.yml`의 `detect` 잡은 여전히 create를 빌드 대상에 포함해 GHCR에 push한다. → 배포되지 않는 이미지가 계속 쌓임. create를 compose에 되살리기 전엔 CI `detect` 로직에서도 빼는 게 맞음.
 - **헬스체크 부재**: `docker-compose.prod.yml`에 healthcheck 없음. nginx의 `/healthz`는 nginx 자신이 200을 반환할 뿐 백엔드를 보지 않는다. user/quiz의 SecurityConfig에는 `GET /health` permit 규칙만 있고 이를 처리하는 컨트롤러/actuator가 **아예 없어** 실제 호출 시 404 — nginx 라우팅 노출 여부와 무관하게 **운영 앱이 실제로 살아있는지 확인할 수단 자체가 없다.** 선결 과제는 nginx 노출이 아니라 health 엔드포인트 구현.
 - **롤백 전략 없음**: CI가 `:latest`와 `:${{ github.sha }}` 둘 다 push하지만 EC2 배포 스크립트는 `IMAGE_TAG=latest` 고정이라 sha 태그를 쓸 방법이 없고, 배포 스크립트의 `docker image prune -f`가 EC2에 남은 이전 이미지를 지워버려 롤백용 이미지도 안 남는다.
 

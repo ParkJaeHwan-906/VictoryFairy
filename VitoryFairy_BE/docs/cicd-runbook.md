@@ -9,7 +9,7 @@ PR을 main에 merge (= push)
         │
         ▼
 GitHub Actions (.github/workflows/deploy.yml)
-  1) build-and-push : user/quiz/create 3개 모듈 이미지 빌드
+  1) build-and-push : user/quiz 2개 모듈 이미지 빌드
                       → ghcr.io/parkjaehwan-906/victoryfairy-<module>:<sha>, :latest
   2) deploy         : EC2에 SSH 접속
                       → docker-compose.prod.yml 전송
@@ -19,7 +19,7 @@ GitHub Actions (.github/workflows/deploy.yml)
 EC2: 새 이미지로 컨테이너 재기동
 ```
 
-빌드를 GitHub 러너에서 하는 이유: **t2.micro(1GB RAM)에서 Gradle로 3개 모듈을 빌드하면 메모리 부족(OOM)으로 거의 실패**하기 때문. EC2는 "받아서 실행"만 한다.
+빌드를 GitHub 러너에서 하는 이유: **t2.micro(1GB RAM)에서 Gradle로 2개 모듈을 빌드하면 메모리 부족(OOM)으로 거의 실패**하기 때문. EC2는 "받아서 실행"만 한다.
 
 ---
 
@@ -67,7 +67,7 @@ chmod 600 ~/app/.env
 > `.env`는 git에 올라가지 않으므로(=.gitignore) **EC2에 직접 만들어 둔다.** 운영용 비밀번호/시크릿은 로컬 `.env`와 다른 값으로 쓰는 걸 권장.
 
 ### C. 보안 그룹 인바운드
-앱 포트를 외부에서 접근하려면 8080/8081/8082(TCP) 개방 (또는 앞단에 nginx/ALB).
+앱 포트를 외부에서 접근하려면 8080/8081(TCP) 개방 (또는 앞단에 nginx/ALB).
 
 ---
 

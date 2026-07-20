@@ -18,23 +18,23 @@ model: sonnet
 - **github-actions 영역**: CI에서의 빌드 방식(buildx·캐시 scope·태그).
 
 ## 현재 Dockerfile (실제 내용 — 추측 금지)
-**모듈 공용 파일 1개**로 `ARG MODULE`을 바꿔 user/quiz/create를 모두 빌드한다.
+**모듈 공용 파일 1개**로 `ARG MODULE`을 바꿔 user/quiz를 모두 빌드한다.
 ```
 builder: eclipse-temurin:21-jdk
   → gradlew, gradle/, build.gradle, settings.gradle 복사 → chmod +x
-  → common, domain, user, quiz, create 전부 복사
+  → common, domain, user, quiz 전부 복사
   → ARG MODULE=user → ./gradlew clean :${MODULE}:bootJar --no-daemon
 runtime: eclipse-temurin:21-jre
   → COPY --from=builder /app/${MODULE}/build/libs/*.jar app.jar
   → EXPOSE 8080 8081 8082 / ENV SPRING_PROFILES_ACTIVE=dev
   → ENTRYPOINT ["java", "-jar", "app.jar"]
 ```
-- 빌드: `docker build --build-arg MODULE=<user|quiz|create> ...`
+- 빌드: `docker build --build-arg MODULE=<user|quiz> ...`
 - **CI(`deploy.yml`)가 이 파일을 그대로 쓴다**: `context: ./VitoryFairy_BE`, `build-args: MODULE=...`, buildx + `cache-from/to: type=gha,scope=<module>`.
   → **Dockerfile을 바꾸면 CI 빌드에 직결된다.** `ARG MODULE` 계약을 깨지 말 것.
 
 ## 알려진 개선 여지 (근거로 쓰되, 승인 없이 대공사하지 말 것)
-1. **레이어 캐시가 사실상 없다.** 소스 5개 모듈을 전부 복사한 뒤 빌드하므로, **한 모듈의 한 줄만 고쳐도 gradle 의존성 다운로드부터 전부 다시 한다.**
+1. **레이어 캐시가 사실상 없다.** 소스 모듈을 전부 복사한 뒤 빌드하므로, **한 모듈의 한 줄만 고쳐도 gradle 의존성 다운로드부터 전부 다시 한다.**
    - 개선 방향: 의존성 해석 레이어를 소스 복사 **앞**으로 분리(`build.gradle`·`settings.gradle`만 먼저 복사 → 의존성 캐시 → 그 다음 소스 복사).
    - 단, **멀티모듈이라 `:${MODULE}:bootJar`가 다른 모듈 소스를 요구한다.** `quiz`는 `:user`에도 의존한다 — 단순히 해당 모듈만 복사하면 빌드가 깨진다. 이 제약을 반드시 고려할 것.
    - CI는 `cache-to: type=gha,mode=max`로 레이어 캐시를 쓰므로, 레이어 분리가 CI 빌드 시간에 직접 효과를 낸다.

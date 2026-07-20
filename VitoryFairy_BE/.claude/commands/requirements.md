@@ -1,6 +1,6 @@
 ---
 description: 구현 전에 EARS 표기법으로 기능 요구사항을 정의하고 사용자와 합의 (requirements-writer)
-argument-hint: "<기능 설명> (모듈이 불명확하면 함께: user|quiz|create|domain)"
+argument-hint: "<기능 설명> (모듈이 불명확하면 함께: user|quiz|domain)"
 ---
 
 구현을 시작하기 전에 **무엇이 참이어야 하는가**를 사용자와 합의하라. 코드는 승인 전까지 한 줄도 쓰지 않는다.
@@ -9,7 +9,7 @@ argument-hint: "<기능 설명> (모듈이 불명확하면 함께: user|quiz|cre
 
 ## 절차
 
-1. **모듈 판정** — 불명확하면 `AskUserQuestion`(user/quiz/create/domain). 인프라는 대상이 아니다.
+1. **모듈 판정** — 불명확하면 `AskUserQuestion`(user/quiz/domain). 인프라는 대상이 아니다.
 2. **초안** — `requirements-writer`를 호출한다. 프롬프트에 줄 것: **어느 모듈 + 사용자가 요청한 기능 설명 + 왜 필요한지(알고 있다면)**. 모듈 사실을 복사하지 마라 — 에이전트가 직접 읽는다.
 3. **협의 루프** — 에이전트가 돌려준 **미해결 질문**을 `AskUserQuestion`으로 사용자에게 그대로 묻는다.
    - **네가 지어내 답하지 마라.** 이 단계의 존재 이유가 사라진다.

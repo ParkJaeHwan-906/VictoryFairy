@@ -3,7 +3,7 @@
 > domain 작업 시에만 로드되는 슬림 컨텍스트. (공통: `com.skhynix` 독립 앱, `:common`=ApiResponse/BusinessException/ErrorCode, MySQL+spring-dotenv, prod `ddl-auto=none`)
 
 ## 책임
-프로젝트 전체 JPA 엔티티·리포지토리를 담는 `java-library` 모듈. 자체 실행 앱이 아니라 **포트 없음**. `user`·`quiz`·`create` 세 모듈이 이 모듈을 참조해 엔티티를 공유한다.
+프로젝트 전체 JPA 엔티티·리포지토리를 담는 `java-library` 모듈. 자체 실행 앱이 아니라 **포트 없음**. `user`·`quiz` 두 모듈이 이 모듈을 참조해 엔티티를 공유한다.
 
 ## 패키지 구성 (`domain/src/main/java/com/skhynix/domain/`)
 - `user` — `User`, `UserAccount`, `UserRefreshToken`, `Gender`(enum) + 각 리포지토리
@@ -39,7 +39,7 @@
 ## 의존
 - `api project(':common')`, `implementation spring-boot-starter-data-jpa`
 - `testImplementation` 은 `spring-boot-starter-test`가 아니라 `junit-jupiter` + `assertj-core`만 (아래 테스트 현황 참고)
-- 역방향 의존 없음 (`user`/`quiz`/`create` → `domain`, 이 방향만)
+- 역방향 의존 없음 (`user`/`quiz` → `domain`, 이 방향만)
 
 ## 주의 / 열려있는 것
 - `UserRepository`(existsByEmail/existsByTel), `UserAccountRepository`(findByUser_EmailAndExitAtIsNull/existsByNickname/**findActiveIdByUid**), `UserRefreshTokenRepository`(findByRefreshToken/deleteByUserAccount/expireValidTokens), `StadiumRepository`(findByName), `GameStatusRepository`(findByName) 외에는 **전부 `JpaRepository` 뼈대뿐** — `TeamRepository`/`PlayerRepository`/`BatResultRepository`/`BatterRecordRepository`/`PitcherRecordRepository`/`PitchResultRepository`/`GameRepository`는 커스텀 조회 메서드 없음. `findByName` 둘은 시드/크롤러의 lookup-or-create 용. `UserRefreshTokenRepository.deleteByUserAccount`는 **소비처가 0개인 죽은 메서드**(`logout`은 `findByRefreshToken`→`delete`를 씀)

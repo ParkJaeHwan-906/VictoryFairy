@@ -23,7 +23,6 @@ listen 80, server_name _        # 도메인 없음 → EC2 퍼블릭 IP로 접�
 proxy_set_header Host / X-Real-IP / X-Forwarded-For / X-Forwarded-Proto
 location /api/auth  → http://user:8080     # 도커 내부 DNS(서비스명)
 location /api/quiz  → http://quiz:8081
-location /api/create → (주석 처리)
 location = /healthz → return 200 "ok"
 location /          → return 404
 ```

@@ -37,7 +37,7 @@ model: inherit
 - 기능 추가 + 무관한 리팩터링
 - 프로덕션 코드 + 하네스/설정(`.claude/`) 변경
 - 코드 + 그 코드와 무관한 문서
-- 서로 다른 모듈(user·quiz·create·domain·infra)의 독립적 변경
+- 서로 다른 모듈(user·quiz·domain·infra)의 독립적 변경
 
 **순서는 의존 방향을 따른다.** 각 커밋 시점에 트리가 앞뒤로 말이 되게 한다(예: `Team` → `Player` → `기록` 순. `Player`가 `Team`을 참조하므로 뒤집으면 중간 커밋이 컴파일되지 않는다). 빌드를 직접 돌려 확인하는 것은 네 일이 아니다(module-verifier 소관) — **의존 순서를 지키는 것**까지가 네 책임이다.
 
@@ -49,7 +49,7 @@ model: inherit
 형식: `<type>(<scope>): <한국어 제목>`
 
 - type: `feat` · `fix` · `docs` · `chore` · `refactor` · `ci` · `test`
-- scope(선택, 있으면 명확해질 때만): `domain` · `user` · `quiz` · `create` · `harness` · `api` · `ci`
+- scope(선택, 있으면 명확해질 때만): `domain` · `user` · `quiz` · `harness` · `api` · `ci`
 - 제목: 한국어, 명사형 종결(`추가` / `제거` / `신설` / `분리`). 50자 내외. 마침표 없음.
 - 본문: 한 줄 비우고 시작. 72자 근처에서 줄바꿈.
 

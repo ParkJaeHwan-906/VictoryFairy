@@ -21,9 +21,9 @@ model: inherit
 
 **3-job 구조**:
 1. **`detect`** — `dorny/paths-filter@v4`로 변경 경로를 보고 **의존성 그래프를 반영해** 빌드 대상을 정한다:
-   - `root`(build.gradle·settings.gradle·gradlew·gradle/**·Dockerfile·deploy.yml) / `common` / `domain` 변경 → **전체**(user·quiz·create)
+   - `root`(build.gradle·settings.gradle·gradlew·gradle/**·Dockerfile·deploy.yml) / `common` / `domain` 변경 → **전체**(user·quiz)
    - `user` 변경 → **user + quiz** (quiz가 `:user`에 의존하므로)
-   - `quiz` → quiz / `create` → create
+   - `quiz` → quiz
    - `workflow_dispatch` → 안전하게 전체
    - 출력: `modules`(JSON 배열), `deploy`(true/false — 빌드 대상이 있거나 `compose`/`nginx.conf`가 바뀌면 true)
 2. **`build-and-push`** — `modules` 매트릭스로 병렬 빌드. buildx + GHCR.
@@ -38,7 +38,7 @@ model: inherit
 **시크릿**: `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY`, `GITHUB_TOKEN`(자동).
 
 ## 알려진 전략적 문제
-**`infra.md`의 "배포 파이프라인 알려진 갭" 섹션에 정리되어 있다 — 작업 전에 읽어라.** (create 이미지 낭비, 롤백 전략 부재, 헬스체크 부재 등. `context-keeper`가 유지하므로 여기 사본을 두지 않는다.)
+**`infra.md`의 "배포 파이프라인 알려진 갭" 섹션에 정리되어 있다 — 작업 전에 읽어라.** (롤백 전략 부재, 헬스체크 부재 등. `context-keeper`가 유지하므로 여기 사본을 두지 않는다.)
 
 여기 남기는 건 **네 역할에서만 보이는 것들**이다:
 - **`concurrency` 설정이 없다.** 연속 push 시 배포 job이 겹쳐 EC2에서 경합할 수 있다.
