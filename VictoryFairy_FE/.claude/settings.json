@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/session-start.sh",
+            "shell": "bash",
+            "statusMessage": "FE 컨텍스트 로드"
+          }
+        ]
+      }
+    ]
+  }
+}
