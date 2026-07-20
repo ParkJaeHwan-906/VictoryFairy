@@ -95,6 +95,7 @@ curl -i http://localhost:8081/api/chat/rooms/3f9c2e10-... \
 **연결 성립 시 동작**: `Content-Type: text/event-stream`으로 200 응답을 열고 연결을 유지한다. 구독이 성립하는 순간 해당 방의 `participants`(=`SseEmitterRegistry`의 구독 수)가 1 증가하고, 연결이 끝나면(완료/타임아웃/오류 콜백) 1 감소한다. 같은 사용자가 여러 탭에서 구독해도 연결 단위로 각각 +1 카운트된다.
 
 **이벤트 계약**
+
 | 이벤트 | `event:` | `data:` | 설명 |
 |---|---|---|---|
 | 메시지 | `message` | JSON `{content, senderNickname, createdAt, roomUid}`(`MessageEvent`) | 같은 방에 새 메시지가 저장될 때 전달. **메시지 식별자 필드 없음.** `id:` 필드도 없다(Last-Event-ID 미지원 — 재연결 시 놓친 메시지는 `GET .../messages`로 복구할 것) |
