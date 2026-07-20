@@ -1,0 +1,24 @@
+plugins {
+    id 'java-library'
+}
+
+description = 'web-support'
+
+dependencies {
+    api project(':common')
+    implementation project(':domain')
+
+    // JwtAuthenticationFilter가 UserAccountRepository(= JpaRepository 하위)의 메서드를 호출하므로
+    // JpaRepository 타입이 컴파일 클래스패스에 필요하다. domain은 data-jpa를 implementation으로만
+    // 노출해 전이되지 않으므로 여기서 직접 선언한다.
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+    implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+
+    implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
+    runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
+    runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.6'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-security-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+}

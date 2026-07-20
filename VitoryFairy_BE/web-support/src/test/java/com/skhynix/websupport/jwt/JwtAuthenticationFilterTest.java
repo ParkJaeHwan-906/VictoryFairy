@@ -1,4 +1,4 @@
-package com.skhynix.user.global.jwt;
+package com.skhynix.websupport.jwt;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;

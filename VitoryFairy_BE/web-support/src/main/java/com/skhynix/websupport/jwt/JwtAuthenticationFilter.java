@@ -1,4 +1,4 @@
-package com.skhynix.user.global.jwt;
+package com.skhynix.websupport.jwt;
 
 import com.skhynix.domain.user.repository.UserAccountRepository;
 import jakarta.servlet.FilterChain;

@@ -13,7 +13,7 @@ import com.skhynix.user.auth.dto.NicknameValidationResponse;
 import com.skhynix.user.auth.dto.SignupRequest;
 import com.skhynix.user.auth.dto.TokenResponse;
 import com.skhynix.user.auth.policy.NicknamePolicy;
-import com.skhynix.user.global.jwt.JwtTokenProvider;
+import com.skhynix.websupport.jwt.JwtTokenProvider;
 import java.time.LocalDateTime;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;

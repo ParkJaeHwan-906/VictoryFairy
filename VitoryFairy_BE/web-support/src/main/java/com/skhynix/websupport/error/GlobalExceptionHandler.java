@@ -1,4 +1,4 @@
-package com.skhynix.user.global.error;
+package com.skhynix.websupport.error;
 
 import com.skhynix.common.error.BusinessException;
 import com.skhynix.common.error.ErrorCode;

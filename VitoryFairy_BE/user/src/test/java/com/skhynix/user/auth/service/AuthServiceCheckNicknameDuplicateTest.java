@@ -10,7 +10,7 @@ import com.skhynix.domain.user.repository.UserRefreshTokenRepository;
 import com.skhynix.domain.user.repository.UserRepository;
 import com.skhynix.user.auth.dto.NicknameValidationResponse;
 import com.skhynix.user.auth.policy.NicknamePolicy;
-import com.skhynix.user.global.jwt.JwtTokenProvider;
+import com.skhynix.websupport.jwt.JwtTokenProvider;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

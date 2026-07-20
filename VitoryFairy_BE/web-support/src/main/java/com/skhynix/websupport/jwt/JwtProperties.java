@@ -1,4 +1,4 @@
-package com.skhynix.user.global.jwt;
+package com.skhynix.websupport.jwt;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 

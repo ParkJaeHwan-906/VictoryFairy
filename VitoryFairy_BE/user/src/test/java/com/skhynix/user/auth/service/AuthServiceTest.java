@@ -22,7 +22,7 @@ import com.skhynix.domain.user.repository.UserRepository;
 import com.skhynix.user.auth.dto.LoginRequest;
 import com.skhynix.user.auth.dto.SignupRequest;
 import com.skhynix.user.auth.dto.TokenResponse;
-import com.skhynix.user.global.jwt.JwtTokenProvider;
+import com.skhynix.websupport.jwt.JwtTokenProvider;
 import java.time.LocalDateTime;
 import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;

@@ -10,7 +10,7 @@ import com.skhynix.domain.user.repository.UserRepository;
 import com.skhynix.user.auth.dto.NicknameValidationResponse;
 import com.skhynix.user.auth.dto.SignupRequest;
 import com.skhynix.user.auth.policy.NicknamePolicy;
-import com.skhynix.user.global.jwt.JwtTokenProvider;
+import com.skhynix.websupport.jwt.JwtTokenProvider;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;

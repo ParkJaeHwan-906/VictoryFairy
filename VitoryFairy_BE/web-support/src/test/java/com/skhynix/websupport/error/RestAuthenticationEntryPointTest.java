@@ -1,4 +1,4 @@
-package com.skhynix.user.global.error;
+package com.skhynix.websupport.error;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

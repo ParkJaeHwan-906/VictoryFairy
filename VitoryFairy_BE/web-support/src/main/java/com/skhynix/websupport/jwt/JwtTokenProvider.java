@@ -1,4 +1,4 @@
-package com.skhynix.user.global.jwt;
+package com.skhynix.websupport.jwt;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.ExpiredJwtException;
