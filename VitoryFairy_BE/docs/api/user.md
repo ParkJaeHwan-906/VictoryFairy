@@ -1,7 +1,7 @@
 # user API 명세
 
 > 코드 기준 자동 작성. 포트 **8080**(`user/src/main/resources/application.yaml`의 `server.port: 8080`), `server.servlet.context-path` 미설정이므로 base URL은 `http://localhost:8080`.
-> 최종 갱신: 2026-07-18 (nickname/duplicate 추가)
+> 최종 갱신: 2026-07-18 (email 인증 + nickname/validate·duplicate 추가)
 > 대상 컨트롤러: `user/src/main/java/com/skhynix/user/auth/controller/AuthController.java` (`@RequestMapping("/api/auth")`), `user/src/main/java/com/skhynix/user/account/controller/UserAccountController.java` (`@RequestMapping("/api/users")`) — user 모듈의 컨트롤러 2개.
 > 인증: JWT Bearer (`Authorization: Bearer <accessToken>`). `SecurityConfig`에서 `/api/auth/**` 전체가 `permitAll()`이라 `AuthController`의 7개 엔드포인트는 인증 불필요. **`/api/users/me`(회원탈퇴)는 `anyRequest().authenticated()`에 걸리는 이 모듈의 첫 인증 필요 엔드포인트다** — 과거 이 문서에 "user 모듈에 실제로 인증이 걸리는 엔드포인트는 없다"고 적혀 있었다면 그건 이 엔드포인트가 생기기 전 사실이었다. 미인증 시 **401**(`RestAuthenticationEntryPoint`) — 자세한 내용은 아래 "인증 방식" 절 참고.
 
@@ -10,15 +10,15 @@
 ### 응답 포맷 — 주의: 엔드포인트별로 다름
 `AuthController`의 signup/login/refresh/logout 4개와 `UserAccountController`의 회원탈퇴(`DELETE /api/users/me`)는 `ApiResponse<T>`(`:common`)를 쓰지 않고 **`ResponseEntity<T>`를 직접 반환**한다. 즉 이 5개의 **성공 응답 본문은 `ApiResponse`로 감싸이지 않는다**(탈퇴는 아예 본문이 없다).
 
-**단, `POST /api/auth/password/validate`, `POST /api/auth/nickname/validate`, `POST /api/auth/nickname/duplicate`만 예외**로 성공 응답도 각각 `ApiResponse<PasswordValidationResponse>`/`ApiResponse<NicknameValidationResponse>`/`ApiResponse<NicknameValidationResponse>`로 감싼다(`ResponseEntity<ApiResponse<T>>` 직접 반환, `ApiResponse.ok(result)` 사용). 컨트롤러 안에서도 응답 포맷이 갈리므로 엔드포인트마다 확인할 것.
+**단, `POST /api/auth/password/validate`·`POST /api/auth/nickname/validate`·`POST /api/auth/nickname/duplicate`·`POST /api/auth/email/send-code`·`POST /api/auth/email/verify` 5개는 예외**로 성공 응답도 `ApiResponse<T>`로 감싼다(`ResponseEntity<ApiResponse<T>>` 직접 반환). `password/validate`는 `ApiResponse<PasswordValidationResponse>`, `nickname/validate`·`nickname/duplicate`는 `ApiResponse<NicknameValidationResponse>`를 각각 `ApiResponse.ok(result)`로 반환하고, `email/send-code`·`email/verify`는 본문이 없는 `ApiResponse<Void>`(`ApiResponse.<Void>ok(null)` → `{"success":true,"data":null,"message":null}`)를 200으로 반환한다. 컨트롤러 안에서도 응답 포맷이 갈리므로 엔드포인트마다 확인할 것.
 
-반면 **에러 응답은 `GlobalExceptionHandler`(`user/src/main/java/com/skhynix/user/global/error/GlobalExceptionHandler.java`)가 `ApiResponse`로 감싸서 반환**한다. 즉 이 모듈은 "성공은 (validate 제외) raw, 실패는 ApiResponse"인 비대칭 구조다.
+반면 **에러 응답은 `GlobalExceptionHandler`(`user/src/main/java/com/skhynix/user/global/error/GlobalExceptionHandler.java`)가 `ApiResponse`로 감싸서 반환**한다. 즉 이 모듈은 "성공은 (validate·email/* 제외) raw, 실패는 ApiResponse"인 비대칭 구조다.
 
-- 비즈니스 예외(`BusinessException`) → `ApiResponse<Void>` = `{ "success": false, "data": null, "message": "<ErrorCode 메시지>" }`, 상태코드는 `ErrorCode.getStatus()`.
+- 비즈니스 예외(`BusinessException`) → `ApiResponse<Void>` = `{ "success": false, "data": null, "message": "<ErrorCode 메시지>" }`, 상태코드는 `ErrorCode.getStatus()`. **`POST /api/auth/email/send-code`의 쿨다운 실패(`EMAIL_SEND_COOLDOWN`)가 이 모듈 문서상 첫 `429 Too Many Requests` 응답이다** — 그 전까지는 400/401/409/204만 존재했다.
 - Bean Validation 실패(`MethodArgumentNotValidException`) → `ApiResponse<Map<String,String>>` = `{ "success": false, "data": {"필드명":"메시지", ...}, "message": "입력값이 올바르지 않습니다." }`, 상태코드 `400 Bad Request`. `data`에는 실패한 필드별 검증 메시지가 담긴다(모든 필드가 아니라 **위반한 필드만**).
 
 ### 인증 방식
-JWT HS256. `JwtTokenProvider`가 access(3h, 10800000ms)/refresh(14d, 1209600000ms) 토큰을 발급하며 claim `type: access|refresh`로 구분한다. `AuthController`의 7개 엔드포인트는 `SecurityConfig`에서 permitAll이라 Authorization 헤더가 필요 없다(로그인/재발급 전 단계이므로 당연함). **`DELETE /api/users/me`(회원탈퇴)만 `Authorization: Bearer <accessToken>`이 필수**다.
+JWT HS256. `JwtTokenProvider`가 access(3h, 10800000ms)/refresh(14d, 1209600000ms) 토큰을 발급하며 claim `type: access|refresh`로 구분한다. `AuthController`의 9개 엔드포인트(signup/login/refresh/logout/password validate/nickname validate/nickname duplicate/email send-code/email verify)는 `SecurityConfig`에서 permitAll이라 Authorization 헤더가 필요 없다(로그인/재발급/가입 전 단계이므로 당연함). **`DELETE /api/users/me`(회원탈퇴)만 `Authorization: Bearer <accessToken>`이 필수**다.
 
 **토큰 payload 구조** (`login`/`refresh`가 발급하는 accessToken/refreshToken 공통 — JWT는 서명만 되고 암호화는 안 되므로 base64 디코드만으로 누구나 읽을 수 있음, 실제 발급 payload 예시):
 ```json
@@ -215,8 +215,104 @@ curl -i -X POST http://localhost:8080/api/auth/nickname/duplicate \
 
 ---
 
+## POST /api/auth/email/send-code
+회원가입용 이메일 소유 확인 절차의 1단계. 입력한 이메일로 6자리 인증번호를 발송한다.
+
+**인증** 불필요
+
+**요청** `EmailSendCodeRequest`
+
+| 필드 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| email | String | `@NotBlank` `@Email` `@Size(max=100)` | 인증번호를 받을 이메일 |
+
+**응답 200 OK** `ApiResponse<Void>`
+```json
+{"success":true,"data":null,"message":null}
+```
+
+내부 동작(`EmailVerificationService.sendCode()`):
+1. `userRepository.existsByEmail(email)`이 true면 **가입 이력이 있는 이메일**이므로 즉시 409로 거부한다(이미 탈퇴한 계정이 점유한 이메일도 soft delete라 여전히 `existsByEmail` true — signup과 동일한 재가입 불가 정책).
+2. 같은 이메일에 대한 쿨다운(60초 TTL) 마커가 살아 있으면 429로 거부한다.
+3. 6자리 숫자 코드를 생성하고, 그 이메일의 기존 코드·시도 카운터를 무효화한 뒤 새 코드를 TTL 5분으로 저장하고, 쿨다운 마커를 TTL 60초로 설정한다.
+4. `EmailSender`로 메일을 발송한다. **`prod` 프로파일이 아니면 `LogEmailSender`가 로딩돼 실제 메일 없이 로그(`[MOCK-EMAIL] 인증번호 발송 to=... code=...`)로만 남긴다.** 실제 SMTP 발송은 `SmtpEmailSender`(`@Profile("prod")`, `spring.mail.*` 설정과 `app.mail.from` 필요)가 `prod`에서만 담당한다.
+
+같은 이메일로 재요청(재발송)하면 쿨다운이 끝난 뒤 이전 코드·시도 횟수가 무효화되고 새 코드로 교체된다 — 여러 번 발송해도 **가장 최근에 발송한 코드만 유효**하다.
+
+**실패**
+
+| 상태 | ErrorCode | 조건 |
+|---|---|---|
+| 400 | (검증 실패, ErrorCode 없음) | `email` 형식 위반(`@NotBlank`/`@Email`/`@Size(max=100)`) |
+| 409 | DUPLICATE_EMAIL | 이미 가입(또는 탈퇴 포함 가입 이력)된 이메일 |
+| 429 | EMAIL_SEND_COOLDOWN | 같은 이메일로 60초 이내 재요청(**이 모듈 문서상 첫 429 응답**) |
+
+**예시**
+```bash
+curl -i -X POST http://localhost:8080/api/auth/email/send-code \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"user@example.com"}'
+```
+
+실패 예시(쿨다운, 429):
+```json
+{"success":false,"data":null,"message":"인증번호를 방금 발송했습니다. 잠시 후 다시 시도해 주세요."}
+```
+
+---
+
+## POST /api/auth/email/verify
+회원가입용 이메일 소유 확인 절차의 2단계. 발송받은 6자리 인증번호를 이메일과 함께 제출해 대조한다.
+
+**인증** 불필요
+
+**요청** `EmailVerifyRequest`
+
+| 필드 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| email | String | `@NotBlank` `@Email` | `send-code`에 사용한 것과 같은 이메일 |
+| code | String | `@NotBlank` `@Pattern(regexp="\\d{6}")` (메시지: "인증번호는 6자리 숫자여야 합니다.") | 6자리 숫자 인증번호 |
+
+**응답 200 OK** `ApiResponse<Void>`
+```json
+{"success":true,"data":null,"message":null}
+```
+
+내부 동작(`EmailVerificationService.verify()`, `MAX_ATTEMPTS = 5`):
+1. 저장된 코드가 없으면(발송한 적이 없거나, TTL 5분이 지나 만료됐거나, 이미 검증에 성공/무효화되어 소비된 경우) 즉시 `EXPIRED_VERIFICATION_CODE`(400)를 던진다.
+2. 코드는 있지만 그 이메일의 누적 시도 횟수가 이미 5회 이상이면(직전 요청까지 한도에 도달한 상태) 코드를 무효화하고 `VERIFICATION_ATTEMPTS_EXCEEDED`(400)를 던진다 — 정답을 보내도 차단된다.
+3. 코드가 요청한 `code`와 다르면 시도 횟수를 1 증가시킨다. 증가 후 값이 5 이상이면 코드를 무효화하고 `VERIFICATION_ATTEMPTS_EXCEEDED`(400)를, 아니면 `INVALID_VERIFICATION_CODE`(400)를 던진다.
+4. 코드가 일치하면 코드(및 시도 카운터)를 무효화하고, 그 이메일을 **인증완료 상태**로 TTL 30분 저장한다. 이 인증완료 상태가 `POST /api/auth/signup`의 선행 조건이다(아래 signup 절 참고).
+
+시도 횟수 한도에 걸리면(`VERIFICATION_ATTEMPTS_EXCEEDED`) 코드가 무효화되므로, 같은 코드로 다시 시도해도 소용없고 **`send-code`를 다시 호출해 새 코드를 받아야** 한다(단, 60초 쿨다운은 별도로 적용).
+
+**실패**
+
+| 상태 | ErrorCode | 조건 |
+|---|---|---|
+| 400 | (검증 실패, ErrorCode 없음) | `email`/`code` 형식 위반 |
+| 400 | EXPIRED_VERIFICATION_CODE | 코드 미발송, 또는 TTL 5분 만료, 또는 이미 소비(검증 성공/시도초과)된 코드 |
+| 400 | INVALID_VERIFICATION_CODE | 코드 불일치(아직 5회 미만 시도) |
+| 400 | VERIFICATION_ATTEMPTS_EXCEEDED | 검증 실패 누적 5회 도달(정답이어도 차단) |
+
+**예시**
+```bash
+curl -i -X POST http://localhost:8080/api/auth/email/verify \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"user@example.com","code":"123456"}'
+```
+
+실패 예시(만료/미발송, 400):
+```json
+{"success":false,"data":null,"message":"만료되었거나 유효하지 않은 인증번호입니다."}
+```
+
+---
+
 ## POST /api/auth/signup
 회원가입. `User`(개인정보)와 `UserAccount`(로그인 계정)를 함께 생성한다.
+
+**선행 조건: 이메일 인증 완료.** `request.email`이 `POST /api/auth/email/verify`로 검증 성공한 뒤 TTL 30분 이내(인증완료 상태가 살아 있는 동안)여야 가입할 수 있다. `email/send-code`를 호출한 적이 없거나, `verify`에 성공하지 못했거나, 성공했더라도 30분이 지나 인증완료 상태가 만료됐으면 `EMAIL_NOT_VERIFIED`(400)로 거부된다 — 미인증과 만료가 코드상 동일하게 취급된다(`store.isVerified()`가 키 부재를 구분하지 않음).
 
 **인증** 불필요
 
@@ -265,11 +361,14 @@ true
 | 상태 | ErrorCode | 조건 |
 |---|---|---|
 | 400 | (검증 실패, ErrorCode 없음) | `name`/`tel`/`email`/`gender`/`nickname`/`password` 제약 위반. 응답 형태는 `{"success":false,"data":{"password":"<메시지>"},"message":"입력값이 올바르지 않습니다."}`처럼 위반 필드만 `data`에 담김 |
+| 400 | EMAIL_NOT_VERIFIED | `email`이 이메일 인증완료 상태가 아님(미인증 또는 TTL 30분 만료) |
 | 409 | DUPLICATE_EMAIL | `userRepository.existsByEmail()` true |
 | 409 | DUPLICATE_TEL | `userRepository.existsByTel()` true |
 | 409 | DUPLICATE_NICKNAME | `userAccountRepository.existsByNickname()` true |
 
-중복 체크 순서는 email → tel → nickname이며, 여러 항목이 동시에 중복이어도 가장 먼저 걸린 하나만 응답한다.
+**검사 순서는 `AuthService.signup()`에 고정돼 있다: 형식(`@Valid`, 400) → 이메일 인증완료 여부(`EMAIL_NOT_VERIFIED`, 400) → 중복 email → tel → nickname(순서대로 409).** 즉 형식은 통과했지만 이메일 인증도 안 됐고 이메일도 이미 가입돼 있는 경우, 응답은 `DUPLICATE_EMAIL`이 아니라 **`EMAIL_NOT_VERIFIED`가 먼저** 난다(인증완료 상태를 먼저 확인하기 때문). 여러 항목이 동시에 중복이어도 이 순서에서 가장 먼저 걸린 하나만 응답한다.
+
+가입에 성공하면 그 이메일의 인증완료 상태는 **1회용으로 즉시 소비**된다(`emailVerificationService.consumeVerified()`, `AuthService.signup()` 마지막 단계). 가입이 성공한 이메일은 이후 `existsByEmail`이 영구히 true가 되어(soft delete라 탈퇴해도 유지) 어차피 `DUPLICATE_EMAIL`로 재가입이 막히므로, 이 소비는 재가입 방지 자체보다는 "성공한 인증 상태를 즉시 정리"하는 성격에 가깝다. 반대로 **가입이 `DUPLICATE_TEL`/`DUPLICATE_NICKNAME`으로 실패**하면(이메일 인증은 통과했으나 다른 필드에서 막힌 경우) 인증완료 상태는 소비되지 않고 TTL 30분 동안 그대로 남아, tel/nickname만 바꿔 재시도할 때 재인증 없이 통과할 수 있다.
 
 **탈퇴한 계정이 점유한 email/tel/nickname으로는 재가입할 수 없다.** `existsByEmail`/`existsByTel`/`existsByNickname`이 탈퇴 여부를 구분하지 않으므로(탈퇴해도 `users`/`users_account` 행이 삭제되지 않는 soft delete), 탈퇴한 계정의 이메일·전화번호·닉네임 그대로 가입을 시도하면 각각 `DUPLICATE_EMAIL`/`DUPLICATE_TEL`/`DUPLICATE_NICKNAME` 409로 막힌다. `users.email`/`users.tel`에 DB unique 제약이 걸려 있어 앱 로직만으로 재가입을 열 수 없다(스키마 재설계가 필요한 별개 결정 — `docs/requirements/user/withdraw.md`의 "결정 근거 1" 참고).
 
@@ -285,6 +384,11 @@ curl -i -X POST http://localhost:8080/api/auth/signup \
     "nickname": "gildong",
     "password": "Passw0rd!"
   }'
+```
+
+실패 예시(이메일 미인증/만료, 400 — `email/verify`를 안 거쳤거나 인증완료 후 30분이 지남):
+```json
+{ "success": false, "data": null, "message": "이메일 인증이 완료되지 않았습니다." }
 ```
 
 실패 예시(닉네임 중복, 409):

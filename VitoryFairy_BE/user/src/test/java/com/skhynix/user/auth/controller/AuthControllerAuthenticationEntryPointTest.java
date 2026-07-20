@@ -12,6 +12,7 @@ import com.skhynix.domain.user.repository.UserAccountRepository;
 import com.skhynix.user.auth.dto.LoginRequest;
 import com.skhynix.user.auth.dto.PasswordValidationRequest;
 import com.skhynix.user.auth.service.AuthService;
+import com.skhynix.user.auth.service.EmailVerificationService;
 import com.skhynix.user.global.config.SecurityConfig;
 import com.skhynix.user.global.error.GlobalExceptionHandler;
 import com.skhynix.user.global.error.RestAuthenticationEntryPoint;
@@ -74,6 +75,9 @@ class AuthControllerAuthenticationEntryPointTest {
 
     @MockitoBean
     private UserAccountRepository userAccountRepository;
+
+    @MockitoBean
+    private EmailVerificationService emailVerificationService;
 
     @Test
     @DisplayName("토큰 없이 인증이 필요한 경로에 접근하면 403이 아니라 401과 ApiResponse 바디(success:false, "
