@@ -14,7 +14,14 @@ public enum ErrorCode {
     UNAUTHENTICATED(401, "인증이 필요합니다."),
     INVALID_CREDENTIALS(401, "이메일 또는 비밀번호가 올바르지 않습니다."),
     INVALID_REFRESH_TOKEN(401, "유효하지 않은 리프레시 토큰입니다."),
-    EXPIRED_REFRESH_TOKEN(401, "만료되었거나 이미 무효화된 리프레시 토큰입니다.");
+    EXPIRED_REFRESH_TOKEN(401, "만료되었거나 이미 무효화된 리프레시 토큰입니다."),
+
+    // 403 Forbidden
+    SELF_REPORT_NOT_ALLOWED(403, "자신의 메시지는 신고할 수 없습니다."),
+
+    // 404 Not Found
+    CHATROOM_NOT_FOUND(404, "존재하지 않는 채팅방입니다."),
+    CHAT_MESSAGE_NOT_FOUND(404, "존재하지 않는 메시지입니다.");
 
     private final int status;
     private final String message;
