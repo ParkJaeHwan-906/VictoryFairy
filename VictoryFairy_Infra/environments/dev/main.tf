@@ -8,7 +8,7 @@ module "network" {
   cluster_name         = local.cluster_name # 서브넷 EKS 발견 태그 ↔ eks 모듈과 동일
   vpc_cidr             = var.vpc_cidr
   azs                  = var.azs
-  public_subnet_cidrs  = ["10.0.0.0/24", "10.0.1.0/24"]  # [2a, 2c] — azs 순서와 일치
+  public_subnet_cidrs  = ["10.0.0.0/24", "10.0.1.0/24"]   # [2a, 2c] — azs 순서와 일치
   private_subnet_cidrs = ["10.0.10.0/24", "10.0.11.0/24"] # [2a, 2c] — azs 순서와 일치
 }
 
@@ -67,13 +67,19 @@ module "eks" {
   }
 }
 
-# module "mysql_ec2" {
-#   source = "../../modules/mysql-ec2"
-#
-#   environment           = var.environment
-#   vpc_id                = module.network.vpc_id
-#   subnet_id             = module.network.private_subnet_ids_by_az[var.azs[0]] # 2a
-#   instance_type         = "t3.small"
-#   allowed_source_sg_ids = [module.eks.node_security_group_id] # EKS 노드만 3306/6379 허용
-#   backup_s3_bucket      = var.backup_s3_bucket                # 일 단위 S3 백업
-# }
+module "mysql_ec2" {
+  source = "../../modules/mysql-ec2"
+
+  environment   = var.environment
+  vpc_id        = module.network.vpc_id
+  subnet_id     = module.network.private_subnet_ids_by_az[var.azs[0]] # 2a(운영 AZ)
+  instance_type = "t3.small"
+
+  # 3306 ← user·quiz·batch, 6379 ← user·quiz 만. 현재 eks 는 공용 노드 SG 하나라
+  # 두 맵에 같은 SG가 들어간다. 노드그룹이 전용 SG로 분리되면 redis 맵에서 batch 를 제외.
+  # (map 사용 이유: SG ID가 apply-time unknown이라 for_each 키로 못 씀 → 정적 키로 감싼다)
+  mysql_ingress_sg_ids = { eks_nodes = module.eks.node_security_group_id }
+  redis_ingress_sg_ids = { eks_nodes = module.eks.node_security_group_id }
+
+  backup_s3_bucket = var.backup_s3_bucket # 일 단위 mysqldump S3 백업
+}

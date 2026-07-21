@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# =============================================================================
+# MySQL + (서비스)Redis 자체 호스팅 부트스트랩 (Amazon Linux 2023)
+# -----------------------------------------------------------------------------
+# ARCHITECTURE.md §3 데이터 티어:
+#   - 단일 고정 EC2에 MySQL + 서비스 Redis 컨테이너를 띄운다(RDS 미사용).
+#   - MySQL 데이터 디렉토리는 반드시 별도 EBS(gp3) 마운트 위에 둔다(영속).
+#   - Redis(6379)는 채팅/퀴즈 pub-sub 브로커 + 이메일 TTL 키 전용(서비스용).
+#     배치 전용 임시 Redis는 여기가 아니라 배치 노드(k8s) 소관 — 여기서 만들지 않는다.
+#   - t3.small(2GB)은 빠듯 → innodb_buffer_pool_size + Redis maxmemory 로 상한 분할.
+#
+# ⚠ 이 스크립트는 "의도를 드러내는 뼈대"다. 프로덕션 반영 전 이미지 태그 고정,
+#   MySQL 설정(my.cnf), Redis maxmemory 값, 헬스체크를 검토/보강할 것.
+# =============================================================================
+set -euxo pipefail
+
+# ---------------------------------------------------------------------------
+# 0) 파라미터 (Terraform templatefile 주입)
+# ---------------------------------------------------------------------------
+DATA_DEVICE="${data_volume_device_name}"          # 논리 지정값(/dev/sdf 등)
+MOUNT_POINT="/mnt/mysql-data"
+BACKUP_BUCKET="${backup_s3_bucket}"
+BACKUP_PREFIX="${backup_s3_prefix}"
+AWS_REGION="${aws_region}"
+MYSQL_PW_SSM_PARAM="${mysql_root_password_ssm_parameter_name}"
+INNODB_BUFFER_POOL="${innodb_buffer_pool_size}"
+REDIS_MAXMEMORY="${redis_maxmemory}"
+
+# ---------------------------------------------------------------------------
+# 1) 패키지: docker, awscli
+# ---------------------------------------------------------------------------
+dnf update -y
+dnf install -y docker awscli
+systemctl enable --now docker
+
+# ---------------------------------------------------------------------------
+# 2) EBS 데이터 볼륨 탐지 + 마운트
+#    Nitro(t3)에서 EBS는 /dev/nvme*n1 로 보여 논리명(/dev/sdf)과 다를 수 있다.
+#    → 아직 파일시스템이 없는(빈) 데이터 볼륨을 찾아 최초 1회만 mkfs.
+# ---------------------------------------------------------------------------
+# 논리 device 가 존재하면 그대로, 아니면 root 가 아닌 미포맷 디스크를 탐색.
+if [ -b "$DATA_DEVICE" ]; then
+  RESOLVED_DEVICE="$DATA_DEVICE"
+else
+  RESOLVED_DEVICE="$(lsblk -dpno NAME,TYPE,MOUNTPOINT | awk '$2=="disk" && $3=="" {print $1}' | grep -v "$(findmnt -no SOURCE / | sed 's/p\?[0-9]*$//')" | head -n1)"
+fi
+
+# 파일시스템이 없으면(=신규 볼륨) 최초 포맷. 기존 데이터가 있으면 절대 포맷 금지.
+if ! blkid "$RESOLVED_DEVICE"; then
+  mkfs -t xfs "$RESOLVED_DEVICE"
+fi
+
+mkdir -p "$MOUNT_POINT"
+# fstab 에 UUID 로 등록(재부팅 후에도 동일 지점 마운트).
+DATA_UUID="$(blkid -s UUID -o value "$RESOLVED_DEVICE")"
+grep -q "$DATA_UUID" /etc/fstab || echo "UUID=$DATA_UUID $MOUNT_POINT xfs defaults,nofail 0 2" >> /etc/fstab
+mount -a
+mkdir -p "$MOUNT_POINT/mysql"
+
+# ---------------------------------------------------------------------------
+# 3) 시크릿: MySQL root 비밀번호는 SSM Parameter Store(SecureString)에서 조회.
+#    코드/이미지에 비밀번호를 굽지 않는다(SKILL §3).
+# ---------------------------------------------------------------------------
+MYSQL_ROOT_PASSWORD="$(aws ssm get-parameter \
+  --name "$MYSQL_PW_SSM_PARAM" \
+  --with-decryption \
+  --region "$AWS_REGION" \
+  --query 'Parameter.Value' --output text)"
+
+# ---------------------------------------------------------------------------
+# 4) MySQL 컨테이너 — 데이터 디렉토리는 EBS 마운트 지점에 바인드.
+#    ⚠ image 태그는 예시. 프로덕션은 불변 태그(예: mysql:8.0.x)로 고정할 것.
+# ---------------------------------------------------------------------------
+docker run -d --name mysql --restart unless-stopped \
+  -p 3306:3306 \
+  -e MYSQL_ROOT_PASSWORD="$MYSQL_ROOT_PASSWORD" \
+  -v "$MOUNT_POINT/mysql:/var/lib/mysql" \
+  mysql:8.0 \
+  --innodb-buffer-pool-size="$INNODB_BUFFER_POOL"
+
+# ---------------------------------------------------------------------------
+# 5) 서비스 Redis 컨테이너 — 브로커 전용(영속 불필요, 상한만 건다).
+#    배치 전용 임시 Redis 아님. maxmemory 로 2GB 박스에서 MySQL 과 메모리 분할.
+# ---------------------------------------------------------------------------
+docker run -d --name redis --restart unless-stopped \
+  -p 6379:6379 \
+  redis:7 \
+  redis-server --maxmemory "$REDIS_MAXMEMORY" --maxmemory-policy allkeys-lru
+
+# ---------------------------------------------------------------------------
+# 6) 백업 크론 (SKILL §5): 매일 1회 mysqldump -> gzip -> S3.
+#    자동 백업이 없는 자체 호스팅이므로 필수. (병행 EBS 스냅샷은 DLM 이 담당.)
+# ---------------------------------------------------------------------------
+cat >/usr/local/bin/mysql-backup.sh <<BACKUP
+#!/usr/bin/env bash
+set -euo pipefail
+TS=\$(date +%Y%m%d-%H%M%S)
+PW=\$(aws ssm get-parameter --name "$MYSQL_PW_SSM_PARAM" --with-decryption --region "$AWS_REGION" --query 'Parameter.Value' --output text)
+docker exec mysql sh -c "exec mysqldump -uroot -p\"\$PW\" --all-databases --single-transaction --quick" \
+  | gzip \
+  | aws s3 cp - "s3://$BACKUP_BUCKET/$BACKUP_PREFIX\$TS.sql.gz" --region "$AWS_REGION"
+BACKUP
+chmod +x /usr/local/bin/mysql-backup.sh
+
+# 매일 18:10 UTC = 03:10 KST 실행(배치 시작 03:15 직전 스냅샷 성격).
+echo "10 18 * * * root /usr/local/bin/mysql-backup.sh >> /var/log/mysql-backup.log 2>&1" \
+  > /etc/cron.d/mysql-backup
