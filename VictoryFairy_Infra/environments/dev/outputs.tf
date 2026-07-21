@@ -1,9 +1,24 @@
 # dev 환경 출력. 모듈 연결 후 주석 해제.
 
-# output "eks_cluster_name" {
-#   description = "EKS 클러스터 이름 (kubectl 설정용)"
-#   value       = module.eks.cluster_name
-# }
+output "eks_cluster_name" {
+  description = "EKS 클러스터 이름 (kubectl 설정용)"
+  value       = module.eks.cluster_name
+}
+
+output "eks_cluster_endpoint" {
+  description = "EKS API 서버 엔드포인트 (kubeconfig 구성용)"
+  value       = module.eks.cluster_endpoint
+}
+
+output "eks_node_security_group_id" {
+  description = "EKS 노드 공용 보안그룹 ID (mysql-ec2 3306/6379 인입 소스)"
+  value       = module.eks.node_security_group_id
+}
+
+output "eks_oidc_provider_arn" {
+  description = "IRSA용 OIDC 프로바이더 ARN"
+  value       = module.eks.oidc_provider_arn
+}
 
 # output "mysql_instance_id" {
 #   description = "MySQL EC2 인스턴스 ID (SSM 포트포워딩 대상)"
