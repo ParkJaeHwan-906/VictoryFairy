@@ -65,7 +65,7 @@
 ## 5. Terraform / Kubernetes 경계
 
 - **Terraform(`.tf`, 이 레포)**: VPC·서브넷·NAT, EKS 클러스터, 노드그룹 3개(user/quiz/batch), MySQL EC2·EBS·SG·IAM, S3. **클러스터와 노드그룹까지.**
-- **Kubernetes(YAML/Helm, 앱 레포 VitoryFairy_BE)**: Deployment(user/quiz), HPA(quiz), CronJob(배치), 배치 워커, 배치 Redis 파드, taint↔toleration/nodeSelector, Argo/트리거 컨트롤러. Spring `SPRING_PROFILES_ACTIVE=prod`.
+- **Kubernetes(YAML/Helm, `VictoryFairy_Infra/k8s/`)**: Deployment(user/quiz), HPA(quiz), CronJob(배치), 배치 워커, 배치 Redis 파드, taint↔toleration/nodeSelector, Argo/트리거 컨트롤러. Spring `SPRING_PROFILES_ACTIVE=prod`. (앱 코드는 별도 레포/브랜치지만, 배포 매니페스트는 결합도가 큰 Terraform과 **같은 인프라 레포에 co-locate** — 도구/레이어 경계는 유지)
 - **커플링 주의**: TF의 노드그룹 `taint`/label ↔ YAML의 `toleration`/`nodeSelector`가 반드시 일치해야 한다(`workload=user|quiz|batch`). 한쪽만 바꾸면 파드가 스케줄되지 않는다.
 
 ## 미결정 / TODO

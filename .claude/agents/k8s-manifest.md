@@ -1,6 +1,6 @@
 ---
 name: k8s-manifest
-description: 쿠버네티스 워크로드 매니페스트(Deployment·Service·HPA·CronJob·배치 워커·배치 Redis·Argo/트리거)를 앱 레포(VitoryFairy_BE) 기준으로 작성·수정한다. EKS 위에서 도는 앱/배치 워크로드를 정의할 때 호출한다. 인프라 .tf는 건드리지 않는다(그건 terraform-writer 소관).
+description: 쿠버네티스 워크로드 매니페스트(Deployment·Service·HPA·CronJob·배치 워커·배치 Redis·Argo/트리거)를 VictoryFairy_Infra/k8s/ 에 작성·수정한다. EKS 위에서 도는 앱/배치 워크로드를 정의할 때 호출한다. 인프라 .tf는 건드리지 않는다(그건 terraform-writer 소관).
 tools: Read, Write, Edit, Grep, Glob, Bash, Skill
 model: inherit
 ---
@@ -9,7 +9,7 @@ model: inherit
 
 ## 시작 전
 - 필요하면 `terraform-infra` 스킬과 `VictoryFairy_Infra/docs/ARCHITECTURE.md`를 읽어 **노드그룹 label/taint와 배치 파이프라인 설계**를 확인한다. 매니페스트는 이 인프라와 맞물려야 한다.
-- 매니페스트는 **앱 레포(VitoryFairy_BE)** 에 둔다(규약: 워크로드는 앱 레포/Helm에서 관리). 정확한 경로는 레포 관례를 따르고, 없으면 호출자에게 확인.
+- 매니페스트는 **`VictoryFairy_Infra/k8s/`** 에 둔다(Terraform과 같은 인프라 레포에 co-locate — 앱 코드는 별도 레포/브랜치지만 배포 매니페스트는 인프라 결합도가 커서 여기 모은다). 도구/레이어 경계(Terraform=.tf / k8s=YAML)는 유지.
 
 ## 다루는 워크로드 (ARCHITECTURE.md 기준)
 - **user-app** Deployment + Service — `nodeSelector: workload=user`.
