@@ -19,10 +19,14 @@ VictoryFairy의 AWS 인프라는 **Terraform**으로 관리하며, **EKS 기반 
 Terraform Style Guide / Module 모범 사례를 이 프로젝트에 맞게 추린 것입니다.
 
 ## 확정 아키텍처 요약
-- **컴퓨트**: EKS(관리형 컨트롤플레인) + 프라이빗 서브넷 워커 노드, HPA/Cluster Autoscaler, CronJob
-- **DB**: 별도 EC2(Small)에 MySQL 컨테이너 + EBS 영속 볼륨 (RDS 미사용, 비용 사유)
+> 확정 설계와 근거의 상세는 `VictoryFairy_Infra/docs/ARCHITECTURE.md`.
+- **네트워크**: VPC `10.0.0.0/16`. 서브넷은 2 AZ에 선언(EKS 요건)하되 **노드·DB는 2a 집중, 2c는 예비**. NAT 2a 단일. (앱만 멀티 AZ로 벌려도 DB 단일 AZ라 반쪽 HA)
+- **앱 컴퓨트**: EKS(관리형) 프라이빗 서브넷 + **노드그룹 3개** — `user`(label workload=user), `quiz`(taint workload=quiz + HPA/Cluster Autoscaler), `batch`(Spot·taint workload=batch·min0).
+- **DB**: **단일 고정 EC2**(비 EKS)에 MySQL + Redis 컨테이너 + EBS 영속 볼륨(RDS 미사용). Redis는 서비스 브로커 전용. 앱 격리·스케일아웃 없음(수직 승급). SG: 3306←user·quiz·batch, 6379←user·quiz.
+- **배치**: 매일 03:15 KST, Spot xlarge 노드그룹 0→N→0. 크롤→정제→생성 스트리밍(S3 개수 트리거, **배치 전용 임시 Redis**로 상태 — 서비스 Redis와 분리).
 - **외부 접근**: SSM Session Manager 포트포워딩 (인바운드 22/3306 개방 없음)
-- ⚠️ EKS 컨트롤플레인 월 ~$73 고정비 인지됨. EC2 MySQL은 자동 백업이 없어 백업 크론 필수.
+- **경계**: Terraform은 클러스터·노드그룹까지. Deployment/HPA/CronJob/배치워커/taint↔toleration은 K8s 매니페스트(앱 레포).
+- ⚠️ EKS 컨트롤플레인 월 ~$73 고정비 인지됨. EC2 MySQL은 자동 백업이 없어 백업 크론 필수. t3.small(2GB)에 MySQL+Redis 메모리 빠듯.
 
 ---
 
