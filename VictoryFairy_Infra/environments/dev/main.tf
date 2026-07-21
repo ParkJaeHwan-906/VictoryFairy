@@ -1,21 +1,22 @@
 # dev 환경: 모듈을 조립하는 루트. 리소스는 여기서 직접 선언하지 않는다.
 # 모듈 구현이 끝나면 아래 블록의 주석을 해제한다.
 
-# module "network" {
-#   source = "../../modules/network"
-#
-#   environment          = var.environment
-#   vpc_cidr             = var.vpc_cidr
-#   azs                  = var.azs
-#   public_subnet_cidrs  = ["10.0.0.0/24", "10.0.1.0/24"]
-#   private_subnet_cidrs = ["10.0.10.0/24", "10.0.11.0/24"]
-# }
+module "network" {
+  source = "../../modules/network"
+
+  environment          = var.environment
+  cluster_name         = local.cluster_name # 서브넷 EKS 발견 태그 ↔ eks 모듈과 동일
+  vpc_cidr             = var.vpc_cidr
+  azs                  = var.azs
+  public_subnet_cidrs  = ["10.0.0.0/24", "10.0.1.0/24"]  # [2a, 2c] — azs 순서와 일치
+  private_subnet_cidrs = ["10.0.10.0/24", "10.0.11.0/24"] # [2a, 2c] — azs 순서와 일치
+}
 
 # module "eks" {
 #   source = "../../modules/eks"
 #
 #   environment         = var.environment
-#   cluster_name        = "victoryfairy-${var.environment}"
+#   cluster_name        = local.cluster_name
 #   cluster_version     = "1.30"
 #   vpc_id              = module.network.vpc_id
 #   private_subnet_ids  = module.network.private_subnet_ids
