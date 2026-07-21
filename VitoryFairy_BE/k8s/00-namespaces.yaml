@@ -1,0 +1,22 @@
+# Namespaces
+# - victoryfairy       : 상시 서비스 워크로드(user / quiz)
+# - victoryfairy-batch : 야간 배치 파이프라인(CronJob / 워커 / 배치 전용 임시 Redis)
+#
+# 배치를 별도 네임스페이스로 가르는 이유: 배치는 batch 노드그룹(Spot, 0->N->0)에서만
+# 떴다 사라지는 일시적 워크로드라, 서비스 워크로드와 리소스쿼터/네트워크폴리시/RBAC를
+# 분리해 blast radius를 줄인다. (ARCHITECTURE §4, §5)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: victoryfairy
+  labels:
+    app.kubernetes.io/part-of: victoryfairy
+    tier: service
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: victoryfairy-batch
+  labels:
+    app.kubernetes.io/part-of: victoryfairy
+    tier: batch

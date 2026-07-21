@@ -1,0 +1,51 @@
+# ALB Ingress: AWS Load Balancer Controller 가정.
+#   host/path -> ClusterIP Service(user-app / quiz-app) 로 라우팅.
+#   경로는 nginx.conf(compose)의 라우팅과 동일하게 맞춤:
+#     /api/auth -> user-app,  /api/quiz -> quiz-app
+#
+# 전제: 클러스터에 AWS Load Balancer Controller 설치 + IngressClass "alb" 존재.
+#   TODO(terraform-writer 보고 대상일 수 있음):
+#     - LBC용 IRSA(IAM Role for ServiceAccount)와 OIDC provider
+#     - 퍼블릭 서브넷 태그 kubernetes.io/role/elb=1
+#     이들이 인프라에 없으면 ALB 프로비저닝 실패. 아래 annotation의 대표값만 채웠고,
+#     subnets/certificate-arn/security-groups 실제 값은 TODO.
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: victoryfairy
+  namespace: victoryfairy
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: '443'
+    # 헬스체크: actuator 미탑재라 우선 TCP/기본 경로. TODO: actuator 도입 시 /actuator/health.
+    alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
+    alb.ingress.kubernetes.io/healthcheck-path: /healthz
+    # TODO: 실제 값으로 교체
+    # alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:ap-northeast-2:<ACCOUNT_ID>:certificate/<id>
+    # alb.ingress.kubernetes.io/subnets: subnet-xxxx,subnet-yyyy   # 퍼블릭 서브넷(2a/2c)
+    # alb.ingress.kubernetes.io/security-groups: sg-xxxx
+    alb.ingress.kubernetes.io/group.name: victoryfairy
+spec:
+  ingressClassName: alb
+  rules:
+    # TODO: 실제 도메인으로 교체(없으면 host 생략하고 path 라우팅만 사용 가능)
+    - host: api.victoryfairy.example.com
+      http:
+        paths:
+          - path: /api/auth
+            pathType: Prefix
+            backend:
+              service:
+                name: user-app
+                port:
+                  number: 80
+          - path: /api/quiz
+            pathType: Prefix
+            backend:
+              service:
+                name: quiz-app
+                port:
+                  number: 80

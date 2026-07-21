@@ -1,0 +1,80 @@
+# user-app: 인증/유저 Spring 모듈(:user, 컨테이너 포트 8080, 경로 /api/auth)
+#
+# 인프라 커플링(ARCHITECTURE §2):
+#   user 노드그룹 = label workload=user, taint 없음
+#   -> nodeSelector 만으로 스케줄. toleration 불필요.
+# 안정 규모(노드 min2/max3). HPA 없음 — 트래픽 폭주는 quiz 쪽에서 흡수.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-app
+  namespace: victoryfairy
+  labels:
+    app: user-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: user-app
+  template:
+    metadata:
+      labels:
+        app: user-app
+    spec:
+      # ── 인프라 커플링: user 노드그룹 label 과 정확히 일치 ──
+      nodeSelector:
+        workload: user
+      containers:
+        - name: user
+          # ⚠ 불변 태그(커밋 SHA). latest 금지.
+          # TODO: <ACCOUNT_ID>.dkr.ecr.ap-northeast-2.amazonaws.com/victoryfairy-user 로 교체
+          image: "<ACCOUNT_ID>.dkr.ecr.ap-northeast-2.amazonaws.com/victoryfairy-user:<commit-sha>"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secret
+          # SPRING_PROFILES_ACTIVE=prod 는 app-config에서 주입(앱 런타임 프로필, 인프라 env와 별개 축)
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "500m"
+              memory: "768Mi"   # compose mem_limit 500m 대비 여유. MaxRAMPercentage=70 로 힙 산정.
+          # 프로브: 현재 :user 모듈에 actuator 의존성이 없어 HTTP health 엔드포인트가 없다.
+          #   -> TCP 소켓 프로브로 대체. TODO: spring-boot-starter-actuator 추가 후
+          #      /actuator/health/{liveness,readiness} 로 승격 권장.
+          startupProbe:
+            tcpSocket: { port: 8080 }
+            failureThreshold: 30
+            periodSeconds: 5      # JVM 콜드스타트 최대 ~150s 허용
+          readinessProbe:
+            tcpSocket: { port: 8080 }
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: { port: 8080 }
+            periodSeconds: 15
+      terminationGracePeriodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-app
+  namespace: victoryfairy
+  labels:
+    app: user-app
+spec:
+  type: ClusterIP
+  selector:
+    app: user-app
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+      protocol: TCP
