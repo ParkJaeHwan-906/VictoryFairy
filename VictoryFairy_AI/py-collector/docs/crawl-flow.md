@@ -98,34 +98,39 @@ flowchart TD
 
 ---
 
-## 4. 로스터·경기기록 — MySQL 적재 (registrations / records)
+## 4. 로스터·라인업 — 운영 MySQL 적재 (registrations / records)
+
+운영 서비스 스키마(domain JPA 엔티티 = `deploy/sql/schema.sql`)에 직접 쓴다.
+PK 는 서비스 소유 AUTO_INCREMENT id, 수집기는 **소스 자연키**(teams.code /
+players.kbo_player_id·naver_pcode / games.naver_game_id)로 upsert 한다.
 
 ```mermaid
 flowchart TD
-    subgraph REG["registrations (KBO 공식 → MySQL)"]
-      RA["land_registrations(date)"] --> RB["current_date(): 사이트 현재 등록일"]
+    subgraph REG["registrations (KBO 공식 → players)"]
+      RA["land_registrations(date)"] --> RB["upsert_teams → {code: teams.id}"]
       RB --> RC["구단 10개 반복<br/>Register.aspx POST(팀·날짜)"]
-      RC --> RD["parse_register: 1군 명단·포지션"]
-      RD --> RE["upsert players(현재상태)<br/>+ player_registrations(일자 스냅샷)"]
-      RE --> RF["현재일이면 미등록 선수 is_first_team=false 스윕"]
+      RC --> RD["parse_register: 1군 명단"]
+      RD --> RE["upsert players<br/>(kbo_player_id 자연키, 이름·team_id 갱신)"]
     end
-    subgraph REC["records (네이버 record → MySQL)"]
+    subgraph REC["records (네이버 record → games·game_lineups)"]
       CA["land_game_records(date)"] --> CB["schedule(date) → 완료·표준팀 경기만"]
       CB --> CC["각 gameId: /record fetch"]
       CC --> CD["parse_record → Game·Pitching·Batting·PlayerRef"]
-      CD --> CE["upsert_game_players: pcode→player_uid 발급"]
-      CE --> CF["upsert games·innings·pitching·batting"]
-      CF -. "한 경기 실패" .-> CG["경고 로그 + 실패 gameId만 수집(계속)"]
+      CD --> CE["resolve_players: pcode→players.id<br/>(①pcode ②이름+팀 유일매칭 백필 ③신규 INSERT)"]
+      CE --> CF["upsert games (FINISHED/DRAW·구장·시각)"]
+      CF --> CG["build_lineups → upsert game_lineups<br/>(출전 전체·is_starter·타순·포지션·투수 decision)"]
+      CG -. "한 경기 실패" .-> CH["경고 로그 + 실패 gameId만 수집(계속)"]
       CB2["--from/--to 구간 반복"] --> CA
-      CF --> CH["구간 끝: kbo_player_id 링크(이름+팀 유일매칭)"]
     end
 ```
 
 **포인트**
-- 둘 다 **upsert 멱등** — 재실행/재백필 안전. `players`·`games` 등은 `ON DUPLICATE KEY UPDATE`.
-- `registrations`는 하루 1회 = 그날 **1군 등록 스냅샷**. `records`는 종료 경기의 최종 박스스코어(과거 시즌 백필 가능).
-- 선수 식별은 네이버 `pcode`가 아니라 **자체 `player_uid`**. `game_players`가 pcode↔uid↔(로스터)kbo_player_id 매핑을 소유.
+- 둘 다 **upsert 멱등** — 재실행/재백필 안전. 자연키 `ON DUPLICATE KEY UPDATE`.
+- `registrations`는 하루 1회 현재 로스터를 players 에 반영(이름·소속팀). 상세정보(등번호 등)는 운영 스키마 결정에 따라 저장하지 않음.
+- `records`는 종료 경기의 games + **game_lineups**(교체 포함 출전 명단, `is_starter=TRUE` 가 선발 라인업). 과거 시즌 백필 가능.
+- 선발 판정: 타자는 (팀, 타순)별 첫 등장 행, 투수는 gameInfo 의 선발 pcode(aPCode/hPCode).
 - 스케줄 조회는 날짜에 **대시 필수**(`fromDate=2026-03-28`).
+- 운영 실행: **EC2 크론**(`deploy/ec2/` — records 03:30 KST, registrations 11:00 KST).
 
 ---
 

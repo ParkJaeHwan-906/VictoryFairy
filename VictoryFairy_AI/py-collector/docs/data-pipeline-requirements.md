@@ -38,7 +38,7 @@
 
 | docType | reader | 읽는 저장소 |
 |---|---|---|
-| `game_result` | `read_game_results` | **MySQL** (`games`·`teams`·`game_pitching`·`game_players`) |
+| `game_result` | `read_game_results` | **MySQL** (`games`·`teams`·`game_statuses`·`stadiums`·`game_lineups`) |
 | `player_profile` | `read_player_profiles` | **MySQL** (`players`·`teams`) |
 | `community_post` | `read_community_posts` | **S3** (`community/dcinside/…`, `community/fmkorea/…`) |
 | `player_meme` | (소스 `collect`가 곧 export) | 파일 `config/memes.yaml` + MySQL(uid 해소) |
@@ -100,9 +100,9 @@ title · content · tags · entities · payload · pii
 | # | 갭 | 근거 | 영향 |
 |---|---|---|---|
 | **G1** | **Lambda는 MySQL에 직접 적재하지 않는다** — S3에만 쓴다. "Lambda→MySQL 직접"은 의도라면 미구현 | `handler.py`(DbSink 없음), `run.py` land_* 분기 | 토폴로지 인식과 실제 구현 불일치 |
-| **G2** | **MySQL 적재(records/registrations)와 export 잡에 커밋된 스케줄러가 없다** | `deploy/lambda/README.md` "DB 잡은 별도 cron" | 자동화된 건 Lambda+FMKorea 크론뿐. 합류 신뢰성이 미커밋 수동 cron에 의존 |
+| **G2** | ~~MySQL 적재(records/registrations) 스케줄러 없음~~ → **해소**: EC2 크론 커밋(`deploy/ec2/`, records 03:30 KST·registrations 11:00 KST). export 잡 스케줄은 여전히 없음 | `deploy/ec2/victoryfairy-collector.cron` | export 자동화만 잔여 |
 | **G3** | **미소비 브론즈**: Lambda가 S3에 쌓는 경기 원본(schedule/result/relay)은 exporter가 안 읽는다. exporter `game_result`는 **MySQL** `games`를 읽고, 그건 별도 `records` CLI가 채운다 | `exporter.py` reader, `current-crawl-overview.md` | 같은 "경기"가 두 파이프라인(S3 원본 / MySQL 박스스코어)으로 갈림 |
-| **G4** | **스키마 소유권 충돌**: `schema.sql`은 `teams/players/games`를 "collector 소유"(문자열 PK)로 정의. 백엔드 `domain` JPA는 같은 이름 테이블을 BIGINT PK+FK 정규화로 재정의(PR #14) | `deploy/sql/schema.sql:1`, domain 엔티티 | 같은 MySQL 공유 시 스키마 불일치. **별도 정리 필요** |
+| **G4** | ~~스키마 소유권 충돌~~ → **해소**: 운영 서비스 스키마(domain JPA, BIGINT PK)로 단일화. 수집기는 소스 자연키 컬럼(teams.code/players.naver_pcode·kbo_player_id/games.naver_game_id)으로 upsert만. 구 스키마는 `migrate-legacy-collector.sql`로 제거 | `deploy/sql/schema.sql`, domain 엔티티 | 선수 상세(등번호·생년월일 등)·박스스코어 스탯은 저장 안 함(운영 결정) |
 | **G5** | **크롤 소스 공통 스캐폴드 부재** | `run.py` land_* 집중, `sources/*`는 얇은 위임 래퍼 | 나무위키 추가 시 fetch/journal/페이징 배선 재작성 |
 | **G6** | **entities 비대칭** | `exporter.py` community reader가 `empty_entities()` | 커뮤니티 글은 선수/팀 링크 없어 대상 필터 불가 |
 

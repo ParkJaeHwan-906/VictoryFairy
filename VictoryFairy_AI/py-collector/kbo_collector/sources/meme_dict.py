@@ -10,11 +10,12 @@ import yaml
 from ..exports.envelope import Envelope, empty_entities, s3_key
 from .base import CollectResult, register
 
-_UID_SQL = "SELECT player_uid FROM game_players WHERE name=%s AND team_code=%s"
+_UID_SQL = ("SELECT p.id FROM players p JOIN teams t ON t.id=p.team_id "
+            "WHERE p.name=%s AND t.code=%s")
 
 
 def resolve_player_uid(db, name: str, team_code: str):
-    """이름+팀 유일매칭. (uid, None) 또는 (None, 실패사유)."""
+    """이름+팀 유일매칭 -> 운영 players.id. (id, None) 또는 (None, 실패사유)."""
     rows = db.fetch_all(_UID_SQL, (name, team_code))
     if not rows:
         return None, "not-found"

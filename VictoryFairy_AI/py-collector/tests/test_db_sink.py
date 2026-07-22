@@ -1,74 +1,151 @@
 from types import SimpleNamespace
 
-from kbo_collector.db import DbSink, PLAYERS_UPSERT, REG_UPSERT, MARK_NOT_FIRST, INNINGS_UPSERT
+from kbo_collector.db import (
+    DbSink, TEAMS_UPSERT, ROSTER_PLAYER_UPSERT, GAME_UPSERT, LINEUP_UPSERT,
+    PLAYER_SET_PCODE, PLAYER_INSERT_PCODE,
+)
 from kbo_collector.dimensions import PlayerRow, TeamRow
+from kbo_collector.game_records import LineupRow, PlayerRef
 
 
 class FakeCursor:
-    def __init__(self, log): self.log = log
-    def __enter__(self): return self
-    def __exit__(self, *a): return False
-    def execute(self, sql, params=None): self.log.append(("execute", sql, params))
-    def executemany(self, sql, rows): self.log.append(("executemany", sql, rows))
+    """SELECT 는 fetch_results 큐에서 꺼내 답하고, 나머지는 로그만 남긴다."""
+
+    def __init__(self, conn):
+        self.conn = conn
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def execute(self, sql, params=None):
+        self.conn.log.append(("execute", sql, params))
+        if sql.lstrip().upper().startswith("SELECT"):
+            self._rows = self.conn.fetch_results.pop(0) if self.conn.fetch_results else []
+        else:
+            self._rows = []
+            self.conn.last_id += 1
+
+    def executemany(self, sql, rows):
+        self.conn.log.append(("executemany", sql, rows))
+
+    def fetchone(self):
+        return self._rows[0] if self._rows else None
+
+    def fetchall(self):
+        return list(self._rows)
+
+    @property
+    def lastrowid(self):
+        return self.conn.last_id
 
 
 class FakeConn:
-    def __init__(self): self.log = []; self.commits = 0
-    def cursor(self): return FakeCursor(self.log)
-    def commit(self): self.commits += 1
-    def close(self): pass
+    def __init__(self, fetch_results=None):
+        self.log = []
+        self.commits = 0
+        self.fetch_results = list(fetch_results or [])
+        self.last_id = 100  # INSERT 마다 1씩 증가
+
+    def cursor(self):
+        return FakeCursor(self)
+
+    def commit(self):
+        self.commits += 1
+
+    def close(self):
+        pass
 
 
-def _player(pid="60123"):
+def _roster_player(pid="60123"):
     return PlayerRow(pid, "손주영", "1", "투수", "좌투좌타", "1998-05-12", 184, 88)
 
 
-def test_upsert_players_builds_rows_with_snapshot_date():
-    conn = FakeConn()
-    DbSink(None, connection=conn).upsert_players([_player()], "LG", "2026-07-13")
+def test_upsert_teams_returns_code_to_id_map():
+    conn = FakeConn(fetch_results=[[("LG", 2), ("OB", 1)]])
+    ids = DbSink(None, connection=conn).upsert_teams(
+        [TeamRow("LG", "LG", "LG 트윈스"), TeamRow("OB", "두산", "두산 베어스")])
     kind, sql, rows = conn.log[0]
-    assert kind == "executemany" and sql == PLAYERS_UPSERT
-    assert rows == [("60123", "손주영", "LG", "1", "투수", "좌투좌타",
-                     "1998-05-12", 184, 88, "2026-07-13")]
+    assert kind == "executemany" and sql == TEAMS_UPSERT
+    assert rows == [("LG", "LG"), ("OB", "두산")]
+    assert ids == {"LG": 2, "OB": 1}
+
+
+def test_upsert_roster_players_uses_kbo_id_and_team_pk():
+    conn = FakeConn()
+    DbSink(None, connection=conn).upsert_roster_players([_roster_player()], 2)
+    kind, sql, rows = conn.log[0]
+    assert kind == "executemany" and sql == ROSTER_PLAYER_UPSERT
+    assert rows == [("60123", "손주영", 2)]
     assert conn.commits == 1
 
 
-def test_insert_registrations_rows():
-    conn = FakeConn()
-    DbSink(None, connection=conn).insert_registrations("2026-07-13", [_player()], "LG")
-    kind, sql, rows = conn.log[0]
-    assert kind == "executemany" and sql == REG_UPSERT
-    assert rows == [("2026-07-13", "60123", "LG")]
+def test_status_id_lookup_hits_existing_row():
+    conn = FakeConn(fetch_results=[[(7,)]])
+    assert DbSink(None, connection=conn).status_id("FINISHED") == 7
+    assert len(conn.log) == 1  # INSERT 없음
 
 
-def test_mark_not_first_team_params():
+def test_stadium_id_inserts_when_missing_and_none_passthrough():
+    conn = FakeConn(fetch_results=[[]])
+    sink = DbSink(None, connection=conn)
+    assert sink.stadium_id("잠실") == 101   # last_id 100 -> INSERT 후 101
+    assert sink.stadium_id(None) is None
+
+
+def test_resolve_players_pcode_hit_name_backfill_and_insert():
+    refs = [PlayerRef("P1", "기존선수", "LG"), PlayerRef("P2", "로스터선수", "LG"),
+            PlayerRef("P3", "신규선수", "OB")]
+    conn = FakeConn(fetch_results=[
+        [("P1", 11)],   # P1: pcode 즉시 매칭
+        [(22,)],        # P2: 이름+팀 유일 매칭 -> pcode 백필
+        [],             # P3: 매칭 없음 -> INSERT
+    ])
+    out = DbSink(None, connection=conn).resolve_players(refs, {"LG": 2, "OB": 1})
+    # P3 는 102: 페이크 커서가 P2 백필 UPDATE 에서도 last_id 를 1 올리기 때문
+    assert out == {"P1": 11, "P2": 22, "P3": 102}
+    sqls = [s for _, s, _ in conn.log]
+    assert PLAYER_SET_PCODE in sqls and PLAYER_INSERT_PCODE in sqls
+
+
+def test_resolve_players_skips_unknown_team():
+    refs = [PlayerRef("P9", "올스타", "DR")]
+    conn = FakeConn(fetch_results=[[]])
+    out = DbSink(None, connection=conn).resolve_players(refs, {"LG": 2})
+    assert out == {}
+
+
+def test_upsert_game_combines_datetime_and_returns_pk():
+    game = SimpleNamespace(game_id="20260708LGSS02026", game_date="2026-07-08",
+                           start_time="18:30", home_team_code="SS",
+                           away_team_code="LG", home_score=3, away_score=5)
     conn = FakeConn()
-    DbSink(None, connection=conn).mark_not_first_team("LG", "2026-07-13")
+    pk = DbSink(None, connection=conn).upsert_game(
+        game, team_ids={"LG": 2, "SS": 3}, stadium_id=9, status_id=7)
     kind, sql, params = conn.log[0]
-    assert kind == "execute" and sql == MARK_NOT_FIRST
-    assert params == ("LG", "2026-07-13")
+    assert sql == GAME_UPSERT
+    assert params == ("20260708LGSS02026", "2026-07-08 18:30:00", 3, 2, 9, 3, 5, 7)
+    assert pk == 101
 
 
-def test_upsert_teams_rows():
+def test_upsert_lineups_maps_ids_and_drops_unresolved():
+    rows = [
+        LineupRow("P1", "LG", False, 1, "중", True, None),
+        LineupRow("P2", "LG", False, None, "투", True, "W"),
+        LineupRow("PX", "LG", False, 9, "포", False, None),  # 미해소 pcode -> 제외
+    ]
     conn = FakeConn()
-    DbSink(None, connection=conn).upsert_teams([TeamRow("LG", "LG", "LG 트윈스")])
-    kind, sql, rows = conn.log[0]
-    assert kind == "executemany"
-    assert rows == [("LG", "LG", "LG 트윈스")]
+    DbSink(None, connection=conn).upsert_lineups(
+        55, rows, {"P1": 11, "P2": 12}, {"LG": 2})
+    kind, sql, params = conn.log[0]
+    assert kind == "executemany" and sql == LINEUP_UPSERT
+    assert params == [(55, 2, 11, 1, "중", True, None),
+                      (55, 2, 12, None, "투", True, "W")]
 
 
 def test_empty_rows_noop():
     conn = FakeConn()
-    DbSink(None, connection=conn).upsert_players([], "LG", "2026-07-13")
+    DbSink(None, connection=conn).upsert_roster_players([], 2)
     assert conn.log == [] and conn.commits == 0
-
-
-def test_upsert_innings_expands_1indexed_skipping_none():
-    conn = FakeConn()
-    game = SimpleNamespace(game_id="G1",
-                           inn_scores={"away": [2, 0, 1], "home": [0, None, 3]})
-    DbSink(None, connection=conn).upsert_innings(game)
-    kind, sql, rows = conn.log[0]
-    assert kind == "executemany" and sql == INNINGS_UPSERT
-    assert rows == [("G1", 1, False, 2), ("G1", 2, False, 0), ("G1", 3, False, 1),
-                    ("G1", 1, True, 0), ("G1", 3, True, 3)]  # home 2회(None) 스킵

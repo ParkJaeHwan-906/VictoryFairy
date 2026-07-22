@@ -125,7 +125,7 @@ py-collector/
 |---|---|
 | **lambda/** | 서버리스 크롤(호출당 과금). `handler.py`(코어 호출 어댑터), `Dockerfile`+`requirements.txt`(lxml 네이티브 → 컨테이너 이미지), `terraform/`(ECR·Lambda·EventBridge 스케줄·IAM), `README.md`. **community 10분 + game 매일 03:00 KST**. MySQL엔 안 씀 |
 | **local/** | 주거 IP에서 도는 스크립트. `crawl_fmkorea.sh`(일일 인기글), `backfill_fmkorea.sh`(구간 백필), `README.md` |
-| **sql/** | `schema.sql`(MySQL 테이블 DDL — teams/players/player_registrations/games/game_*), `seed-dump.sql`(시드) |
+| **sql/** | `schema.sql`(운영 서비스 스키마 DDL — teams/players/stadiums/game_statuses/games/game_lineups + 시드. 구조 원천은 domain JPA 엔티티), `migrate-legacy-collector.sql`(구 수집기 스키마 제거) |
 
 ## `tests/` · `docs/` · `notebooks/` · 루트
 

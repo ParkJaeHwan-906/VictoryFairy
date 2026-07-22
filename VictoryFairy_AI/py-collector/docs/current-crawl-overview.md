@@ -188,6 +188,10 @@ flowchart TD
 
 ## 5-2. MySQL 스키마 (`deploy/sql/schema.sql`)
 
+> **[구버전 스냅샷]** 아래 5-2절은 collector 소유 스키마 시절 기록이다. 현재는 **운영
+> 서비스 스키마**(teams/players/stadiums/game_statuses/games/**game_lineups**, BIGINT PK)에
+> 직접 적재한다 — 최신 구조는 `deploy/sql/schema.sql`·`crawl-flow.md` 4절 참고.
+
 ### 로스터 (소스: KBO 공식)
 
 | 테이블 | 주요 컬럼 | 의미 |
