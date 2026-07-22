@@ -42,6 +42,17 @@ public class Player {
     @Column(name = "average", nullable = false)
     private double average;
 
+    /**
+     * 네이버 record API 의 선수 코드(pcode). py-collector 라인업 적재의 소스 자연키(UNIQUE).
+     * KBO 공식 playerId 와는 다른 체계라 별도 컬럼으로 둔다. 서비스 로직에서는 몰라도 된다.
+     */
+    @Column(name = "naver_pcode", length = 16, unique = true)
+    private String naverPcode;
+
+    /** KBO 공식 사이트 playerId. py-collector 1군 로스터 적재의 소스 자연키(UNIQUE). */
+    @Column(name = "kbo_player_id", length = 16, unique = true)
+    private String kboPlayerId;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -51,9 +62,11 @@ public class Player {
     private LocalDateTime updatedAt;
 
     @Builder
-    private Player(Team team, String name, double average) {
+    private Player(Team team, String name, double average, String naverPcode, String kboPlayerId) {
         this.team = team;
         this.name = name;
         this.average = average;
+        this.naverPcode = naverPcode;
+        this.kboPlayerId = kboPlayerId;
     }
 }
