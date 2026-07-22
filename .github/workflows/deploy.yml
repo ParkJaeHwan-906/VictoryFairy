@@ -2,7 +2,8 @@ name: Deploy to EC2
 
 # main 브랜치에 push(= PR merge)되면 자동 배포. UI에서 수동 실행도 가능.
 # 변경이 감지된 모듈(+ 그에 의존하는 모듈)만 빌드한다.
-# 주의: 저장소 루트는 VictoryFairy/ 이고 프로젝트는 VitoryFairy_BE/ 하위에 있다.
+# 주의: 저장소 루트는 VictoryFairy/ 이고 Spring 프로젝트는 VitoryFairy_BE/ 하위,
+# py-collector 는 VictoryFairy_AI/ 하위에 있다.
 on:
   push:
     branches: [main]
@@ -16,6 +17,7 @@ on:
 env:
   REGISTRY: ghcr.io
   PROJECT_DIR: VitoryFairy_BE
+  COLLECTOR_DIR: VictoryFairy_AI/py-collector
 
 jobs:
   # 0단계: 어떤 모듈을 빌드/배포할지 판단 (의존성 그래프 반영)
@@ -24,6 +26,7 @@ jobs:
     outputs:
       modules: ${{ steps.set.outputs.modules }}   # 빌드할 모듈 JSON 배열 (예: ["quiz"])
       deploy: ${{ steps.set.outputs.deploy }}      # 배포 필요 여부 true/false
+      collector: ${{ steps.set.outputs.collector }} # py-collector 이미지 빌드 여부 true/false
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -56,6 +59,13 @@ jobs:
             compose:
               - 'VitoryFairy_BE/docker-compose.prod.yml'
               - 'VitoryFairy_BE/nginx.conf'
+            collector:
+              - 'VictoryFairy_AI/py-collector/kbo_collector/**'
+              - 'VictoryFairy_AI/py-collector/config/**'
+              - 'VictoryFairy_AI/py-collector/pyproject.toml'
+              - 'VictoryFairy_AI/py-collector/Dockerfile.run'
+              - 'VictoryFairy_AI/py-collector/deploy/ec2/**'
+              - 'VictoryFairy_AI/py-collector/deploy/sql/**'
 
       - name: Compute build set (dependency graph)
         id: set
@@ -87,13 +97,18 @@ jobs:
           [ -z "$mods" ] && mods='[]'
           echo "modules=$mods" >> "$GITHUB_OUTPUT"
 
-          # 빌드할 모듈이 있거나 compose 가 바뀌었으면 배포 수행
-          if [ "$mods" != "[]" ] || [ "${{ steps.filter.outputs.compose }}" = "true" ] || [ "${{ github.event_name }}" != "push" ]; then
+          # py-collector: 수동 실행이거나 관련 경로 변경 시 이미지 빌드
+          COL='${{ steps.filter.outputs.collector }}'
+          [ "${{ github.event_name }}" != "push" ] && COL=true
+          echo "collector=${COL:-false}" >> "$GITHUB_OUTPUT"
+
+          # 빌드할 모듈이 있거나 compose/collector 가 바뀌었으면 배포 수행
+          if [ "$mods" != "[]" ] || [ "${{ steps.filter.outputs.compose }}" = "true" ] || [ "$COL" = "true" ] || [ "${{ github.event_name }}" != "push" ]; then
             echo "deploy=true" >> "$GITHUB_OUTPUT"
           else
             echo "deploy=false" >> "$GITHUB_OUTPUT"
           fi
-          echo "→ build modules = $mods"
+          echo "→ build modules = $mods, collector = ${COL:-false}"
 
   # 1단계: 변경된 모듈만 빌드 → GHCR push
   build-and-push:
@@ -138,11 +153,49 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.module }}
           cache-to: type=gha,mode=max,scope=${{ matrix.module }}
 
+  # 1.5단계: py-collector 크론용 이미지 빌드 → GHCR push (앱 모듈과 독립)
+  build-and-push-collector:
+    needs: detect
+    if: needs.detect.outputs.collector == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set lowercase image prefix
+        id: vars
+        run: echo "prefix=${REGISTRY}/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push collector
+        uses: docker/build-push-action@v7
+        with:
+          context: ./${{ env.COLLECTOR_DIR }}
+          file: ./${{ env.COLLECTOR_DIR }}/Dockerfile.run
+          push: true
+          tags: |
+            ${{ steps.vars.outputs.prefix }}/victoryfairy-collector:latest
+            ${{ steps.vars.outputs.prefix }}/victoryfairy-collector:${{ github.sha }}
+          cache-from: type=gha,scope=collector
+          cache-to: type=gha,mode=max,scope=collector
+
   # 2단계: EC2에 SSH 접속 → 최신(latest) 이미지 pull & 변경분만 재기동
   deploy:
-    needs: [detect, build-and-push]
-    # 배포가 필요하고(모듈 빌드 or compose 변경), 빌드가 실패하지 않았을 때만
-    if: ${{ !cancelled() && needs.detect.outputs.deploy == 'true' && needs.build-and-push.result != 'failure' }}
+    needs: [detect, build-and-push, build-and-push-collector]
+    # 배포가 필요하고(모듈 빌드 or compose/collector 변경), 빌드가 실패하지 않았을 때만
+    if: ${{ !cancelled() && needs.detect.outputs.deploy == 'true' && needs.build-and-push.result != 'failure' && needs.build-and-push-collector.result != 'failure' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout (compose 파일 전송용)
@@ -157,6 +210,16 @@ jobs:
           source: "${{ env.PROJECT_DIR }}/docker-compose.prod.yml,${{ env.PROJECT_DIR }}/nginx.conf"
           strip_components: 1   # VitoryFairy_BE/ 접두사 제거 → ~/app/{docker-compose.prod.yml,nginx.conf}
           target: ~/app
+
+      - name: Copy collector cron files to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "${{ env.COLLECTOR_DIR }}/deploy/ec2/run_collector.sh,${{ env.COLLECTOR_DIR }}/deploy/ec2/victoryfairy-collector.cron,${{ env.COLLECTOR_DIR }}/deploy/ec2/collector.env.example"
+          strip_components: 4   # VictoryFairy_AI/py-collector/deploy/ec2/ 접두사 제거 → ~/app/collector/{파일}
+          target: ~/app/collector
 
       - name: Deploy on EC2
         uses: appleboy/ssh-action@v1.0.3
@@ -176,3 +239,9 @@ jobs:
             docker compose -f docker-compose.prod.yml pull
             docker compose -f docker-compose.prod.yml up -d --remove-orphans
             docker image prune -f
+
+            # py-collector 크론 설치 (파일은 위 scp 단계에서 ~/app/collector/ 로 복사됨)
+            # collector.env 는 최초 1회 수동 생성 (py-collector/deploy/ec2/README.md)
+            chmod +x ~/app/collector/run_collector.sh
+            sudo install -o root -g root -m 644 \
+              ~/app/collector/victoryfairy-collector.cron /etc/cron.d/victoryfairy-collector

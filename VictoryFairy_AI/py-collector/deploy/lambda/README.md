@@ -38,9 +38,8 @@ aws logs tail /aws/lambda/kbo-collector --follow
 ```
 스케줄은 apply 직후부터 동작합니다(community 10분마다, game 매일 03:00 KST).
 
-> **DB 잡은 여기서 안 돎**: `records`·`registrations`·`export`는 MySQL(SSH 터널 너머)에 써서
-> Lambda에서 접근 불가. 이 스케줄은 **S3에만 쓰는** community·game 전용이며, DB 잡은 DB가
-> 있는 서버의 cron에 별도로 거는 게 맞습니다.
+> **DB 잡은 여기서 안 돎**: `records`·`registrations`·`export`는 운영 MySQL(RDS)에 써서
+> Lambda(S3 전용)에서 안 돌립니다. DB 잡은 **EC2 크론**으로 돕니다 — [`../ec2/`](../ec2/) 참고.
 
 ## 코드 바꾼 뒤 재배포
 ```bash
