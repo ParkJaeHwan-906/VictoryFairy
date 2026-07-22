@@ -5,8 +5,8 @@
 > 최종 업데이트: 2026-07-18
 
 ## 관련 위치
-- (이 레포 `VitoryFairy_BE/`) `nginx.conf`, `docker-compose.prod.yml`, `docker-compose.yml`, `Dockerfile`, `infra/` 디렉터리, `docs/deployment-strategy.md`, `docs/cicd-runbook.md`
-- (**상위 레포** `VictoryFairy/.github/workflows/deploy.yml`, CI/CD) — 이 레포(`VitoryFairy_BE/`)에는 `.github`가 없다. 저장소 루트가 한 단계 위임에 주의 (deploy.yml 자신도 이를 경고).
+- (이 레포 `VictoryFairy_BE/`) `nginx.conf`, `docker-compose.prod.yml`, `docker-compose.yml`, `Dockerfile`, `infra/` 디렉터리, `docs/deployment-strategy.md`, `docs/cicd-runbook.md`
+- (**상위 레포** `VictoryFairy/.github/workflows/deploy.yml`, CI/CD) — 이 레포(`VictoryFairy_BE/`)에는 `.github`가 없다. 저장소 루트가 한 단계 위임에 주의 (deploy.yml 자신도 이를 경고).
 
 ---
 

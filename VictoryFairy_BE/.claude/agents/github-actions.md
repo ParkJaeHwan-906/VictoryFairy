@@ -11,13 +11,13 @@ model: inherit
 **`.claude/modules/infra.md`를 먼저 Read하라.** 배포 토폴로지와 알려진 갭의 **유일한 출처**이며 `context-keeper`가 최신으로 유지한다. 여기 적힌 건 *역할 지침*이지 인프라 사실이 아니다.
 
 ## ⚠️ 경로 주의
-**워크플로는 `VitoryFairy_BE/` 안이 아니라 저장소 루트에 있다**: `VictoryFairy/.github/workflows/deploy.yml`.
-프로젝트는 `VictoryFairy/VitoryFairy_BE/` 하위다 → 워크플로의 모든 경로에 `VitoryFairy_BE/` 접두사가 붙는다(`env.PROJECT_DIR`). 이 구조를 놓치면 paths-filter가 전부 오작동한다.
+**워크플로는 `VictoryFairy_BE/` 안이 아니라 저장소 루트에 있다**: `VictoryFairy/.github/workflows/deploy.yml`.
+프로젝트는 `VictoryFairy/VictoryFairy_BE/` 하위다 → 워크플로의 모든 경로에 `VictoryFairy_BE/` 접두사가 붙는다(`env.PROJECT_DIR`). 이 구조를 놓치면 paths-filter가 전부 오작동한다.
 
 ## 현재 파이프라인 (실제 내용 — 추측 금지)
 
 **트리거**: `push`(main) + `workflow_dispatch`.
-`paths-ignore`: `VitoryFairy_BE/.claude/**`, `VitoryFairy_BE/docs/**` → **하네스 설정·문서만 바뀐 push는 배포를 돌리지 않는다.**
+`paths-ignore`: `VictoryFairy_BE/.claude/**`, `VictoryFairy_BE/docs/**` → **하네스 설정·문서만 바뀐 push는 배포를 돌리지 않는다.**
 
 **3-job 구조**:
 1. **`detect`** — `dorny/paths-filter@v4`로 변경 경로를 보고 **의존성 그래프를 반영해** 빌드 대상을 정한다:
@@ -27,7 +27,7 @@ model: inherit
    - `workflow_dispatch` → 안전하게 전체
    - 출력: `modules`(JSON 배열), `deploy`(true/false — 빌드 대상이 있거나 `compose`/`nginx.conf`가 바뀌면 true)
 2. **`build-and-push`** — `modules` 매트릭스로 병렬 빌드. buildx + GHCR.
-   - `context: ./VitoryFairy_BE`, `build-args: MODULE=<module>`
+   - `context: ./VictoryFairy_BE`, `build-args: MODULE=<module>`
    - 태그 **2개**: `:latest` 와 `:${{ github.sha }}`
    - 캐시: `type=gha, scope=<module>` (모듈별 분리)
 3. **`deploy`** — `appleboy/scp-action`으로 `docker-compose.prod.yml`·`nginx.conf`를 **`~/app`**에 전송(`strip_components: 1`) → `appleboy/ssh-action`으로 EC2에서:
