@@ -4,3 +4,5 @@ pydantic==2.7.4
 pydantic-settings==2.3.4
 kiwipiepy==0.23.2
 transformers==4.44.2
+# S3 게시글별 .json 입출력(run_validation). pure-python, torch처럼 이미지 비대화 없음.
+boto3==1.34.144
