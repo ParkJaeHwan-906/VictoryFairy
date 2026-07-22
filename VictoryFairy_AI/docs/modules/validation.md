@@ -54,4 +54,4 @@
 - 오탐 방지: 정상 표현을 `core/data/exceptions.json`에 추가.
 
 ## 교차 의존 (명시)
-- validation의 **출력(통과 문장)** 이 pipeline `run_validation`을 거쳐 analysis의 입력이 된다. 검열 로직 자체는 validation 안에서 완결.
+- pipeline `run_validation`이 `validation_service`를 import해 S3 게시글(`community/{source}/{date}/*.json`)을 검열하고 결과를 S3(`validation/pattern/...`)에 쓴다(로컬 파일 아님 — 상세는 `docs/modules/pipeline.md`). 검열 로직 자체는 validation 안에서 완결. 이 S3 출력이 analysis 입력으로 자동 연결되지는 않는다(배선 끊김, `pipeline.md` "한계" 참고).

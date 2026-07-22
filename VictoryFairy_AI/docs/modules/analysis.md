@@ -52,5 +52,5 @@
 - **모델 출력은 버전 의존**: `transformers`·모델 갱신 시 결과가 달라질 수 있다. 테스트는 정확한 출력 일치보다 **gazetteer 후처리 규칙**을 검증하는 편이 안정적이다.
 
 ## 교차 의존 (명시)
-- 입력: pipeline `run_analysis`가 `processed_data.txt`(검열 통과분)를 넘긴다.
+- 입력: pipeline `run_analysis`가 `data/processed_data.txt`(검열 통과분)를 넘긴다 — 단, `run_validation`이 S3 기반으로 바뀌면서 이 파일의 자동 공급자가 없어졌다(수동 배치 필요, 상세는 `pipeline.md` "한계").
 - 출력: `finished_data.jsonl`이 `run_aggregate`(집계)의 입력.
