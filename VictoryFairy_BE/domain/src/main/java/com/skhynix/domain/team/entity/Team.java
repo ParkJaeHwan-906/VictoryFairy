@@ -28,6 +28,13 @@ public class Team {
     @Column(name = "name", length = 100, nullable = false)
     private String name;
 
+    /**
+     * KBO 구단 코드(LG, OB, SS …). py-collector 가 재실행해도 중복 없이 upsert 하기 위한
+     * 소스 자연키(UNIQUE)로, 서비스 로직에서는 몰라도 된다.
+     */
+    @Column(name = "code", length = 4, unique = true)
+    private String code;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -37,7 +44,8 @@ public class Team {
     private LocalDateTime updatedAt;
 
     @Builder
-    private Team(String name) {
+    private Team(String name, String code) {
         this.name = name;
+        this.code = code;
     }
 }

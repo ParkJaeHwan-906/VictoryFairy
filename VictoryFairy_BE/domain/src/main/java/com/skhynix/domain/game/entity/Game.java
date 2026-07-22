@@ -55,6 +55,13 @@ public class Game {
     @JoinColumn(name = "game_status_id", nullable = false)
     private GameStatus gameStatus;
 
+    /**
+     * 네이버 스포츠 gameId(예: 20260708LGSS02026). py-collector 가 재실행해도 중복 없이
+     * upsert 하기 위한 소스 자연키(UNIQUE)이며 더블헤더도 구분한다. 서비스 로직에서는 몰라도 된다.
+     */
+    @Column(name = "naver_game_id", length = 20, unique = true)
+    private String naverGameId;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -65,7 +72,7 @@ public class Game {
 
     @Builder
     private Game(LocalDateTime gameDate, Team homeTeam, Team awayTeam, Stadium stadium,
-            Integer homeScore, Integer awayScore, GameStatus gameStatus) {
+            Integer homeScore, Integer awayScore, GameStatus gameStatus, String naverGameId) {
         this.gameDate = gameDate;
         this.homeTeam = homeTeam;
         this.awayTeam = awayTeam;
@@ -73,5 +80,6 @@ public class Game {
         this.homeScore = homeScore;
         this.awayScore = awayScore;
         this.gameStatus = gameStatus;
+        this.naverGameId = naverGameId;
     }
 }
