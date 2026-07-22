@@ -1,131 +1,116 @@
--- KBO 1군 로스터 적재 스키마 (collector 소유). MySQL 8.0.
+-- 운영 서비스 스키마(도메인 JPA 엔티티와 동일 구조) + 수집기 매핑 컬럼. MySQL 8.0.
+--
+-- 소유권: 테이블 구조의 원천은 domain 모듈의 JPA 엔티티다
+--   (Team/Player/Stadium/GameStatus/Game/GameLineup — 운영은 ddl-auto:none 이라
+--   실제 반영은 이 파일을 수동 실행). 수집기는 여기에 "쓰기"만 한다.
+-- 매핑 컬럼: teams.code / players.naver_pcode / players.kbo_player_id /
+--   games.naver_game_id 는 수집기가 재실행해도 중복 없이 upsert 하기 위한
+--   소스 자연키(UNIQUE)다. 서비스 로직은 몰라도 된다.
+-- 기존(구 수집기) 스키마에서 넘어올 때는 migrate-legacy-collector.sql 을 먼저 실행.
+
 CREATE TABLE IF NOT EXISTS teams (
-  team_code  VARCHAR(4)  PRIMARY KEY,
-  name       VARCHAR(20) NOT NULL,
-  full_name  VARCHAR(40),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  id         BIGINT AUTO_INCREMENT PRIMARY KEY,
+  name       VARCHAR(100) NOT NULL,
+  code       VARCHAR(4)   NULL,               -- KBO 구단 코드(LG, OB …)
+  created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  UNIQUE KEY uq_teams_code (code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS stadiums (
+  id         BIGINT AUTO_INCREMENT PRIMARY KEY,
+  name       VARCHAR(100) NOT NULL,
+  created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS game_statuses (
+  id         BIGINT AUTO_INCREMENT PRIMARY KEY,
+  name       VARCHAR(100) NOT NULL,           -- SCHEDULED/IN_PROGRESS/FINISHED/DRAW/CANCELED
+  created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS players (
-  player_id          VARCHAR(16) PRIMARY KEY,
-  name               VARCHAR(30) NOT NULL,
-  team_code          VARCHAR(4),
-  back_number        VARCHAR(4),
-  position           VARCHAR(10),
-  throw_bat          VARCHAR(10),
-  birth_date         DATE,
-  height_cm          SMALLINT,
-  weight_kg          SMALLINT,
-  is_first_team      BOOLEAN NOT NULL DEFAULT TRUE,
-  last_registered_on DATE,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  CONSTRAINT fk_player_team FOREIGN KEY (team_code) REFERENCES teams(team_code)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-CREATE TABLE IF NOT EXISTS player_registrations (
-  snapshot_date DATE        NOT NULL,
-  player_id     VARCHAR(16) NOT NULL,
-  team_code     VARCHAR(4)  NOT NULL,
-  PRIMARY KEY (snapshot_date, player_id),
-  CONSTRAINT fk_reg_player FOREIGN KEY (player_id) REFERENCES players(player_id),
-  CONSTRAINT fk_reg_team   FOREIGN KEY (team_code) REFERENCES teams(team_code)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
--- ============================================================
--- 경기 기록(박스스코어) 적재. 소스: 네이버 스포츠 record API.
--- ============================================================
-
--- 경기 데이터에 등장하는 선수의 '우리 독자 식별자' 레지스트리.
--- player_uid = 내부 canonical id (네이버 pcode와 분리).
--- naver_pcode = 소스 매핑키, kbo_player_id = 기존 1군 로스터(players)와의 best-effort 링크.
-CREATE TABLE IF NOT EXISTS game_players (
-  player_uid    BIGINT      AUTO_INCREMENT PRIMARY KEY,
-  naver_pcode   VARCHAR(16) NOT NULL UNIQUE,
-  name          VARCHAR(30) NOT NULL,
-  team_code     VARCHAR(4),
-  kbo_player_id VARCHAR(16),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  KEY idx_gp_kbo (kbo_player_id)
+  id            BIGINT AUTO_INCREMENT PRIMARY KEY,
+  team_id       BIGINT       NOT NULL,
+  name          VARCHAR(100) NOT NULL,
+  average       DOUBLE       NOT NULL DEFAULT 0,
+  naver_pcode   VARCHAR(16)  NULL,            -- 네이버 record API pcode
+  kbo_player_id VARCHAR(16)  NULL,            -- KBO 공식 playerId (pcode와 다른 체계)
+  created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  UNIQUE KEY uq_players_naver_pcode (naver_pcode),
+  UNIQUE KEY uq_players_kbo_player_id (kbo_player_id),
+  KEY idx_players_team_name (team_id, name),
+  CONSTRAINT fk_players_team FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS games (
-  game_id          VARCHAR(20) PRIMARY KEY,   -- 네이버 gameId
-  game_date        DATE        NOT NULL,
-  game_type        VARCHAR(12) NOT NULL,      -- regular / preseason
-  round_no         INT,
-  stadium          VARCHAR(20),
-  start_time       VARCHAR(8),
-  away_team_code   VARCHAR(4)  NOT NULL,
-  home_team_code   VARCHAR(4)  NOT NULL,
-  away_score       INT,
-  home_score       INT,
-  away_hits        INT,
-  home_hits        INT,
-  away_errors      INT,
-  home_errors      INT,
-  away_bb          INT,
-  home_bb          INT,
-  winner           VARCHAR(4),                -- away / home / draw
-  away_starter_uid BIGINT,
-  home_starter_uid BIGINT,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  CONSTRAINT fk_game_away FOREIGN KEY (away_team_code) REFERENCES teams(team_code),
-  CONSTRAINT fk_game_home FOREIGN KEY (home_team_code) REFERENCES teams(team_code),
-  KEY idx_game_date (game_date)
+  id             BIGINT AUTO_INCREMENT PRIMARY KEY,
+  game_date      DATETIME(6) NOT NULL,        -- 경기 시작 일시(시간 포함)
+  home_team_id   BIGINT      NOT NULL,
+  away_team_id   BIGINT      NOT NULL,
+  stadium_id     BIGINT      NULL,
+  home_score     INT         NULL,
+  away_score     INT         NULL,
+  game_status_id BIGINT      NOT NULL,
+  naver_game_id  VARCHAR(20) NULL,            -- 네이버 gameId (더블헤더 구분 자연키)
+  created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  UNIQUE KEY uq_games_naver_game_id (naver_game_id),
+  KEY idx_games_game_date (game_date),
+  CONSTRAINT fk_games_home_team FOREIGN KEY (home_team_id) REFERENCES teams(id),
+  CONSTRAINT fk_games_away_team FOREIGN KEY (away_team_id) REFERENCES teams(id),
+  CONSTRAINT fk_games_stadium   FOREIGN KEY (stadium_id) REFERENCES stadiums(id),
+  CONSTRAINT fk_games_status    FOREIGN KEY (game_status_id) REFERENCES game_statuses(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- 이닝별 득점(라인스코어). 한 경기당 (원정/홈) × 이닝 수 만큼 행.
-CREATE TABLE IF NOT EXISTS game_innings (
-  game_id VARCHAR(20) NOT NULL,
-  inning  INT         NOT NULL,
-  is_home BOOLEAN     NOT NULL,
-  runs    INT         NOT NULL,
-  PRIMARY KEY (game_id, is_home, inning),
-  CONSTRAINT fk_gi_game FOREIGN KEY (game_id) REFERENCES games(game_id)
+-- 경기별 출전 명단(교체 포함). is_starter=TRUE 만 조회하면 선발 라인업(타순 1~9 + 선발투수).
+CREATE TABLE IF NOT EXISTS game_lineups (
+  id         BIGINT AUTO_INCREMENT PRIMARY KEY,
+  game_id    BIGINT NOT NULL,
+  team_id    BIGINT NOT NULL,
+  player_id  BIGINT NOT NULL,
+  bat_order  INT         NULL,                -- 타순 1~9 (투수 등 타석 없으면 NULL)
+  position   VARCHAR(10) NULL,                -- 포지션 표기(중/포/지/투 …, 대타=타/대주자=주)
+  is_starter BOOLEAN NOT NULL DEFAULT FALSE,  -- 선발 출전 여부
+  decision   VARCHAR(2)  NULL,                -- 투수 한정 W/L/S/H
+  created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  UNIQUE KEY uq_game_lineups_game_player (game_id, player_id),
+  KEY idx_game_lineups_player (player_id),
+  CONSTRAINT fk_game_lineups_game   FOREIGN KEY (game_id)   REFERENCES games(id)   ON DELETE CASCADE,
+  CONSTRAINT fk_game_lineups_team   FOREIGN KEY (team_id)   REFERENCES teams(id)   ON DELETE CASCADE,
+  CONSTRAINT fk_game_lineups_player FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE TABLE IF NOT EXISTS game_pitching (
-  game_id       VARCHAR(20) NOT NULL,
-  player_uid    BIGINT      NOT NULL,
-  team_code     VARCHAR(4)  NOT NULL,
-  is_home       BOOLEAN     NOT NULL,
-  seq           INT         NOT NULL,          -- 등판 순서(0=선발)
-  decision      VARCHAR(2),                    -- W/L/S/H, 없으면 NULL
-  ip_display    VARCHAR(8),                    -- "6", "6 ⅓"
-  ip_outs       INT,                           -- 아웃 카운트(6 ⅓ = 19)
-  batters_faced INT,
-  at_bats       INT,
-  hits          INT,
-  runs          INT,
-  earned_runs   INT,
-  home_runs     INT,
-  walks_hbp     INT,
-  strikeouts    INT,
-  PRIMARY KEY (game_id, player_uid),
-  CONSTRAINT fk_gp_game   FOREIGN KEY (game_id)    REFERENCES games(game_id),
-  CONSTRAINT fk_gp_player FOREIGN KEY (player_uid) REFERENCES game_players(player_uid)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-- ============================================================
+-- 시드 (멱등: 있으면 건너뜀)
+-- ============================================================
 
-CREATE TABLE IF NOT EXISTS game_batting (
-  game_id       VARCHAR(20) NOT NULL,
-  player_uid    BIGINT      NOT NULL,
-  team_code     VARCHAR(4)  NOT NULL,
-  is_home       BOOLEAN     NOT NULL,
-  bat_order     INT,
-  position      VARCHAR(4),
-  at_bats       INT,
-  runs          INT,
-  hits          INT,
-  home_runs     INT,
-  rbi           INT,
-  walks         INT,
-  strikeouts    INT,
-  stolen_bases  INT,
-  PRIMARY KEY (game_id, player_uid),
-  CONSTRAINT fk_gb_game   FOREIGN KEY (game_id)    REFERENCES games(game_id),
-  CONSTRAINT fk_gb_player FOREIGN KEY (player_uid) REFERENCES game_players(player_uid)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-- 경기 상태 코드 (GameStatus javadoc 의 5종)
+INSERT INTO game_statuses (name)
+SELECT s.name FROM (SELECT 'SCHEDULED' name UNION SELECT 'IN_PROGRESS'
+  UNION SELECT 'FINISHED' UNION SELECT 'DRAW' UNION SELECT 'CANCELED') s
+WHERE NOT EXISTS (SELECT 1 FROM game_statuses g WHERE g.name = s.name);
+
+-- 팀 코드 백필: 이미 이름으로만 시드된 행이 있으면 코드를 붙인다(중복 INSERT 방지).
+UPDATE teams SET code='OB' WHERE code IS NULL AND name IN ('두산','두산 베어스');
+UPDATE teams SET code='LG' WHERE code IS NULL AND name IN ('LG','LG 트윈스');
+UPDATE teams SET code='SS' WHERE code IS NULL AND name IN ('삼성','삼성 라이온즈');
+UPDATE teams SET code='KT' WHERE code IS NULL AND name IN ('KT','KT 위즈','kt wiz');
+UPDATE teams SET code='WO' WHERE code IS NULL AND name IN ('키움','키움 히어로즈');
+UPDATE teams SET code='HT' WHERE code IS NULL AND name IN ('KIA','KIA 타이거즈');
+UPDATE teams SET code='HH' WHERE code IS NULL AND name IN ('한화','한화 이글스');
+UPDATE teams SET code='NC' WHERE code IS NULL AND name IN ('NC','NC 다이노스');
+UPDATE teams SET code='LT' WHERE code IS NULL AND name IN ('롯데','롯데 자이언츠');
+UPDATE teams SET code='SK' WHERE code IS NULL AND name IN ('SSG','SSG 랜더스');
+-- 코드가 없는 팀은 새로 넣는다(이름은 dimensions.TEAMS 의 짧은 이름과 동일).
+INSERT INTO teams (name, code)
+SELECT t.name, t.code FROM (
+  SELECT '두산' name,'OB' code UNION SELECT 'LG','LG' UNION SELECT '삼성','SS'
+  UNION SELECT 'KT','KT' UNION SELECT '키움','WO' UNION SELECT 'KIA','HT'
+  UNION SELECT '한화','HH' UNION SELECT 'NC','NC' UNION SELECT '롯데','LT'
+  UNION SELECT 'SSG','SK') t
+WHERE NOT EXISTS (SELECT 1 FROM teams x WHERE x.code = t.code);
