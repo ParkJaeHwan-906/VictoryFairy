@@ -223,8 +223,8 @@ java -jar quiz/build/libs/quiz.jar
 
 | 애플리케이션 | Main class | Classpath module |
 | --- | --- | --- |
-| `user` | `com.skhynix.user.UserApplication` | `VitoryFairy_BE.user.main` |
-| `quiz` | `com.skhynix.quiz.QuizApplication` | `VitoryFairy_BE.quiz.main` |
+| `user` | `com.skhynix.user.UserApplication` | `VictoryFairy_BE.user.main` |
+| `quiz` | `com.skhynix.quiz.QuizApplication` | `VictoryFairy_BE.quiz.main` |
 
 Run Configuration에서 `Use classpath of module` 값이 위 표와 일치해야 합니다.
 
@@ -238,8 +238,8 @@ user.main
 올바른 예:
 
 ```text
-VitoryFairy_BE.quiz.main
-VitoryFairy_BE.user.main
+VictoryFairy_BE.quiz.main
+VictoryFairy_BE.user.main
 ```
 
 IDE 빌드가 실패하면 Gradle Reload를 먼저 수행합니다.
@@ -337,7 +337,7 @@ Started ...Application
 확인할 것:
 
 ```text
-Use classpath of module = VitoryFairy_BE.<module>.main
+Use classpath of module = VictoryFairy_BE.<module>.main
 ```
 
 ### DB 연결 실패

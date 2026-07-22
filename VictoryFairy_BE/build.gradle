@@ -5,7 +5,7 @@ plugins {
 
 group = 'com.skhynix'
 version = '0.0.1-SNAPSHOT'
-description = 'VitoryFairy_BE'
+description = 'VictoryFairy_BE'
 
 tasks.register('classes') {
     group = 'build'

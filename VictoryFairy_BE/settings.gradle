@@ -1,4 +1,4 @@
-rootProject.name = 'VitoryFairy_BE'
+rootProject.name = 'VictoryFairy_BE'
 
 include 'common'
 include 'domain'
