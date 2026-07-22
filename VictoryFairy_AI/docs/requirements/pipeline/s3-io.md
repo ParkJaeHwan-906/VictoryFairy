@@ -41,6 +41,7 @@
 | PIPE-S3IO-3 | 이벤트 | WHEN 러너가 실행되면, THE 시스템 SHALL 해당 prefix 하위의 모든 `.json` 객체를 리스팅해 각각 처리한다 | prefix 아래 `11229559.json` 등 N개 → N개 게시글 처리 |
 | PIPE-S3IO-4 | 유비쿼터스 | THE 시스템 SHALL `{date}`를 **실행 당일 날짜**(`YYYY-MM-DD`, Asia/Seoul/KST)로 결정한다 | `crawledAt` 15:09Z(=00:09 KST)가 `2026-07-22/`에 들어가는 실측과 일치 |
 | PIPE-S3IO-5 | 유비쿼터스 | THE 시스템 SHALL S3 리전을 `ap-northeast-2`로 사용한다(환경변수/기본 체인 경유) | `AWS_REGION`/`AWS_DEFAULT_REGION`=`ap-northeast-2` |
+| PIPE-S3IO-5b | 선택 | WHERE `S3_ENDPOINT_URL`이 설정된 경우, THE 시스템 SHALL 그 엔드포인트로 S3에 접근한다(미설정/빈 값이면 기본 AWS 리전 엔드포인트) | `S3_ENDPOINT_URL=http://minio:9000` → 해당 엔드포인트 사용; 미설정 → `s3.ap-northeast-2.amazonaws.com`. VPC 엔드포인트·S3 호환 스토리지 대응 |
 | PIPE-S3IO-6 | 이벤트 | WHEN 러너가 실행되면, THE 시스템 SHALL `dcinside`·`fmkorea` 두 소스를 한 번의 실행에서 처리한다 | 한 번 실행 → 두 소스 각각 리스팅/검열/write (가정: 단일 실행 2소스) |
 | PIPE-S3IO-7 | 이벤트 | WHEN 각 게시글 객체를 읽으면, THE 시스템 SHALL JSON으로 파싱해 `body`와 `topComments[].body`를 각각 **독립된 검열 단위**로 삼는다 | 본문 1 + 댓글 3 → 검열 4회, 서로 결과 영향 없음 |
 | PIPE-S3IO-8 | 이벤트 | WHEN 각 검열 단위를 검열하면, THE 시스템 SHALL 그 텍스트를 `validation_service`에 **분할·변형 없이** 전달한다 | body 1개 → `validation()` 호출 1회, 러너 내 판정 재구현 없음 |

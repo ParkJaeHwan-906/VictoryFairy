@@ -10,14 +10,14 @@
 ## 기능 단위 (러너별로 분리)
 
 ### 1. 검열 러너 (S3 게시글 in/out)
-- **파일**: `run_validation.py` · `s3_io.py`(S3 리스팅/읽기/쓰기 + 키 규칙, **판정 로직 없음**) · `core/config.py`(`PipelineSettings`: `S3_BUCKET`·`AWS_REGION`)
+- **파일**: `run_validation.py` · `s3_io.py`(S3 리스팅/읽기/쓰기 + 키 규칙, **판정 로직 없음**) · `core/config.py`(`PipelineSettings`: `S3_BUCKET`·`AWS_REGION`·`S3_ENDPOINT_URL`(선택))
 - **흐름**: S3 `community/{source}/{date}/*.json`(source ∈ {`dcinside`, `fmkorea`}, date=실행 당일 KST)을 게시글별로 리스팅해 읽고, 각 게시글의 `body` + `topComments[].body`를 **독립 검열 단위**로 기존 `validation_service`에 그대로 위임(분할·변형 없음). 판정 로직은 러너·`s3_io.py` 어디에도 없다.
 - **산출물(S3 키)** — 경로의 `pattern` 세그먼트는 향후 `bedrock` 검열 확장을 위한 자리:
   - 입력(읽기전용): `community/{source}/{date}/{postExternalId}.json`
   - 성공(정화 객체): `validation/pattern/success/{source}/{date}/{postExternalId}.json` — 통과한 단위만 남기고 원본 필드는 보존. 본문이 폐기됐으면 `body:""` + 통과 댓글만 유지.
   - 실패(폐기 사유): `validation/pattern/failed/{source}/{date}/{postExternalId}.json` — `reasons: [{unit, commentIndex, author, text, message}]`(`text`=걸린 원문).
   - 완결 마커(멱등 skip 판정용): `validation/pattern/_manifest/{source}/{date}/{postExternalId}.json` — success/failed(해당하는 것만) 기록을 모두 마친 **마지막**에 쓴다. 마커가 없으면 "미완결"로 보고 재실행 시 다시 처리한다.
-- **인증/의존성**: boto3 기본 자격증명 체인(env, 임시 STS 가능) · 버킷명 env `S3_BUCKET`(입출력 동일 버킷) · 리전 `AWS_REGION`(기본 `ap-northeast-2`). `boto3`는 pipeline 전용 의존성(`pipeline/requirements.txt`).
+- **인증/의존성**: boto3 기본 자격증명 체인(env, 임시 STS 가능) · 버킷명 env `S3_BUCKET`(입출력 동일 버킷) · 리전 `AWS_REGION`(기본 `ap-northeast-2`) · 엔드포인트 override env `S3_ENDPOINT_URL`(선택 — 비우면 기본 AWS 리전 엔드포인트, VPC 엔드포인트/MinIO 등에 붙일 때만 지정). `boto3`는 pipeline 전용 의존성(`pipeline/requirements.txt`).
 - ⚠️ **S3 설정은 pipeline 전용**: `PipelineSettings`(`S3_BUCKET`·`AWS_REGION`)는 pipeline 모듈에만 둔다. validation·analysis 모듈은 S3를 몰라야 하므로 여기 섞지 말 것.
 
 ### 2. 분석 러너

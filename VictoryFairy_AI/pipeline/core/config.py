@@ -23,6 +23,9 @@ class PipelineSettings(BaseSettings):
 
     S3_BUCKET: Optional[str] = None
     AWS_REGION: str = "ap-northeast-2"
+    # S3 접근 엔드포인트 override. 비우면(None) boto3 기본 AWS 리전 엔드포인트를 쓴다.
+    # VPC 게이트웨이 엔드포인트나 MinIO 등 S3 호환 스토리지에 붙일 때만 지정한다.
+    S3_ENDPOINT_URL: Optional[str] = None
 
     model_config = SettingsConfigDict(
         env_file=".env",

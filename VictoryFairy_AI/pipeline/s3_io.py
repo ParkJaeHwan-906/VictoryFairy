@@ -37,11 +37,14 @@ def manifest_key(source: str, date: str, post_id: str) -> str:
     return MANIFEST_KEY_TEMPLATE.format(method=METHOD, source=source, date=date, post_id=post_id)
 
 
-def build_s3_client(region_name: Optional[str] = None):
+def build_s3_client(region_name: Optional[str] = None, endpoint_url: Optional[str] = None):
     """boto3 S3 클라이언트를 생성한다.
 
     - 자격증명은 boto3 기본 체인(환경변수 등)에서 획득한다(PIPE-S3IO-14).
     - 리전은 인자 우선, 없으면 pipeline 설정의 AWS_REGION(기본 ap-northeast-2).
+    - 엔드포인트는 인자 우선, 없으면 설정의 S3_ENDPOINT_URL. 둘 다 비어 있으면
+      None 을 넘겨 boto3 기본 AWS 리전 엔드포인트를 쓴다(VPC 엔드포인트·MinIO 등
+      S3 호환 스토리지에 붙일 때만 env S3_ENDPOINT_URL 로 지정).
     - 테스트에서 페이크/스텁 클라이언트로 교체할 수 있도록 이 함수 자체를
       모킹하거나, 아래 리스팅/읽기/쓰기 함수에 클라이언트를 직접 주입해 쓸 수 있다.
     """
@@ -49,7 +52,12 @@ def build_s3_client(region_name: Optional[str] = None):
 
     from pipeline.core.config import pipeline_settings
 
-    return boto3.client("s3", region_name=region_name or pipeline_settings.AWS_REGION)
+    return boto3.client(
+        "s3",
+        region_name=region_name or pipeline_settings.AWS_REGION,
+        # 빈 문자열("")도 미설정으로 취급 → None 이면 boto3 가 기본 엔드포인트를 쓴다.
+        endpoint_url=endpoint_url or pipeline_settings.S3_ENDPOINT_URL or None,
+    )
 
 
 def list_json_keys(client, bucket: str, prefix: str) -> list[str]:
