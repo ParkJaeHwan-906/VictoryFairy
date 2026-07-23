@@ -1,32 +1,39 @@
 # scripts/ — 운영 보조 스크립트
 
-## db-tunnel.sh — DB(MySQL/Redis) 접속 터널
+> 자주 쓰는 명령어 전체 모음은 → [../docs/COMMANDS.md](../docs/COMMANDS.md)
+> 배포 스크립트(deploy-app.sh) 사용법은 → [../docs/DEPLOYMENT.md](../docs/DEPLOYMENT.md)
+
+## db-tunnel.sh — DB·SSH 접속 터널
 
 데이터 EC2는 프라이빗 서브넷에 있고 22/3306/6379 인바운드를 일절 열지 않습니다
 (보안 설계 — [ARCHITECTURE.md](../docs/ARCHITECTURE.md) 참고).
-로컬에서 DB 클라이언트(HeidiSQL, DBeaver, redis-cli 등)로 접속하려면
+로컬에서 DB 클라이언트(HeidiSQL 등)나 SSH 클라이언트(Termius 등)로 접속하려면
 **AWS SSM Session Manager 포트포워딩 터널**을 사용합니다. 이 스크립트가 그 터널을
 백그라운드로 관리해줍니다.
 
 ```bash
-./scripts/db-tunnel.sh start    # 작업 시작할 때 한 번 (MySQL 3306 + Redis 6379 동시)
+./scripts/db-tunnel.sh start    # 작업 시작할 때 한 번 (MySQL·Redis·SSH 터널 동시)
 ./scripts/db-tunnel.sh status   # 터널 상태 확인
 ./scripts/db-tunnel.sh stop     # 끝나면 정리 (안 해도 무방)
 ```
 
 `start` 후에는 터미널을 닫아도 터널이 유지됩니다.
 
-### DB 클라이언트 접속 정보
+### 접속 정보 (터널 열린 상태 기준)
 
-| 항목 | 값 |
-|---|---|
-| 호스트 | `127.0.0.1` |
-| MySQL 포트 | `3306` |
-| Redis 포트 | `6379` |
-| MySQL 계정 | 어드민에게 문의 (계정별 발급) |
+| 도구 | 호스트:포트 | 계정 | 인증 |
+|---|---|---|---|
+| HeidiSQL / DBeaver (MySQL) | `127.0.0.1:3306` | `hwannee` (어드민에게 발급 문의) | 비밀번호 |
+| RedisInsight / redis-cli | `127.0.0.1:6379` | — | 없음 (클러스터 내부 전용 브로커) |
+| Termius / MobaXterm (SSH) | `127.0.0.1:2222` | `ec2-user` | **pem 키** (비밀번호 비움) |
 
-HeidiSQL 기준: 네트워크 유형 **MariaDB or MySQL (TCP/IP)**, SSH 터널 탭은 사용하지
-않음(터널은 스크립트가 이미 열어줌).
+- HeidiSQL: 네트워크 유형 **MariaDB or MySQL (TCP/IP)**, "SSH 터널" 탭은 사용하지
+  않음(터널은 스크립트가 이미 열어줌).
+- Termius: Keys에 `VictoryFairy.pem` 등록(Passphrase 비움) 후 위 정보로 접속.
+  ⚠ 사전에 본인 공개키가 EC2 `ec2-user`의 authorized_keys 에 등록되어 있어야
+  합니다(어드민에게 요청 — SSM 원격 명령으로 등록).
+- 서버 셸만 필요하면 SSH 대신 SSM 세션이 더 간단합니다:
+  `aws ssm start-session --region ap-northeast-2 --target <인스턴스ID>`
 
 ### 최초 1회 설정 (팀원 온보딩)
 
