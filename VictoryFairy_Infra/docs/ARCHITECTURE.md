@@ -3,6 +3,7 @@
 > 이 문서는 **확정된 인프라 설계와 그 근거(왜 이렇게 정했나)**를 기록한다.
 > - 강제 규약: `.claude/skills/terraform-infra/SKILL.md`
 > - 코드: `VictoryFairy_Infra/modules/` · `environments/`
+> - state 관리·이관 절차: `docs/STATE.md`
 > - 이 문서: 결정 기록(ADR 성격). 코드를 읽어도 모르는 "선택과 트레이드오프"를 남긴다.
 
 ## 확정 아키텍처 한눈에
@@ -10,10 +11,10 @@
 | 계층 | 구성 | 스케일 |
 |------|------|--------|
 | 네트워크 | VPC `10.0.0.0/16`, **2a 운영 / 2c 예비** | — |
-| 앱 컴퓨트 | EKS 1.30, 노드그룹 **user · quiz · batch** (분리) | quiz·batch만 오토스케일 |
+| 앱 컴퓨트 | EKS 1.30, 노드그룹 **app**(user+quiz 공용) **· batch**(분리) | 둘 다 오토스케일 |
 | 데이터 | **단일 고정 EC2**(비 EKS)에 MySQL + 서비스 Redis | 스케일 없음(수직만) |
 | 배치 | 매일 03:15 KST, **Spot xlarge** 노드그룹 0→N→0 | 일시적 |
-| 접근 | SSM Session Manager only (22/3306 인입 없음) | — |
+| 접근 | SSM Session Manager only (DB·EKS 노드 SSH 모두 터널 경유, 22/3306 인입 없음) | — |
 
 ---
 
@@ -26,15 +27,16 @@
 - **진짜 AZ 장애 대비 HA는 현재 없음.** 필요해지는 시점 = DB를 이중화(2c에 MySQL standby / Redis 복제)하기로 결정할 때. 그때 2c를 켠다.
 - 노드 레벨 이중화는 유지된다: 같은 AZ 안에서도 노드 2대 이상이면 인스턴스/랙 장애는 버틴다(실제 장애의 대부분).
 
-## 2. 앱 컴퓨트 — 노드그룹 3개로 분리
+## 2. 앱 컴퓨트 — 노드그룹은 app(공용) · batch 2개
 
-두 개의 Spring 앱을 **서로 다른 노드**에서 돌린다.
+두 개의 Spring 앱(user·quiz)을 **같은 노드그룹에 동거**시킨다.
 
-- **user 노드그룹** — `nodeSelector: workload=user`. 안정 규모(min 2 / max 3).
-- **quiz 노드그룹** — 실시간 채팅·퀴즈. `taint: workload=quiz` + 파드 `toleration`으로 전용 격리. 트래픽 폭주 대비 **오토스케일**(HPA로 파드 → Cluster Autoscaler로 신규 EC2 노드, min 2 / max 8). quiz 폭주가 user 노드를 잠식하지 못한다.
-- **batch 노드그룹** — §4 배치 전용. `capacity_type=SPOT`, `min 0 / max N`, `taint: workload=batch`. 평소 0대(비용 $0), CronJob 시각에만 뜬다.
+- **app 노드그룹** — `label: workload=app`, taint 없음. user·quiz 둘 다 `nodeSelector`만으로 스케줄(toleration 불필요). 두 앱 모두 HPA(user min1/max2, quiz min1/max4)로 파드를 늘리고, 노드 자원이 차면 Cluster Autoscaler가 노드를 붙인다(min1/max4).
+  - (설계 변경 2026-07: 이전엔 user·quiz를 taint로 분리한 전용 노드그룹 2개였으나, 트래픽 규모상 분리 이점보다 관리 오버헤드가 커 **공용 풀로 통합**. quiz 폭주가 user를 잠식하는 리스크는 HPA 상한 + CA 여유로 완화.)
+- **batch 노드그룹** — §4 배치 전용. `capacity_type=SPOT`, `min 0 / max 6`, `taint: workload=batch`. 평소 0대(비용 $0), CronJob 시각에만 뜬다.
+- **노드 SSH(신규)** — 노드그룹에 `remote_access`(EC2 키페어 `VictoryFairy`) + 노드 롤에 `AmazonSSMManagedInstanceCore`를 추가해 MySQL EC2와 동일한 **SSM 터널 경유 SSH**를 노드에도 열었다(§6 접근 패턴 재사용). 22는 인터넷에 열지 않고 소스를 클러스터 SG로 한정 — 실제 접속은 SG를 거치지 않는 SSM 터널(스크립트: `scripts/db-tunnel.sh`)뿐이라 SG가 닫혀 있어도 무관하다. `remote_access` 추가는 기존 노드그룹의 **교체(재생성)**를 유발한다(의도된 변경).
 
-> **부하 분산 = 신규 EC2 노드.** "필요 시 신규 EC2"는 quiz 노드그룹에 Cluster Autoscaler가 노드를 붙이는 것을 뜻한다. 데이터 EC2를 늘리는 게 아니다.
+> **부하 분산 = 신규 EC2 노드.** "필요 시 신규 EC2"는 app 노드그룹에 Cluster Autoscaler가 노드를 붙이는 것을 뜻한다. 데이터 EC2를 늘리는 게 아니다.
 
 ## 3. 데이터 티어 — 단일 고정, 앱과 격리
 
@@ -64,9 +66,9 @@
 
 ## 5. Terraform / Kubernetes 경계
 
-- **Terraform(`.tf`, 이 레포)**: VPC·서브넷·NAT, EKS 클러스터, 노드그룹 3개(user/quiz/batch), MySQL EC2·EBS·SG·IAM, S3. **클러스터와 노드그룹까지.**
-- **Kubernetes(YAML/Helm, `VictoryFairy_Infra/k8s/`)**: Deployment(user/quiz), HPA(quiz), CronJob(배치), 배치 워커, 배치 Redis 파드, taint↔toleration/nodeSelector, Argo/트리거 컨트롤러. Spring `SPRING_PROFILES_ACTIVE=prod`. (앱 코드는 별도 레포/브랜치지만, 배포 매니페스트는 결합도가 큰 Terraform과 **같은 인프라 레포에 co-locate** — 도구/레이어 경계는 유지)
-- **커플링 주의**: TF의 노드그룹 `taint`/label ↔ YAML의 `toleration`/`nodeSelector`가 반드시 일치해야 한다(`workload=user|quiz|batch`). 한쪽만 바꾸면 파드가 스케줄되지 않는다.
+- **Terraform(`.tf`, 이 레포)**: VPC·서브넷·NAT, EKS 클러스터, 노드그룹 2개(app/batch), MySQL EC2·EBS·SG·IAM, S3. **클러스터와 노드그룹까지.**
+- **Kubernetes(YAML/Helm, `VictoryFairy_Infra/k8s/`)**: Deployment(user/quiz), HPA(user/quiz), CronJob(배치), 배치 워커, 배치 Redis 파드, taint↔toleration/nodeSelector, Argo/트리거 컨트롤러, Kubernetes Dashboard(학습용). Spring `SPRING_PROFILES_ACTIVE=prod`. (앱 코드는 별도 레포/브랜치지만, 배포 매니페스트는 결합도가 큰 Terraform과 **같은 인프라 레포에 co-locate** — 도구/레이어 경계는 유지)
+- **커플링 주의**: TF의 노드그룹 `taint`/label ↔ YAML의 `toleration`/`nodeSelector`가 반드시 일치해야 한다(`workload=app|batch`, app은 taint 없음). 한쪽만 바꾸면 파드가 스케줄되지 않는다.
 
 ## 미결정 / TODO
 
@@ -75,7 +77,6 @@
 - [ ] 트리거 오케스트레이션: 경량 컨트롤러 vs Argo Workflows/Events
 - [ ] N 임계치: raw/·clean/ 동일값 vs 단계별 상이
 - [ ] batch 노드 SG: 공용 노드 SG vs 전용 SG(전용이면 데이터 호스트 3306 인입에 batch SG 추가)
-- [ ] 모든 `modules/*`는 아직 스캐폴딩(TODO) — 실제 리소스 미구현
 
 ## 참고
 

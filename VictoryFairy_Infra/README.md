@@ -7,13 +7,13 @@ Terraform 으로 관리하는 VictoryFairy 의 AWS 인프라 코드입니다.
 ## 아키텍처
 - **네트워크**: VPC `10.0.0.0/16`. 서브넷은 2 AZ(2a/2c)에 선언하되 **노드·DB는 2a 집중, 2c는 예비**
   (2 AZ는 HA가 아니라 EKS 강제 요건 — DB가 단일 AZ라 앱만 벌리면 반쪽 HA. 자세한 근거는 ARCHITECTURE.md)
-- **앱 컴퓨트**: EKS(관리형) 프라이빗 서브넷. **노드그룹 3개로 분리** — `user`(안정), `quiz`(taint 격리 + HPA/Cluster Autoscaler 오토스케일), `batch`(Spot·min0, 야간 전용)
+- **앱 컴퓨트**: EKS(관리형) 프라이빗 서브넷. **노드그룹 2개** — `app`(user+quiz 공용, 둘 다 HPA/Cluster Autoscaler 오토스케일), `batch`(Spot·min0, 야간 전용)
 - **DB**: **단일 고정 EC2**(비 EKS)에 MySQL + Redis 컨테이너 + EBS 영속 볼륨 (RDS 미사용, 비용 사유)
   - Redis 는 채팅·퀴즈·인증 **서비스 브로커 전용**. 앱과 격리, 스케일아웃 없음(부족 시 수직 승급)
   - MySQL 데이터는 **하루 단위로 S3 백업** (+ EBS 스냅샷 병행 권장)
 - **배치**: 매일 03:15 KST, **Spot xlarge 노드그룹 0→N→0**. 크롤→정제→생성 스트리밍 파이프라인
   (S3 개수 트리거, 배치 전용 임시 Redis 로 상태 관리 → ARCHITECTURE.md §4)
-- **외부 접근**: SSM Session Manager 포트포워딩 (인바운드 22/3306 개방 없음)
+- **외부 접근**: DB·EKS 노드 SSH는 SSM Session Manager 포트포워딩(인바운드 22/3306 개방 없음), EKS API는 퍼블릭 엔드포인트+IAM 인증(`kubectl`) — 절차는 [`scripts/README.md`](scripts/README.md)
 
 ## 디렉토리 구조
 
@@ -23,7 +23,7 @@ VictoryFairy_Infra/
 │   └── ARCHITECTURE.md       # 확정 설계 + 결정 근거 (ADR 성격)
 ├── modules/                  # 재사용 가능한 빌딩 블록 (환경 독립적)
 │   ├── network/              # VPC, 2 AZ 서브넷(2a 운영/2c 예비), NAT, 라우팅
-│   ├── eks/                  # EKS 클러스터, 노드그룹 3개(user/quiz/batch), IRSA
+│   ├── eks/                  # EKS 클러스터, 노드그룹 2개(app/batch), IRSA
 │   ├── mysql-ec2/            # MySQL+Redis EC2 + EBS + SSM + 일 단위 S3 백업
 │   └── security/             # 공용 IAM/보안그룹
 └── environments/             # 환경별 루트 (여기서 terraform 실행)
@@ -50,6 +50,9 @@ terraform apply
 
 ## MySQL 접근 (SSM 포트포워딩)
 
+> 팀원 온보딩·EKS 노드 SSH·kubectl·Dashboard 등 전체 접속 절차는
+> [`scripts/README.md`](scripts/README.md)를 따라 하세요. 아래는 터널의 원리(수동 명령)입니다.
+
 ```bash
 aws ssm start-session \
   --target <mysql_instance_id> \
@@ -63,4 +66,6 @@ aws ssm start-session \
 - `.terraform.lock.hcl` 은 버전 고정을 위해 커밋합니다.
 - MySQL EBS 데이터 볼륨은 실수 삭제 방지(`prevent_destroy`) 대상이며, 일 단위 S3 백업이 없으면
   인스턴스/AZ 장애 시 데이터가 유실됩니다.
+- `k8s/91-dashboard-admin-user.yaml`의 `admin-user`는 cluster-admin 권한의 **학습용** 계정입니다.
+  dev 클러스터 한정으로만 쓰고, 운영 전환 전 반드시 제거하세요.
 - 커밋/적용 전 `terraform fmt -recursive && terraform validate && terraform plan` 을 실행합니다.
