@@ -13,6 +13,11 @@ output "cluster_name" {
   value       = aws_eks_cluster.this.name
 }
 
+output "cluster_autoscaler_role_arn" {
+  description = "Cluster Autoscaler IRSA 역할 ARN. k8s ServiceAccount 어노테이션(eks.amazonaws.com/role-arn)에 지정."
+  value       = aws_iam_role.cluster_autoscaler.arn
+}
+
 output "node_security_group_id" {
   description = "EKS가 관리하는 클러스터 보안그룹 ID. 관리형 노드그룹 노드에 자동 부착되는 공용 SG로, mysql-ec2 모듈이 3306/6379 인입 소스로 참조한다."
   value       = aws_eks_cluster.this.vpc_config[0].cluster_security_group_id

@@ -33,7 +33,7 @@ metadata:
   namespace: victoryfairy
 subsets:
   - addresses:
-      - ip: "10.0.0.10"  # TODO: mysql-ec2 private_ip 로 교체
+      - ip: "10.0.10.135"  # = terraform output mysql_private_ip (2026-07 apply)
     ports:
       - name: mysql
         port: 3306
@@ -59,7 +59,7 @@ metadata:
   namespace: victoryfairy
 subsets:
   - addresses:
-      - ip: "10.0.0.10"  # TODO: 서비스 Redis는 동일 데이터 EC2에 상주 -> mysql과 같은 private_ip
+      - ip: "10.0.10.135"  # 서비스 Redis는 동일 데이터 EC2에 상주 (mysql과 같은 IP)
     ports:
       - name: redis
         port: 6379
@@ -88,7 +88,7 @@ metadata:
   namespace: victoryfairy-batch
 subsets:
   - addresses:
-      - ip: "10.0.0.10"  # TODO: mysql-ec2 private_ip 로 교체
+      - ip: "10.0.10.135"  # = terraform output mysql_private_ip (2026-07 apply)
     ports:
       - name: mysql
         port: 3306

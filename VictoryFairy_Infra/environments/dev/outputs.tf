@@ -20,6 +20,11 @@ output "eks_oidc_provider_arn" {
   value       = module.eks.oidc_provider_arn
 }
 
+output "eks_cluster_autoscaler_role_arn" {
+  description = "Cluster Autoscaler IRSA 역할 ARN (k8s/50-cluster-autoscaler.yaml SA 어노테이션 값)"
+  value       = module.eks.cluster_autoscaler_role_arn
+}
+
 output "mysql_instance_id" {
   description = "MySQL EC2 인스턴스 ID (SSM 포트포워딩 대상)"
   value       = module.mysql_ec2.instance_id

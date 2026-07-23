@@ -1,14 +1,13 @@
 # quiz-app: 실시간 채팅/퀴즈 Spring 모듈(:quiz, 컨테이너 포트 8081, 경로 /api/quiz)
 #
-# 인프라 커플링(ARCHITECTURE §2):
-#   quiz 노드그룹 = label workload=quiz  +  taint workload=quiz:NoSchedule
-#   -> nodeSelector(스케줄 대상 지정) AND toleration(taint 통과) 둘 다 필요.
-#      한쪽만 있으면 파드 Pending.
+# 인프라 커플링(설계 변경 2026-07 — user·quiz 공용 app 노드풀):
+#   app 노드그룹 = label workload=app, taint 없음. user·quiz 파드가 같은 노드에 동거.
+#   -> nodeSelector 만으로 스케줄. toleration 불필요(taint 격리 제거됨).
 #
 # 스케일 관계(중요):
-#   HPA -> 파드 수를 늘린다.  파드가 Pending 되면 -> Cluster Autoscaler 가 quiz 노드그룹에
-#   신규 EC2 노드를 붙인다(노드 min2/max8). 즉 HPA는 노드가 아니라 파드를 늘리고,
-#   노드 증설은 CA가 담당한다(ARCHITECTURE §2 각주 "부하 분산 = 신규 EC2 노드").
+#   HPA -> 파드 수를 늘린다(max 4).  파드가 Pending 되면 -> Cluster Autoscaler 가
+#   app 노드풀에 신규 EC2 노드를 붙인다(노드 min1/max4). 즉 HPA는 노드가 아니라
+#   파드를 늘리고, 노드 증설은 CA가 담당한다.
 #
 # 다중 파드 팬아웃: 실시간 SSE는 파드가 여러 개면 서비스 Redis pub/sub 로 파드 간 이벤트를
 #   팬아웃한다(ARCHITECTURE §3). 그래서 세션 어피니티 없이도 수평 확장 안전.
@@ -21,7 +20,7 @@ metadata:
   labels:
     app: quiz-app
 spec:
-  replicas: 2                 # HPA minReplicas와 정합
+  replicas: 1                 # HPA minReplicas와 정합(기본 1)
   selector:
     matchLabels:
       app: quiz-app
@@ -30,15 +29,9 @@ spec:
       labels:
         app: quiz-app
     spec:
-      # ── 인프라 커플링: quiz 노드그룹 label 과 정확히 일치 ──
+      # ── 인프라 커플링: app 공용 노드그룹 label 과 정확히 일치 ──
       nodeSelector:
-        workload: quiz
-      # ── 인프라 커플링: quiz 노드그룹 taint(workload=quiz:NoSchedule) 통과 ──
-      tolerations:
-        - key: "workload"
-          operator: "Equal"
-          value: "quiz"
-          effect: "NoSchedule"
+        workload: app
       containers:
         - name: quiz
           # ⚠ 불변 태그(커밋 SHA). latest 금지.
@@ -91,10 +84,10 @@ spec:
       protocol: TCP
 ---
 # HPA: CPU 기준 파드 오토스케일.
-#   minReplicas 2  : 상시 2파드(가용성 + Redis pub/sub 팬아웃 전제)
-#   maxReplicas 8  : quiz 노드그룹 노드 max 8 과 정합(노드가 한계면 파드도 결국 여기서 막힘).
-#                    ⚠ 파드:노드 = 1:1 가정이 아니라, 노드당 여러 파드 수용 가능하므로 8은
-#                       보수적 상한. 실측 후 조정. (노드 max 변경은 terraform-writer 소관)
+#   minReplicas 1  : 기본 1파드(유휴 자원 절약 — dev). ⚠ 단일 파드 구간 재시작 시 잠깐 중단 가능,
+#                    운영 진입 시 2로 상향 권장(가용성 + Redis pub/sub 팬아웃 전제)
+#   maxReplicas 4  : 설계 상한(user 2 + quiz 4 파드가 app 공용 노드풀에 동거).
+#                    노드 자원이 차면 CA가 app 노드풀(min1/max4)을 수평 확장.
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
@@ -105,8 +98,8 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: quiz-app
-  minReplicas: 2
-  maxReplicas: 8
+  minReplicas: 1
+  maxReplicas: 4
   metrics:
     - type: Resource
       resource:

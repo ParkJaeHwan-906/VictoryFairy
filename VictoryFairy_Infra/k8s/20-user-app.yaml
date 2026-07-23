@@ -1,9 +1,11 @@
 # user-app: 인증/유저 Spring 모듈(:user, 컨테이너 포트 8080, 경로 /api/auth)
 #
-# 인프라 커플링(ARCHITECTURE §2):
-#   user 노드그룹 = label workload=user, taint 없음
+# 인프라 커플링(설계 변경 2026-07 — user·quiz 공용 app 노드풀):
+#   app 노드그룹 = label workload=app, taint 없음. user·quiz 파드가 같은 노드에 동거.
 #   -> nodeSelector 만으로 스케줄. toleration 불필요.
-# 안정 규모(노드 min2/max3). HPA 없음 — 트래픽 폭주는 quiz 쪽에서 흡수.
+# 파드 규모: 기본 1 → 트래픽 증가 시 HPA 가 최대 2 (파일 하단 HPA 참조).
+#   ⚠ 단일 파드 구간에서는 파드 재시작 시 잠깐 중단될 수 있음(dev 감수, 운영 시 min 2 권장).
+# 노드 자원이 차면 Cluster Autoscaler 가 app 노드풀을 수평 확장(min1/max4).
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -13,7 +15,7 @@ metadata:
   labels:
     app: user-app
 spec:
-  replicas: 2
+  replicas: 1 # HPA minReplicas 와 정합(기본 1)
   selector:
     matchLabels:
       app: user-app
@@ -22,9 +24,9 @@ spec:
       labels:
         app: user-app
     spec:
-      # ── 인프라 커플링: user 노드그룹 label 과 정확히 일치 ──
+      # ── 인프라 커플링: app 공용 노드그룹 label 과 정확히 일치 ──
       nodeSelector:
-        workload: user
+        workload: app
       containers:
         - name: user
           # ⚠ 불변 태그(커밋 SHA). latest 금지.
@@ -78,3 +80,27 @@ spec:
       port: 80
       targetPort: 8080
       protocol: TCP
+---
+# HPA: 기본 1 파드 → CPU 부하 시 최대 2 (설계: user 파드 상한 2)
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: user-app
+  namespace: victoryfairy
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: user-app
+  minReplicas: 1
+  maxReplicas: 2
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60 # requests.cpu(250m) 대비 평균 60% 초과 시 스케일아웃
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300 # 급격한 축소 방지

@@ -24,32 +24,22 @@ module "eks" {
   # 노드: 운영 AZ(2a) 프라이빗 서브넷에만 집중(2c는 예비). azs[0] = 2a.
   node_subnet_ids = [module.network.private_subnet_ids_by_az[var.azs[0]]]
 
-  # 노드그룹 3개. labels/taints 값은 앱 레포 k8s 매니페스트의 nodeSelector/toleration 과
+  # 노드그룹 2개. labels/taints 값은 k8s 매니페스트의 nodeSelector/toleration 과
   # 반드시 일치해야 한다(불일치 시 파드 Pending).
   node_groups = {
-    # user: 안정 규모, 라벨로 지정. Cluster Autoscaler 없음.
-    user = {
+    # app: user·quiz 공용 노드풀 — 같은 노드에 동거(taint 격리 없음).
+    #   파드 상한은 매니페스트가 담당(user replicas 2 고정, quiz HPA max 4).
+    #   노드 자원이 차서 파드가 Pending 되면 Cluster Autoscaler 가 수평 확장.
+    #   (설계 변경 2026-07: 기존 user/quiz 분리 노드그룹 → 공용 풀 통합)
+    app = {
       instance_types     = ["t3.medium"]
       capacity_type      = "ON_DEMAND"
-      min_size           = 2
-      desired_size       = 2
-      max_size           = 3
-      labels             = { workload = "user" }
-      cluster_autoscaler = false
-      taints             = {}
-    }
-    # quiz: taint 로 전용 격리 + 오토스케일(HPA→Cluster Autoscaler).
-    quiz = {
-      instance_types     = ["t3.medium"]
-      capacity_type      = "ON_DEMAND"
-      min_size           = 2
-      desired_size       = 2
-      max_size           = 8
-      labels             = { workload = "quiz" }
+      min_size           = 1
+      desired_size       = 1
+      max_size           = 4 # 전체 파드 requests(최대 ~1.7CPU/3Gi) 대비 여유 상한
+      labels             = { workload = "app" }
       cluster_autoscaler = true
-      taints = {
-        workload = { key = "workload", value = "quiz", effect = "NO_SCHEDULE" }
-      }
+      taints             = {}
     }
     # batch: Spot, 평소 0대(비용 $0), CronJob 시각에만 0→N→0.
     batch = {
@@ -82,4 +72,9 @@ module "mysql_ec2" {
   redis_ingress_sg_ids = { eks_nodes = module.eks.node_security_group_id }
 
   backup_s3_bucket = var.backup_s3_bucket # 일 단위 mysqldump S3 백업
+
+  # 현재 계정(ISB 샌드박스)은 조직 SCP가 dlm:TagResource 를 명시적 거부하여
+  # DLM 스냅샷 정책 생성이 불가. 백업은 mysqldump→S3 크론으로만 수행한다.
+  # SCP 제약이 없는 계정으로 이전 시 이 줄을 제거해 스냅샷 병행을 복원할 것.
+  enable_dlm_snapshot = false
 }
