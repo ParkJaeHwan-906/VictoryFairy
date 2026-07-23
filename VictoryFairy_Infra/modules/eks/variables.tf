@@ -87,6 +87,12 @@ variable "node_groups" {
   }
 }
 
+variable "node_ssh_key_name" {
+  description = "노드 SSH용 EC2 키페어 이름. null이면 remote_access 미설정. 접속 경로는 SSM 터널 전제(22 인입 개방 없음 — SG는 클러스터 SG 소스로만 한정)."
+  type        = string
+  default     = null
+}
+
 variable "node_subnet_ids" {
   description = "워커 노드를 배치할 프라이빗 서브넷 ID 목록. ARCHITECTURE §1에 따라 운영 AZ(2a) 서브넷만 넣어 노드를 2a에 집중시킨다(2c는 예비). 컨트롤플레인 서브넷(cluster_subnet_ids)과 구분."
   type        = list(string)

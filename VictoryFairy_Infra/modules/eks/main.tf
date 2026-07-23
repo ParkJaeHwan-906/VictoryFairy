@@ -61,6 +61,9 @@ resource "aws_iam_role_policy_attachment" "node" {
     "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy",
     "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy",
     "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly",
+    # SSM Session Manager 노드 접근용(SKILL §6 — 22 인입 개방 없이 SSM 터널로 SSH).
+    # EKS 최적화 AMI(AL2/AL2023)에 SSM Agent가 내장돼 있어 이 정책만 붙이면 등록된다.
+    "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore",
   ])
 
   role       = aws_iam_role.node.name
@@ -143,6 +146,20 @@ resource "aws_eks_node_group" "this" {
   }
 
   labels = each.value.labels
+
+  # 노드 SSH 접근(pem) — 2026-07 추가: 기존 노드그룹에 remote_access 를 추가하면
+  # 노드그룹 교체(replace, 재생성)를 유발한다(의도된 변경).
+  # ⚠ source_security_group_ids 를 비우면 EKS가 22 ← 0.0.0.0/0 SG를 만들어 붙인다.
+  #   클러스터 SG를 소스로 지정해 SSH 인입을 VPC 내부(클러스터 SG 보유 주체)로 한정한다.
+  #   실제 운영자 SSH는 SSM 터널 경유(에이전트가 localhost:22 접속, SG 미경유)라
+  #   SG가 닫혀 있어도 접속에는 지장 없다(SKILL §6).
+  dynamic "remote_access" {
+    for_each = var.node_ssh_key_name != null ? [var.node_ssh_key_name] : []
+    content {
+      ec2_ssh_key               = remote_access.value
+      source_security_group_ids = [aws_eks_cluster.this.vpc_config[0].cluster_security_group_id]
+    }
+  }
 
   dynamic "taint" {
     for_each = each.value.taints

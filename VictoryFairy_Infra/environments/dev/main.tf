@@ -24,6 +24,10 @@ module "eks" {
   # 노드: 운영 AZ(2a) 프라이빗 서브넷에만 집중(2c는 예비). azs[0] = 2a.
   node_subnet_ids = [module.network.private_subnet_ids_by_az[var.azs[0]]]
 
+  # 노드 SSH(pem) — 계정에 이미 존재하는 EC2 키페어 재사용(Terraform 외부 생성 자원).
+  # 접속은 MySQL EC2와 동일하게 SSM 터널 경유 SSH. ⚠ 기존 노드그룹 교체(재생성) 유발(의도됨).
+  node_ssh_key_name = "VictoryFairy"
+
   # 노드그룹 2개. labels/taints 값은 k8s 매니페스트의 nodeSelector/toleration 과
   # 반드시 일치해야 한다(불일치 시 파드 Pending).
   node_groups = {
