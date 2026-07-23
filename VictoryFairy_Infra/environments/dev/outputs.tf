@@ -25,6 +25,16 @@ output "eks_cluster_autoscaler_role_arn" {
   value       = module.eks.cluster_autoscaler_role_arn
 }
 
+output "github_actions_role_arn" {
+  description = "GitHub Actions 배포 역할 ARN (.github/workflows/deploy-eks.yml 의 ROLE_ARN)"
+  value       = module.security.github_actions_role_arn
+}
+
+output "ecr_repository_urls" {
+  description = "ECR 리포지토리 URL 맵 (docker push 및 k8s image 필드용)"
+  value       = module.ecr.repository_urls
+}
+
 output "mysql_instance_id" {
   description = "MySQL EC2 인스턴스 ID (SSM 포트포워딩 대상)"
   value       = module.mysql_ec2.instance_id

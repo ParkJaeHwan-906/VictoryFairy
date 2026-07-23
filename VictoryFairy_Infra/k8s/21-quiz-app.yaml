@@ -21,6 +21,15 @@ metadata:
     app: quiz-app
 spec:
   replicas: 1                 # HPA minReplicas와 정합(기본 1)
+  # 블루-그린식 업데이트: 신버전 파드 '전체'를 먼저 띄우고(maxSurge 100%),
+  # 구버전은 신버전이 Ready 될 때까지 하나도 내리지 않는다(maxUnavailable 0).
+  # readiness 프로브 통과 → 트래픽 전환 → 구버전 종료. 실패 시 구버전이 그대로 서비스.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 100%
+      maxUnavailable: 0
+  revisionHistoryLimit: 10 # 롤백용 이전 ReplicaSet 보관(kubectl rollout undo)
   selector:
     matchLabels:
       app: quiz-app

@@ -57,6 +57,27 @@ module "eks" {
   }
 }
 
+module "ecr" {
+  source = "../../modules/ecr"
+
+  name_prefix      = "victoryfairy"
+  repository_names = ["user", "quiz"] # BE Gradle 모듈과 1:1 (Dockerfile ARG MODULE)
+}
+
+module "security" {
+  source = "../../modules/security"
+
+  name_prefix  = local.cluster_name
+  cluster_name = module.eks.cluster_name # 출력 참조로 의존성 형성(Access Entry 는 클러스터 이후)
+
+  # CI(GitHub Actions) keyless 배포: 이 레포의 지정 브랜치 워크플로만 역할을 맡는다.
+  github_repository   = "ParkJaeHwan-906/VictoryFairy"
+  github_allowed_refs = ["main", "dev_infra"] # dev_infra 는 워크플로 테스트용 — 안정화 후 제거
+
+  ecr_repository_arns = values(module.ecr.repository_arns)
+  deploy_namespaces   = ["victoryfairy"]
+}
+
 module "mysql_ec2" {
   source = "../../modules/mysql-ec2"
 

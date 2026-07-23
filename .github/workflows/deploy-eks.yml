@@ -1,0 +1,144 @@
+name: Deploy to EKS
+
+# EKS 배포 파이프라인 (기존 deploy.yml 의 EC2+compose 모델을 대체하는 신규 경로)
+#
+#   push(main) → 변경 모듈 감지 → Docker 빌드 → ECR push(커밋 SHA 태그, IMMUTABLE)
+#   → kubectl set image → 블루-그린식 롤아웃(매니페스트 strategy: maxSurge 100%/maxUnavailable 0)
+#
+# 인증: GitHub OIDC → AWS IAM 역할(victoryfairy-dev-github-actions) AssumeRole.
+#   시크릿(액세스 키) 저장 없음. 역할은 terraform modules/security 가 관리하며
+#   ECR push(지정 리포지토리) + EKS victoryfairy 네임스페이스 Edit 로 제한됨.
+#
+# 롤백: 실패 시 자동 rollout undo. 수동 롤백은 docs/DEPLOYMENT.md 참고.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      # 브랜치별로 BE 디렉토리 표기가 다르므로 두 철자 모두 감시
+      - "VictoryFairy_BE/**"
+      - "VitoryFairy_BE/**"
+      - ".github/workflows/deploy-eks.yml"
+  workflow_dispatch:
+    inputs:
+      modules:
+        description: "배포할 모듈 (공백 구분: user quiz)"
+        default: "user quiz"
+        required: true
+
+permissions:
+  id-token: write # OIDC 토큰 발급 (AWS AssumeRole)
+  contents: read
+
+env:
+  AWS_REGION: ap-northeast-2
+  # = terraform output github_actions_role_arn
+  ROLE_ARN: arn:aws:iam::555209622409:role/victoryfairy-dev-github-actions
+  CLUSTER: victoryfairy-dev
+  NAMESPACE: victoryfairy
+
+jobs:
+  # ── 0단계: 어떤 모듈을 배포할지 판단 ─────────────────────────────
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      modules: ${{ steps.set.outputs.modules }} # JSON 배열 (예: ["user","quiz"])
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Detect changed paths
+        id: filter
+        if: github.event_name == 'push'
+        uses: dorny/paths-filter@v4
+        with:
+          filters: |
+            shared:
+              - "V*ctoryFairy_BE/common/**"
+              - "V*ctoryFairy_BE/domain/**"
+              - "V*ctoryFairy_BE/build.gradle"
+              - "V*ctoryFairy_BE/settings.gradle"
+              - "V*ctoryFairy_BE/gradle/**"
+              - "V*ctoryFairy_BE/Dockerfile"
+              - ".github/workflows/deploy-eks.yml"
+            user:
+              - "V*ctoryFairy_BE/user/**"
+            quiz:
+              - "V*ctoryFairy_BE/quiz/**"
+
+      - name: Compute module set
+        id: set
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            MODS="${{ inputs.modules }}"
+          elif [ "${{ steps.filter.outputs.shared }}" = "true" ]; then
+            MODS="user quiz"   # 공용 모듈 변경 → 전체 재배포
+          else
+            MODS=""
+            [ "${{ steps.filter.outputs.user }}" = "true" ] && MODS="$MODS user"
+            [ "${{ steps.filter.outputs.quiz }}" = "true" ] && MODS="$MODS quiz"
+          fi
+          JSON=$(echo $MODS | tr ' ' '\n' | grep -v '^$' | sort -u | jq -Rcs 'split("\n") | map(select(length>0))')
+          echo "modules=$JSON" >> "$GITHUB_OUTPUT"
+          echo "배포 대상: $JSON"
+
+  # ── 1단계: 모듈별 빌드 → ECR push → EKS 배포 (병렬) ──────────────
+  build-deploy:
+    needs: detect
+    if: needs.detect.outputs.modules != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: ${{ fromJson(needs.detect.outputs.modules) }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Resolve BE dir (브랜치별 철자 차이 대응)
+        id: be
+        run: |
+          for d in VictoryFairy_BE VitoryFairy_BE; do
+            if [ -f "$d/Dockerfile" ]; then echo "dir=$d" >> "$GITHUB_OUTPUT"; exit 0; fi
+          done
+          echo "::error::BE 디렉토리(Dockerfile)를 찾지 못했습니다"; exit 1
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build & push image
+        id: img
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          TAG="${GITHUB_SHA::7}"
+          REPO="victoryfairy-${{ matrix.module }}"
+          IMG="$REGISTRY/$REPO:$TAG"
+          echo "image=$IMG" >> "$GITHUB_OUTPUT"
+          # IMMUTABLE 태그: 이미 존재하면(재실행 등) 빌드/푸시 생략
+          if aws ecr describe-images --repository-name "$REPO" --image-ids imageTag="$TAG" >/dev/null 2>&1; then
+            echo "태그 $TAG 이미 존재 — 빌드 생략"; exit 0
+          fi
+          docker build --build-arg MODULE=${{ matrix.module }} \
+            -t "$IMG" "${{ steps.be.outputs.dir }}"
+          docker push "$IMG"
+
+      - name: Deploy to EKS (blue-green rollout)
+        run: |
+          aws eks update-kubeconfig --region "$AWS_REGION" --name "$CLUSTER"
+          kubectl -n "$NAMESPACE" set image "deploy/${{ matrix.module }}-app" \
+            "${{ matrix.module }}=${{ steps.img.outputs.image }}"
+          # strategy(maxSurge 100%/maxUnavailable 0)에 따라 신버전 전체 기동 후 전환
+          kubectl -n "$NAMESPACE" rollout status "deploy/${{ matrix.module }}-app" --timeout=300s
+
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          echo "::warning::롤아웃 실패 — 직전 버전으로 자동 롤백"
+          kubectl -n "$NAMESPACE" rollout undo "deploy/${{ matrix.module }}-app" || true
+          kubectl -n "$NAMESPACE" rollout status "deploy/${{ matrix.module }}-app" --timeout=180s || true

@@ -82,6 +82,16 @@ resource "aws_eks_cluster" "this" {
     endpoint_public_access  = var.cluster_endpoint_public_access
   }
 
+  access_config {
+    # API_AND_CONFIG_MAP: 기존 aws-auth ConfigMap 을 유지하면서 EKS Access Entry API 를
+    # 함께 사용(CI 역할 등 IAM 주체에 k8s 권한을 코드로 부여 — security 모듈이 소비).
+    # ⚠ CONFIG_MAP 으로의 다운그레이드는 AWS 가 지원하지 않는다(단방향 전환).
+    authentication_mode = "API_AND_CONFIG_MAP"
+    # ⚠ 생성 시점 기본값(true)과 일치시켜야 한다 — 생략하면 provider 가 true→null 변경으로
+    #   간주해 "클러스터 교체(replace)"를 계획한다(파괴적!). 절대 제거 금지.
+    bootstrap_cluster_creator_admin_permissions = true
+  }
+
   tags = merge(var.tags, {
     Name = var.cluster_name
   })

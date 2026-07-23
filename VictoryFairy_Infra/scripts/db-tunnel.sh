@@ -45,7 +45,9 @@ if [[ "$INSTANCE_ID" != i-* ]]; then
 fi
 
 # 포트 매핑: "원격포트:로컬포트:이름"
-TUNNELS=("3306:3306:mysql" "6379:6379:redis")
+# ssh(22→2222): Termius/MobaXterm 등 SSH 클라이언트용 — 사전에 공개키가
+#   ec2-user 의 authorized_keys 에 등록되어 있어야 한다(README 참고).
+TUNNELS=("3306:3306:mysql" "6379:6379:redis" "22:2222:ssh")
 
 is_running() { # $1=이름 → 살아있으면 0
   local pid_file="$PID_DIR/$1.pid"
