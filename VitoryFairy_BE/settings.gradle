@@ -1,7 +1,0 @@
-rootProject.name = 'VitoryFairy_BE'
-
-include 'common'
-include 'domain'
-include 'user'
-include 'quiz'
-include 'create'

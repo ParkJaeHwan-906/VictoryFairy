@@ -1,0 +1,15 @@
+plugins {
+    id 'java-library'
+}
+
+description = 'domain'
+
+dependencies {
+    api project(':common')
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+
+    // 엔티티 빌더 배선 검증용 순수 단위 테스트. DB가 없어 @DataJpaTest는 아직 못 쓰므로
+    // spring-boot-starter-test 대신 JUnit5 + AssertJ 만 둔다.
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testImplementation 'org.assertj:assertj-core'
+}

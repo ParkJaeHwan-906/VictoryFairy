@@ -1,0 +1,33 @@
+spring:
+  datasource:
+    url: jdbc:mysql://${DB_HOST}:${DB_PORT}/${DB_NAME}?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  # 운영 SMTP 실발송 설정(SmtpEmailSender는 prod 프로파일에서만 로딩). 접속 정보는 환경변수 주입.
+  mail:
+    host: ${MAIL_HOST}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME}
+    password: ${MAIL_PASSWORD}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
+  jpa:
+    hibernate:
+      # 초기 테이블 생성 완료 → none 으로 고정(운영 중 스키마 자동 변경 방지).
+      # 향후 스키마 변경은 별도 마이그레이션(예: Flyway/수동 DDL)으로 관리.
+      ddl-auto: none
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
+    open-in-view: false
+  web:
+    error:
+      include-stacktrace: never
