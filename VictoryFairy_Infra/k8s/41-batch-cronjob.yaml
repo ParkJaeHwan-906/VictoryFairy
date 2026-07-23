@@ -1,0 +1,80 @@
+# 배치 파이프라인 기동 CronJob (ARCHITECTURE §4)
+#
+# 매일 03:15 KST 시작. 이 CronJob은 "파이프라인을 발화"하는 역할이다:
+#   1) 배치 전용 임시 Redis(batch-redis) 스케일업
+#   2) 크롤 워커(fan-out) 기동  -> 이후 정제/생성은 카운터 트리거로 이어짐
+#
+# ⚠ 미완성 경계(정직하게 남김): 트리거 오케스트레이션이 아직 미결정이다
+#   (경량 컨트롤러 vs Argo Workflows/Events — ARCHITECTURE 미결정 §75).
+#   따라서 아래 CronJob은 *부트스트랩 뼈대*다. 실제 단계 전이(raw/->정제, clean/->생성)를
+#   무엇이 감시/발화하는지는 결정 후 구현. 지금은 완성된 척하지 않는다.
+#   TODO(오케스트레이션 결정 후):
+#     - 경량 컨트롤러안: 이 CronJob이 컨트롤러 Deployment/Job을 띄우고, 컨트롤러가
+#       batch-redis 카운터(INCR 반환값 >= N)를 보고 다음 단계 Job을 생성.
+#     - Argo안: 이 CronJob 대신 Argo CronWorkflow + Argo Events(Redis 이벤트 소스)로 대체.
+#   TODO(RBAC): 부트스트랩 Job이 batch-redis를 scale 하고 워커 Job을 create 하려면
+#     해당 권한의 ServiceAccount+Role이 필요(아래 batch-runner). 미구현 시 권한 오류.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: batch-runner
+  namespace: victoryfairy-batch
+# TODO: Role/RoleBinding 추가 — deployments/scale, jobs create/get/list 권한.
+#   오케스트레이션 방식 확정 후 최소 권한으로 부여.
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: batch-pipeline
+  namespace: victoryfairy-batch
+spec:
+  schedule: "15 3 * * *"
+  timeZone: "Asia/Seoul"        # k8s 1.27+ CronJob timeZone. EKS 1.30 이라 지원됨.
+  concurrencyPolicy: Forbid      # 전날 배치가 안 끝났으면 겹쳐 실행하지 않음
+  startingDeadlineSeconds: 600   # 노드(Spot) 증설 지연 대비 발화 유예
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 3            # Spot 회수/일시 오류 재시도(멱등 전제)
+      activeDeadlineSeconds: 1800
+      template:
+        metadata:
+          labels:
+            app: batch-pipeline
+        spec:
+          serviceAccountName: batch-runner
+          restartPolicy: Never
+          # ── 인프라 커플링: batch 노드그룹 label + taint ──
+          nodeSelector:
+            workload: batch
+          tolerations:
+            - key: "workload"
+              operator: "Equal"
+              value: "batch"
+              effect: "NoSchedule"
+          containers:
+            - name: bootstrap
+              # TODO: 부트스트랩 이미지로 교체(kubectl 포함 경량 이미지 또는 오케스트레이터 클라이언트).
+              #   latest 금지 — 확정 시 불변 태그로.
+              image: "bitnami/kubectl:1.30"
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -euo pipefail
+                  echo "[batch] 03:15 KST 파이프라인 발화 (뼈대)"
+                  # TODO: 1) batch-redis 스케일업
+                  #   kubectl -n victoryfairy-batch scale deploy/batch-redis --replicas=1
+                  #   kubectl -n victoryfairy-batch rollout status deploy/batch-redis
+                  # TODO: 2) 크롤 워커 fan-out 기동 (42-batch-worker.yaml 템플릿 기반 Job create)
+                  # TODO: 3) 오케스트레이터가 카운터 트리거로 정제/생성 단계 전이
+                  # TODO: 4) 파이프라인 종료 감지 후 batch-redis --replicas=0 로 축소
+                  echo "[batch] 실제 오케스트레이션 미구현 — 결정 대기(§ 미결정)"
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "128Mi"
+                limits:
+                  cpu: "250m"
+                  memory: "256Mi"

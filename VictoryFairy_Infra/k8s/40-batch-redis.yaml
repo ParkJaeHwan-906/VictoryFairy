@@ -1,0 +1,91 @@
+# 배치 전용 임시 Redis (ARCHITECTURE §4)
+#
+# ⚠ 서비스 Redis(데이터 EC2 6379)와 *물리적으로 별개*다. 혼동 금지.
+#   - 용도: 배치 파이프라인 카운터 전용 (raw_count INCR / clean_count INCRBY / seen SADD).
+#   - 성격: 임시·휘발 허용. Spot 노드가 회수되면 같이 사라져도 된다.
+#           진짜 원천은 S3 done/ 이고, 배치는 멱등 재실행으로 복구된다(§4 "처리 추적·멱등").
+#   - 위치: batch 네임스페이스 + batch 노드그룹(Spot). 서비스 노드/서비스 Redis 자원을 건드리지 않는다.
+#   - 영속성: 없음(emptyDir, AOF/RDB off). 서비스 지연·메모리 보호가 목적.
+#
+# 수명 관리(중요): replicas: 0 이 기본이다.
+#   배치 오케스트레이터(CronJob/컨트롤러)가 파이프라인 시작 시 1로 스케일업하고,
+#   파이프라인 종료 시 다시 0으로 내린다. 이래야 Spot batch 노드가 idle 시 0으로 축소된다.
+#   (상시 replicas:1 이면 노드가 계속 살아 있어 "평소 0대 = 비용 $0" 원칙이 깨진다.)
+#   TODO: 스케일 업/다운을 누가 하는지는 트리거 오케스트레이션 결정에 종속(아래 50-* 참고).
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: batch-redis
+  namespace: victoryfairy-batch
+  labels:
+    app: batch-redis
+spec:
+  replicas: 0            # 오케스트레이터가 파이프라인 동안만 1로 올린다
+  selector:
+    matchLabels:
+      app: batch-redis
+  template:
+    metadata:
+      labels:
+        app: batch-redis
+    spec:
+      # ── 인프라 커플링: batch 노드그룹 label + taint ──
+      nodeSelector:
+        workload: batch
+      tolerations:
+        - key: "workload"
+          operator: "Equal"
+          value: "batch"
+          effect: "NoSchedule"
+      containers:
+        - name: redis
+          image: "redis:7.2-alpine"   # 고정 마이너 태그(latest 아님). 카운터 전용이라 자체 이미지 불필요.
+          args:
+            - "--save"
+            - ""                     # RDB 스냅샷 끔(휘발)
+            - "--appendonly"
+            - "no"                   # AOF 끔
+            - "--maxmemory"
+            - "256mb"
+            - "--maxmemory-policy"
+            - "noeviction"           # 카운터 유실 방지(넘치면 에러로 알아채는 편이 안전)
+          ports:
+            - name: redis
+              containerPort: 6379
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "250m"
+              memory: "320Mi"
+          readinessProbe:
+            tcpSocket: { port: 6379 }
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: { port: 6379 }
+            periodSeconds: 15
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          emptyDir: {}               # 노드 로컬, 파드 소멸 시 소멸
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: batch-redis
+  namespace: victoryfairy-batch
+  labels:
+    app: batch-redis
+spec:
+  type: ClusterIP
+  selector:
+    app: batch-redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+      protocol: TCP

@@ -1,0 +1,95 @@
+# EKS 밖 데이터 EC2(2a, 비 EKS)의 MySQL/Redis를 클러스터 내부 DNS로 노출한다.
+# 파드는 mysql:3306 / redis:6379 같은 안정적인 서비스 이름으로 접근하고,
+# 실제 private IP는 여기 한 곳에서만 관리한다(파드 스펙에 IP를 박지 않는다).
+#
+# 방식: selector 없는 Service + 수동 Endpoints(IP 지정).
+#   - 대안(주석): Route53 private hosted zone에 레코드가 있으면 ExternalName이 더 단순.
+#     예)  spec: { type: ExternalName, externalName: mysql.internal.victoryfairy.com }
+#   - Endpoints는 EndpointSlice로 대체 가능하나, 정적 단일 백엔드라 가독성 위해 Endpoints 사용.
+#
+# ⚠ 인프라 커플링: 아래 IP는 terraform mysql-ec2 모듈의 private_ip 출력값이다(placeholder).
+#   TODO(terraform-writer 보고): mysql-ec2 모듈이 private_ip를 output으로 노출하는지 확인.
+#         출력이 없으면 이 매니페스트가 채울 값이 없다 -> 인프라에서 output 추가 필요.
+#   ⚠ 데이터 EC2 SG 인입 규칙과도 맞물림: 3306<-user/quiz/batch, 6379<-user/quiz (ARCHITECTURE §3).
+---
+# ---- 서비스 네임스페이스(victoryfairy): MySQL + 서비스 Redis ----
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+  namespace: victoryfairy
+spec:
+  clusterIP: None      # headless: Endpoints의 IP로 직접 라우팅
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306
+      protocol: TCP
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: mysql            # Service와 동일 이름이어야 바인딩됨
+  namespace: victoryfairy
+subsets:
+  - addresses:
+      - ip: "10.0.10.135"  # = terraform output mysql_private_ip (2026-07 apply)
+    ports:
+      - name: mysql
+        port: 3306
+        protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: victoryfairy
+spec:
+  clusterIP: None
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+      protocol: TCP
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: redis
+  namespace: victoryfairy
+subsets:
+  - addresses:
+      - ip: "10.0.10.135"  # 서비스 Redis는 동일 데이터 EC2에 상주 (mysql과 같은 IP)
+    ports:
+      - name: redis
+        port: 6379
+        protocol: TCP
+---
+# ---- 배치 네임스페이스(victoryfairy-batch): MySQL 3306 만 노출 ----
+# 배치는 최종 저장(quiz 문제)만 하므로 3306 만 접근. 서비스 Redis(6379)는 노출하지 않는다.
+# (배치 카운터는 서비스 Redis가 아니라 배치 전용 임시 Redis를 쓴다 — 40-batch-redis.yaml)
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+  namespace: victoryfairy-batch
+spec:
+  clusterIP: None
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306
+      protocol: TCP
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: mysql
+  namespace: victoryfairy-batch
+subsets:
+  - addresses:
+      - ip: "10.0.10.135"  # = terraform output mysql_private_ip (2026-07 apply)
+    ports:
+      - name: mysql
+        port: 3306
+        protocol: TCP

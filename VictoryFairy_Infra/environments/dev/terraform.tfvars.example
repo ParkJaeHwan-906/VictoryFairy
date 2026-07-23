@@ -1,0 +1,9 @@
+# 이 파일을 복사해 terraform.tfvars 로 만들어 사용하세요.
+#   cp terraform.tfvars.example terraform.tfvars
+# terraform.tfvars 는 .gitignore 로 커밋되지 않습니다 (시크릿 보관 가능).
+
+aws_region       = "ap-northeast-2"
+environment      = "dev"
+vpc_cidr         = "10.0.0.0/16"
+azs              = ["ap-northeast-2a", "ap-northeast-2c"]
+backup_s3_bucket = "victoryfairy-mysql-backup-dev"
