@@ -7,3 +7,4 @@ environment      = "dev"
 vpc_cidr         = "10.0.0.0/16"
 azs              = ["ap-northeast-2a", "ap-northeast-2c"]
 backup_s3_bucket = "victoryfairy-mysql-backup-dev"
+domain_name      = "victoryfairy.com" # Route53 호스팅영역 + ACM 인증서 기준 도메인

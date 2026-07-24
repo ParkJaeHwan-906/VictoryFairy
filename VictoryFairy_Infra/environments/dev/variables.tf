@@ -30,3 +30,9 @@ variable "backup_s3_bucket" {
   description = "MySQL 일 단위 백업을 저장할 S3 버킷 이름"
   type        = string
 }
+
+variable "domain_name" {
+  description = "서비스 루트 도메인. Route53 호스팅영역 + ACM 인증서 기준. (dns 모듈)"
+  type        = string
+  default     = "victoryfairy.com"
+}

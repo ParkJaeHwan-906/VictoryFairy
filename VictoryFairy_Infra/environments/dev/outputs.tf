@@ -35,6 +35,26 @@ output "ecr_repository_urls" {
   value       = module.ecr.repository_urls
 }
 
+output "route53_name_servers" {
+  description = "도메인 레지스트라(구입처)에 등록할 네임서버 4개. 등록해야 Route53 존 활성 + ACM DNS 검증 완료(runbook 1단계)."
+  value       = module.dns.name_servers
+}
+
+output "acm_certificate_arn" {
+  description = "검증 완료된 ACM 인증서 ARN. ALB(Ingress) HTTPS 종료용."
+  value       = module.dns.certificate_arn
+}
+
+output "aws_lbc_role_arn" {
+  description = "AWS Load Balancer Controller IRSA 역할 ARN. LBC Helm 설치 시 serviceAccount.annotations[eks.amazonaws.com/role-arn] 값."
+  value       = module.alb.controller_role_arn
+}
+
+output "external_dns_role_arn" {
+  description = "ExternalDNS IRSA 역할 ARN. k8s/23-external-dns.yaml 의 SA 어노테이션(eks.amazonaws.com/role-arn) 값."
+  value       = module.dns.external_dns_role_arn
+}
+
 output "mysql_instance_id" {
   description = "MySQL EC2 인스턴스 ID (SSM 포트포워딩 대상)"
   value       = module.mysql_ec2.instance_id
