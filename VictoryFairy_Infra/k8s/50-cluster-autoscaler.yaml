@@ -4,7 +4,7 @@
 #   붙은 ASG(=app 노드그룹)의 desired 를 올려 노드를 추가하고, 여유가 생기면 축소한다.
 # 권한: IRSA — ServiceAccount 어노테이션의 IAM 역할(eks 모듈 autoscaler.tf)로
 #   AWS API 를 호출한다. 노드 IAM 역할에는 오토스케일 권한이 없다(최소 권한).
-# 버전: 이미지 마이너 버전은 클러스터 버전(1.30)과 일치해야 한다.
+# 버전: 이미지 마이너 버전은 클러스터 버전(1.35)과 일치해야 한다.
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -144,8 +144,8 @@ spec:
         fsGroup: 65534
       containers:
         - name: cluster-autoscaler
-          # 마이너 버전은 클러스터(1.30)와 일치시킬 것
-          image: registry.k8s.io/autoscaling/cluster-autoscaler:v1.30.3
+          # 마이너 버전은 클러스터(1.35)와 일치시킬 것
+          image: registry.k8s.io/autoscaling/cluster-autoscaler:v1.35.0
           command:
             - ./cluster-autoscaler
             - --v=2
