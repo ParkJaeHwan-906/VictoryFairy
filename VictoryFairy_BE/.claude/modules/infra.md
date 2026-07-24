@@ -1,8 +1,37 @@
 # infra 모듈 (배포 · 인프라 학습)
 
 > 이 파일은 infra/배포 작업 시에만 로드되는 슬림 컨텍스트다.
-> EC2 → Docker → Kubernetes 단계적 학습 + 이 백엔드의 실제 배포(nginx, docker-compose.prod, deploy.yml)를 다룬다.
+> EC2 → Docker → Kubernetes 단계적 학습 이력 + 이 백엔드의 배포를 다룬다.
+> ⚠️ 방향 전환: EKS 기반 인프라가 이미 Terraform 으로 프로비저닝됨 — 아래 "인프라 방향" 섹션 먼저 읽을 것.
 > 최종 업데이트: 2026-07-24
+
+---
+
+## ⚠️ 인프라 방향: EKS 로 이행 중 (2026-07)
+이 문서의 본문(아래 "현재 인프라 상태"~"로드맵")은 **EC2 단일 인스턴스 + docker-compose** 기준의
+초기 배포·학습 이력이다. 그와 **별개로 EKS 기반 인프라가 이미 Terraform 으로 프로비저닝**되어 있고
+앱을 EKS 로 옮기는 이행이 진행 중이다. **EC2+compose 가 여전히 실서빙 경로인지, EKS 로 컷오버됐는지는
+이 문서만으로 단정하지 말 것**(작업 전 실제 상태 확인 필요).
+
+- **코드 위치**: 인프라 Terraform·k8s 매니페스트는 이 BE 트리가 아니라 **상위 레포의
+  `VictoryFairy_Infra/`(브랜치 `dev_infra`)** 에 있다(`dev_be` 트리엔 없음). Terraform 규약은
+  `.claude/skills/terraform-infra`. 상태는 S3 백엔드(`victoryfairy-tfstate`, key `dev/terraform.tfstate`).
+- **EKS**: 클러스터 `victoryfairy-dev`, k8s **1.30**(⚠ EKS 표준 지원 종료 → 연장 지원 과금 구간, 버전
+  업그레이드 필요). 노드그룹 2개 — `app`(user·quiz 공용 t3.medium On-Demand, HPA+Cluster Autoscaler),
+  `batch`(Spot, 평소 0대, CronJob 시각에만 0→N→0). 워커는 프라이빗 서브넷, 파드 권한은 IRSA(OIDC).
+- **DB**: RDS 미사용 — **EC2 자체 호스팅 MySQL+Redis 컨테이너**(`modules/mysql-ec2`), EBS 영속 볼륨,
+  SSM 포트포워딩 접근(22/3306 인입 미개방), mysqldump→S3 백업 크론.
+- **레지스트리/CI**: ECR(`user`,`quiz`) + GitHub Actions keyless(OIDC) 배포.
+- **도메인 + HTTPS** (PR #34 → `dev_infra`, **코드만·미apply**): 루트 `victoryfairy.com` 을
+  Route53(신규 존)+ACM(DNS 검증) 인증서로 ALB 에 연결. AWS Load Balancer Controller(Ingress
+  `k8s/22-ingress.yaml`, host=victoryfairy.com, TLS 종료) + ExternalDNS(`k8s/23-external-dns.yaml`,
+  apex A→ALB 자동 레코드). 모듈: `VictoryFairy_Infra/modules/{dns,alb}`, eks 모듈 `oidc_provider_url`
+  출력 참조. 적용 순서 runbook: `VictoryFairy_Infra/docs/domain-https-setup.md`.
+  - ⚠ apply 전: 도메인 레지스트라 NS 를 Route53 존 NS(4개)로 등록 + Mailjet SPF/DKIM(TXT)을 Route53 로 이관.
+  - ⚠ ALB 헬스체크(`/healthz`)에 200 반환 앱 엔드포인트가 없으면 타깃 Unhealthy → 503(본문 "배포
+    파이프라인 알려진 갭"의 health 미구현 이슈와 동일 — EKS 에서도 선결).
+
+---
 
 ## 관련 위치
 - (이 레포 `VictoryFairy_BE/`) `nginx.conf`, `docker-compose.prod.yml`, `docker-compose.yml`, `Dockerfile`, `infra/` 디렉터리, `docs/deployment-strategy.md`, `docs/cicd-runbook.md`
@@ -119,8 +148,9 @@ sudo docker ps && curl localhost
 ---
 
 ## 미결정 사항
-- [ ] 인스턴스 교체: 시기 / 후신 스펙 (현재 t3.small, 2vCPU/2GB)
-- [ ] 쿠버네티스 목적: 학습용 vs 실서비스
-- [ ] 클러스터 방식: kubeadm 직접 구축 vs EKS
-- [ ] 도메인 보유 여부 (HTTPS 진행 시 필요)
-- [ ] 앱 개수 / 예상 트래픽 (쿠버네티스가 오버스펙인지 판단)
+- [x] 클러스터 방식: **EKS 채택** (managed control plane, `victoryfairy-dev`)
+- [x] 도메인 보유: **`victoryfairy.com` 보유 확정** (Route53+ACM 으로 HTTPS 진행 — 위 "인프라 방향")
+- [ ] EKS k8s **1.30 → 상위 버전 업그레이드** (연장 지원 과금 중 — 도메인/HTTPS 작업과 별개 선결 과제)
+- [ ] EC2+compose → EKS **컷오버 상태 확정** (실서빙 경로가 아직 EC2 인지, EKS 인지)
+- [ ] 앱 헬스 엔드포인트 구현 (EKS ALB 헬스체크·운영 가시성 선결)
+- [ ] 앱 개수 / 예상 트래픽 (스케일 상한 재산정)
