@@ -17,7 +17,7 @@ module "eks" {
 
   environment     = var.environment
   cluster_name    = local.cluster_name # 서브넷 EKS 발견 태그 ↔ network 모듈과 동일
-  cluster_version = "1.30"
+  cluster_version = "1.31"             # 1.30(연장지원) 탈출: 한 마이너씩 상향. 이 홉은 컨트롤플레인만(노드/애드온은 별도 단계).
 
   # 컨트롤플레인: 프라이빗 서브넷 2 AZ(2a+2c) 모두 — EKS 2 AZ 요건 충족.
   cluster_subnet_ids = module.network.private_subnet_ids
