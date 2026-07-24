@@ -68,6 +68,27 @@ module "ecr" {
   repository_names = ["user", "quiz"] # BE Gradle 모듈과 1:1 (Dockerfile ARG MODULE)
 }
 
+# AWS Load Balancer Controller 용 IRSA. 컨트롤러 파드는 Helm 설치(runbook)하고,
+# 이 역할 ARN 을 SA 어노테이션에 지정한다. Ingress(k8s/22-ingress.yaml)가 ALB 를 프로비저닝.
+module "alb" {
+  source = "../../modules/alb"
+
+  name_prefix       = local.cluster_name
+  oidc_provider_arn = module.eks.oidc_provider_arn
+  oidc_provider_url = module.eks.oidc_provider_url
+}
+
+# 퍼블릭 DNS(Route53) + TLS(ACM) + ExternalDNS IRSA.
+# apply 후 name_servers 를 레지스트라에 등록해야 존이 활성화되고 ACM 검증이 완료된다(runbook).
+module "dns" {
+  source = "../../modules/dns"
+
+  domain_name       = var.domain_name
+  cluster_name      = module.eks.cluster_name
+  oidc_provider_arn = module.eks.oidc_provider_arn
+  oidc_provider_url = module.eks.oidc_provider_url
+}
+
 module "security" {
   source = "../../modules/security"
 
