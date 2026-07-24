@@ -39,12 +39,13 @@ resource "aws_iam_role" "this" {
   })
 }
 
-# 정책 본문은 kubernetes-sigs/aws-load-balancer-controller v2.8.2 의 공식 iam_policy.json 사본.
-#   출처: https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.8.2/docs/install/iam_policy.json
-#   ⚠ 컨트롤러(Helm 차트) 버전을 올리면 이 파일도 해당 태그의 공식본으로 교체할 것.
+# 정책 본문은 kubernetes-sigs/aws-load-balancer-controller v3.4.2 의 공식 iam_policy.json 사본.
+#   출처: https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v3.4.2/docs/install/iam_policy.json
+#   ⚠ 설치되는 컨트롤러(Helm 차트) 버전과 반드시 일치시킬 것 — 불일치 시 AccessDenied 로 ALB 프로비저닝 실패.
+#     (Helm 이 설치한 이미지 태그 = `kubectl -n kube-system get deploy aws-load-balancer-controller -o jsonpath='{..image}'`)
 resource "aws_iam_policy" "this" {
   name        = "${var.name_prefix}-aws-lbc"
-  description = "AWS Load Balancer Controller (v2.8.2) 권한 — ELBv2/TargetGroup/SG 관리."
+  description = "AWS Load Balancer Controller (v3.4.2) 권한 — ELBv2/TargetGroup/SG 관리."
   policy      = file("${path.module}/iam_policy.json")
 
   tags = merge(var.tags, {
