@@ -75,10 +75,16 @@ aws eks update-kubeconfig --name victoryfairy-dev --region ap-northeast-2
 helm repo add eks https://aws.github.io/eks-charts
 helm repo update
 
+# ⚠ vpcId 필수 — 노드 IMDS hop limit=1이라 파드가 VPC ID 자동탐지에 실패한다
+#   (미지정 시 컨트롤러 CrashLoopBackOff: "failed to get VPC ID ... ec2imds ... context deadline exceeded").
+VPC_ID=$(aws eks describe-cluster --name victoryfairy-dev --region ap-northeast-2 \
+  --query 'cluster.resourcesVpcConfig.vpcId' --output text)
+
 helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
   -n kube-system \
   --set clusterName=victoryfairy-dev \
   --set region=ap-northeast-2 \
+  --set vpcId="$VPC_ID" \
   --set serviceAccount.create=true \
   --set serviceAccount.name=aws-load-balancer-controller \
   --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="$(terraform output -raw aws_lbc_role_arn)"
@@ -87,8 +93,13 @@ helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
 kubectl -n kube-system rollout status deploy/aws-load-balancer-controller
 kubectl get ingressclass
 ```
-> LBC 이미지/차트 버전은 클러스터 k8s 버전(현재 1.30)과 호환되는 것을 쓸 것.
-> IAM 정책(`modules/alb/iam_policy.json`)은 LBC v2.8.2 기준 — 차트 버전을 크게 바꾸면 정책도 갱신.
+> **⚠ IAM 정책 버전은 설치되는 컨트롤러 버전과 반드시 일치**시킬 것. `modules/alb/iam_policy.json`은
+> **LBC v3.4.2** 공식본이다. Helm 이 더 최신 컨트롤러를 설치하면 신규 권한(예: `ec2:GetSecurityGroupsForVpc`,
+> `elasticloadbalancing:DescribeListenerAttributes`)이 없어 **ALB 프로비저닝이 `AccessDenied`로 실패**한다
+> (Ingress Events 의 `FailedDeployModel`). 설치된 이미지 태그 확인:
+> `kubectl -n kube-system get deploy aws-load-balancer-controller -o jsonpath='{..image}'` →
+> 그 버전의 공식 `iam_policy.json`으로 `modules/alb/iam_policy.json`을 교체 후 `terraform apply`.
+> LBC 이미지/차트 버전은 클러스터 k8s 버전과 호환되는 것을 쓸 것.
 
 ### 5. k8s 매니페스트 적용
 ```bash
