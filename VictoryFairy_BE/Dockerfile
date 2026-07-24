@@ -12,6 +12,7 @@ RUN chmod +x ./gradlew
 
 COPY common common
 COPY domain domain
+COPY web-support web-support
 COPY user user
 COPY quiz quiz
 
