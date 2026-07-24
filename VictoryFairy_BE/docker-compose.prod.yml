@@ -51,12 +51,13 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
-      # 이메일 인증 실발송(SmtpEmailSender, prod 프로파일 전용) - Brevo SMTP 릴레이.
-      # HOST/PORT는 Brevo 고정값이라 하드코딩. USERNAME/PASSWORD는 시크릿이라 .env 에서 주입.
-      MAIL_HOST: smtp-relay.brevo.com
+      # 이메일 인증 실발송(SmtpEmailSender, prod 프로파일 전용) - Mailjet SMTP 릴레이.
+      # HOST/PORT는 Mailjet 고정값이라 하드코딩. USERNAME=API Key, PASSWORD=Secret Key(시크릿이라 .env 에서 주입).
+      MAIL_HOST: in-v3.mailjet.com
       MAIL_PORT: 587
       MAIL_USERNAME: ${MAIL_USERNAME}
       MAIL_PASSWORD: ${MAIL_PASSWORD}
+      # 발신 도메인 victoryfairy.com은 Mailjet에서 SPF/DKIM 인증 완료 상태여야 네이버·다음 도달률이 확보된다.
       MAIL_FROM: ${MAIL_FROM:-no-reply@victoryfairy.com}
     # nginx(호스트)에서만 접근 가능하도록 localhost로 한정. 외부 직접 접근 차단.
     ports:
