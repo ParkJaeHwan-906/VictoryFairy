@@ -2,7 +2,7 @@
 
 > 이 파일은 infra/배포 작업 시에만 로드되는 슬림 컨텍스트다.
 > EC2 → Docker → Kubernetes 단계적 학습 + 이 백엔드의 실제 배포(nginx, docker-compose.prod, deploy.yml)를 다룬다.
-> 최종 업데이트: 2026-07-18
+> 최종 업데이트: 2026-07-24
 
 ## 관련 위치
 - (이 레포 `VictoryFairy_BE/`) `nginx.conf`, `docker-compose.prod.yml`, `docker-compose.yml`, `Dockerfile`, `infra/` 디렉터리, `docs/deployment-strategy.md`, `docs/cicd-runbook.md`
@@ -58,8 +58,8 @@
 - `redis:7.2-alpine`. 로컬(`docker-compose.yml`): `6379` 노출 + healthcheck(`redis-cli ping`), `user`가 `condition: service_healthy`로 대기. prod(`docker-compose.prod.yml`): 외부 미노출(포트 매핑 없음), `mem_limit: 64m`, healthcheck 없음(위 갭 참고), 영속 볼륨 없음(TTL 기반 휘발성 데이터라 재기동 시 초기화돼도 무방).
 - `user` 서비스에 `SPRING_DATA_REDIS_HOST`/`SPRING_DATA_REDIS_PORT`(둘 다 `redis`/`6379`) 주입 — `quiz`는 redis 미의존.
 
-## 이메일 발송 (Brevo SMTP, user 전용, prod만)
-- `docker-compose.prod.yml`의 `user` 서비스에 `MAIL_HOST=smtp-relay.brevo.com`(하드코딩) / `MAIL_PORT=587`(하드코딩) / `MAIL_USERNAME`·`MAIL_PASSWORD`(시크릿, `.env`) / `MAIL_FROM`(기본값 `no-reply@victoryfairy.com`) 주입 — `SmtpEmailSender`(`@Profile("prod")`)가 이 값으로 이메일 인증번호를 실발송. dev/test는 `LogEmailSender`(mock)라 이 변수들 불필요.
+## 이메일 발송 (Mailjet SMTP, user 전용, prod만)
+- `docker-compose.prod.yml`의 `user` 서비스에 `MAIL_HOST=in-v3.mailjet.com`(하드코딩) / `MAIL_PORT=587`(STARTTLS, 하드코딩) / `MAIL_USERNAME`(Mailjet API Key)·`MAIL_PASSWORD`(Mailjet Secret Key, 시크릿, `.env`) / `MAIL_FROM`(기본값 `no-reply@victoryfairy.com`) 주입 — `SmtpEmailSender`(`@Profile("prod")`)가 이 값으로 이메일 인증번호를 실발송. dev/test는 `LogEmailSender`(mock)라 이 변수들 불필요. 발신 도메인 `victoryfairy.com`은 Mailjet에서 SPF/DKIM 인증이 필요(미인증 시 도달률 저하). 저장소 루트 `.env.example`에 Mailjet `MAIL_*` 템플릿 있음. 배포 가이드: `docs/deployment/email-verification-mailjet.md`.
 
 ---
 
