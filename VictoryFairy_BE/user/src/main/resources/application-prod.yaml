@@ -6,11 +6,14 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   # 운영 SMTP 실발송 설정(SmtpEmailSender는 prod 프로파일에서만 로딩). 접속 정보는 환경변수 주입.
+  # 기본값을 둬 MAIL_* 미주입 시에도 앱이 부팅되게 한다(메일 설정 누락이 user 서비스 전체를
+  # 죽이지 않도록). host/port는 Mailjet 고정값을 기본값으로, 시크릿(username/password)은 빈 기본값 —
+  # 실제 발송은 k8s Secret에 실 키가 주입돼야 동작하고, 없으면 발송 시점에만 실패한다.
   mail:
-    host: ${MAIL_HOST}
+    host: ${MAIL_HOST:in-v3.mailjet.com}
     port: ${MAIL_PORT:587}
-    username: ${MAIL_USERNAME}
-    password: ${MAIL_PASSWORD}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
     properties:
       mail:
         smtp:
