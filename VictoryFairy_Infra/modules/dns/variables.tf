@@ -42,6 +42,30 @@ variable "subject_alternative_names" {
   default     = []
 }
 
+variable "mailjet_dkim_value" {
+  description = "Mailjet DKIM TXT 값(k=rsa; p=...). mailjet._domainkey.<domain> 에 등록. 빈 문자열이면 미생성. 255자 초과 시 자동 분할."
+  type        = string
+  default     = ""
+}
+
+variable "mailjet_spf_value" {
+  description = "Mailjet SPF TXT 값(루트 도메인). ⚠ apex TXT는 ExternalDNS 소유권 레코드와 충돌하므로, ExternalDNS txt-prefix 조정 전에는 비워둘 것."
+  type        = string
+  default     = ""
+}
+
+variable "mailjet_verification_name" {
+  description = "Mailjet 도메인 검증 TXT의 호스트명(도메인 접미사 제외, 예: mailjet._bc2f75b5). 빈 문자열이면 미생성."
+  type        = string
+  default     = ""
+}
+
+variable "mailjet_verification_value" {
+  description = "Mailjet 도메인 검증 TXT 값."
+  type        = string
+  default     = ""
+}
+
 variable "tags" {
   description = "리소스에 병합할 추가 태그 (프로바이더 default_tags 위에 merge)."
   type        = map(string)

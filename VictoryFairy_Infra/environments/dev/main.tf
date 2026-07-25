@@ -87,6 +87,12 @@ module "dns" {
   cluster_name      = module.eks.cluster_name
   oidc_provider_arn = module.eks.oidc_provider_arn
   oidc_provider_url = module.eks.oidc_provider_url
+
+  # Mailjet 이메일 발신 도메인 인증 레코드. DKIM·검증만 지금 등록(ExternalDNS/apex와 무충돌).
+  # SPF(mailjet_spf_value)는 apex TXT ↔ ExternalDNS 소유권 TXT 충돌로 보류 — 미주입=미생성.
+  mailjet_dkim_value         = "k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxm06i102hkoIV0UEihUmZjbLFVK+tYrU2JUKAOD8sSkKEUIXSXCdTe4dUCcSGoJAzf9NwuvNhChDzT8aQCBtpWzQlmAPyljd7Pkb5jsOyExoCz9vP/9pKvCTun8OIl7rGtv7mIiT5tIiSFl4dJdHzVWFPnCcA+IK/agQocbWymeRWKfsnP7Z/pqz3YERNbs10rIT11RsW09eBvqKiU8V008tkBtd43jcTMnuc0NWp2ZItHVQ9Ha8tz4dH+xI8JzPjD+wPnjlRKl4lJlo4im298RyE6GQjf07vzCa45L9pk4C8gZUA8a73SX462HyPrrfEXAdX324Wgi+vNU9CUhRGQIDAQAB"
+  mailjet_verification_name  = "mailjet._bc2f75b5"
+  mailjet_verification_value = "bc2f75b58109420e2abf5666cdeff8f5"
 }
 
 module "security" {
