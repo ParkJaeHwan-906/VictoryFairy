@@ -75,7 +75,7 @@ def test_main_game_job_runs_schedule_result_relay_not_community(monkeypatch):
 
 - [ ] **Step 2: 실패 확인**
 
-Run: `cd VitoryFairy_BE/py-collector && python -m pytest tests/test_run_jobs.py::test_main_game_job_runs_schedule_result_relay_not_community -v`
+Run: `cd VictoryFairy_AI/py-collector && python -m pytest tests/test_run_jobs.py::test_main_game_job_runs_schedule_result_relay_not_community -v`
 Expected: FAIL — `argument job: invalid choice: 'game'`
 
 - [ ] **Step 3: 구현** — `run.py`의 CLI choices와 분기 수정
@@ -184,7 +184,7 @@ volumes:
 
 - [ ] **Step 3: 빌드 검증**
 
-Run: `cd VitoryFairy_BE/py-collector && docker compose build collector`
+Run: `cd VictoryFairy_AI/py-collector && docker compose build collector`
 Expected: 이미지 빌드 성공(`Successfully built` / `naming to ...`).
 
 - [ ] **Step 4: 스모크 실행 (help)**
@@ -330,7 +330,7 @@ CREATE TABLE IF NOT EXISTS player_registrations (
 
 Run:
 ```bash
-cd VitoryFairy_BE/py-collector
+cd VictoryFairy_AI/py-collector
 docker compose --profile db up -d mysql
 sleep 15
 docker exec -i collector-mysql sh -c 'exec mysql -uroot -pvfpass victoryfairy' < deploy/sql/schema.sql
@@ -1222,7 +1222,7 @@ git commit -m "feat(domain): Team/Player/PlayerRegistration read entities (match
 
 Run:
 ```bash
-cd VitoryFairy_BE/py-collector
+cd VictoryFairy_AI/py-collector
 docker compose --profile db up -d mysql
 sleep 15
 docker exec -i collector-mysql sh -c 'exec mysql -uroot -pvfpass victoryfairy' < deploy/sql/schema.sql

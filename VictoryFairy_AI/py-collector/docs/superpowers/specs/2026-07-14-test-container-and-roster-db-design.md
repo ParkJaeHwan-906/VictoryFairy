@@ -1,6 +1,6 @@
 # 테스트 컨테이너 + 선수/구단 DB 적재 설계
 
-> 작성일 2026-07-14 · 대상 `VitoryFairy_BE/py-collector` (+ Spring `domain` 모듈 일부)
+> 작성일 2026-07-14 · 대상 `VictoryFairy_AI/py-collector` (+ Spring `domain` 모듈 일부)
 
 두 가지 작업을 한 스펙으로 다룬다.
 
