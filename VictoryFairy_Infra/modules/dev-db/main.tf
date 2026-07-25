@@ -132,20 +132,29 @@ resource "aws_security_group" "this" {
   }
 }
 
-# 22/3306/6379 ← allowed_cidr. for_each 로 포트 반복(SKILL §8).
+# 22/3306/6379 ← allowed_cidrs. 포트 × CIDR 조합으로 for_each(SKILL §8).
 resource "aws_vpc_security_group_ingress_rule" "allowed" {
   for_each = {
-    ssh   = { port = 22, desc = "SSH from allowed_cidr" }
-    mysql = { port = 3306, desc = "MySQL from allowed_cidr" }
-    redis = { port = 6379, desc = "Redis from allowed_cidr" }
+    for pair in setproduct(
+      [
+        { key = "ssh", port = 22, name = "SSH" },
+        { key = "mysql", port = 3306, name = "MySQL" },
+        { key = "redis", port = 6379, name = "Redis" },
+      ],
+      var.allowed_cidrs
+      ) : "${pair[0].key}-${pair[1]}" => {
+      port = pair[0].port
+      name = pair[0].name
+      cidr = pair[1]
+    }
   }
 
   security_group_id = aws_security_group.this.id
-  cidr_ipv4         = var.allowed_cidr
+  cidr_ipv4         = each.value.cidr
   from_port         = each.value.port
   to_port           = each.value.port
   ip_protocol       = "tcp"
-  description       = each.value.desc
+  description       = "${each.value.name} from ${each.value.cidr}"
 
   tags = merge(var.tags, {
     Name = "${local.name}-${each.key}"

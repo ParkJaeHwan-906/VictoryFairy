@@ -1,20 +1,20 @@
 # 변수는 알파벳 순 (SKILL §1 파일 분리 규약). 모든 변수에 description + type,
 # 제약은 validation. 비밀값은 코드에 굽지 않는다(SSM Parameter Store 이름만 받음).
 
-variable "allowed_cidr" {
+variable "allowed_cidrs" {
   description = <<-EOT
-    dev DB 의 22(SSH)·3306(MySQL)·6379(Redis) 인입을 허용할 '단일' CIDR.
-    프로덕션과 달리 EKS 노드 SG 가 아니라 개발자 IP CIDR 에서만 연다(예: 1.2.3.4/32).
+    dev DB 의 22(SSH)·3306(MySQL)·6379(Redis) 인입을 허용할 CIDR 목록.
+    프로덕션과 달리 EKS 노드 SG 가 아니라 개발자 IP CIDR 들에서만 연다(예: ["1.2.3.4/32", "5.6.7.8/32"]).
     0.0.0.0/0 등 전체 개방은 금지(퍼블릭 서브넷 + 퍼블릭 IP 라 공격 표면이 크다).
   EOT
-  type        = string
+  type        = list(string)
   validation {
-    condition     = can(cidrhost(var.allowed_cidr, 0))
-    error_message = "allowed_cidr 는 유효한 CIDR 표기여야 합니다(예: 1.2.3.4/32)."
+    condition     = length(var.allowed_cidrs) > 0 && alltrue([for c in var.allowed_cidrs : can(cidrhost(c, 0))])
+    error_message = "allowed_cidrs 는 최소 1개 이상의 유효한 CIDR 표기여야 합니다(예: 1.2.3.4/32)."
   }
   validation {
-    condition     = var.allowed_cidr != "0.0.0.0/0"
-    error_message = "allowed_cidr 로 0.0.0.0/0(전체 개방)은 허용하지 않습니다."
+    condition     = alltrue([for c in var.allowed_cidrs : c != "0.0.0.0/0"])
+    error_message = "allowed_cidrs 에 0.0.0.0/0(전체 개방)은 허용하지 않습니다."
   }
 }
 

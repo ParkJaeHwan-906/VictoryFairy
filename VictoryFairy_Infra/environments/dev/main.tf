@@ -140,12 +140,12 @@ module "mysql_ec2" {
 module "dev_db" {
   source = "../../modules/dev-db"
 
-  count = var.dev_db_allowed_cidr != "" ? 1 : 0
+  count = length(var.dev_db_allowed_cidrs) > 0 ? 1 : 0
 
-  environment  = var.environment
-  vpc_id       = module.network.vpc_id
-  subnet_id    = module.network.public_subnet_ids_by_az[var.azs[0]] # 2a(운영 AZ) 퍼블릭
-  allowed_cidr = var.dev_db_allowed_cidr
+  environment   = var.environment
+  vpc_id        = module.network.vpc_id
+  subnet_id     = module.network.public_subnet_ids_by_az[var.azs[0]] # 2a(운영 AZ) 퍼블릭
+  allowed_cidrs = var.dev_db_allowed_cidrs
 
   # restore 원본 = 프로덕션 mysqldump 백업 버킷(읽기 전용).
   backup_s3_bucket = var.backup_s3_bucket
