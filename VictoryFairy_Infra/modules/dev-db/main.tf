@@ -222,6 +222,21 @@ resource "aws_instance" "this" {
 }
 
 # ---------------------------------------------------------------------------
+# (옵션) Elastic IP — use_eip=true 일 때만. stop/start 후에도 퍼블릭 IP 고정.
+#   실행 중 인스턴스에 연결돼 있으면 추가 비용 없음(퍼블릭 IPv4 요금은 auto IP 와 동일).
+#   ⚠ 인스턴스 중지(stop) 중엔 미사용 EIP 요금이 발생한다.
+# ---------------------------------------------------------------------------
+resource "aws_eip" "this" {
+  count    = var.use_eip ? 1 : 0
+  domain   = "vpc"
+  instance = aws_instance.this.id
+
+  tags = merge(var.tags, {
+    Name = "${local.name}-eip"
+  })
+}
+
+# ---------------------------------------------------------------------------
 # 데이터 EBS (gp3) — MySQL datadir 영속용. dev 는 매일 restore 로 갱신되는 소모성
 #   데이터라 prevent_destroy 를 걸지 않는다(원본 mysql-ec2 는 prevent_destroy).
 # ---------------------------------------------------------------------------

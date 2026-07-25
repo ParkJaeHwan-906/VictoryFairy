@@ -120,6 +120,12 @@ variable "tags" {
   default     = {}
 }
 
+variable "use_eip" {
+  description = "true 면 Elastic IP 를 할당·연결해 stop/start 후에도 퍼블릭 IP 를 고정한다. 실행 중엔 추가비용 없으나 인스턴스 중지 중엔 미사용 EIP 요금이 발생한다."
+  type        = bool
+  default     = false
+}
+
 variable "vpc_id" {
   description = "dev DB EC2 를 배치할 VPC ID."
   type        = string
