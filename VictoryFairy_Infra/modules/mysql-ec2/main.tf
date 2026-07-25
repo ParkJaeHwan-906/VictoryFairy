@@ -206,6 +206,13 @@ resource "aws_instance" "this" {
   tags = merge(var.tags, {
     Name = local.name
   })
+
+  lifecycle {
+    # ⚠ AMI most_recent(data.aws_ami.al2023) 가 새 AL2023 로 부동해도 기존 DB 인스턴스를
+    #   교체하지 않는다. 스테이트풀 DB 호스트라 AMI 드리프트로 인한 재생성(=데이터/다운타임 위험)을
+    #   막는다. 의도적 OS 교체는 이 줄을 임시 제거하거나 taint 로 명시적으로 수행할 것.
+    ignore_changes = [ami]
+  }
 }
 
 # ---------------------------------------------------------------------------

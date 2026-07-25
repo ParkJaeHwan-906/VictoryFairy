@@ -122,3 +122,42 @@ resource "aws_iam_role_policy" "external_dns" {
   role   = aws_iam_role.external_dns.id
   policy = data.aws_iam_policy_document.external_dns.json
 }
+
+# ---------------------------------------------------------------------------
+# 4) Mailjet 이메일 발신 도메인 인증 레코드 (값이 주어질 때만 생성 — count 가드)
+#    DKIM·검증은 ExternalDNS/apex A레코드와 겹치지 않는 이름이라 안전하게 추가 가능.
+#    ⚠ SPF 는 루트(apex) TXT 라 ExternalDNS 소유권 TXT 와 충돌 → txt-prefix 조정 전엔
+#      mailjet_spf_value 를 비워둬(count=0) 생성하지 않는다.
+# ---------------------------------------------------------------------------
+locals {
+  # Route53 TXT 문자열은 조각당 255자 제한 → 초과 시 두 조각("...""...")으로 분할한다.
+  _dkim               = var.mailjet_dkim_value
+  mailjet_dkim_record = length(local._dkim) > 255 ? "${substr(local._dkim, 0, 255)}\"\"${substr(local._dkim, 255, length(local._dkim) - 255)}" : local._dkim
+}
+
+resource "aws_route53_record" "mailjet_dkim" {
+  count   = var.mailjet_dkim_value != "" ? 1 : 0
+  zone_id = aws_route53_zone.this.zone_id
+  name    = "mailjet._domainkey.${var.domain_name}"
+  type    = "TXT"
+  ttl     = 300
+  records = [local.mailjet_dkim_record]
+}
+
+resource "aws_route53_record" "mailjet_verification" {
+  count   = var.mailjet_verification_value != "" ? 1 : 0
+  zone_id = aws_route53_zone.this.zone_id
+  name    = "${var.mailjet_verification_name}.${var.domain_name}"
+  type    = "TXT"
+  ttl     = 300
+  records = [var.mailjet_verification_value]
+}
+
+resource "aws_route53_record" "mailjet_spf" {
+  count   = var.mailjet_spf_value != "" ? 1 : 0
+  zone_id = aws_route53_zone.this.zone_id
+  name    = var.domain_name
+  type    = "TXT"
+  ttl     = 300
+  records = [var.mailjet_spf_value]
+}
