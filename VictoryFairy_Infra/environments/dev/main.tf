@@ -130,3 +130,27 @@ module "mysql_ec2" {
   # SCP 제약이 없는 계정으로 이전 시 이 줄을 제거해 스냅샷 병행을 복원할 것.
   enable_dlm_snapshot = false
 }
+
+# dev 전용 DB(비 프로덕션): 프로덕션 mysqldump S3 백업을 매일 restore 로 받아 데이터를
+# 갱신하는 퍼블릭 MySQL+Redis(fresh) EC2. 개발자가 로컬에서 직접 붙어 쓰기 위한 용도라
+# 프라이빗이 아닌 '퍼블릭 서브넷 + 퍼블릭 IP', 인입은 dev_db_allowed_cidr 하나에서만 연다.
+#
+# 조건부 생성: dev_db_allowed_cidr 가 빈 값이면 count=0 → 미생성(plan 에도 안 뜬다).
+# 사용자가 자신의 IP CIDR 을 terraform.tfvars 에 넣어야 비로소 생성된다.
+module "dev_db" {
+  source = "../../modules/dev-db"
+
+  count = var.dev_db_allowed_cidr != "" ? 1 : 0
+
+  environment  = var.environment
+  vpc_id       = module.network.vpc_id
+  subnet_id    = module.network.public_subnet_ids_by_az[var.azs[0]] # 2a(운영 AZ) 퍼블릭
+  allowed_cidr = var.dev_db_allowed_cidr
+
+  # restore 원본 = 프로덕션 mysqldump 백업 버킷(읽기 전용).
+  backup_s3_bucket = var.backup_s3_bucket
+
+  # 프로덕션 mysql-ec2 와 '동일한' 비밀번호 파라미터여야 --all-databases 복원 후에도
+  # root 비번이 일관된다. mysql_ec2 모듈은 이 값을 default 로 사용한다(무명시).
+  mysql_root_password_ssm_parameter_name = "/victoryfairy/mysql/root-password"
+}

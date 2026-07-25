@@ -31,6 +31,12 @@ variable "backup_s3_bucket" {
   type        = string
 }
 
+variable "dev_db_allowed_cidr" {
+  description = "dev DB SSH·3306·6379 허용 CIDR(예: 1.2.3.4/32). 비우면 dev DB 미생성."
+  type        = string
+  default     = ""
+}
+
 variable "domain_name" {
   description = "서비스 루트 도메인. Route53 호스팅영역 + ACM 인증서 기준. (dns 모듈)"
   type        = string
