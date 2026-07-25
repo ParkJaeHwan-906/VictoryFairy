@@ -182,7 +182,8 @@ resource "aws_instance" "this" {
   subnet_id                   = var.subnet_id
   vpc_security_group_ids      = [aws_security_group.this.id]
   iam_instance_profile        = aws_iam_instance_profile.this.name
-  associate_public_ip_address = true # dev: 퍼블릭 서브넷 배치 + 공인 IP 부여
+  key_name                    = var.ssh_key_name # 퍼블릭 SSH 용 키페어(.pem 개인키로 접속)
+  associate_public_ip_address = true             # dev: 퍼블릭 서브넷 배치 + 공인 IP 부여
 
   user_data = templatefile("${path.module}/templates/user_data.sh.tftpl", {
     data_volume_device_name                = var.data_volume_device_name
