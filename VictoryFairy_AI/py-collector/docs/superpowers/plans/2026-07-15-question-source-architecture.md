@@ -17,7 +17,7 @@
 - S3 경로: `question-source/{docType}/{yyyy-MM-dd}/{safe(docId)}.json`. 날짜는 export 실행일.
 - 새 소스 추가 = 모듈 파일 1개 + `@register` — run.py 수정 없어야 함(성공 기준 1).
 - 모든 커밋 메시지 끝: `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`
-- 작업 디렉토리: `VitoryFairy_BE/py-collector` (모든 경로는 여기 기준). 테스트 실행: `python3 -m pytest`.
+- 작업 디렉토리: `VictoryFairy_AI/py-collector` (모든 경로는 여기 기준). 테스트 실행: `python3 -m pytest`.
 
 ## 파일 구조 (전체 조감)
 

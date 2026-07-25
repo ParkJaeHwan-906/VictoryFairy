@@ -27,7 +27,7 @@
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>/ABS/PATH/TO/REPO/VitoryFairy_BE/py-collector/deploy/local/catchup_fmkorea.sh</string>
+        <string>/ABS/PATH/TO/REPO/VictoryFairy_AI/py-collector/deploy/local/catchup_fmkorea.sh</string>
     </array>
 
     <key>EnvironmentVariables</key>
@@ -58,8 +58,8 @@
     <false/>
 
     <key>StandardOutPath</key>
-    <string>/ABS/PATH/TO/REPO/VitoryFairy_BE/py-collector/logs/launchd-catchup.out</string>
+    <string>/ABS/PATH/TO/REPO/VictoryFairy_AI/py-collector/logs/launchd-catchup.out</string>
     <key>StandardErrorPath</key>
-    <string>/ABS/PATH/TO/REPO/VitoryFairy_BE/py-collector/logs/launchd-catchup.err</string>
+    <string>/ABS/PATH/TO/REPO/VictoryFairy_AI/py-collector/logs/launchd-catchup.err</string>
 </dict>
 </plist>
