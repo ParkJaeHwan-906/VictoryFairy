@@ -37,6 +37,12 @@ variable "dev_db_allowed_cidrs" {
   default     = []
 }
 
+variable "dev_db_use_eip" {
+  description = "true 면 dev DB 에 Elastic IP(고정 퍼블릭 IP)를 할당·연결. 인스턴스 중지 중엔 미사용 EIP 요금 발생."
+  type        = bool
+  default     = false
+}
+
 variable "domain_name" {
   description = "서비스 루트 도메인. Route53 호스팅영역 + ACM 인증서 기준. (dns 모듈)"
   type        = string

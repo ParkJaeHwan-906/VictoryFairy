@@ -153,4 +153,6 @@ module "dev_db" {
   # 프로덕션 mysql-ec2 와 '동일한' 비밀번호 파라미터여야 --all-databases 복원 후에도
   # root 비번이 일관된다. mysql_ec2 모듈은 이 값을 default 로 사용한다(무명시).
   mysql_root_password_ssm_parameter_name = "/victoryfairy/mysql/root-password"
+
+  use_eip = var.dev_db_use_eip # true 면 stop/start 후에도 퍼블릭 IP 고정(EIP)
 }

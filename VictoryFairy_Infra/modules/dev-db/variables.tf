@@ -93,6 +93,12 @@ variable "restore_cron" {
   default     = "0 19 * * *"
 }
 
+variable "ssh_key_name" {
+  description = "SSH 접속용 EC2 키페어 이름. dev 는 퍼블릭 SSH 라 키페어 필수(.pem 개인키로 접속). 기본은 계정에 이미 있는 'VictoryFairy'(EKS 노드와 동일 pem)."
+  type        = string
+  default     = "VictoryFairy"
+}
+
 variable "root_volume_size_gb" {
   description = "EC2 루트 EBS(gp3) 크기(GB). OS·docker 이미지용(데이터는 별도 볼륨)."
   type        = number
@@ -112,6 +118,12 @@ variable "tags" {
   description = "리소스에 병합할 추가 태그."
   type        = map(string)
   default     = {}
+}
+
+variable "use_eip" {
+  description = "true 면 Elastic IP 를 할당·연결해 stop/start 후에도 퍼블릭 IP 를 고정한다. 실행 중엔 추가비용 없으나 인스턴스 중지 중엔 미사용 EIP 요금이 발생한다."
+  type        = bool
+  default     = false
 }
 
 variable "vpc_id" {

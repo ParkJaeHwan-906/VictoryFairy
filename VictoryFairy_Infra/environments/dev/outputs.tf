@@ -74,3 +74,18 @@ output "mysql_data_volume_id" {
   description = "MySQL 데이터 EBS 볼륨 ID (prevent_destroy — 스냅샷/복원 참조용)"
   value       = module.mysql_ec2.data_volume_id
 }
+
+output "dev_db_public_ip" {
+  description = "dev DB 퍼블릭 IP(EIP 사용 시 EIP). dev_db 미생성 시 null."
+  value       = length(module.dev_db) > 0 ? module.dev_db[0].public_ip : null
+}
+
+output "dev_db_elastic_ip" {
+  description = "dev DB 고정 Elastic IP(use_eip=true 일 때). 아니면 null."
+  value       = length(module.dev_db) > 0 ? module.dev_db[0].elastic_ip : null
+}
+
+output "dev_db_instance_id" {
+  description = "dev DB EC2 인스턴스 ID. dev_db 미생성 시 null."
+  value       = length(module.dev_db) > 0 ? module.dev_db[0].instance_id : null
+}
