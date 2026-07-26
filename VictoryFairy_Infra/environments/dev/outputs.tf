@@ -74,3 +74,33 @@ output "mysql_data_volume_id" {
   description = "MySQL 데이터 EBS 볼륨 ID (prevent_destroy — 스냅샷/복원 참조용)"
   value       = module.mysql_ec2.data_volume_id
 }
+
+output "dev_db_public_ip" {
+  description = "dev DB 퍼블릭 IP(EIP 사용 시 EIP). dev_db 미생성 시 null."
+  value       = length(module.dev_db) > 0 ? module.dev_db[0].public_ip : null
+}
+
+output "dev_db_elastic_ip" {
+  description = "dev DB 고정 Elastic IP(use_eip=true 일 때). 아니면 null."
+  value       = length(module.dev_db) > 0 ? module.dev_db[0].elastic_ip : null
+}
+
+output "dev_db_instance_id" {
+  description = "dev DB EC2 인스턴스 ID. dev_db 미생성 시 null."
+  value       = length(module.dev_db) > 0 ? module.dev_db[0].instance_id : null
+}
+
+output "refine_bedrock_queue_url" {
+  description = "패턴 통과분이 들어가는 SQS 큐 URL (패턴 Lambda 가 SendMessage)"
+  value       = module.refine_pipeline.bedrock_queue_url
+}
+
+output "refine_bedrock_dlq_url" {
+  description = "3회 실패한 정제 메시지가 쌓이는 DLQ URL — 쌓이면 사람이 봐야 한다"
+  value       = module.refine_pipeline.bedrock_dlq_url
+}
+
+output "refine_budget_table_name" {
+  description = "일별 Bedrock 소비액 카운터 DynamoDB 테이블 이름"
+  value       = module.refine_pipeline.budget_table_name
+}

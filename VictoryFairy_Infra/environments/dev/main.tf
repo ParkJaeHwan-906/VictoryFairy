@@ -64,8 +64,29 @@ module "eks" {
 module "ecr" {
   source = "../../modules/ecr"
 
-  name_prefix      = "victoryfairy"
-  repository_names = ["user", "quiz"] # BE Gradle 모듈과 1:1 (Dockerfile ARG MODULE)
+  name_prefix = "victoryfairy"
+  # user/quiz 는 BE Gradle 모듈과 1:1 (Dockerfile ARG MODULE).
+  # pipeline 은 정제 러너 이미지 — 패턴·Bedrock Lambda 가 같은 이미지를 공유한다(ARCHITECTURE §4).
+  repository_names = ["user", "quiz", "pipeline"]
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 정제 파이프라인 (서버리스) — ARCHITECTURE §4
+# ─────────────────────────────────────────────────────────────────────────────
+# 크롤(Lambda kbo-collector, Terraform 관리 밖) → S3 community/ → [S3 이벤트]
+#   → pattern Lambda → SQS → [batch_size] → bedrock Lambda → S3 validation/bedrock/
+#
+# ⚠ apply 선행 조건: victoryfairy-pipeline 리포지토리에 var.refine_image_tag 태그가
+#   push 돼 있어야 한다. 이미지가 없으면 Lambda 생성에서 실패한다(plan 은 통과).
+#   이미지는 VictoryFairy_AI 의 pipeline/Dockerfile 로 빌드한다.
+module "refine_pipeline" {
+  source = "../../modules/refine-pipeline"
+
+  name_prefix       = local.cluster_name # victoryfairy-dev
+  crawl_bucket_name = var.crawl_bucket_name
+
+  pipeline_repository_url = module.ecr.repository_urls["pipeline"]
+  image_tag               = var.refine_image_tag
 }
 
 # AWS Load Balancer Controller 용 IRSA. 컨트롤러 파드는 Helm 설치(runbook)하고,
@@ -153,4 +174,6 @@ module "dev_db" {
   # 프로덕션 mysql-ec2 와 '동일한' 비밀번호 파라미터여야 --all-databases 복원 후에도
   # root 비번이 일관된다. mysql_ec2 모듈은 이 값을 default 로 사용한다(무명시).
   mysql_root_password_ssm_parameter_name = "/victoryfairy/mysql/root-password"
+
+  use_eip = var.dev_db_use_eip # true 면 stop/start 후에도 퍼블릭 IP 고정(EIP)
 }

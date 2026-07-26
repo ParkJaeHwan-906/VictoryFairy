@@ -182,7 +182,8 @@ resource "aws_instance" "this" {
   subnet_id                   = var.subnet_id
   vpc_security_group_ids      = [aws_security_group.this.id]
   iam_instance_profile        = aws_iam_instance_profile.this.name
-  associate_public_ip_address = true # dev: 퍼블릭 서브넷 배치 + 공인 IP 부여
+  key_name                    = var.ssh_key_name # 퍼블릭 SSH 용 키페어(.pem 개인키로 접속)
+  associate_public_ip_address = true             # dev: 퍼블릭 서브넷 배치 + 공인 IP 부여
 
   user_data = templatefile("${path.module}/templates/user_data.sh.tftpl", {
     data_volume_device_name                = var.data_volume_device_name
@@ -218,6 +219,21 @@ resource "aws_instance" "this" {
     # AMI most_recent 부동으로 인한 재생성 방지. 의도적 OS 교체는 이 줄을 임시 제거.
     ignore_changes = [ami]
   }
+}
+
+# ---------------------------------------------------------------------------
+# (옵션) Elastic IP — use_eip=true 일 때만. stop/start 후에도 퍼블릭 IP 고정.
+#   실행 중 인스턴스에 연결돼 있으면 추가 비용 없음(퍼블릭 IPv4 요금은 auto IP 와 동일).
+#   ⚠ 인스턴스 중지(stop) 중엔 미사용 EIP 요금이 발생한다.
+# ---------------------------------------------------------------------------
+resource "aws_eip" "this" {
+  count    = var.use_eip ? 1 : 0
+  domain   = "vpc"
+  instance = aws_instance.this.id
+
+  tags = merge(var.tags, {
+    Name = "${local.name}-eip"
+  })
 }
 
 # ---------------------------------------------------------------------------
