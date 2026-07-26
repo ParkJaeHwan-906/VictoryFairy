@@ -1,0 +1,11 @@
+{
+  "result": {
+    "games": [
+      {"gameId": "20260710LGOB02026", "categoryId": "kbo", "statusCode": "RESULT", "cancel": false, "homeTeamCode": "OB", "awayTeamCode": "LG", "homeTeamName": "두산", "awayTeamName": "LG"},
+      {"gameId": "20260710HTSK02026", "categoryId": "kbo", "statusCode": "RESULT", "cancel": false, "homeTeamCode": "SK", "awayTeamCode": "HT", "homeTeamName": "SSG", "awayTeamName": "KIA"},
+      {"gameId": "20260710KTLT02026", "categoryId": "kbo", "statusCode": "BEFORE", "cancel": true, "homeTeamCode": "LT", "awayTeamCode": "KT", "homeTeamName": "롯데", "awayTeamName": "KT"},
+      {"gameId": "20260710XXYY02026", "categoryId": "kbaseball-etc", "statusCode": "RESULT", "cancel": false, "homeTeamName": "2군A", "awayTeamName": "2군B"},
+      {"categoryId": "kbo", "statusCode": "RESULT", "cancel": false, "homeTeamCode": "NC", "awayTeamCode": "WO", "homeTeamName": "결측", "awayTeamName": "게임아이디없음"}
+    ]
+  }
+}

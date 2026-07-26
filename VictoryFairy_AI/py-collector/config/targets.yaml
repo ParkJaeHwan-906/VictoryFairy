@@ -1,0 +1,23 @@
+# Community crawl targets for the LAMBDA schedule: DCInside only.
+# `source` UPPERCASE; `team` only for DCInside galleries.
+#
+# FMKorea is NOT here: it returns HTTP 430 to AWS datacenter IPs (Lambda), so it
+# runs from a residential IP via the local launchd job instead — see
+# config/targets.fmkorea.yaml and deploy/local/.
+#
+# We crawl each gallery's FULL board (date-descending) and keep posts over the
+# recommend/view threshold (config: community_min_recommend / view_factor). The
+# board is deep, so COLLECTOR_COMMUNITY_MAX_PAGES bounds each run to the most
+# recent pages; the ~10-min re-scan catches a post while it's still recent (once
+# it crosses the recommend bar and lands, it's fine that it later ages past the cap).
+targets:
+  - { source: DCINSIDE, url: "https://gall.dcinside.com/board/lists/?id=tigers_new2", team: KIA }
+  - { source: DCINSIDE, url: "https://gall.dcinside.com/board/lists/?id=samsunglions_new", team: SAMSUNG }
+  - { source: DCINSIDE, url: "https://gall.dcinside.com/board/lists/?id=lgtwins_new", team: LG }
+  - { source: DCINSIDE, url: "https://gall.dcinside.com/board/lists/?id=doosanbears_new1", team: DOOSAN }
+  - { source: DCINSIDE, url: "https://gall.dcinside.com/board/lists/?id=ktwiz", team: KT }
+  - { source: DCINSIDE, url: "https://gall.dcinside.com/board/lists/?id=skwyverns_new1", team: SSG }
+  - { source: DCINSIDE, url: "https://gall.dcinside.com/board/lists/?id=giants_new3", team: LOTTE }
+  - { source: DCINSIDE, url: "https://gall.dcinside.com/board/lists/?id=hanwhaeagles_new", team: HANWHA }
+  - { source: DCINSIDE, url: "https://gall.dcinside.com/board/lists/?id=ncdinos", team: NC }
+  - { source: DCINSIDE, url: "https://gall.dcinside.com/board/lists/?id=sh_new", team: KIWOOM }

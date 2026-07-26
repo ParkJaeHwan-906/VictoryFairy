@@ -1,0 +1,60 @@
+{
+  "Comment": "DEPLOYER permissions to run `terraform apply` for the Lambda stack (ECR, Lambda, EventBridge, exec role). Replace 111122223333 with your account id. Managed-policy shortcut: AmazonEC2ContainerRegistryFullAccess + AWSLambda_FullAccess + AmazonEventBridgeFullAccess + IAMFullAccess.",
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "Ecr",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:CreateRepository", "ecr:DeleteRepository", "ecr:DescribeRepositories",
+        "ecr:TagResource", "ecr:PutImageScanningConfiguration",
+        "ecr:GetAuthorizationToken", "ecr:BatchCheckLayerAvailability",
+        "ecr:InitiateLayerUpload", "ecr:UploadLayerPart", "ecr:CompleteLayerUpload",
+        "ecr:PutImage", "ecr:BatchGetImage", "ecr:DescribeImages",
+        "ecr:GetDownloadUrlForLayer", "ecr:ListImages", "ecr:BatchDeleteImage"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "Lambda",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:CreateFunction", "lambda:DeleteFunction", "lambda:GetFunction",
+        "lambda:UpdateFunctionCode", "lambda:UpdateFunctionConfiguration",
+        "lambda:AddPermission", "lambda:RemovePermission", "lambda:GetPolicy",
+        "lambda:TagResource", "lambda:ListVersionsByFunction",
+        "lambda:PutFunctionEventInvokeConfig", "lambda:GetFunctionEventInvokeConfig",
+        "lambda:DeleteFunctionEventInvokeConfig", "lambda:InvokeFunction"
+      ],
+      "Resource": "arn:aws:lambda:*:111122223333:function:kbo-collector"
+    },
+    {
+      "Sid": "EventBridge",
+      "Effect": "Allow",
+      "Action": [
+        "events:PutRule", "events:DeleteRule", "events:DescribeRule",
+        "events:PutTargets", "events:RemoveTargets", "events:ListTargetsByRule",
+        "events:TagResource"
+      ],
+      "Resource": "arn:aws:events:*:111122223333:rule/kbo-collector-*"
+    },
+    {
+      "Sid": "ExecRole",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole", "iam:DeleteRole", "iam:GetRole", "iam:TagRole",
+        "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:GetRolePolicy",
+        "iam:AttachRolePolicy", "iam:DetachRolePolicy", "iam:ListRolePolicies",
+        "iam:ListAttachedRolePolicies"
+      ],
+      "Resource": "arn:aws:iam::111122223333:role/kbo-collector-lambda"
+    },
+    {
+      "Sid": "PassExecRoleToLambda",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::111122223333:role/kbo-collector-lambda",
+      "Condition": { "StringEquals": { "iam:PassedToService": "lambda.amazonaws.com" } }
+    }
+  ]
+}
