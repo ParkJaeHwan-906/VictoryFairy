@@ -48,3 +48,15 @@ variable "domain_name" {
   type        = string
   default     = "victoryfairy.com"
 }
+
+variable "crawl_bucket_name" {
+  description = "크롤 원본과 정제 산출물이 함께 있는 S3 버킷. ⚠ Terraform 관리 밖이며 refine-pipeline 은 알림 설정만 붙인다"
+  type        = string
+  default     = "victoryfairy-crawl-dev"
+}
+
+variable "refine_image_tag" {
+  description = "정제 러너 Lambda 컨테이너 이미지 태그(커밋 SHA 등 불변 태그). ⚠ ECR 에 push 되기 전에는 apply 가 실패한다"
+  type        = string
+  default     = "bootstrap"
+}

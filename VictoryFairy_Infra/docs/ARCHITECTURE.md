@@ -144,6 +144,11 @@ kbo-collector (Lambda)  ──▶ S3 community/{source}/{date}/{postId}.json
       Step Functions + Map / EKS Job / 로컬 실행 중 택일. **정제 본류와 분리해 판단할 것.**
 - [ ] **`kbo-collector` 를 Terraform 으로 흡수할 것인가**: 지금은 크롤(콘솔 관리)과 정제(Terraform)가
       한 파이프라인에 걸쳐 있다. 흡수하면 일관되지만 기존 배포 절차를 바꿔야 한다.
+      ⚠️ **근거가 하나 더 있다** — `kbo-collector` 리포지토리는 `modules/ecr` 를 타지 않아
+      `IMMUTABLE` 태그·`scan_on_push` 가 걸려 있지 않고, 실제로 **`latest` 태그 하나뿐**이다.
+      함수는 다이제스트(`@sha256:…`)로 고정돼 있어 당장 위험하진 않지만, **지금 도는 이미지가
+      어느 커밋인지 역추적할 수 없다.** 새로 만드는 `victoryfairy-pipeline` 은 모듈을 타므로
+      같은 규약이 자동 적용된다 — 한 파이프라인 안에서 규약이 갈린다.
 - [ ] **크롤 주기를 유지할 것인가**: 현재 `rate(10 minutes)` 상시 수집이다. 이벤트 구동이라
       야간 일괄로 바꿀 이유가 사라졌지만, **정제 비용이 하루 종일 발생**하게 된다(총액은 같다).
       예산 상한을 일 단위로 보는 지금 설계와 어긋나는지 확인 필요.
