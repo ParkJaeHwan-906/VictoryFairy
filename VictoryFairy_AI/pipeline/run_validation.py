@@ -70,6 +70,14 @@ class PatternRunnerSettings(BaseSettings):
     수단인 Redis가 없어도 배치 자체는 멈추지 않는다(PIPE-2SB-73).
     """
 
+    # 처리 대상 날짜(PIPE-2SB-37). 비우면 실행 당일 KST 로 폴백한다(PIPE-2SB-38).
+    #
+    # ⚠️ 이 값이 없으면 배치가 자정을 넘길 때 대상 prefix 가 갈린다. Spot 회수로 러너가
+    # 00:30 에 재기동되면 today_kst() 가 다음 날로 넘어가 **전날 미처리분이 든 prefix 를
+    # 영영 보지 않는다** — 마커도 Redis 도 그 게시글을 되살리지 못한다(둘 다 날짜 prefix
+    # 안에서만 의미가 있다). 컨트롤러가 배치 시작일을 주입해 모든 단계가 같은 날짜를 본다.
+    BATCH_DATE: Optional[str] = None
+
     BATCH_REDIS_URL: Optional[str] = None
     PENDING_PATTERN_KEY: str = "pending:pattern"
     PENDING_BEDROCK_KEY: str = "pending:bedrock"
@@ -340,7 +348,8 @@ def main() -> None:
         _die("환경변수 S3_BUCKET 이 설정되지 않았습니다.")
 
     client = build_s3_client()
-    date = today_kst()
+    # PIPE-2SB-37/38 — 주입된 배치 시작일 우선, 없으면 실행 당일 KST 폴백.
+    date = (pattern_runner_settings.BATCH_DATE or "").strip() or today_kst()
     redis = PatternBatchRedis(pattern_runner_settings.BATCH_REDIS_URL)
 
     total_processed = 0

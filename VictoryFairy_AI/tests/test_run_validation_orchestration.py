@@ -61,6 +61,27 @@ def test_today_kst_format_and_timezone():
     assert value == expected
 
 
+def test_batch_date_overrides_today_kst_with_fallback():
+    """PIPE-2SB-37/38 — 주입된 배치 시작일이 today_kst() 를 이긴다.
+
+    이게 없으면 배치가 자정을 넘길 때 대상 prefix 가 갈린다. Spot 회수로 러너가 00:30 에
+    재기동되면 today_kst() 가 다음 날로 넘어가 **전날 미처리분이 든 prefix 를 영영 보지
+    않는다** — 마커도 Redis 도 되살리지 못한다(둘 다 날짜 prefix 안에서만 의미가 있다).
+
+    main() 은 S3 클라이언트를 만들어 오케스트레이션을 돌리므로 그대로 부를 수 없다.
+    main() 이 쓰는 것과 같은 결정식을 여기서 검증한다.
+    """
+    from pipeline.run_validation import PatternRunnerSettings
+
+    def resolve(settings):  # run_validation.main() 의 날짜 결정식과 동일해야 한다.
+        return (settings.BATCH_DATE or "").strip() or today_kst()
+
+    assert resolve(PatternRunnerSettings(BATCH_DATE="2026-07-09")) == "2026-07-09"
+    # 미주입·빈 문자열·공백은 모두 폴백(PIPE-2SB-38) — 로컬 수동 실행 편의.
+    assert resolve(PatternRunnerSettings(BATCH_DATE=None)) == today_kst()
+    assert resolve(PatternRunnerSettings(BATCH_DATE="   ")) == today_kst()
+
+
 def test_default_region_is_ap_northeast_2():
     # PIPE-S3IO-5
     assert pipeline_settings.AWS_REGION == "ap-northeast-2"
