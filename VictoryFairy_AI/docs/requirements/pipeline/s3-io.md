@@ -1,5 +1,21 @@
 # 검열 러너 S3 입출력 (S3 I/O) 요구사항
-> 상태: 승인됨(구현·실버킷 검증 완료) · 모듈: pipeline · 최종 수정: 2026-07-22
+> 상태: **v1 승인됨(구현·실버킷 검증 완료) / v2 승인됨 (2026-07-25)** · 모듈: pipeline · 최종 수정: 2026-07-25
+
+> ## ⚠️ v2 개정 (2026-07-25) — 승인됨, **코드 미반영**
+> 사용자가 **패턴 단계의 산출물 규칙**을 바꿨다. 아래 두 가지이며, 해당 ID 는 `(개정됨)`/`(폐기됨)` 으로 표기했다.
+> 1. **본문(또는 title)이 폐기되면 게시글 전체를 fail 로 보낸다** — 댓글 통과 여부와 무관. → PIPE-S3IO-10·17·19
+> 2. **`body` 가 비면 `title` 을 본문 자리의 판정 단위로 쓴다** — 신규. → PIPE-S3IO-32~35
+>
+> ### ⚠️ 승인했다고 코드가 바뀐 것이 아니다 — **현재 동작 = v1 코드, 계약 = v2**
+> `pipeline/run_validation.py` 의 `process_post` 는 **폐기된 v1 규칙을 그대로 구현하고 있다**
+> (특히 `success_obj["body"] = post.get("body") if body_ok else ""`). v2 승인으로 이 코드 수정은
+> **확정된 후속 작업**이 됐다. 코드가 바뀌기 전까지 실행 결과는 v2 계약과 다르며, 이 문서를 근거로
+> 테스트를 쓰면 **현재 코드에서는 실패하는 것이 정상**이다.
+>
+> 필요한 코드 변경: (a) 본문(또는 title) 폐기 시 success 미생성, (b) 빈 `body` 일 때 `title` 판정,
+> (c) failed `unit` 에 `"title"` 기록.
+>
+> 그 외 v1 항목(키 규약·멱등 마커·에러 동작·테스트)은 전부 그대로 유효하다.
 
 ## 배경 / 목적
 크롤러가 커뮤니티 게시글을 S3에 **게시글별 개별 `.json` 객체**로 적재한다. 검열 러너(`run_validation`)를 로컬 txt 기반에서 **S3 읽기 → 검열 → S3 쓰기**로 바꿔, 크롤러-검열-후속단계를 클라우드에서 이어붙이기 위한 계약이다. 이번 이터레이션은 **패턴(룰/정규식) 검열만** 클라우드로 옮기며, 검열 판정 로직 자체는 기존 `validation_service`를 그대로 재사용한다(정확도는 이 기능의 범위가 아니다).
@@ -46,10 +62,10 @@
 | PIPE-S3IO-7 | 이벤트 | WHEN 각 게시글 객체를 읽으면, THE 시스템 SHALL JSON으로 파싱해 `body`와 `topComments[].body`를 각각 **독립된 검열 단위**로 삼는다 | 본문 1 + 댓글 3 → 검열 4회, 서로 결과 영향 없음 |
 | PIPE-S3IO-8 | 이벤트 | WHEN 각 검열 단위를 검열하면, THE 시스템 SHALL 그 텍스트를 `validation_service`에 **분할·변형 없이** 전달한다 | body 1개 → `validation()` 호출 1회, 러너 내 판정 재구현 없음 |
 | PIPE-S3IO-9 | 이벤트 | WHEN 게시글 본문과 모든 댓글이 통과하면, THE 시스템 SHALL 원본과 동일한 게시글 객체를 success에 기록한다 | 전건 통과 → success 객체 == 입력 객체(필드 무변형) |
-| PIPE-S3IO-10 | 이벤트 | WHEN 통과한 단위(본문 또는 댓글)가 하나라도 있으면, THE 시스템 SHALL **통과한 단위만 남긴 정화 객체**를 success에 기록한다 | 댓글 3 중 1 폐기 → success `topComments` 2개(통과분만), 나머지 원본 필드 보존 |
+| PIPE-S3IO-10 | 이벤트 **(v2 개정됨)** | WHEN **본문 판정 단위(`body`, 비어 있으면 `title`)가 통과했으면**, THE 시스템 SHALL **통과한 단위만 남긴 정화 객체**를 success에 기록한다 | 댓글 3 중 1 폐기 → success `topComments` 2개(통과분만), 나머지 원본 필드 보존. **v1 의 "통과한 단위가 하나라도 있으면"에서 조건이 좁아졌다** — 본문이 폐기된 게시글은 이제 success 를 만들지 않는다(PIPE-S3IO-19). success 객체 형태는 v1 그대로 = **본문 + 통과 댓글로 이루어진 하나의 원문**(사용자 확인) |
 | PIPE-S3IO-11 | 유비쿼터스 | THE 시스템 SHALL 출력 객체 키를 `validation/pattern/{success\|failed}/{source}/{date}/{postExternalId}.json` 규칙으로 구성한다 | success → `validation/pattern/success/dcinside/2026-07-22/11229559.json` |
 | PIPE-S3IO-12 | 유비쿼터스 | THE 시스템 SHALL 출력 경로에 검열 방식 세그먼트(`pattern`)를 두어 향후 `validation/bedrock/...` 확장이 경로 규칙만으로 가능하게 한다 | 경로 상수/템플릿이 방식(`pattern`)을 변수로 가짐 |
-| PIPE-S3IO-13 | 유비쿼터스 | THE 시스템 SHALL failed 레코드에 **어느 검열 단위가 폐기됐는지 식별 정보**(본문 여부 / 댓글 index·author), **걸린 원본 텍스트(`text`)**, 사유(`ValidationResponse.message`)를 포함한다 | failed 항목이 `{unit:"body"|"comment", commentIndex, author, text, message}` 형태로 출처 식별 + 실제 걸린 내용 확인 가능. `text`는 판정에 넘긴 원본 본문/댓글 텍스트 그대로 |
+| PIPE-S3IO-13 | 유비쿼터스 **(v2 개정됨)** | THE 시스템 SHALL failed 레코드에 **어느 검열 단위가 폐기됐는지 식별 정보**, **걸린 원본 텍스트(`text`)**, 사유(`ValidationResponse.message`)를 포함한다 | failed 항목이 `{unit:"body"\|"title"\|"comment", commentIndex, author, text, message}` 형태. **v2 에서 `unit` 에 `"title"` 이 추가**됐다(PIPE-S3IO-34) — 기존 값·필드 구조는 그대로이므로 소비자는 새 값만 인지하면 된다. `text`는 판정에 넘긴 원본 텍스트 그대로 |
 | PIPE-S3IO-14 | 유비쿼터스 | THE 시스템 SHALL AWS 자격증명을 boto3 **기본 자격증명 체인(환경변수)**에서 획득한다 | `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`AWS_SESSION_TOKEN` 사용, AWS profile 미사용 |
 | PIPE-S3IO-15 | 유비쿼터스 | THE 시스템 SHALL 자격증명·버킷명을 코드·문서에 하드코딩하지 않는다 | `.env.example`엔 키 이름/플레이스홀더만, 실제 값 없음 |
 | PIPE-S3IO-16 | 유비쿼터스 | THE 시스템 SHALL `boto3`를 `pipeline/requirements.txt`와 pipeline Dockerfile 의존성에 포함한다 | 두 곳에 `boto3` 명시 |
@@ -58,12 +74,36 @@
 
 | ID | 유형 | 요구사항 | 인수 기준 |
 |---|---|---|---|
-| PIPE-S3IO-17 | 예외 | IF 게시글 **본문(`body`) 자체가 폐기**되면, THEN THE 시스템 SHALL success 정화 객체의 `body`를 빈 문자열(`""`)로 두고 통과 댓글만 `topComments`에 유지하며, **본문 폐기 사유를 failed**에 기록한다 | 본문 폐기 + 댓글 2 통과 → success `{body:"", topComments:[통과 2], ...원본 필드 보존}`, failed에 `unit:"body"` 사유 |
-| PIPE-S3IO-18 | 복합 | WHILE 본문은 통과했으나, WHEN 통과 댓글이 0개가 되면, THE 시스템 SHALL 본문만 있고 `topComments`가 빈 배열인 success 객체를 낸다 | 본문 통과+댓글 전건 폐기 → success `topComments:[]`, 폐기 댓글 전부 failed |
-| PIPE-S3IO-19 | 예외 | IF **통과한 단위가 하나도 없으면**(본문 폐기 + 통과 댓글 0), THEN THE 시스템 SHALL success 객체를 생성하지 않고 failed만 기록한다 | 전건 폐기 → success 미생성, failed에 본문·댓글 사유 전부 |
+| PIPE-S3IO-17 | **(v2 폐기됨)** | ~~본문이 폐기되면 success 정화 객체의 `body`를 빈 문자열로 두고 통과 댓글만 유지~~ — **사용자 결정으로 폐기.** 본문이 걸린 게시글은 통째로 fail 이므로 **`body:""` 인 success 객체는 더 이상 생기지 않는다** | 번호 재사용 금지. 대체: PIPE-S3IO-19. ⚠️ **현재 코드(`run_validation.py` `process_post`)가 구현하고 있는 것이 바로 이 폐기된 규칙**이다 |
+| PIPE-S3IO-18 | 복합 | WHILE 본문은 통과했으나, WHEN 통과 댓글이 0개가 되면, THE 시스템 SHALL 본문만 있고 `topComments`가 빈 배열인 success 객체를 낸다 | 본문 통과+댓글 전건 폐기 → success `topComments:[]`, 폐기 댓글 전부 failed. **v2 에서도 그대로 유효** — 본문이 통과했으므로 전체 fail 조건(PIPE-S3IO-19)에 걸리지 않는다 |
+| PIPE-S3IO-19 | 예외 **(v2 개정됨)** | IF **본문 판정 단위(`body`, 비어 있으면 `title`)가 폐기되면**, THEN THE 시스템 SHALL 그 게시글의 success 객체를 생성하지 않고 failed만 기록한다 — **통과 댓글이 있어도 마찬가지다** | 본문 폐기 + 댓글 2 통과 → **success 미생성**, failed 에 본문 사유 기록. 사용자 원문: "패턴 기반으로 본문이 걸린다면 해당 데이터를 모두 fail 로 보내고". **v1 은 "통과 단위 0일 때만" 이었다** |
+| PIPE-S3IO-19b | 이벤트 **(v2 신규)** | WHEN 본문 판정 단위가 폐기되면, THE 시스템 SHALL **댓글 판정 결과를 failed 에 함께 기록할지 여부와 무관하게** 그 게시글을 fail 로 확정한다 | 본문 폐기가 확정되면 댓글을 더 판정하지 않아도 된다(판정 비용 절감). 다만 이미 판정한 댓글 사유를 failed 에 남기는 것은 허용한다 — **어느 쪽이든 게시글의 최종 상태는 fail 로 같다** |
 | PIPE-S3IO-20 | 이벤트 | WHEN 본문·댓글이 모두 통과하면, THE 시스템 SHALL failed 객체를 생성하지 않는다 | 전건 통과 → failed 키 미생성(success만) |
-| PIPE-S3IO-20b | 예외 | IF `body`가 빈 문자열/공백이면, THEN THE 시스템 SHALL 이를 **폐기로 간주**해 사유와 함께 failed에 기록한다 | 빈 본문 → failed `unit:"body"` 사유 `빈 본문`; 통과 댓글이 있으면 PIPE-S3IO-17 규칙대로 success `body:""` 별도 생성 |
+| PIPE-S3IO-20b | **(v2 개정됨)** | ~~`body`가 비면 즉시 폐기로 간주~~ → **`title` 을 본문 자리의 판정 단위로 삼는다**(PIPE-S3IO-32). 폐기 여부는 그 title 의 판정 결과로 정해진다 | v1 은 빈 본문을 무조건 폐기했다. v2 는 **제목에 실질 내용이 있는 글을 살린다** |
 | PIPE-S3IO-20c | 예외 | IF `topComments`가 빈 배열이면, THEN THE 시스템 SHALL 댓글 검열 단위 없이 본문 판정만으로 처리한다 | 댓글 없는 게시글 → 본문만 검열, 크래시 없음 |
+
+### v2 신규 — 빈 본문의 `title` 대체 판정
+
+> **실측 근거**: 표본 **6,075 게시글 중 빈 본문 831건(13.7%)**. 그 글들의 **제목에는 실질 내용이 있다**:
+> `title: "소신)그래도 오승환처럼 도박은 안했잖아" / body: "" / 댓글 3`,
+> `title: "단독기사))키움 아시아쿼터 교체중비중" / body: "" / 댓글 0`.
+> 그리고 **`title` 은 지금 어느 검열 단계에서도 판정 대상이 아니다** — `run_validation` 은 `body` 와
+> `topComments[].body` 만 본다. **제목에 담긴 인물 비하·욕설은 검열된 적이 없다.**
+
+| ID | 유형 | 요구사항 | 인수 기준 |
+|---|---|---|---|
+| PIPE-S3IO-32 | 예외 | IF `body`가 빈 문자열/공백이면, THEN THE 시스템 SHALL `title`을 **본문 자리의 판정 단위**로 삼아 검열한다 | `body:""` + `title:"소신)그래도 오승환처럼 도박은 안했잖아"` → title 을 `validation_service` 에 그대로 전달(분할·변형 없음, PIPE-S3IO-8 계승) |
+| PIPE-S3IO-33 | 예외 | IF `body`와 `title`이 **둘 다** 비어 있으면, THEN THE 시스템 SHALL 그 게시글을 fail 로 확정한다 | 판정할 본문 자리 텍스트가 없음 → success 미생성, failed 에 사유 `빈 본문·빈 제목` |
+| PIPE-S3IO-34 | 유비쿼터스 | THE 시스템 SHALL title 을 판정했을 때 failed 레코드의 `unit` 을 **`"title"`** 로 기록한다 | `{unit:"title", commentIndex:null, author:null, text:<제목 원문>, message:...}`. **기존 `unit` 필드 규약을 깨지 않고 값만 추가**한다(PIPE-S3IO-13) — 사후에 "본문이 아니라 제목이 걸렸다"를 구분할 수 있어야 한다 |
+| PIPE-S3IO-35 | 유비쿼터스 | THE 시스템 SHALL `body`가 비어 있지 **않은** 게시글의 `title` 은 판정하지 않는다 | 사용자가 "빈 본문일 때"로 한정했다. 본문이 있는 글의 제목은 **여전히 검열되지 않는다**(아래 한계) |
+
+### 정책 변경 시 기존 산출물 처리 (v2 신규 — 일회성이 아니라 **원칙**)
+
+| ID | 유형 | 요구사항 | 인수 기준 |
+|---|---|---|---|
+| PIPE-S3IO-36 | 유비쿼터스 | THE 시스템 SHALL 검열 정책(판정 대상·라우팅 규칙)이 바뀌면 **그 시점 이전의 산출물을 폐기하고 새 정책으로 재적용**한다 | **사용자 확정 원칙**: "정책이 바뀌면 기존 구조를 폐기하고 새 구조를 적용한다." 구 산출물은 **구 규칙의 결과물**이라 새 규칙의 결과와 섞이면 하류·지표가 어긋난다. **v3·v4 가 와도 같은 절차다** — 이번 v2 에 한정된 처리가 아니다 |
+| PIPE-S3IO-37 | 유비쿼터스 | THE 시스템 SHALL 재적용 절차를 **`_manifest` 마커 삭제 → 러너 재실행** 으로 규정하고, 마커 삭제는 **러너가 아니라 운영자가 수행**한다 | 마커가 남아 있으면 멱등 skip(PIPE-S3IO-24 / PIPE-2SB-17)이 재처리를 막는다. **러너가 스스로 마커를 지우게 하면 멱등성이 무의미해지므로** 이는 러너의 책임이 아니라 **운영 절차**다. 삭제 범위(날짜·소스·단계)는 바뀐 정책이 미치는 범위와 같아야 한다 |
+| PIPE-S3IO-38 | 이벤트 | WHEN 정책 변경으로 패턴 단계를 재실행하면, THE 시스템 SHALL **Bedrock 단계의 마커도 함께 폐기 대상으로 본다** | 패턴 산출물이 바뀌면 그것을 입력으로 삼은 Bedrock 판정도 낡은 것이 된다. 패턴만 지우고 Bedrock 마커를 남기면 **새 패턴 결과가 옛 Bedrock 판정과 짝지어져** 어느 쪽 규칙의 산출물인지 알 수 없게 된다. 두 단계 마커는 키가 독립이므로(PIPE-2SB-19) 삭제도 각각 해야 한다 |
 
 ### 경계 / 에러 동작 (EARS unwanted behaviour)
 
@@ -104,6 +144,25 @@
 ## 알려진 한계 (이 기능 자체)
 - **통합 테스트가 비결정적**: 테스트가 dev 버킷 실입출력이므로(PIPE-S3IO-30/31) 자격증명·네트워크에 의존하고, **임시 STS 만료 시 실패**할 수 있다. 로컬 격리(moto/페이크)는 이번 결정에서 제외됨.
 
+### v2 개정에 따른 한계
+- **⚠️ 문서(v2 승인됨)와 코드(v1)가 일치하지 않는다.** `run_validation.py` 의 `process_post` 는 폐기된
+  PIPE-S3IO-17(본문 폐기 시 `body:""` success 생성)을 그대로 구현하고 있다. **코드 변경은 확정된 후속 작업**이다.
+- **정책 변경 시 재처리 비용은 시점에 비례해 커진다**(PIPE-S3IO-36). **지금은 무시할 수준**이다 — 실측상
+  `_manifest` 557건, 그중 v2 로 판정이 달라질 것은 "빈 본문" 23건뿐이고 패턴 단계는 LLM 비용이 0이다.
+  하지만 **정제가 본격화된 뒤에 정책을 바꾸면 이야기가 다르다**: 누적 5만 건 규모에서 규칙을 바꾸면
+  **Bedrock 재판정만 수십 달러**(패턴 통과율 60.5% 실측 → 약 3만 단위)이고, 정규 배치의 밤당 상한($30,
+  PIPE-2SB-60)을 넘겨 **여러 밤에 걸쳐 재처리**해야 한다. 정책 변경은 **비용 결정**이기도 하다.
+- **"이미지 글이면 폐기"는 계약으로 쓸 수 없다.** 크롤 데이터에 이미지 여부를 나타내는 필드가 없다
+  (필드는 `title`·`body`·`topComments`·`engagement`·`sourceUrl`·`team`·`postExternalId`·`crawledAt`·
+  `crawlerVersion`·`schemaVersion` 뿐). **이미지 글과 제목만 있는 글이 `body:""` 로 똑같이 보인다.**
+  구현 가능한 조건은 **"`body` 가 비어 있으면"** 하나뿐이다. (본문이 URL·이미지 링크만인 경우는 표본에서
+  8건, 0.13% 라 별도 규칙이 불필요하다.)
+- **제목은 상시 검열되지 않는다**(PIPE-S3IO-35). `body` 가 있는 글의 제목에 담긴 욕설·비하는 **v2 에서도
+  여전히 통과**한다. 빈 본문일 때만 title 이 판정 대상이 된다 — 사용자 한정에 따른 의도적 공백이다.
+- **본문 3자 이하(표본의 10.8%, `ㅋㅋ`·`ㅇ`·`어떰`)는 이번에 손대지 않는다**(사용자 확정). 판정 대상이
+  존재하므로 기존 규칙대로 흐른다. 짧다는 이유로 버리는 것은 `BRK-LLM-42`("짧다는 이유로 `offtopic` 판정하지
+  않는다")와도 어긋나므로, **길이 기준 폐기는 두 문서 모두에서 일관되게 두지 않는다.**
+
 ## 확정된 결정 (구 미해결 질문 — 전건 해소)
 1. **failed 사유 구조** = `{unit, commentIndex, author, text, message}` (unit ∈ {"body","comment"}). `text`는 걸린 원본 본문/댓글 텍스트 — postExternalId만으론 무엇이 필터링됐는지 알 수 없다는 사용자 피드백으로 추가. → PIPE-S3IO-13.
 2. **본문 폐기 시** = 통과 단위가 하나라도 있으면 success 정화 객체를 낸다(`body:""` + 통과 댓글만 유지, 원본 필드 보존). 통과 단위 0이면 success 미생성. → PIPE-S3IO-10/17/19. (초안 "본문 폐기 시 success 미생성"은 교체됨.)
@@ -112,6 +171,34 @@
 5. **테스트** = dev 버킷 실입출력 통합 테스트, 전용 테스트 네임스페이스에만 쓰고 종료 시 정리. → PIPE-S3IO-30/31.
 6. **버킷 env 키** = `S3_BUCKET`(입력·출력 동일 버킷). → PIPE-S3IO-1.
 
+## v2 확정된 결정
+1. **본문(또는 title) 폐기 = 게시글 전체 fail.** 댓글 통과 여부 무관. → PIPE-S3IO-10/17(폐기)/19/19b.
+2. **빈 본문이면 `title` 을 본문 자리 판정 단위로.** 둘 다 비면 fail. → PIPE-S3IO-20b(개정)/32/33.
+3. **`unit` 값에 `"title"` 추가.** 필드 구조는 불변. → PIPE-S3IO-34.
+4. **`body` 가 있는 글의 title 은 판정하지 않는다.** → PIPE-S3IO-35.
+5. **success 객체 형태는 불변** = 본문 + 통과 댓글로 이루어진 하나의 원문(PIPE-S3IO-10, v1 그대로).
+6. **정책이 바뀌면 기존 산출물을 폐기하고 새 정책으로 재적용한다**(사용자 확정, **일회성이 아니라 원칙**).
+   절차 = `_manifest` 마커 삭제 → 러너 재실행, 삭제는 **운영자 수행**(러너 자동 아님). 패턴을 재실행하면
+   **Bedrock 마커도 함께 폐기 대상**이다. → PIPE-S3IO-36/37/38.
+
+   **실측 근거 (버킷 `victoryfairy-crawl-dev`, 2026-07-25 기준)**
+   ```
+   validation/pattern/success/    337건   ← 그중 body:"" 인 것 0건
+   validation/pattern/failed/     220건
+   validation/pattern/_manifest/  557건   (크롤 원본 58,066건 — 정제는 테스트 수준만 진행됨)
+
+   failed 220건 폐기 사유 상위:  36 욕설 '새끼' / 26 욕설 '존나' / 23 빈 본문 / 23 욕설 '씨발'
+   ```
+   **v2 가 없애려는 `body:""` success 는 실제 0건이라 소급 충돌이 없다.** v1 도 이미 빈 본문을 폐기하므로
+   (사유 "빈 본문" 23건) v2 로 판정이 달라지는 것은 **그 23건 중 제목이 통과하는 것들뿐**이다.
+   즉 **이번 재적용의 실질 규모는 23건 이하**이고, "하류가 어긋난다"는 위험도 현 규모에선 발생하지 않는다.
+   비용이 문제가 되는 것은 정제가 본격화된 뒤의 정책 변경이다(위 한계 참조).
+
 ## 미해결 질문
-- 없음.
-</content>
+- 없음. (v2 개정분 포함 전건 해소 — 위 "v2 확정된 결정" 6번으로 마지막 항목이 해소됐다.)
+
+## 승인 후 후속 작업 (문서 밖 — 기재만)
+- **코드**: `pipeline/run_validation.py` 의 `process_post` 를 v2 로 수정 — (a) 본문/title 폐기 시 success 미생성,
+  (b) 빈 `body` 일 때 `title` 판정, (c) failed `unit` 에 `"title"`.
+- **운영**: 기존 `validation/pattern/_manifest/`(557건) + 해당 `validation/bedrock/_manifest/` 삭제 후 재실행(PIPE-S3IO-36~38).
+- **`context-keeper`**: 이 문서의 `PIPE-S3IO-4`(개정됨 — `BATCH_DATE`)·`PIPE-S3IO-28`(대체됨 — 2단계 흐름) 표기 반영.
