@@ -23,9 +23,10 @@ spring:
 
   jpa:
     hibernate:
-      # 초기 테이블 생성 완료 → none 으로 고정(운영 중 스키마 자동 변경 방지).
-      # 향후 스키마 변경은 별도 마이그레이션(예: Flyway/수동 DDL)으로 관리.
-      ddl-auto: none
+      # 개발 단계: 엔티티 기준으로 누락 테이블/컬럼을 자동 생성(additive)한다.
+      # ⚠ update 는 삭제/타입변경은 반영하지 않으며, 배포마다 스키마가 자동 변경된다.
+      #   스키마가 안정화되면 none 으로 되돌리고 마이그레이션(Flyway/수동 DDL)으로 전환할 것.
+      ddl-auto: update
     show-sql: false
     properties:
       hibernate:
