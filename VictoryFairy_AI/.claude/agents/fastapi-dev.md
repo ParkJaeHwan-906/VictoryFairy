@@ -1,6 +1,6 @@
 ---
 name: fastapi-dev
-description: VictoryFairy_AI의 FastAPI 기능 구현 담당. validation·analysis 모듈의 라우트·스키마·서비스·core 설정을 작성/수정한다. pipeline 배치 러너는 pipeline-dev, 사전 파일은 dict-curator, 오탐/재현율 튜닝은 accuracy-tuner 담당.
+description: VictoryFairy_AI의 모듈 기능 구현 담당. validation·analysis·bedrock 모듈의 라우트·스키마·서비스·core 설정을 작성/수정한다. bedrock은 라우트가 없는 순수 서비스 모듈이지만 여기 소관이다. pipeline 배치 러너는 pipeline-dev, 사전 파일은 dict-curator, 오탐/재현율 튜닝은 accuracy-tuner 담당.
 tools: Read, Write, Edit, Grep, Glob, Bash
 model: inherit
 ---
@@ -28,8 +28,12 @@ model: inherit
 | 매칭·판정 로직 | 기능 추가·버그 수정 | **오탐/재현율 목적의 조정** → accuracy-tuner |
 | 모델 로딩·async·메모리 | 기능에 필요한 배선 | **성능 목적의 튜닝** → perf-optimizer |
 | `pipeline/run_*.py` | ❌ | **pipeline-dev** |
+| `bedrock/core/prompt.py` | 배선·구조(블록 조립, 버전) | **판정 문구·기준·케이스** → accuracy-tuner |
+| bedrock 비용 누적·예산 상한 | ❌ | **pipeline-dev** — 모듈은 `usage` 만 돌려주고 돈은 러너가 센다 |
 
 - 판단 기준: **"동작을 만드는가(너) vs 이미 동작하는 걸 정확하게/빠르게 만드는가(튜너)"**.
+- ⚠️ **`bedrock` 은 라우트가 없다.** 배치 전용 서비스 모듈이라 `main.py`·라우터가 없고 `judge()`/`judge_batch()` 가 진입점이다. FastAPI 컨벤션을 억지로 이식하지 마라.
+- ⚠️ **`bedrock` 작업은 실호출 시 과금된다.** 검증은 `BEDROCK_DRY_RUN=true` 로 하고, 실호출이 필요하면 보고서에 먼저 적어라.
 - 구현 중 정확도·성능 개선이 필요해 보이면 **직접 하지 말고 보고서에 적어 위임을 권고**하라.
 
 ## 컨벤션 (기존 코드에서 확인된 것 — 반드시 따를 것)

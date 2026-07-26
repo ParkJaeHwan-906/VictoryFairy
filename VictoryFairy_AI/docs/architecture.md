@@ -2,30 +2,53 @@
 
 ## 개요
 
-VictoryFairy_AI는 한국어 텍스트를 **검열 → 형태소·개체명 추출 → 집계**하는 파이프라인이다.
-외부 저장소(S3 등) 없이 **로컬 `data/*.txt`·`*.json`을 스테이지 간 저장소**로 쓰는 배치 구조다.
+VictoryFairy_AI는 KBO 커뮤니티 텍스트를 **패턴 검열 → LLM 2차 검열**하는 배치 파이프라인이다.
+**S3를 스테이지 간 저장소**로 쓰고, 작업 상태만 `batch-redis`로 주고받는다.
 
-## 전체 데이터 흐름
+> ⚠️ **형태소·개체명 추출(analysis)은 코드가 남아 있으나 배선에서 빠져 있다.** 아래 "유산" 절 참고.
+> 이 문서에서 `data/*.txt` 기반으로 서술된 부분은 그 유산 경로에만 해당한다.
+
+## 전체 데이터 흐름 (현행)
 
 ```
-crawled_data.txt (원본 무작위 문장)
-   └─[validation] 검열(욕설 필터)──▶ processed_data.txt (통과)  +  discarded_data.txt (폐기+사유)
-        └─[analysis] Kiwi 형태소 + NER 개체명 + 사전 후처리
-             ├──▶ finished_data.txt   (사람이 읽는 표시용: 원본 : [이름]|[지명]|[기관]|[날짜]|[명사]|[동사])
-             └──▶ finished_data.jsonl (집계용 구조화: {문장_id, sent, names, ...})
-                  └─[aggregate] 인명 정규화·집계 ──▶ persons_aggregated.json
+크롤러 ──▶ S3 community/{source}/{date}/{postId}.json
+   └─[pipeline.run_validation] 패턴 검열(사전·정규식)
+        ├──▶ validation/pattern/success/...   (통과 본문 + 통과 댓글 재조립)
+        ├──▶ validation/pattern/failed/...    (폐기 사유)
+        └──▶ validation/pattern/_manifest/... (완결 마커 — 멱등 skip)
+             └─[pipeline.run_bedrock] LLM 2차 검열(문맥 욕설·광고/스팸·야구 무관)
+                  ├──▶ validation/bedrock/success/...
+                  ├──▶ validation/bedrock/failed/...
+                  └──▶ validation/bedrock/_manifest/...
 ```
+
+세 프로세스가 서로를 **직접 호출하지 않는다.** 연결 고리는 Redis 작업 집합의 크기뿐이다
+(`pending:pattern`·`pending:bedrock` 각 1000건 게이트). **S3가 진실의 원천이고 Redis는
+최적화 수단**이라, Spot 회수로 Redis가 통째로 사라져도 마커를 보고 이어서 처리한다.
 
 ## 구성 요소
 
 | 모듈 | 역할 | 진입점 |
 |---|---|---|
-| `validation/` | 검열(욕설·비속어 필터) FastAPI 앱 | `validation.main:app` |
-| `analysis/` | 형태소 + NER 추출 FastAPI 앱 | `analysis.main:app` |
-| `pipeline/` | 파일 기반 배치 러너 | `python -m pipeline.run_*` |
-| `data/` | 스테이지 간 파일 저장소 | (러너가 읽고 씀) |
-| `docs/` | 구조·전략·모듈 문서 | — |
-| `.claude/` | 하네스 설정(Hook·권한) | — |
+| `validation/` | 1차 검열(욕설·비속어 필터) FastAPI 앱 | `validation.main:app` |
+| `bedrock/` | 2차 검열(AWS Bedrock LLM). **라우트 없는 서비스 모듈** | `bedrock.services.judge` |
+| `analysis/` | 형태소 + NER 추출 FastAPI 앱 (**배선에서 빠짐**) | `analysis.main:app` |
+| `pipeline/` | S3 기반 배치 러너 | `python -m pipeline.run_*` |
+| `data/` | 유산 경로(분석·집계)의 파일 저장소 | (러너가 읽고 씀) |
+| `docs/` | 구조·전략·모듈·요구사항 문서 | — |
+| `.claude/` | 하네스 설정(Hook·에이전트·권한) | — |
+
+## 유산 — 분석·집계 경로 (현재 미배선)
+
+```
+processed_data.txt (공급자 없음 — 예전엔 run_validation 이 채웠다)
+   └─[analysis] Kiwi 형태소 + NER 개체명 + 사전 후처리
+        ├──▶ finished_data.txt   (표시용: 원본 : [이름]|[지명]|[기관]|[날짜]|[명사]|[동사])
+        └──▶ finished_data.jsonl (집계용: {문장_id, sent, names, ...})
+             └─[aggregate] 인명 정규화·집계 ──▶ persons_aggregated.json
+```
+
+코드·파일은 보존돼 있어 개별 실행은 가능하지만 **입력 공급이 끊겨 있다.** 재연결은 미도입.
 
 ## 앱 공통 레이어 구조 (validation·analysis 동일)
 

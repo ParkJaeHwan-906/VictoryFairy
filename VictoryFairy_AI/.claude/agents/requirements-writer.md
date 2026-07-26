@@ -22,7 +22,7 @@ model: inherit
 
 ```markdown
 # <기능명> 요구사항
-> 상태: 초안 · 모듈: <validation|analysis|pipeline> · 최종 수정: YYYY-MM-DD
+> 상태: 초안 · 모듈: <validation|bedrock|analysis|pipeline> · 최종 수정: YYYY-MM-DD
 
 ## 배경 / 목적
 왜 필요한가. **요구사항 문장만 봐서는 알 수 없는 것**만 1~3줄.
@@ -101,7 +101,7 @@ model: inherit
 - 기존 실측치가 모듈 문서에 있으면(예: "30문장 측정 기준 신규 오탐 미발생") **그걸 기준선으로 인용**하라.
 
 ## ID 규칙
-`<MODULE>-<FEATURE>-<n>` — 전부 대문자. 모듈 약어: **VAL**(validation) · **ANL**(analysis) · **PIPE**(pipeline). FEATURE는 2~4글자 약어. 예: `VAL-KBD-1`, `ANL-NER-3`, `PIPE-AGG-2`.
+`<MODULE>-<FEATURE>-<n>` — 전부 대문자. 모듈 약어: **VAL**(validation) · **BRK**(bedrock) · **ANL**(analysis) · **PIPE**(pipeline). FEATURE는 2~4글자 약어. 예: `VAL-KBD-1`, `ANL-NER-3`, `PIPE-AGG-2`.
 - **번호는 재사용 금지.** 요구사항을 지워도 뒤 번호를 당기지 마라 — 테스트·커밋·리뷰가 그 ID를 참조하고 있어서, 당기는 순간 남의 문서가 다른 요구사항을 가리킨다. 지운 자리는 비워 두거나 `(삭제됨)` 한 줄로 남긴다.
 
 ## 모호한 지점 — 이게 네 산출물의 절반이다

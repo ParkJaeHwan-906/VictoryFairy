@@ -63,7 +63,7 @@ model: inherit
 - 기능 추가 + 무관한 리팩터링
 - 프로덕션 코드 + 하네스/설정(`.claude/`) 변경
 - 코드 + 그 코드와 무관한 문서
-- 서로 다른 모듈(validation·analysis·pipeline)의 독립적 변경
+- 서로 다른 모듈(validation·bedrock·analysis·pipeline)의 독립적 변경
 
 **순서는 의존 방향을 따른다.** 각 커밋 시점에 트리가 앞뒤로 말이 되게 한다.
 - **pipeline은 각 모듈 서비스를 import해 쓴다.** 서비스 시그니처가 바뀌면 **서비스 → 러너** 순이어야 중간 커밋이 깨지지 않는다.
@@ -80,7 +80,7 @@ import·테스트를 직접 돌려 확인하는 것은 네 일이 아니다(`mod
 
 - type: `feat` · `fix` · `docs` · `chore` · `refactor` · `build` · `test`
 - scope: **`ai/` 접두를 붙인다** — 한 저장소에 BE가 함께 있어 구분이 필요하다.
-  - `ai/validation` · `ai/analysis` · `ai/pipeline` · `ai/harness` · `ai/claude` · 전역이면 `ai`
+  - `ai/validation` · `ai/bedrock` · `ai/analysis` · `ai/pipeline` · `ai/harness` · `ai/claude` · 전역이면 `ai`
   - 실제 히스토리 예: `feat(ai/validation): 키보드 뷰 추가 — 한/영 키 미전환 표기 탐지`, `feat(ai/harness): 역할별 멀티 에이전트 체제 (0개 → 14개)`, `docs(ai): 프로젝트 문서화 (구조·하네스·기능·배포 전략)`
 - 제목: 한국어, 명사형 종결(`추가` / `제거` / `신설` / `분리`). 50자 내외. 마침표 없음.
 - 본문: 한 줄 비우고 시작. 72자 근처에서 줄바꿈.

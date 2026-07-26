@@ -13,7 +13,7 @@
 ```
 세션 시작
   └─ [SessionStart Hook] 모듈 선택 + 에이전트 분배 규칙을 컨텍스트로 주입
-       └─ Claude 가 AskUserQuestion 으로 "어느 모듈?" 질문 (validation/analysis/pipeline)
+       └─ Claude 가 AskUserQuestion 으로 "어느 모듈?" 질문 (validation/bedrock/analysis/pipeline)
             └─ 선택된 모듈의 docs/modules/<module>.md 하나만 로드
                  └─ 메인이 작업 유형별로 서브에이전트에 위임
                       코드   (새 기능이면) requirements-writer ⇄ 사용자 협의 → 승인
@@ -169,7 +169,7 @@ EARS 패턴 6개(유비쿼터스 / 이벤트 `WHEN` / 상태 `WHILE` / 선택 `W
 
 ## 컨텍스트 격리 원칙 (기능 단위)
 
-1. **모듈 경계 우선** — 작업은 선택한 모듈(`validation`/`analysis`/`pipeline`) 안에서 완결한다.
+1. **모듈 경계 우선** — 작업은 선택한 모듈(`validation`/`bedrock`/`analysis`/`pipeline`) 안에서 완결한다.
 2. **기능 단위 분리** — 각 모듈 문서는 기능 단위(예: analysis의 형태소 / NER / 집계)로 명확히 나뉜다. 한 기능을 고칠 때 다른 기능 문서를 끌어오지 않는다.
 3. **교차 참조는 명시적으로만** — 모듈·기능 경계를 넘어야 할 때(예: analysis가 validation의 통과 문장을 입력받음)는 그 의존을 문서에 명시하고 최소로 참조한다.
 4. **공유 규약은 architecture.md** — 앱 공통 레이어 구조·데이터 흐름 같은 전역 규약만 상위 문서에 둔다.

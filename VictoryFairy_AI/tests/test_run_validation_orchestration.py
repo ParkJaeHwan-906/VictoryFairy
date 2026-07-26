@@ -61,6 +61,27 @@ def test_today_kst_format_and_timezone():
     assert value == expected
 
 
+def test_batch_date_overrides_today_kst_with_fallback():
+    """PIPE-2SB-37/38 — 주입된 배치 시작일이 today_kst() 를 이긴다.
+
+    이게 없으면 배치가 자정을 넘길 때 대상 prefix 가 갈린다. Spot 회수로 러너가 00:30 에
+    재기동되면 today_kst() 가 다음 날로 넘어가 **전날 미처리분이 든 prefix 를 영영 보지
+    않는다** — 마커도 Redis 도 되살리지 못한다(둘 다 날짜 prefix 안에서만 의미가 있다).
+
+    main() 은 S3 클라이언트를 만들어 오케스트레이션을 돌리므로 그대로 부를 수 없다.
+    main() 이 쓰는 것과 같은 결정식을 여기서 검증한다.
+    """
+    from pipeline.run_validation import PatternRunnerSettings
+
+    def resolve(settings):  # run_validation.main() 의 날짜 결정식과 동일해야 한다.
+        return (settings.BATCH_DATE or "").strip() or today_kst()
+
+    assert resolve(PatternRunnerSettings(BATCH_DATE="2026-07-09")) == "2026-07-09"
+    # 미주입·빈 문자열·공백은 모두 폴백(PIPE-2SB-38) — 로컬 수동 실행 편의.
+    assert resolve(PatternRunnerSettings(BATCH_DATE=None)) == today_kst()
+    assert resolve(PatternRunnerSettings(BATCH_DATE="   ")) == today_kst()
+
+
 def test_default_region_is_ap_northeast_2():
     # PIPE-S3IO-5
     assert pipeline_settings.AWS_REGION == "ap-northeast-2"
@@ -72,11 +93,54 @@ def test_sources_include_both_communities():
 
 
 def test_boto3_declared_in_pipeline_requirements_and_dockerfile():
-    # PIPE-S3IO-16
+    """PIPE-S3IO-16 — boto3 가 배치 이미지에 실제로 설치되는가.
+
+    ⚠️ 예전에는 Dockerfile 에 `"boto3" in dockerfile` 문자열이 있는지만 봤는데, 그건
+    **주석에 boto3 를 언급했다는 사실**에 의존하는 검사였다(실제로 주석을 손대자
+    깨졌다). 설치 경로는 requirements.txt 경유이므로 **그 사슬을 직접 확인**한다.
+    """
     requirements = (ROOT / "pipeline" / "requirements.txt").read_text(encoding="utf-8")
     dockerfile = (ROOT / "pipeline" / "Dockerfile").read_text(encoding="utf-8")
     assert re.search(r"^boto3==", requirements, re.MULTILINE), "requirements.txt 에 boto3 없음"
-    assert "boto3" in dockerfile, "Dockerfile 에 boto3 언급 없음(requirements.txt 경유 설치 확인 필요)"
+    assert re.search(r"pip install[^\n]*-r\s+pipeline/requirements\.txt", dockerfile), (
+        "Dockerfile 이 pipeline/requirements.txt 를 설치하지 않는다 — boto3 가 이미지에 안 들어간다"
+    )
+
+
+def test_batch_image_excludes_analysis_stack():
+    """PIPE-S3IO-40 — 배치 이미지에 analysis 계열이 들어가면 안 된다.
+
+    배치 흐름은 run_validation → run_bedrock 2단계뿐인데(PIPE-S3IO-28) 이미지가
+    torch 와 KoELECTRA NER 모델까지 담아 **1.63GB** 였다. 전부 쓰지 않는 무게이고,
+    Spot 노드는 뜰 때마다 이미지를 pull 하므로 기동 시간에 그대로 붙는다.
+    분리 후 274MB (83% 감소).
+
+    analysis 가 배선에 복귀하면 이 테스트와 PIPE-S3IO-40 을 함께 재검토한다.
+    """
+    requirements = (ROOT / "pipeline" / "requirements.txt").read_text(encoding="utf-8")
+    dockerfile = (ROOT / "pipeline" / "Dockerfile").read_text(encoding="utf-8")
+
+    for package in ("kiwipiepy", "transformers", "torch"):
+        assert not re.search(rf"^{package}==", requirements, re.MULTILINE), (
+            f"pipeline/requirements.txt 에 {package} 가 있다 — 배치가 쓰지 않는 의존성이다(PIPE-S3IO-40)"
+        )
+
+    # COPY 대상에 analysis 가 없어야 한다. 주석의 'analysis' 언급은 무해하므로 COPY 행만 본다.
+    copied = set(re.findall(r"^COPY\s+(\w+)/\s", dockerfile, re.MULTILINE))
+    assert "analysis" not in copied, "Dockerfile 이 analysis/ 를 COPY 한다(PIPE-S3IO-40)"
+    assert {"validation", "bedrock", "pipeline"} <= copied, (
+        f"러너가 import 하는 모듈이 빠졌다 — COPY 된 것: {sorted(copied)}"
+    )
+
+    # NER 모델 프리캐시·torch 설치는 analysis 전용이다.
+    # ⚠️ 주석이 아니라 **실행되는 명령**만 본다 — 위 boto3 테스트가 주석 문자열에
+    # 의존하다 깨졌던 것과 같은 실수를 반복하지 않기 위해서다(이 주석 자체에도
+    # KoELECTRA·torch 라는 낱말이 들어 있다).
+    run_lines = "\n".join(
+        line for line in dockerfile.splitlines() if line.strip().startswith(("RUN", "COPY", "ENV"))
+    )
+    assert "KoELECTRA" not in run_lines, "배치 이미지가 NER 모델을 캐시한다(PIPE-S3IO-40)"
+    assert "torch" not in run_lines, "배치 이미지가 torch 를 설치한다(PIPE-S3IO-40)"
 
 
 def test_finalize_post_writes_marker_last_on_success():
