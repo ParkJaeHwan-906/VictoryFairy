@@ -13,9 +13,8 @@ pytest 없이 stdlib 로만 실행:  `.venv/bin/python3 tests/test_run_bedrock.p
     판정 결과를 테스트가 직접 지정한다(bedrock 서비스 내부 로직은 tests/test_bedrock.py
     소관 — 여기서는 러너의 라우팅/S3/비용 로직만 본다).
   - Redis: `main()`의 `cost_tracker`/`spend_limit_usd` 인자(백필 전용 주입 지점,
-    docstring 참고)로 커스텀 트래커를 주입해 `BatchRedis`/실 Redis 를 아예 만들지
-    않는다. `BatchRedis` 자체의 "카운터 실패 vs 작업집합 실패" 구분은 그 클래스를
-    직접 생성해 `_client` 속성만 페이크로 갈아 끼워 테스트한다(redis 패키지 불필요).
+    docstring 참고)로 커스텀 트래커를 주입해 실제 카운터 백엔드를 아예 만들지 않는다.
+    카운터 자체(DynamoDB)의 실패 취급은 `tests/test_spend_counter.py` 소관이다.
 
 요구사항 ID 대응:
   PIPE-2SB-11c  test_route_post_three_branches_partition_without_overlap_or_gap
@@ -26,11 +25,9 @@ pytest 없이 stdlib 로만 실행:  `.venv/bin/python3 tests/test_run_bedrock.p
   PIPE-2SB-11   test_route_post_body_axis_b_discard_with_zero_passing_comments_yields_no_success
   PIPE-2SB-59   test_route_post_records_fallback_notes_for_passed_body_and_comments
   PIPE-2SB-74   test_main_checks_budget_before_batch_call_and_skips_untouched_posts_when_over_budget
-  PIPE-2SB-72   test_main_writes_s3_marker_before_calling_srem_pending
-  PIPE-2SB-70   test_main_shadow_mode_only_writes_shadow_key_and_skips_success_failed_marker_and_srem
+  PIPE-2SB-70   test_main_shadow_mode_only_writes_shadow_key_and_skips_success_failed_marker
   (비용 카운터 실패=중단 vs 작업집합 실패=로그만)
                 test_main_exits_nonzero_when_cost_counter_unavailable,
-                test_batch_redis_cost_counter_failure_raises_while_pending_set_failure_only_logs
 
 ⚠️ 커버하지 않은 것: PIPE-2SB-71/14(배치 크기·배칭 이점)은 판정 품질 측정이 필요해
 `accuracy-tuner` 소관이라 여기선 배치 크기 기본값(5)로 소규모 시나리오만 돈다.
@@ -49,7 +46,6 @@ from bedrock.schemas.judgement import BatchJudgement, BatchUsage, JudgeResult  #
 import pipeline.run_bedrock as run_bedrock  # noqa: E402
 from pipeline.core.config import pipeline_settings  # noqa: E402
 from pipeline.run_bedrock import (  # noqa: E402
-    BatchRedis,
     BedrockCostCounterUnavailable,
     _route_post,
     main,
@@ -138,7 +134,6 @@ class _FakeS3Client:
 class _NoOpCostTracker:
     def __init__(self, spend=0.0):
         self._spend = spend
-        self.srem_calls = []
 
     def get_spend(self):
         return self._spend
@@ -146,8 +141,6 @@ class _NoOpCostTracker:
     def add_spend(self, amount_usd):
         self._spend += amount_usd
 
-    def srem_pending(self, member):
-        self.srem_calls.append(member)
 
 
 class _bedrock_ready:
@@ -310,12 +303,9 @@ def test_main_exits_nonzero_when_cost_counter_unavailable():
 
     class _RaisingTracker:
         def get_spend(self):
-            raise BedrockCostCounterUnavailable("Redis 연결 실패")
+            raise BedrockCostCounterUnavailable("DynamoDB 접근 실패")
 
         def add_spend(self, amount_usd):
-            pass
-
-        def srem_pending(self, member):
             pass
 
     exit_code = None
@@ -329,28 +319,35 @@ def test_main_exits_nonzero_when_cost_counter_unavailable():
     assert exit_code is not None and exit_code != 0, "비용 카운터 실패는 0이 아닌 종료 코드로 중단해야 한다"
 
 
-def test_main_writes_s3_marker_before_calling_srem_pending():
-    # PIPE-2SB-72: 완료 처리는 "S3 마커 기록 -> SREM" 순서다.
+def test_main_writes_outputs_before_marker():
+    """완결 처리 순서 — 산출물 기록이 끝난 뒤에 마커를 쓴다.
+
+    ⚠️ 구 계약은 "마커 기록 -> Redis SREM" 순서였다. 작업 집합이 Lambda 전환으로
+    폐기되면서 SREM 이 사라졌고, **살아남은 순서 계약은 "산출물 -> 마커"** 다.
+    마커가 먼저 찍히면 산출물이 없는데 완결로 보여 재처리가 영영 막힌다.
+    """
     client = _FakeS3Client()
     bucket = "test-bucket"
     post = _post(post_id="42")
     _seed_pattern_success(client, bucket, post)
 
     marker = manifest_key(SOURCE, DATE, "42", method="bedrock")
-    order_calls = []
+    success = output_key("success", SOURCE, DATE, "42", method="bedrock")
 
-    class _OrderCheckingTracker:
-        def get_spend(self):
-            return 0.0
+    original_put = client.put_object
+    order = []
+    violations = []
 
-        def add_spend(self, amount_usd):
-            pass
+    def _recording_put(*args, **kwargs):
+        key = kwargs.get("Key") or (args[1] if len(args) > 1 else None)
+        if key == marker and success not in client.objects:
+            # ⚠️ 여기서 raise 하면 _finalize_post 의 except 가 잡아 _die() -> sys.exit 로
+            # 테스트 러너 전체가 죽는다. 기록만 하고 아래에서 단언한다.
+            violations.append(key)
+        order.append(key)
+        return original_put(*args, **kwargs)
 
-        def srem_pending(self, member):
-            assert object_exists(client, bucket, marker), (
-                "PIPE-2SB-72 위반: SREM 이 호출된 시점에 S3 완결 마커가 아직 없다"
-            )
-            order_calls.append(member)
+    client.put_object = _recording_put
 
     def _stub_judge_batch(items):
         return BatchJudgement(results=[_result(True) for _ in items], usage=BatchUsage())
@@ -358,14 +355,14 @@ def test_main_writes_s3_marker_before_calling_srem_pending():
     with _bedrock_ready(), _override(pipeline_settings, S3_BUCKET=bucket), \
             _override(run_bedrock, build_s3_client=lambda: client), \
             _override(judge_service, judge_batch=_stub_judge_batch):
-        result = main(date=DATE, cost_tracker=_OrderCheckingTracker(), spend_limit_usd=30.0)
+        result = main(date=DATE, cost_tracker=_NoOpCostTracker(), spend_limit_usd=30.0)
 
     assert result["processed"] == 1
-    assert order_calls == [f"{SOURCE}/42"]
-    assert object_exists(client, bucket, output_key("success", SOURCE, DATE, "42", method="bedrock"))
+    assert not violations, "마커가 success 보다 먼저 기록됐다 — 산출물 없이 완결로 보여 재처리가 막힌다"
+    assert order.index(success) < order.index(marker), order
 
 
-def test_main_shadow_mode_only_writes_shadow_key_and_skips_success_failed_marker_and_srem():
+def test_main_shadow_mode_only_writes_shadow_key_and_skips_success_failed_marker():
     # PIPE-2SB-70: shadow 모드는 _shadow 에만 쓰고 success/failed/마커/작업 집합은
     # 전혀 건드리지 않는다.
     client = _FakeS3Client()
@@ -388,7 +385,6 @@ def test_main_shadow_mode_only_writes_shadow_key_and_skips_success_failed_marker
     assert not object_exists(client, bucket, output_key("failed", SOURCE, DATE, "7", method="bedrock"))
     assert not object_exists(client, bucket, manifest_key(SOURCE, DATE, "7", method="bedrock"))
     assert object_exists(client, bucket, shadow_key(SOURCE, DATE, "7", method="bedrock"))
-    assert tracker.srem_calls == [], "shadow 는 작업 집합(SREM)을 전혀 건드리지 않아야 한다"
 
 
 def test_main_dry_run_writes_nothing_to_s3():
@@ -425,50 +421,12 @@ def test_main_dry_run_writes_nothing_to_s3():
     ):
         assert not object_exists(client, bucket, key), f"DRY_RUN 이 {key} 를 기록했다(PIPE-2SB-78 위반)"
 
-    assert tracker.srem_calls == [], "DRY_RUN 은 작업 집합도 건드리지 않는다"
 
 
-# ---------------------------------------------------------------------------
-# BatchRedis — 비용 카운터 실패(raise)와 작업 집합 실패(log-only)의 구분
-# ---------------------------------------------------------------------------
-
-class _RaisingRedisClient:
-    def get(self, key):
-        raise RuntimeError("get 실패")
-
-    def incrbyfloat(self, key, amount):
-        raise RuntimeError("incrbyfloat 실패")
-
-    def srem(self, key, member):
-        raise RuntimeError("srem 실패")
-
-
-def test_batch_redis_cost_counter_failure_raises_while_pending_set_failure_only_logs():
-    required = BatchRedis(url=None, cost_tracking_required=True)
-    required._client = _RaisingRedisClient()  # 생성자의 실제 redis 접속을 우회하고 직접 주입.
-
-    try:
-        required.get_spend()
-        raised_get = False
-    except BedrockCostCounterUnavailable:
-        raised_get = True
-    assert raised_get, "비용 카운터 조회 실패는 대체 정본이 없어 예외로 올려야 한다"
-
-    try:
-        required.add_spend(1.23)
-        raised_add = False
-    except BedrockCostCounterUnavailable:
-        raised_add = True
-    assert raised_add, "비용 카운터 누적 실패도 예외로 올려야 한다"
-
-    # 작업 집합(SREM)은 실패해도 절대 예외를 올리지 않는다(PIPE-2SB-73 — S3 마커가 정본).
-    required.srem_pending(f"{SOURCE}/1")  # 예외가 나면 이 줄에서 테스트가 FAIL 로 잡힌다.
-
-    # DRY_RUN 처럼 비용 추적이 면제된 경우(cost_tracking_required=False)는 관대하게 0.0/무시.
-    optional = BatchRedis(url=None, cost_tracking_required=False)
-    optional._client = _RaisingRedisClient()
-    assert optional.get_spend() == 0.0
-    optional.add_spend(5.0)  # 예외 없이 넘어가야 한다.
+# BatchRedis 의 "카운터 실패 vs 작업집합 실패" 구분 테스트는 제거했다.
+# 저장소가 DynamoDB 로 바뀌면서 그 클래스가 없어졌고, 카운터 실패 취급은
+# tests/test_spend_counter.py 가 같은 계약(0.0 으로 눙기지 않고 올린다)을 검증한다.
+# 작업집합(SREM) 쪽은 Lambda 전환으로 폐기돼 검증 대상 자체가 없다.
 
 
 if __name__ == "__main__":

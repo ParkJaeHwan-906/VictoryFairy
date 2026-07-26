@@ -3,7 +3,7 @@
 pytest 없이 stdlib 로만 실행:  `.venv/bin/python3 tests/test_run_backfill.py`
 (`.venv/bin/python3` 로 실행할 것 — `pydantic`·`boto3` 의존 경로를 거친다.)
 
-⚠️ 실제 AWS·Redis 를 호출하지 않는다:
+⚠️ 실제 AWS 를 호출하지 않는다:
   - S3: `pipeline.run_backfill.build_s3_client` 를 `_FakeS3Client`(인메모리)로
     몽키패치한다. 커서(`_backfill/{runId}/cursor.json`)·패턴 산출물·Bedrock 산출물
     모두 이 페이크 위에서 실제 `pipeline.s3_io` 함수 그대로 동작한다.
@@ -11,7 +11,7 @@ pytest 없이 stdlib 로만 실행:  `.venv/bin/python3 tests/test_run_backfill.
     LLM 호출 경로를 완전히 우회한다. 예산 누적(PIPE-BF-15) 테스트만 실제
     `run_bedrock.main`을 그대로 태우되 `bedrock.judge_service.judge_batch`(판정
     로직)를 몽키패치해 토큰 사용량을 통제한다 — 이때도 실제 Bedrock 호출은 없다.
-  - Redis: `run_bedrock.BatchRedis`·`run_validation.PatternBatchRedis` 를 "생성되면
+  - 카운터: `run_bedrock.DynamoDBSpendCounter` 를 "생성되면
     즉시 실패"하는 가짜 클래스로 바꿔치기해, 백필 경로가 이 두 클래스를 **아예
     구성하지 않는다는 것**(= SADD/SREM/정규 비용 카운터를 전혀 건드리지 않는다는
     것, PIPE-BF-3b/15)을 구조적으로 증명한다.
@@ -21,9 +21,9 @@ pytest 없이 stdlib 로만 실행:  `.venv/bin/python3 tests/test_run_backfill.
   PIPE-BF-5   test_backfill_skips_missing_date_and_continues_to_next_date
   PIPE-BF-6   test_pattern_stage_skips_post_with_existing_marker
   PIPE-BF-12  test_cursor_advances_only_after_date_marker_is_written
-  PIPE-BF-15  test_backfill_accumulates_spend_in_cursor_and_never_touches_regular_batch_redis
-              (같은 테스트가 PIPE-BF-3b 의 `run_validation.PatternBatchRedis` 미구성도 함께 증명)
-  PIPE-BF-3b  test_backfill_accumulates_spend_in_cursor_and_never_touches_regular_batch_redis
+  PIPE-BF-15  test_backfill_accumulates_spend_in_cursor_and_never_touches_regular_counter
+              (백필은 cost_tracker 를 주입해 정규 카운터 분기를 아예 타지 않는다)
+  PIPE-BF-3b  test_backfill_accumulates_spend_in_cursor_and_never_touches_regular_counter
   PIPE-BF-18  test_budget_boundary_preempts_starting_even_a_single_date
 
 ⚠️ 커버하지 않은 것: PIPE-BF-20/21(정규 배치·동시 백필 Job 과의 배타 실행)은 이
@@ -265,11 +265,12 @@ def test_cursor_advances_only_after_date_marker_is_written():
 
 
 # ---------------------------------------------------------------------------
-# PIPE-BF-15/3b — 예산은 커서에 누적, 정규 bedrock_spend_usd(Redis)/작업 집합은
-# 읽지도 쓰지도 않는다(BatchRedis/PatternBatchRedis 를 아예 구성하지 않는 것으로 증명).
+# PIPE-BF-15 — 예산은 커서에 누적하고 **정규 카운터는 아예 만들지 않는다**.
+# (구 검증은 BatchRedis/PatternBatchRedis 미구성이었다. Lambda 전환으로 두 클래스가
+#  사라졌고, 살아남은 계약은 "정규 DynamoDB 카운터를 건드리지 않는다" 다.)
 # ---------------------------------------------------------------------------
 
-def test_backfill_accumulates_spend_in_cursor_and_never_touches_regular_batch_redis():
+def test_backfill_accumulates_spend_in_cursor_and_never_touches_regular_counter():
     client = _FakeS3Client()
     bucket = "test-bucket"
     run_id = "run-bf15"
@@ -291,8 +292,8 @@ def test_backfill_accumulates_spend_in_cursor_and_never_touches_regular_batch_re
     with _bedrock_ready(), \
             _override(pipeline_settings, S3_BUCKET=bucket), \
             _override(run_backfill, build_s3_client=lambda: client), \
-            _override(run_bedrock, build_s3_client=lambda: client, BatchRedis=_ForbiddenIfConstructed), \
-            _override(run_validation, PatternBatchRedis=_ForbiddenIfConstructed), \
+            _override(run_bedrock, build_s3_client=lambda: client,
+                      DynamoDBSpendCounter=_ForbiddenIfConstructed), \
             _override(judge_service, judge_batch=_stub_judge_batch), \
             _override(
                 backfill_settings,
@@ -302,10 +303,9 @@ def test_backfill_accumulates_spend_in_cursor_and_never_touches_regular_batch_re
                 BACKFILL_BUDGET_USD=1000.0,
                 BACKFILL_MODE="backfill",
             ):
-        # PatternBatchRedis 생성 시 즉시 예외를 던지도록 바꿔치기했으므로, 이 호출이
-        # 예외 없이 끝난다는 것 자체가 백필 경로에서 그 클래스가 전혀 구성되지
-        # 않는다는 뜻이다(run_validation.main() 을 타지 않고 process_post/
-        # _finalize_post 만 재사용하는 구조 — PIPE-BF-3b).
+        # DynamoDBSpendCounter 생성 시 즉시 예외를 던지도록 바꿔치기했으므로, 이 호출이
+        # 예외 없이 끝난다는 것 자체가 백필 경로에서 정규 카운터가 전혀 구성되지
+        # 않는다는 뜻이다 — 백필은 cost_tracker(Cursor)를 주입해 그 분기를 타지 않는다.
         main()
 
     cursor_raw = json.loads(get_object_bytes(client, bucket, cursor_key(run_id)))

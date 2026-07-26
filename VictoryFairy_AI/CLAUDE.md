@@ -52,5 +52,8 @@ uvicorn validation.main:app --port 8000
 uvicorn analysis.main:app --port 8001
 ```
 
+⚠️ 위는 **로컬 실행**이다. 운영은 Lambda 핸들러(`pipeline/lambda_{pattern,bedrock}.py`)가
+S3 이벤트·SQS 로 돌며 `BUDGET_TABLE_NAME`·`BEDROCK_QUEUE_URL` 을 추가로 쓴다.
+
 `run_validation`·`run_bedrock` 은 `S3_BUCKET` 이 필요하고, `run_bedrock` 은 추가로
 `BEDROCK_MODEL_ID` 가 없으면 기동 시 거부된다(`BEDROCK_DRY_RUN` 제외).

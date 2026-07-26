@@ -19,15 +19,14 @@
 ⚠️ 이 러너는 판정 로직을 갖지 않는다. 검열은 전부 `validation_service.validation()`
 에 위임하고, 여기서는 S3 리스팅/읽기/쓰기와 검열 단위 분해·결과 라우팅만 한다.
 
-작업 집합(Redis) 갱신(`docs/requirements/pipeline/two-stage-batch.md` PIPE-2SB-26/47/48/72b):
-게시글 마커 기록이 끝나면 `pending:pattern`에서 SREM한다 — success/failed 무관하게
-항상(마커가 찍혔다는 것 자체가 "대기" 상태를 벗어났다는 뜻). success 객체가 생성된
-경우에만 그 전에 `pending:bedrock`에 SADD도 한다(전건 폐기 게시글은 Bedrock이 볼
-입력이 없다). 순서는 항상 SADD(해당 시) → SREM(`PatternBatchRedis.mark_pattern_complete`
-참고 — 왜 실패 경로도 SREM하는지의 근거는 그 메서드 docstring에). 이 호출은
-`main()`에서만 하고 `_finalize_post()` 안에는 두지 않는다 — 백필(`run_backfill.py`)이
-`_finalize_post()`만 재사용하고 `main()`은 호출하지 않으므로, 이 경계 덕에 백필 모드에서
-SADD/SREM이 나가지 않는다는 요구(PIPE-BF-3b)가 별도 주입 없이 성립한다.
+⚠️ **`main()` 은 이제 로컬 수동 실행 전용이다.** 운영 경로는 Lambda 핸들러
+(`pipeline/lambda_pattern.py`)가 S3 이벤트마다 게시글 1건씩 처리한다. 두 경로 모두
+`process_post()`/`_finalize_post()` 를 그대로 쓰므로 **판정 기준이 갈리지 않는다.**
+`main()` 은 수동 재처리·디버깅·백필 보조용으로 남긴다.
+
+작업 집합(Redis `pending:*`) 갱신 코드가 있었으나 **Lambda 전환으로 제거**됐다.
+단계 전이를 S3 이벤트와 SQS 가 담당하므로 "다음 단계 대기 목록"을 우리가 셀 이유가
+없어졌다 — 컨트롤러가 `SCARD` 를 폴링하던 구조가 통째로 사라졌기 때문이다.
 
 실행: (프로젝트 루트에서)
     python -m pipeline.run_validation
@@ -63,25 +62,19 @@ SOURCES: list[str] = ["dcinside", "fmkorea"]
 
 
 class PatternRunnerSettings(BaseSettings):
-    """패턴 러너 전용 작업 집합(Redis Set) 설정(PIPE-2SB-26/47/72b).
+    """패턴 러너 설정.
 
-    ⚠️ 비용 카운터는 여기 없다 — `run_bedrock.BedrockRunnerSettings`와 대칭이 아니다
-    (PIPE-2SB-73: "비용 카운터와 다르다 — 패턴 단계엔 비용 카운터가 없다"). `BATCH_REDIS_URL`을
-    비워 두면(기본값) 작업 집합 갱신 없이 동작한다 — S3 마커가 정본이므로 트리거 최적화
-    수단인 Redis가 없어도 배치 자체는 멈추지 않는다(PIPE-2SB-73).
+    ⚠️ 작업 집합(Redis Set) 설정이 있었으나 **Lambda 전환으로 폐기**됐다. 단계 전이를
+    S3 이벤트와 SQS 가 담당하므로 "다음 단계 대기 목록"을 우리가 셀 이유가 없어졌다.
     """
 
-    # 처리 대상 날짜(PIPE-2SB-37). 비우면 실행 당일 KST 로 폴백한다(PIPE-2SB-38).
+    # 처리 대상 날짜. 비우면 실행 당일 KST 로 폴백한다.
     #
-    # ⚠️ 이 값이 없으면 배치가 자정을 넘길 때 대상 prefix 가 갈린다. Spot 회수로 러너가
-    # 00:30 에 재기동되면 today_kst() 가 다음 날로 넘어가 **전날 미처리분이 든 prefix 를
-    # 영영 보지 않는다** — 마커도 Redis 도 그 게시글을 되살리지 못한다(둘 다 날짜 prefix
-    # 안에서만 의미가 있다). 컨트롤러가 배치 시작일을 주입해 모든 단계가 같은 날짜를 본다.
+    # ⚠️ 이 값이 없으면 처리가 자정을 넘길 때 대상 prefix 가 갈린다 — 전날 미처리분이 든
+    # prefix 를 영영 보지 않는다(마커도 날짜 prefix 안에서만 의미가 있다).
+    # Lambda 경로에서는 S3 키에서 파싱하므로 이 설정이 필요 없고, **로컬 수동 실행에서만**
+    # 쓴다.
     BATCH_DATE: Optional[str] = None
-
-    BATCH_REDIS_URL: Optional[str] = None
-    PENDING_PATTERN_KEY: str = "pending:pattern"
-    PENDING_BEDROCK_KEY: str = "pending:bedrock"
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -92,92 +85,6 @@ class PatternRunnerSettings(BaseSettings):
 
 pattern_runner_settings = PatternRunnerSettings()
 
-
-class PatternBatchRedis:
-    """패턴 러너의 작업 집합 갱신 래퍼 — 게시글의 패턴 단계 완결을 두 작업 집합에 반영한다.
-
-    ⚠️ `run_bedrock.BatchRedis`와 달리 여기엔 비용 카운터가 없다(위 `PatternRunnerSettings`
-    docstring 참고) — 그래서 이 클래스가 다루는 건 작업 집합뿐이고, 실패는 전부 로그만
-    남기고 삼킨다(PIPE-2SB-73 — S3 마커가 정본이라 유실이 아니다. Redis가 통째로 죽어도
-    다음 실행이 마커를 보고 skip한 뒤 `SADD`/`SREM`이 수렴한다).
-
-    `run_backfill.py`는 이 클래스를 전혀 참조하지 않는다 — 백필은 `run_validation.main()`을
-    호출하지 않고 `process_post()`/`_finalize_post()`만 직접 재사용하므로(그 파일 상단
-    docstring 참고), 이 클래스가 여는 작업 집합 갱신 경로 자체를 타지 않는다. 즉 백필 모드에서
-    `SADD`/`SREM`이 나가지 않아야 한다는 요구(PIPE-BF-3b)가 별도 no-op 주입 없이 구조적으로
-    성립한다 — `mark_pattern_complete()` 호출을 `main()`의 오케스트레이션 루프에만 두고
-    `_finalize_post()` 안에는 두지 않은 이유가 이것이다.
-    """
-
-    def __init__(self, url: Optional[str]):
-        self._client = None
-        if not url:
-            print(
-                "정보: BATCH_REDIS_URL 미설정 — 작업 집합 갱신 없이 동작합니다(PIPE-2SB-73)."
-            )
-            return
-        try:
-            import redis  # 지연 import — 로컬 환경에 redis 패키지가 없을 수 있다(s3_io의 boto3와 같은 이유).
-
-            self._client = redis.Redis.from_url(url, decode_responses=True)
-            self._client.ping()
-        except Exception as exc:  # noqa: BLE001
-            print(
-                f"경고: Redis 연결 실패({url}): {exc} — 작업 집합 갱신 없이 동작합니다(PIPE-2SB-73).",
-                file=sys.stderr,
-            )
-            self._client = None
-
-    def mark_pattern_complete(self, member: str, advanced_to_bedrock: bool) -> None:
-        """게시글 하나의 패턴 단계 완결을 작업 집합에 반영한다(PIPE-2SB-47/48/72b + 아래 보강).
-
-        `pending:pattern`은 "패턴 검열 대기" 목록이다. 마커가 찍혔다는 것 자체가 이
-        게시글의 판정이 끝났다는 뜻이므로, **success 생성 여부와 무관하게** 더 이상
-        "대기" 상태가 아니다 — 그래서 `SREM pending:pattern`은 **항상** 수행한다.
-
-        반면 `pending:bedrock` 추가(`SADD`)는 `advanced_to_bedrock=True`(success
-        생성)일 때만 한다 — 전건 폐기된 게시글은 Bedrock이 볼 입력이 없다
-        (PIPE-2SB-47 인수 기준 그대로).
-
-        순서가 계약이다(PIPE-2SB-72b): `advanced_to_bedrock=True`일 때는 `SADD`를
-        `SREM`보다 먼저 한다 — 반대로 하면 그 사이 크래시 시 **양쪽 Set 어디에도
-        없는 게시글**이 생긴다. 이 순서면 크래시 시 두 Set에 동시에 존재할 뿐이고,
-        재처리 → 마커 skip → `SADD`(멱등) → `SREM`으로 수렴한다.
-        `advanced_to_bedrock=False`일 때는 `SADD` 자체가 없으므로 이 위험이 애초에
-        발생하지 않고 `SREM`만 수행한다.
-
-        ⚠️ **왜 실패(전건 폐기) 게시글도 SREM하는가 — `PIPE-2SB-72b`가 침묵한 자리.**
-        그 조항 원문은 "마커 기록 → SADD → SREM" 3단계를 success 경로만 상정해 적은
-        것이고, 전건 폐기(실패) 경로의 `SREM`은 언급하지 않는다. 이는 계약이 모순된
-        게 아니라 빠뜨린 자리다 — 이 침묵을 "실패 게시글은 SREM하지 않는다"로 읽으면
-        (구현 초판이 실제로 그랬다) `pending:pattern`이 영원히 비지 않는다(실측 전건
-        폐기율 약 39.5% — 드문 예외가 아니라 상시 경로다). 그러면 `PIPE-2SB-35c`의
-        배치 종료 조건("`pending:pattern`이 비고 크롤·패턴 Job이 모두 종료했으며...")에
-        영영 도달하지 못해 컨트롤러가 죽지 않는 고장으로 이어진다. 그래서 "완결된
-        게시글은 성공/실패 무관하게 `pending:pattern`에서 뺀다"를 명시 규칙으로
-        택했다 — 대안(실패는 SREM 안 함)은 선택지가 아니라 명백한 버그였다.
-
-        호출부는 이 메서드를 **마커 기록 성공 뒤에만** 호출해야 한다(PIPE-2SB-47 — "마커
-        기록 성공 후 추가"). 모든 Redis 명령 실패는 에러로 중단하지 않고 로그만 남긴다
-        (PIPE-2SB-73).
-        """
-        if self._client is None:
-            return
-        if advanced_to_bedrock:
-            try:
-                self._client.sadd(pattern_runner_settings.PENDING_BEDROCK_KEY, member)
-            except Exception as exc:  # noqa: BLE001 — PIPE-2SB-73
-                print(
-                    f"경고: {pattern_runner_settings.PENDING_BEDROCK_KEY} SADD 실패({member}): {exc}",
-                    file=sys.stderr,
-                )
-        try:
-            self._client.srem(pattern_runner_settings.PENDING_PATTERN_KEY, member)
-        except Exception as exc:  # noqa: BLE001 — PIPE-2SB-73
-            print(
-                f"경고: {pattern_runner_settings.PENDING_PATTERN_KEY} SREM 실패({member}): {exc}",
-                file=sys.stderr,
-            )
 
 
 def today_kst() -> str:
@@ -355,7 +262,6 @@ def main() -> None:
     client = build_s3_client()
     # PIPE-2SB-37/38 — 주입된 배치 시작일 우선, 없으면 실행 당일 KST 폴백.
     date = (pattern_runner_settings.BATCH_DATE or "").strip() or today_kst()
-    redis = PatternBatchRedis(pattern_runner_settings.BATCH_REDIS_URL)
 
     total_processed = 0
     total_skipped_done = 0
@@ -415,15 +321,10 @@ def main() -> None:
             post_id = str(post["postExternalId"])
             success_obj, failed_reasons = process_post(post)
             _finalize_post(client, bucket, source, date, post_id, success_obj, failed_reasons)
-            # 마커 기록(위 _finalize_post) 성공 뒤 작업 집합을 갱신한다. success가
-            # 생성됐으면 pending:bedrock에 SADD 후 pending:pattern에서 SREM하고
-            # (PIPE-2SB-47/72b), 전건 폐기(success 미생성, PIPE-S3IO-19)라도 이
-            # 게시글은 더 이상 "패턴 검열 대기"가 아니므로 pending:pattern에서는
-            # 항상 SREM한다 — 안 그러면 실측 39.5%의 전건 폐기 게시글이 매번
-            # pending:pattern에 잔류해 PIPE-2SB-35c의 배치 종료 조건에 영영
-            # 도달하지 못한다(자세한 근거는 PatternBatchRedis.mark_pattern_complete
-            # docstring 참고).
-            redis.mark_pattern_complete(f"{source}/{post_id}", advanced_to_bedrock=success_obj is not None)
+            # ⚠️ 로컬 실행 경로는 여기서 끝난다 — 다음 단계로 넘기지 않는다.
+            # 운영 경로(Lambda 핸들러)는 success 가 생성됐을 때 SQS 에 메시지를 넣어
+            # Bedrock 단계를 잇는다. 로컬에서 Bedrock 까지 돌리려면 run_bedrock.main()
+            # 을 이어서 실행한다(그쪽은 pattern/success prefix 를 직접 리스팅한다).
             total_processed += 1
 
     print(

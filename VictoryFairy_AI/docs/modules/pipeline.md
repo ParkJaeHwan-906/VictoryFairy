@@ -1,33 +1,63 @@
-# 모듈: pipeline (배치 러너)
+# 모듈: pipeline (정제 파이프라인)
 
 **패턴 검열 → Bedrock 2차 검열** 2단계를 실행한다. 두 단계 모두 S3 게시글 객체를 in/out으로
-쓰고, 작업 상태만 `batch-redis`로 주고받는다. 분석·집계 러너는 코드가 남아 있으나 배선에서
-빠져 있다(아래 "한계" 참고). 각 러너는 해당 서비스를 HTTP 없이 **직접 import**해 재사용한다.
+쓴다. 분석·집계 러너는 코드가 남아 있으나 배선에서 빠져 있다(아래 "한계" 참고).
+각 단계는 해당 서비스를 HTTP 없이 **직접 import**해 재사용한다.
 **작업 시 이 문서 범위 안에서 완결**한다.
-
-실행(프로젝트 루트): `python -m pipeline.<러너>`
 
 요구사항 정본: `docs/requirements/pipeline/{s3-io,two-stage-batch,backfill}.md`
 
-## 전체 흐름
+## 전체 흐름 — 이벤트 구동
 
 ```
-크롤러 ──▶ S3 community/ ──▶ run_validation ──▶ S3 validation/pattern/ ──▶ run_bedrock ──▶ S3 validation/bedrock/
-              │                    │                                            │
-              └──── SADD ──────────┴──── batch-redis (작업 상태) ────────────────┘
+kbo-collector (Lambda, 상시)  ──▶ S3 community/{source}/{date}/{postId}.json
+   EventBridge rate(10 min)              │  S3 ObjectCreated 이벤트
+                                         ▼
+                          lambda_pattern.handler   게시글 1건 · 사전/정규식
+                                         │  통과분만
+                                         ▼
+                                  SQS (+ DLQ)   batch_size = 5
+                                         ▼
+                          lambda_bedrock.handler   5건 묶어 모델 1회 호출
+                                         ▼
+                              S3 validation/bedrock/{success,failed}
 ```
 
-세 프로세스가 **서로를 직접 호출하지 않는다.** 연결 고리는 Redis 작업 집합의 크기뿐이다.
+**"완료 신호"라는 것이 없다.** 크롤러는 정제 단계를 모르고 S3에 쓰기만 한다 — 그 객체 생성이
+곧 트리거다. 패턴 단계도 "끝났다"고 알리지 않고 게시글 하나를 판정해 큐에 넣고 끝난다.
+**한 게시글 기준으로는 크롤 → 패턴 → LLM 순서가 지켜지지만, 전체로는 세 단계가 항상 동시에
+돌고 있다.**
 
-| 트리거 | 조건 |
+| 트리거 | 수단 |
 |---|---|
-| 크롤링 | 02:00 KST CronJob |
-| 패턴 검열 | `SCARD pending:pattern` ≥ 1000 |
-| Bedrock 검열 | `SCARD pending:bedrock` ≥ 1000 |
+| 패턴 검열 | S3 `ObjectCreated` 이벤트 (게시글 1건 단위) |
+| Bedrock 검열 | SQS 이벤트 소스 매핑 (`batch_size`만큼 모아서) |
 
-**S3가 진실의 원천, Redis는 최적화 수단이다**(PIPE-2SB-73). Redis가 통째로 죽어도 데이터
-유실이 아니다 — 대상은 S3 prefix 리스팅 + 마커 확인으로 복구된다(`O(N)`이라 느릴 뿐).
-Spot 회수로 Redis가 소멸되는 것을 **전제로** 한 설계다.
+⚠️ **SQS는 선택이 아니라 필수다.** 게시글 1건씩 Bedrock을 부르면 시스템 프롬프트
+2,470토큰이 호출마다 붙어 하루 $44.8로 상한 $30을 넘긴다. 5건 묶으면 $8.97이다.
+
+**S3 마커가 진실의 원천이다**(`PIPE-2SB-73`). S3 이벤트·SQS 재배달·Lambda 재시도가 모두
+**최소 한 번(at-least-once)** 배달이라 같은 게시글이 두 번 이상 도착하는 것이 정상 경로다 —
+완결 마커가 그것을 흡수한다. Bedrock 쪽에서는 이게 곧 **중복 과금 방지**다.
+
+## 진입점 — 운영과 로컬이 갈린다
+
+| 진입점 | 실행 위치 | 용도 |
+|---|---|---|
+| `lambda_pattern.handler` | **Lambda** | 운영 — S3 이벤트마다 |
+| `lambda_bedrock.handler` | **Lambda** | 운영 — SQS 배치마다 |
+| `run_validation.main()` | 로컬 `.venv` | 수동 재처리·디버깅 |
+| `run_bedrock.main()` | 로컬 `.venv` | 수동 재처리·디버깅 |
+| `run_backfill.main()` | 로컬 `.venv` | 누적분 백필 |
+| `run_analysis`·`run_aggregate` | 로컬 | 배선에서 빠진 유산 |
+
+⚠️ **핸들러는 배선만 한다.** 판정·라우팅·S3 기록은 `process_post()`·`_route_post()`·
+`judge_batch()`·`_finalize_post()`를 그대로 호출한다 — **로컬 경로와 같은 함수를 쓰므로
+판정 기준이 갈리지 않는다.** 핸들러에 로직을 다시 쓰면 로컬에서 검증한 것과 운영에서 도는
+것이 달라진다.
+
+⚠️ **이미지가 Lambda 전용이라 세 `main()`은 컨테이너로 돌지 않는다.** 진입점이 Lambda
+핸들러로 고정되기 때문이다. 로컬 `.venv`에서 실행한다.
 
 ## 기능 단위 (러너별로 분리)
 
@@ -66,23 +96,22 @@ Spot 회수로 Redis가 소멸되는 것을 **전제로** 한 설계다.
 ⚠️ **`body:""` success는 폐기됐다(구 PIPE-S3IO-17).** 본문이 걸린 글은 부분 보존하지 않는다.
 폐기된 텍스트는 **success 객체의 어느 필드에도 남기지 않는다**(PIPE-2SB-10b).
 
-**Redis 갱신 순서 (PIPE-2SB-47 · -72b)**
+**완결 순서 (PIPE-2SB-72 · -72b)**
 
 ```
-마커 기록 → (success 면) SADD pending:bedrock → SREM pending:pattern
+산출물 기록 → 마커 기록 → (success 면) SQS 전송
 ```
 
-**`SADD`는 조건부, `SREM`은 무조건이다.** 전건 폐기된 게시글은 `pending:bedrock`에 넣지
-않지만 `pending:pattern`에서는 반드시 뺀다 — 빼지 않으면 실패분(실측 39.5%)이 영원히 남아
-`SCARD`가 0에 수렴하지 못하고 **종료 조건이 성립하지 않는다.**
+마커가 **먼저** 찍히면 산출물이 없는데 완결로 보여 재처리가 영영 막힌다. 큐 전송이 마커보다
+**먼저** 가면 그 사이 실패 시 재시도가 같은 글을 또 넣어 **중복 판정·중복 과금**이 된다.
+반대 순서의 대가(큐 전송 실패 → 2단계 누락)는 **백필로 복구되지만 중복 과금은 되돌릴 수 없다.**
 
 | 설정 | 기본값 | 비고 |
 |---|---|---|
-| `BATCH_DATE` | (없음→당일 KST) | 배치 시작일 주입(PIPE-2SB-37/38) |
-| `BATCH_REDIS_URL` | (없음) | 비우면 작업 집합 갱신 없이 동작 |
-| `PENDING_PATTERN_KEY` / `PENDING_BEDROCK_KEY` | `pending:pattern` / `pending:bedrock` | |
+| `BATCH_DATE` | (없음→당일 KST) | **로컬 실행 전용.** Lambda 는 S3 키에서 파싱한다 |
+| `BEDROCK_QUEUE_URL` | (없음) | Lambda 전용. 없으면 예외 — 2단계로 넘어갈 방법이 없다 |
 
-⚠️ **패턴 단계엔 비용 카운터가 없다** — `BedrockRunnerSettings`와 대칭이 아니다.
+⚠️ **패턴 단계엔 비용 카운터가 없다** — LLM 을 부르지 않는다.
 
 ### 2. Bedrock 러너 (`run_bedrock.py`)
 
@@ -95,15 +124,19 @@ Spot 회수로 Redis가 소멸되는 것을 **전제로** 한 설계다.
 **예산 통제 (PIPE-2SB-60~63 · -74/75)**
 
 ```
-배치 호출 직전 → GET bedrock_spend_usd → 상한 이상이면 호출하지 않음
-호출 후        → usage × 단가 → INCRBYFLOAT
+배치 호출 직전 → DynamoDB GetItem(batch_date) → 상한 이상이면 호출하지 않음
+호출 후        → usage × 단가 → UpdateItem ... ADD
 ```
 
 **호출 전에 확인하는 것이 핵심이다.** 사후 집계면 상한을 넘긴 뒤에야 안다.
+파티션 키가 `batch_date`라 **일 단위 리셋이 구조적으로 성립**하고, TTL은 30일이다.
 
-⚠️ **Redis 두 용도는 실패 취급이 다르다.** 작업 집합(`pending:bedrock`) 실패는 로그만 남기고
-진행하지만(S3 마커가 정본), 비용 카운터(`bedrock_spend_usd`) 접근 실패는
-`BedrockCostCounterUnavailable`로 **중단**한다 — 카운터를 잃으면 상한이 조용히 사라진다.
+⚠️ **원자적 증분만으로는 상한을 못 지킨다.** 동시에 뜬 함수들이 각자 "아직 여유 있음"을 읽고
+함께 넘길 수 있다 — **Bedrock Lambda 예약 동시성을 1로 묶어** 직렬화한다(`PIPE-2SB-83`).
+처리량이 부족하면 `batch_size`를 키우지 동시성을 올리지 말 것.
+
+⚠️ **카운터 접근 실패는 "상한 도달"과 다르다.** 전자는 `BedrockCostCounterUnavailable`로
+**중단**한다 — 0으로 눙기면 상한이 조용히 사라진다. 후자는 전건을 큐에 남긴다(`PIPE-2SB-74`).
 `DRY_RUN`만 면제이고 **`SHADOW`는 면제가 아니다**(실제로 호출하므로 과금된다).
 
 | 설정 | 기본값 | 비고 |
@@ -171,6 +204,10 @@ python -m pipeline.run_aggregate
 
 `run_validation`·`run_bedrock`은 `S3_BUCKET` 등 env가 필요하다. `run_bedrock`은 추가로
 `BEDROCK_MODEL_ID`가 필요하며, 없으면 기동 시 거부된다(`DRY_RUN` 제외).
+⚠️ **위는 전부 로컬 실행이다.** 운영은 Lambda 핸들러가 이벤트로 돌며, 그쪽은
+`BUDGET_TABLE_NAME`(DynamoDB)·`BEDROCK_QUEUE_URL`(SQS)을 추가로 요구한다.
+`run_bedrock` 로컬 실행 시 `BUDGET_TABLE_NAME` 이 없으면 예산 확인 단계에서 중단된다
+(`BEDROCK_DRY_RUN=true` 면 면제).
 
 ## data/ 산출물 지도 (분석·집계 전용)
 
@@ -187,21 +224,28 @@ python -m pipeline.run_aggregate
 
 - **오케스트레이션만 담당**: 러너는 각 모듈 서비스를 import 해 쓸 뿐 판정 로직을 갖지 않는다.
   **러너 안에서 로직을 재구현하지 말 것** — 결과가 API 경로와 갈라진다.
-- **예산으로 시작하지 못한 게시글은 영구 미판정이다.** 마커 없이 `pending:bedrock`에 남지만
-  배치가 끝나면 Redis가 사라지고 `BATCH_DATE`도 바뀌어 **다음 배치의 대상 prefix 밖**이다.
-  누적 재처리 잡은 미도입.
+- **예산으로 시작하지 못한 게시글은 큐에 남는다.** 전건을 `batchItemFailures`로 돌려주므로
+  SQS가 다시 배달하고, 카운터가 날짜별이라 **다음 날 자연히 재개된다**(`PIPE-2SB-74`).
+  ⚠️ 다만 큐 보존 기간(4일) 안에 예산이 풀리지 않으면 DLQ로 간다.
 - **상한을 마지막 배치 1회분만큼 초과할 수 있다.** 배치 시작 전에 확인하므로 그 배치가
   얼마를 쓸지는 끝나야 안다. 배치 크기를 키울수록 초과 폭도 커진다.
 - **⚠️ 비용 여유가 크롤러의 미구현에 기대고 있다 — 모듈 간 숨은 결합.** 하루 약 $13.79는
   dcinside(97%)의 **댓글이 수집되지 않는다**는 사실에서 나온다(`community.py:263`, AJAX 미구현).
   댓글 수집이 추가되면 정제 비용이 **약 12배** 뛴다 — 정제 코드는 한 줄도 안 바뀌었는데
   상한($30)을 크게 넘는다. 크롤러 변경 시 비용 전제를 **반드시 재계산**할 것.
-- **`bedrock_spend_usd`는 추정 소비액이지 청구액이 아니다.** 토큰 집계 × 단가다. 단가
+- **누적 소비액은 추정치이지 청구액이 아니다.** 토큰 집계 × 단가다. 단가
   자체는 확인됐지만(입력 $3 / 출력 $15 per 1M) **첫 수일간 Cost Explorer 실청구액과 대조**할 것.
 - **모델·프롬프트 교체 후에도 기존 마커는 유지된다** → 같은 날짜 prefix에 서로 다른 기준의
   판정이 섞인다. 측정 시 `modelId`·`promptVersion`으로 구간을 갈라야 한다.
-- **`batch-redis`는 `maxmemory 256mb` / `noeviction`이다.** 넘치면 쓰기가 에러로 터진다
-  (조용한 유실보다는 낫다). Set에 **게시글 키만** 담는 결정 덕에 하루 7,000키 규모는 여유롭다.
+- **Lambda 15분 상한이 백필에 맞지 않는다.** 누적분 순회는 대량 반복이라 이 모델에 담기지
+  않는다 — `run_backfill`은 로컬 `.venv`로 돌린다. 실행 방식은 **미결정**으로 열려 있다
+  (Step Functions + Map / EKS Job / 로컬 중 택일).
+- **이미지가 약 1.09GB다.** 우리 코드·의존성은 39MB이고 나머지는 Lambda 베이스 이미지다.
+  Lambda는 이미지를 캐시·지연 로딩하므로 콜드 스타트를 크게 좌우하지 않는다 —
+  노드가 뜰 때마다 pull하던 EKS Spot과는 상황이 다르다.
+- **아키텍처가 `linux/arm64`로 고정돼 있다.** Terraform의 `architectures`와 **반드시 일치**
+  해야 하고, 다르면 **함수 생성 자체가 실패**한다. 빌드 장소에 따라 갈리므로(맥=arm64 /
+  CI=amd64) Dockerfile에 `--platform`을 박아 뒀다.
 - **분석·집계는 배선에서 빠져 있다.** `data/processed_data.txt`의 공급원(예전엔
   `run_validation`)이 끊긴 상태다. 재연결은 미도입. 두 러너는 **재실행=덮어쓰기** 한계도
   그대로다 — 산출물에 버전·타임스탬프가 없다.

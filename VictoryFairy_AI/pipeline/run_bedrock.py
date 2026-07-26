@@ -26,22 +26,22 @@
     - 실패: validation/bedrock/failed/{source}/{date}/{postExternalId}.json
     - 완결 마커: validation/bedrock/_manifest/{source}/{date}/{postExternalId}.json
     - shadow(BEDROCK_SHADOW=true 일 때만): validation/bedrock/_shadow/{source}/{date}/{postExternalId}.json
-      (success/failed/마커/작업 집합 전부 건드리지 않음 — PIPE-2SB-70)
+      (success/failed/마커 전부 건드리지 않음 — PIPE-2SB-70)
 
-완료 처리 순서는 "S3 마커 기록 → Redis SREM"이다(PIPE-2SB-72). 대상 선정은 이번에도
-S3 리스팅 + 마커 기준이다(Redis 목록을 읽어 처리하지 않는다).
+대상 선정은 S3 리스팅 + 마커 기준이다. 완결 처리는 "산출물 기록 → 마커 기록" 순서다 —
+마커가 먼저 찍히면 산출물이 없는데 완결로 보여 재처리가 막힌다.
 
-⚠️ Redis 두 용도는 실패 취급이 **다르다**(`BatchRedis` 클래스 참고). `pending:bedrock`
-Set(SREM/SADD)은 PIPE-2SB-73 그대로 정본이 아니라 최적화 수단이라 연결·명령 실패를
-로그만 남기고 계속 진행한다(S3 마커가 정본이라 유실이 아니다). 반면 `bedrock_spend_usd`
-**비용 카운터는 대체 정본이 없어**(PIPE-2SB-61) 접근 실패 시 명확한 에러로 중단한다
-(PIPE-2SB-22와 같은 방식) — 그대로 두면 $30 상한(PIPE-2SB-60)이 확인 불가능한 채로
-무의미해진다. 이 러너는 **작업 집합에 한해서만** Redis 없이 도는 것을 허용하고, **비용
-카운터에는 하드 의존한다**(단, `BEDROCK_DRY_RUN`처럼 실과금이 0인 모드는 면제).
+⚠️ **비용 카운터에는 하드 의존한다.** 접근 실패 시 로그만 남기고 넘어가지 않고 명확한
+에러로 중단한다 — 그대로 두면 $30 상한이 확인 불가능한 채로 무의미해진다. 저장소는
+DynamoDB 다(`pipeline/spend_counter.py`). 단, `BEDROCK_DRY_RUN` 처럼 실과금이 0인
+모드는 면제된다. **`BEDROCK_SHADOW` 는 면제가 아니다** — 실제로 모델을 호출한다.
+
+⚠️ **이 진입점은 로컬 수동 실행·백필 전용이다.** 운영은 Lambda 핸들러
+(`pipeline/lambda_bedrock.py`)가 SQS 배치마다 돈다. 판정 함수는 양쪽이 공유한다.
 
 ⚠️ 이 러너는 판정 로직을 갖지 않는다. LLM 판정은 전부 `bedrock.judge_service`에
 위임하고, 여기서는 S3 리스팅/읽기/쓰기·검열 단위 분해·배치 조립·결과 라우팅·
-Redis 작업 집합/비용 카운터 갱신만 한다.
+비용 누적만 한다.
 
 실행: (프로젝트 루트에서)
     python -m pipeline.run_bedrock
@@ -66,6 +66,10 @@ from bedrock import (
 
 from pipeline.core.config import pipeline_settings
 from pipeline.run_validation import today_kst
+from pipeline.spend_counter import (  # noqa: F401 — main() 계약 유지를 위한 re-export
+    BedrockCostCounterUnavailable,
+    DynamoDBSpendCounter,
+)
 from pipeline.s3_io import (
     build_s3_client,
     delete_object_if_exists,
@@ -85,7 +89,7 @@ SOURCES: list[str] = ["dcinside", "fmkorea"]
 
 
 class BedrockRunnerSettings(BaseSettings):
-    """`run_bedrock` 러너 전용 설정 — 오케스트레이션(배치 크기·Redis·비용 상한·날짜)이며
+    """`run_bedrock` 러너 전용 설정 — 오케스트레이션(배치 크기·비용 상한·날짜)이며
     모델 호출 설정(`bedrock.core.config.BedrockSettings`)과는 경계가 다르다(PIPE-2SB-15
     대칭: bedrock 모듈이 S3를 모르듯, 여기 설정도 모델 파라미터를 모른다).
 
@@ -96,18 +100,18 @@ class BedrockRunnerSettings(BaseSettings):
     # PIPE-2SB-37/38: 미주입 시 today_kst() 폴백(main()에서 처리).
     BATCH_DATE: Optional[str] = None
 
-    # 작업 집합/비용 카운터(PIPE-2SB-26, 배치 전용 batch-redis, ns victoryfairy-batch).
-    # 비워 두면 Redis 없이 동작한다(PIPE-2SB-73 — Redis는 정본이 아니라 최적화 수단).
-    BATCH_REDIS_URL: Optional[str] = None
-    PENDING_BEDROCK_KEY: str = "pending:bedrock"
-    BEDROCK_SPEND_KEY: str = "bedrock_spend_usd"
+    # 누적 소비액 카운터(DynamoDB). 구 Redis `bedrock_spend_usd` 를 대체한다 —
+    # Lambda 는 VPC 밖이라 클러스터 안의 ClusterIP Redis 에 도달하지 못한다.
+    # ⚠️ 작업 집합(`pending:*`) 설정은 Lambda 전환으로 폐기됐다. 단계 전이를 S3 이벤트와
+    #    SQS 가 담당하므로 "다음 단계 대기 목록"을 우리가 셀 이유가 없다.
+    BUDGET_TABLE_NAME: Optional[str] = None
 
-    # 비용 상한(PIPE-2SB-60, 사용자 확정 $30/밤). 소프트 상한(PIPE-2SB-75)이다.
+    # 비용 상한(사용자 확정 $30/일). 소프트 상한이다 — 마지막 배치 1회분만큼 초과할 수 있다.
     BEDROCK_SPEND_LIMIT_USD: float = 30.0
 
-    # 토큰 단가(PIPE-2SB-62 — 코드 상수 금지, env로만 읽는다). ⚠️ 미확인 가정치다
-    # (Anthropic 1P Sonnet 4 단가를 파트너 단가로 가정 — AWS Pricing API는 SCP로 차단).
-    # bedrock_spend_usd는 추정 소비액이지 청구액이 아니다 — 실청구액과 대조해 갱신할 것.
+    # 토큰 단가(코드 상수 금지, env로만 읽는다). 약관 요율표로 확인됨(2026-07-26):
+    # 입력 $3 / 출력 $15 per 1M. 다만 누적값은 **추정 소비액이지 청구액이 아니다**
+    # (토큰 집계 × 단가) — 첫 수일간 Cost Explorer 실청구액과 대조할 것.
     BEDROCK_PRICE_INPUT_PER_1K_USD: float = 0.003
     BEDROCK_PRICE_OUTPUT_PER_1K_USD: float = 0.015
     BEDROCK_PRICE_CACHE_READ_PER_1K_USD: float = 0.0003
@@ -136,133 +140,15 @@ def _die(message: str) -> None:
     sys.exit(1)
 
 
-class BedrockCostCounterUnavailable(Exception):
-    """`bedrock_spend_usd` 카운터에 접근할 수 없다(조회/누적 실패 또는 미연결).
-
-    ⚠️ `PIPE-2SB-73`의 "Redis 실패는 로그만" 원칙은 **작업 집합(SREM/SADD)에만** 적용된다.
-    비용 카운터는 S3 같은 대체 정본이 없고(`PIPE-2SB-61` — "누적 주체가 러너 메모리면
-    Job 이 여러 개라 총량이 집계되지 않는다, 공유 카운터여야 한다"), 이게 없으면
-    `PIPE-2SB-74`의 배치 전 확인이 항상 통과해 `$30` 상한(`PIPE-2SB-60`)이 무의미해진다.
-    그래서 이 예외는 호출부가 반드시 `_die()`로 이어받아야 한다(로그만 남기고 삼키지 않는다).
-    """
-
-
-class BatchRedis:
-    """작업 집합(`pending:bedrock`)·비용 카운터(`bedrock_spend_usd`) 접근 래퍼.
-
-    ⚠️ 두 대상은 실패 시 취급이 **다르다** — 이게 이 클래스의 핵심 계약이다.
-
-    - **작업 집합(SREM/SADD)**: `PIPE-2SB-73` 그대로 — S3 마커가 정본이라 유실이
-      아니다. 연결 실패·명령 실패를 전부 이 클래스 안에서 로그만 남기고 삼킨다.
-    - **비용 카운터(get_spend/add_spend)**: 대체 정본이 없다. 미연결·조회·누적
-      실패를 `BedrockCostCounterUnavailable`로 **올린다** — 호출부(`main()`)가
-      `_die()`로 이어받아 명확한 에러 + 0이 아닌 종료 코드로 중단해야 한다
-      (`PIPE-2SB-22`와 같은 방식). **예외: `BEDROCK_DRY_RUN`**(실제 모델 호출이
-      없어 과금 자체가 0인 모드)에서는 `cost_tracking_required=False`로 생성해
-      이 요구를 면제한다 — DRY_RUN에서까지 Redis를 강제하면 배선 검증 목적의
-      "S3_BUCKET만 있으면 도는" 시나리오가 깨진다. **SHADOW 모드는 면제 대상이
-      아니다** — `BRK-LLM-48`이 "실제로 모델을 호출해 판정"하고 비용 상한 적용을
-      받는다고 명시했으므로 실과금이 있고, 카운터가 없으면 상한을 확인할 수 없다.
-    """
-
-    def __init__(self, url: Optional[str], cost_tracking_required: bool = True):
-        self._client = None
-        self._cost_tracking_required = cost_tracking_required
-        exemption_note = "" if cost_tracking_required else "(BEDROCK_DRY_RUN이라 비용 카운터는 면제됨)"
-        if not url:
-            if cost_tracking_required:
-                print(
-                    "정보: BATCH_REDIS_URL 미설정 — 작업 집합 없이 동작합니다. "
-                    "비용 카운터도 사용할 수 없어 배치 전 예산 확인 시 중단됩니다(PIPE-2SB-61/73)."
-                )
-            else:
-                print(f"정보: BATCH_REDIS_URL 미설정 — 작업 집합 없이 동작합니다. {exemption_note}")
-            return
-        try:
-            import redis  # 지연 import: 로컬 환경에 redis 패키지가 없을 수 있다(s3_io의 boto3와 같은 이유).
-
-            self._client = redis.Redis.from_url(url, decode_responses=True)
-            self._client.ping()
-        except Exception as exc:  # noqa: BLE001
-            if cost_tracking_required:
-                print(
-                    f"경고: Redis 연결 실패({url}): {exc} — 작업 집합 없이 동작합니다. "
-                    "비용 카운터도 사용할 수 없어 배치 전 예산 확인 시 중단됩니다(PIPE-2SB-61/73).",
-                    file=sys.stderr,
-                )
-            else:
-                print(
-                    f"경고: Redis 연결 실패({url}): {exc} — 작업 집합 없이 동작합니다. {exemption_note}",
-                    file=sys.stderr,
-                )
-            self._client = None
-
-    def get_spend(self) -> float:
-        """누적 소비액(`bedrock_spend_usd`)을 읽는다(PIPE-2SB-74의 배치 전 확인용).
-
-        `cost_tracking_required=True`(기본, DRY_RUN이 아닌 모든 실행)일 때 미연결/조회
-        실패는 `BedrockCostCounterUnavailable`을 올린다 — 0.0으로 눙기면 상한이
-        무의미해진다(클래스 docstring 참고). `cost_tracking_required=False`(DRY_RUN)일
-        때만 관대하게 0.0을 돌려준다.
-        """
-        if self._client is None:
-            if self._cost_tracking_required:
-                raise BedrockCostCounterUnavailable(
-                    "Redis에 연결되어 있지 않아 bedrock_spend_usd를 확인할 수 없습니다."
-                )
-            return 0.0
-        try:
-            value = self._client.get(runner_settings.BEDROCK_SPEND_KEY)
-            return float(value) if value is not None else 0.0
-        except Exception as exc:  # noqa: BLE001
-            if self._cost_tracking_required:
-                raise BedrockCostCounterUnavailable(
-                    f"{runner_settings.BEDROCK_SPEND_KEY} 조회 실패: {exc}"
-                ) from exc
-            print(f"경고: {runner_settings.BEDROCK_SPEND_KEY} 조회 실패: {exc}", file=sys.stderr)
-            return 0.0
-
-    def add_spend(self, amount_usd: float) -> None:
-        """이번 호출분 소비액을 누적한다(PIPE-2SB-61, `INCRBYFLOAT`).
-
-        실패 시 취급은 `get_spend()`와 동일하다 — 공유 카운터에 반영되지 않으면
-        다음 배치의 예산 확인이 실제보다 적게 쓴 것으로 착각해 상한이 뚫릴 수 있으므로
-        `cost_tracking_required=True`일 때는 로그만 남기고 넘어가지 않는다.
-        """
-        if amount_usd <= 0:
-            return
-        if self._client is None:
-            if self._cost_tracking_required:
-                raise BedrockCostCounterUnavailable(
-                    "Redis에 연결되어 있지 않아 bedrock_spend_usd를 누적할 수 없습니다."
-                )
-            return
-        try:
-            self._client.incrbyfloat(runner_settings.BEDROCK_SPEND_KEY, amount_usd)
-        except Exception as exc:  # noqa: BLE001
-            if self._cost_tracking_required:
-                raise BedrockCostCounterUnavailable(
-                    f"{runner_settings.BEDROCK_SPEND_KEY} 누적 실패: {exc}"
-                ) from exc
-            print(f"경고: {runner_settings.BEDROCK_SPEND_KEY} 누적 실패: {exc}", file=sys.stderr)
-
-    def srem_pending(self, member: str) -> None:
-        """완료된 게시글 키를 `pending:bedrock`에서 제거한다.
-
-        PIPE-2SB-72: 이 호출은 반드시 **S3 마커 기록 뒤에** 이뤄져야 한다(호출부 책임).
-        실패는 에러로 중단하지 않고 로그만 남긴다(PIPE-2SB-73 — 작업 집합은 S3 마커가
-        정본이라 유실이 아니다) — 다음 실행이 마커를 보고 skip한 뒤 이 키를 다시
-        지우므로 수렴한다. **비용 카운터와 달리 이 메서드는 항상 관대하다.**
-        """
-        if self._client is None:
-            return
-        try:
-            self._client.srem(runner_settings.PENDING_BEDROCK_KEY, member)
-        except Exception as exc:  # noqa: BLE001 — PIPE-2SB-73
-            print(
-                f"경고: {runner_settings.PENDING_BEDROCK_KEY} SREM 실패({member}): {exc}",
-                file=sys.stderr,
-            )
+# 누적 소비액 카운터는 `pipeline/spend_counter.py` 로 옮겼다.
+#
+# 구현이 여기 있었을 때는 Redis 백엔드(`INCRBYFLOAT`)였고, 같은 클래스가 작업 집합
+# (`pending:bedrock` SREM)도 함께 다뤘다. Lambda 전환으로 둘 다 바뀌었다:
+#   - 저장소  Redis -> DynamoDB (Lambda 는 VPC 밖이라 ClusterIP Redis 에 못 닿는다)
+#   - 작업 집합  폐기 (단계 전이를 S3 이벤트·SQS 가 담당)
+#
+# `BedrockCostCounterUnavailable` 을 여기서 re-export 한다 — 이 모듈의 `main()` 이
+# 그 예외를 잡아 `_die()` 로 이어받는 계약이 그대로 유지되기 때문이다.
 
 
 def _estimate_cost_usd(usage) -> float:
@@ -428,7 +314,6 @@ def _route_post(post: dict, slot_unit: str, slot_text: str, comments: list, resu
 def _finalize_post(
     client,
     bucket: str,
-    redis: BatchRedis,
     source: str,
     date: str,
     post_id: str,
@@ -437,8 +322,8 @@ def _finalize_post(
 ) -> None:
     """게시글 하나의 Bedrock 산출물을 원자적으로 확정한다(PIPE-2SB-18).
 
-    success/failed를 쓰거나(해당 없으면) 지우고, 마지막에 완결 마커를 쓴다. 마커
-    기록 **뒤에** `pending:bedrock`에서 SREM한다(PIPE-2SB-72 — 순서가 계약이다).
+    success/failed를 쓰거나(해당 없으면) 지우고, **마지막에 완결 마커를 쓴다** —
+    순서가 계약이다. 마커가 먼저 찍히면 산출물이 없는데 완결로 보여 재처리가 막힌다.
     """
     success_key = output_key("success", source, date, post_id, method="bedrock")
     failed_key = output_key("failed", source, date, post_id, method="bedrock")
@@ -481,9 +366,6 @@ def _finalize_post(
         )
     except Exception as exc:  # noqa: BLE001 — S3 쓰기 실패는 명확한 에러로 중단(PIPE-2SB-22)
         _die(f"S3 쓰기 실패({source}/{date}/{post_id}): {exc}")
-
-    # PIPE-2SB-72: 마커 기록 성공 뒤에만 SREM한다.
-    redis.srem_pending(f"{source}/{post_id}")
 
 
 def _finalize_shadow(
@@ -621,18 +503,20 @@ def main(
 ) -> dict:
     """Bedrock 러너 진입점.
 
-    인자 없이 호출하면(정규 경로 — k8s Job CMD `python -m pipeline.run_bedrock`) 이전과
-    동일하게 동작한다: 날짜는 `BATCH_DATE`/`today_kst()`, 비용 추적·작업 집합은
-    `BatchRedis`(공유 Redis `bedrock_spend_usd`/`pending:bedrock`), 상한은
-    `BEDROCK_SPEND_LIMIT_USD`(정규 $30/밤).
+    ⚠️ **이 진입점은 로컬 수동 실행·백필 전용이다.** 운영 경로는 Lambda 핸들러
+    (`pipeline/lambda_bedrock.py`)가 SQS 배치마다 돈다. 두 경로 모두 `_body_slot()`·
+    `_route_post()`·`judge_batch()`·`_finalize_post()` 를 그대로 쓰므로 **판정 기준이
+    갈리지 않는다.** 차이는 대상 선정 방식뿐이다 — 여기는 prefix 를 리스팅하고, Lambda 는
+    큐에서 받는다.
+
+    인자 없이 호출하면 날짜는 `BATCH_DATE`/`today_kst()`, 비용 추적은
+    `DynamoDBSpendCounter`(`BUDGET_TABLE_NAME`), 상한은 `BEDROCK_SPEND_LIMIT_USD`($30/일).
 
     `date`·`cost_tracker`·`spend_limit_usd`는 **백필 전용 주입 지점**이다
     (`docs/requirements/pipeline/backfill.md` PIPE-BF-11/15) — `run_backfill.py`가
-    정규 `bedrock_spend_usd`(Redis) 대신 백필 커서의 `spendUsd`(S3, PIPE-BF-9/10)에
-    누적하는 객체와 `BACKFILL_BUDGET_USD`를 넘긴다. `cost_tracker`는 `BatchRedis`와
-    같은 인터페이스(`get_spend()`/`add_spend(amount)`/`srem_pending(member)`)를
-    duck-typing으로 구현해야 하며, `srem_pending`을 no-op으로 두면 PIPE-2SB-72의
-    `SREM`이 백필 모드에서 수행되지 않는다(PIPE-BF-3b).
+    정규 카운터 대신 백필 커서의 `spendUsd`(S3, PIPE-BF-9/10)에 누적하는 객체와
+    `BACKFILL_BUDGET_USD`를 넘긴다. `cost_tracker`는 `get_spend()`/`add_spend(amount)`
+    를 duck-typing으로 구현하면 된다.
 
     반환값(신규): 처리 요약 dict — 호출부가 예산 소진 여부(`not_started`)·처리 건수를
     판정하는 데 쓴다. CLI 진입점(`if __name__ == "__main__": main()`)은 반환값을
@@ -650,15 +534,15 @@ def main(
     client = build_s3_client()
     date = date or runner_settings.BATCH_DATE or today_kst()  # PIPE-2SB-37/38
     if cost_tracker is not None:
-        # 백필 주입 경로(PIPE-BF-15) — 정규 BatchRedis/공유 Redis는 전혀 만들지 않는다.
-        redis = cost_tracker
+        # 백필 주입 경로(PIPE-BF-15) — 정규 카운터를 전혀 만들지 않는다.
+        spend = cost_tracker
     else:
         # 비용 카운터는 DRY_RUN(실호출 없음, 과금 0)에서만 면제한다 — SHADOW는 실제로
-        # 모델을 호출해 과금이 발생하므로(BRK-LLM-48) 면제 대상이 아니다(BatchRedis
-        # 클래스 docstring).
-        redis = BatchRedis(
-            runner_settings.BATCH_REDIS_URL,
-            cost_tracking_required=not bedrock_settings.BEDROCK_DRY_RUN,
+        # 모델을 호출해 과금이 발생하므로(BRK-LLM-48) 면제 대상이 아니다.
+        spend = DynamoDBSpendCounter(
+            runner_settings.BUDGET_TABLE_NAME,
+            batch_date=date,
+            required=not bedrock_settings.BEDROCK_DRY_RUN,
         )
     batch_size = max(1, runner_settings.BEDROCK_BATCH_POST_SIZE)
     spend_limit = spend_limit_usd if spend_limit_usd is not None else runner_settings.BEDROCK_SPEND_LIMIT_USD
@@ -713,7 +597,7 @@ def main(
         # 다르다 — 상한을 확인할 수 없는 상태로 계속 도는 것은 $30 상한을 무의미하게 만들므로
         # PIPE-2SB-63의 exit 0(정상 종료)이 아니라 PIPE-2SB-22 방식의 명확한 에러로 중단한다.
         try:
-            current_spend = redis.get_spend()
+            current_spend = spend.get_spend()
         except BedrockCostCounterUnavailable as exc:
             _die(f"비용 카운터에 접근할 수 없어 예산 상한을 확인할 수 없습니다: {exc}")
             return  # _die가 exit하지만 정적 분석/테스트용 안전장치
@@ -745,7 +629,7 @@ def main(
 
         cost = _estimate_cost_usd(judgement.usage)
         try:
-            redis.add_spend(cost)
+            spend.add_spend(cost)
         except BedrockCostCounterUnavailable as exc:
             # ⚠️ 이 시점엔 이미 위 judge_batch() 호출로 실제 과금이 발생했다(usage가 이미
             # 채워짐). 그래도 공유 카운터에 반영하지 못하면 다음 배치 전 확인(PIPE-2SB-74)이
@@ -786,7 +670,7 @@ def main(
                 success_obj, failed_reasons = _route_post(
                     entry["post"], slot_unit, slot_text, comments, results
                 )
-                _finalize_post(client, bucket, redis, source, date, post_id, success_obj, failed_reasons)
+                _finalize_post(client, bucket, source, date, post_id, success_obj, failed_reasons)
 
             total_processed += 1
 

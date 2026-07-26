@@ -102,7 +102,8 @@ def test_boto3_declared_in_pipeline_requirements_and_dockerfile():
     requirements = (ROOT / "pipeline" / "requirements.txt").read_text(encoding="utf-8")
     dockerfile = (ROOT / "pipeline" / "Dockerfile").read_text(encoding="utf-8")
     assert re.search(r"^boto3==", requirements, re.MULTILINE), "requirements.txt 에 boto3 없음"
-    assert re.search(r"pip install[^\n]*-r\s+pipeline/requirements\.txt", dockerfile), (
+    # 경로 앞에 ${LAMBDA_TASK_ROOT} 같은 접두사가 붙을 수 있으므로 파일명 기준으로 본다.
+    assert re.search(r"pip install[^\n]*-r\s+\S*pipeline/requirements\.txt", dockerfile), (
         "Dockerfile 이 pipeline/requirements.txt 를 설치하지 않는다 — boto3 가 이미지에 안 들어간다"
     )
 
@@ -130,6 +131,17 @@ def test_batch_image_excludes_analysis_stack():
     assert "analysis" not in copied, "Dockerfile 이 analysis/ 를 COPY 한다(PIPE-S3IO-40)"
     assert {"validation", "bedrock", "pipeline"} <= copied, (
         f"러너가 import 하는 모듈이 빠졌다 — COPY 된 것: {sorted(copied)}"
+    )
+
+    # ⚠️ Lambda 함수의 architectures 와 이미지 아키텍처가 다르면 함수 생성이 실패한다.
+    # 빌드 장소(맥=arm64 / CI=amd64)에 따라 결과가 갈리므로 Dockerfile 에 고정한다.
+    assert re.search(r"^FROM\s+--platform=linux/arm64\s", dockerfile, re.MULTILINE), (
+        "베이스 이미지에 --platform 이 고정돼 있지 않다 — 빌드 장소에 따라 아키텍처가 갈려 "
+        "Terraform 의 architectures 와 어긋나면 Lambda 생성이 실패한다"
+    )
+    assert re.search(r"^FROM[^\n]*public\.ecr\.aws/lambda/python", dockerfile, re.MULTILINE), (
+        "Lambda 베이스 이미지가 아니다 — 일반 python 이미지는 Runtime Interface Client 가 없어 "
+        "함수가 뜨자마자 죽는다"
     )
 
     # NER 모델 프리캐시·torch 설치는 analysis 전용이다.

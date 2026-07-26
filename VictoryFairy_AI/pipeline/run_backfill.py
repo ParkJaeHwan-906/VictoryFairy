@@ -13,14 +13,14 @@ import해 쓴다(재구현 금지). Bedrock 단계는 `run_bedrock.main()`을 `d
 오케스트레이터는 그 결과를 보고 날짜 순회·커서 전진만 결정한다.
 
 ## 예산 누적처가 다르다(PIPE-BF-15)
-`run_bedrock`의 정규 경로는 공유 Redis `bedrock_spend_usd`에 누적하고 실패 시 중단한다.
+`run_bedrock`의 정규 경로는 DynamoDB 카운터에 누적하고 실패 시 중단한다.
 백필은 그 카운터를 **읽지도 쓰지도 않는다** — 대신 이 파일의 `Cursor`가 `_backfill/{runId}/
-cursor.json`의 `spendUsd`에 누적한다(S3, 여러 밤에 걸쳐 살아남아야 하므로 — `batch-redis`는
-`emptyDir`라 배치와 함께 사라진다). `Cursor`는 `BatchRedis`와 같은 인터페이스
-(`get_spend`/`add_spend`/`srem_pending`)를 duck-typing으로 구현해 `run_bedrock.main()`에
-그대로 주입된다. `srem_pending`은 no-op이라 PIPE-2SB-72의 `SREM`(`pending:bedrock`)이
-백필 모드에서는 전혀 호출되지 않는다(PIPE-BF-3b). `SADD`(PIPE-2SB-47)는 애초에
-`run_validation.py`에 구현돼 있지 않으므로(아래 "완료 후" 보고 참고) 별도 조치가 필요 없다.
+cursor.json`의 `spendUsd`에 누적한다(S3, 여러 날에 걸쳐 살아남아야 하므로 — 정규 카운터는
+`batch_date`별로 갈려 백필의 누적 예산을 담지 못한다). `Cursor`는 정규 카운터와 같은 인터페이스
+(`get_spend`/`add_spend`)를 duck-typing으로 구현해 `run_bedrock.main()`에 그대로 주입된다.
+
+⚠️ 작업 집합(`pending:*`) 관련 조항(PIPE-BF-3b 등)은 **Lambda 전환으로 대상 자체가
+사라졌다** — 단계 전이를 S3 이벤트와 SQS 가 담당하므로 백필이 건드릴 집합이 없다.
 
 ## 날짜 순서(PIPE-BF-7/8/12)
 `BACKFILL_FROM`~`BACKFILL_TO`를 오름차순으로 순회한다. 각 날짜에 대해 **패턴 완결 →
@@ -134,13 +134,12 @@ class Cursor:
     쓰기 주체는 이 오케스트레이터뿐이다(PIPE-BF-11) — `run_validation`·`run_bedrock`은
     이 키를 전혀 참조하지 않는다(그 두 파일은 손대지 않았다).
 
-    `BatchRedis`(`pipeline/run_bedrock.py`)와 같은 인터페이스(`get_spend`/`add_spend`/
-    `srem_pending`)를 구현해 `run_bedrock.main(cost_tracker=...)`에 그대로 주입된다:
-    - `get_spend`/`add_spend`: 정규 `bedrock_spend_usd`(Redis) 대신 이 커서의 `spendUsd`
-      (S3)에 누적한다(PIPE-BF-15). 정규 카운터는 읽지도 쓰지도 않는다.
-    - `srem_pending`: no-op — PIPE-2SB-72의 `SREM`(`pending:bedrock`)을 백필 모드에서
-      수행하지 않는다(PIPE-BF-3b). `SADD`(PIPE-2SB-47)는 애초에 `run_validation.py`에
-      구현돼 있지 않아 별도 차단이 필요 없다(완료 후 보고 참고).
+    정규 카운터(`pipeline/spend_counter.py`)와 같은 인터페이스(`get_spend`/`add_spend`)를
+    구현해 `run_bedrock.main(cost_tracker=...)`에 그대로 주입된다 — 정규 DynamoDB 카운터
+    대신 이 커서의 `spendUsd`(S3)에 누적한다(PIPE-BF-15). 정규 카운터는 읽지도 쓰지도 않는다.
+
+    ⚠️ 커서를 S3 에 두는 이유: 백필은 **여러 날에 걸쳐 이어질 수 있는데** 정규 카운터는
+    `batch_date` 별로 갈려 있어 누적 예산을 담지 못한다.
     """
 
     def __init__(self, client, bucket: str, run_id: str, mode: str, date_from: str, date_to: str):
@@ -212,10 +211,6 @@ class Cursor:
             return
         self.spend_usd += amount_usd
         self._persist()
-
-    def srem_pending(self, member: str) -> None:
-        """PIPE-BF-3b: 백필 모드에서는 작업 집합을 건드리지 않는다 — 항상 no-op."""
-        return
 
     # --- 오케스트레이터 전용 ---------------------------------------------------
 
