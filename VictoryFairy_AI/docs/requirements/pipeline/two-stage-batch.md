@@ -1,5 +1,5 @@
 # 2단계 야간 정제 배치 (two-stage batch) 요구사항
-> 상태: **v1 승인됨 (2026-07-25) / v2 개정 초안 — 사용자 승인 대기** · 모듈: pipeline · 최종 수정: 2026-07-26
+> 상태: **v1 승인됨 (2026-07-25) / v2 승인됨 (2026-07-26)** · 모듈: pipeline · 최종 수정: 2026-07-26
 > 함께 승인된 문서: `docs/requirements/pipeline/s3-io.md`(v2) · `docs/requirements/bedrock/llm-validation.md`
 > — **세 문서는 한 묶음이다.** 하나만 보고 구현하면 계약이 갈린다.
 >
