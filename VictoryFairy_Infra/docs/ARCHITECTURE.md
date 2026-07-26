@@ -13,7 +13,7 @@
 | 네트워크 | VPC `10.0.0.0/16`, **2a 운영 / 2c 예비** | — |
 | 앱 컴퓨트 | EKS 1.30, 노드그룹 **app**(user+quiz 공용) **· batch**(분리) | 둘 다 오토스케일 |
 | 데이터 | **단일 고정 EC2**(비 EKS)에 MySQL + 서비스 Redis | 스케일 없음(수직만) |
-| 배치 | 매일 03:15 KST, **Spot xlarge** 노드그룹 0→N→0 | 일시적 |
+| 배치 | 매일 **02:00 KST**, **Spot xlarge** 노드그룹 0→N→0 | 일시적 |
 | 접근 | SSM Session Manager only (DB·EKS 노드 SSH 모두 터널 경유, 22/3306 인입 없음) | — |
 
 ---
@@ -45,38 +45,95 @@
 - **서비스 Redis(6379)는 브로커 전용**: 채팅·퀴즈 pub/sub 팬아웃, 이메일 인증 TTL 키. quiz가 다중 파드로 스케일아웃돼도 pub/sub이 파드 간 SSE 이벤트를 팬아웃한다.
   - ⚠ t3.small(2GB)은 MySQL+Redis에 빠듯하다. `innodb_buffer_pool_size` + Redis `maxmemory`/`maxmemory-policy`로 상한을 나눠 잡고 스왑 대비.
 - **백업**(RDS 자동백업 대체): MySQL `mysqldump` cron → S3, 병행 EBS DLM 스냅샷. 이 백업 없이는 인스턴스/AZ 장애 = 데이터 유실.
-- **접근**: SSM 포트포워딩만. SG 인입은 `3306 ← user·quiz·batch`(batch는 최종 저장), `6379 ← user·quiz`.
+- **접근**: SSM 포트포워딩만. SG 인입은 `3306 ← user·quiz·batch`, `6379 ← user·quiz`.
+  - ⚠️ **정제 파이프라인(§4)은 MySQL을 쓰지 않는다** — 산출물이 S3에서 끝난다. `3306 ← batch`는
+    **문제 생성 단계가 생길 때** 필요해지는 것이고, 지금 배치가 실제로 쓰는 것은 **S3 + Bedrock**뿐이다.
+    IRSA 권한을 최소로 잡을 때 이 구분을 지킬 것.
 
-## 4. 배치 파이프라인 — 야간 크롤→정제→생성
+## 4. 배치 파이프라인 — 야간 크롤→패턴 검열→LLM 검열
 
-매일 **03:15 KST**(K8s CronJob `15 3 * * *`, `timeZone: Asia/Seoul`)에 시작해 완료까지 돈다.
+> **개정 2026-07-26.** 이 절은 원래 `raw/`→`clean/`→`done/` 파일 이동과 `INCR` 카운터를
+> 전제로 쓰였으나, AI 쪽 구현이 **작업 집합(Set) + 마커** 방식으로 확정되면서 전면
+> 교체했다. 계약 정본은 `VictoryFairy_AI/docs/requirements/pipeline/two-stage-batch.md`
+> (승인됨, 현재 PR #49). 아래는 그 계약을 인프라 관점에서 옮긴 것이다.
 
-- **일시적 Spot 노드**: CronJob이 워크플로를 띄우면 Pending 파드 → Cluster Autoscaler가 batch 노드그룹(Spot xlarge)을 **0→N** 증설 → 마지막 파드 종료 시 **0으로 축소, EC2 소멸**.
-- **스트리밍 파이프라인(단계가 겹쳐 흐름)**: 단계 배리어가 아니라 **S3 개수 트리거**로 이어진다.
-  1. **크롤링** — 소스별 fan-out. 결과를 `s3://.../raw/`에 저장(**파일 1개 = 1건**).
-  2. `raw/` **파일 개수 ≥ N** → 크롤이 도는 중에 **정제** 시작. 결과를 `clean/`에 저장(**JSON 배열 파일, 여러 건**).
-  3. `clean/` **레코드 개수 ≥ N** → 정제가 도는 중에 **문제 생성** 시작(Claude API). 
-  4. 최종 문제 → **MySQL(quiz)**.
-- **트리거 = 워커 주도 카운터(폴링 아님)**, 저장소는 **배치 전용 임시 Redis**(§아래):
-  - `raw/`: 파일 1건=1개라 **파일 개수 = 데이터 개수**. 크롤러가 `INCR raw_count`(중복은 `SADD seen <키>`가 0 반환으로 차단).
-  - `clean/`: 배열이라 파일 수 ≠ 데이터 수. **정제 워커가 담은 레코드 수 M을 알고 있으니** `INCRBY clean_count M`. (S3 파일을 다시 파싱해 세지 않는다.)
-  - 발사: `INCR` 반환값이 N 경계를 넘으면 워커가 Redis 리스트/스트림에 신호 → 컨트롤러(또는 Argo Events Redis 소스)가 다음 단계 기동.
-- **배치 상태 Redis는 서비스 Redis와 물리 분리**: 데이터 EC2가 아니라 **배치와 함께 뜨고 사라지는 임시 Redis 파드**. 서비스 실시간 지연·메모리를 보호하고, 배치는 데이터 EC2의 3306(최종 저장)만 접근한다. (논리 분리(같은 Redis, DB 인덱스)는 2GB 박스에서 자원 격리가 안 돼 부족 → 물리 분리 선택.)
-- **처리 추적·멱등**: 카운터는 "기동 신호"일 뿐, 처리는 **파일 단위**. 처리한 파일은 `done/`으로 이동해 중복 차단. **진짜 원천은 S3 `done/`** — 임시 Redis가 Spot 회수로 날아가도 야간 배치 멱등 재실행으로 복구. `"≥ N"`은 소프트 게이트(약간 초과 처리 가능).
+매일 **02:00 KST**(K8s CronJob `0 2 * * *`, `timeZone: Asia/Seoul`)에 시작해 소진까지 돈다.
+
+- **일시적 Spot 노드**: CronJob이 크롤 Job·컨트롤러·`batch-redis`를 띄우면 Pending 파드 →
+  Cluster Autoscaler가 batch 노드그룹(Spot xlarge)을 **0→N** 증설 → 마지막 파드 종료 시
+  **0으로 축소, EC2 소멸**.
+- **스트리밍 파이프라인(단계가 겹쳐 흐름)**: 단계 배리어가 아니라 **Redis 작업 집합 크기**로 이어진다.
+  1. **크롤링** — 소스별 fan-out. `s3://.../community/{source}/{date}/{postId}.json` (파일 1개 = 게시글 1건).
+     적재 성공 후 `SADD pending:pattern <키>`.
+  2. `SCARD pending:pattern ≥ 1000` → 크롤이 도는 중에 **패턴 검열**(사전·정규식) 시작.
+     산출물은 `validation/pattern/{success,failed}/…`, 통과분만 `SADD pending:bedrock`.
+  3. `SCARD pending:bedrock ≥ 1000` → 패턴이 도는 중에 **LLM 2차 검열**(AWS Bedrock) 시작.
+     산출물은 `validation/bedrock/{success,failed}/…`.
+  4. **여기서 끝난다.** 이 파이프라인은 MySQL을 쓰지 않는다 — 문제 생성은 별도 시스템 소관이고
+     이 배치의 산출물(S3)을 입력으로 받는다.
+- **트리거 = 컨트롤러 폴링(이벤트 아님)**, 저장소는 **배치 전용 임시 Redis**(§아래):
+  - 카운터가 아니라 **작업 집합**이다. 완료된 게시글은 `SREM`으로 빠지므로 **`SCARD`가 곧
+    잔여 작업 수**이고, **0이면 그 단계가 끝난 것**이다. (구 `INCR` 카운터 방식은 "처리했는데도
+    줄지 않아" 종료를 판정할 수 없어 폐기됐다.)
+  - `SADD`는 조건부, `SREM`은 무조건이다 — 패턴에서 **전건 폐기된 게시글도 `pending:pattern`에서
+    반드시 뺀다**. 안 빼면 실패분(실측 39.5%)이 남아 `SCARD`가 0에 수렴하지 못하고
+    **컨트롤러가 종료 판정을 못 한다.**
+  - 비용 카운터 `bedrock_spend_usd`(float)가 같은 Redis에 있다. 컨트롤러의 예산 게이트 입력이다.
+- **컨트롤러**: 60초 주기로 `SCARD pending:pattern`·`SCARD pending:bedrock`·`bedrock_spend_usd`를
+  폴링해 단계 Job을 생성한다. 같은 단계 Job이 실행 중이면 새로 만들지 않고, 예산 상한 이상이면
+  Bedrock Job을 **잔여분 flush라도 만들지 않는다**. 06:00 KST에 크롤 Job이 살아 있으면 강제 종료한다.
+  → 계약 12개 조항은 `two-stage-batch.md`의 `PIPE-2SB-27~36 · 49 · 50 · 68` 참조.
+- **배치 상태 Redis는 서비스 Redis와 물리 분리**: 데이터 EC2가 아니라 **배치와 함께 뜨고 사라지는
+  임시 Redis 파드**(`emptyDir`, `maxmemory 256mb`, `noeviction`). 서비스 실시간 지연·메모리를 보호한다.
+  (논리 분리(같은 Redis, DB 인덱스)는 2GB 박스에서 자원 격리가 안 돼 부족 → 물리 분리 선택.)
+  `emptyDir`이라 배치마다 새로 떠서 **초기화 로직이 필요 없다**.
+- **처리 추적·멱등**: 작업 집합은 "기동 신호"일 뿐, 처리 단위는 **게시글**이다. 완결된 게시글은
+  `_manifest/{source}/{date}/{postId}.json` **마커 객체**를 남겨 재실행 시 skip한다.
+  원본은 이동하지 않는다(`done/` 방식 폐기 — 입력 prefix는 읽기전용).
+  **진짜 원천은 S3 마커** — 임시 Redis가 Spot 회수로 날아가도 prefix 리스팅 + 마커 확인으로
+  복구된다(`O(N)`이라 느릴 뿐). `"≥ 1000"`은 소프트 게이트(약간 초과 처리 가능).
+- **날짜 고정**: 모든 단계 Job에 `BATCH_DATE`(배치 시작일 KST)를 주입한다. 없으면 러너가 실행
+  당일로 폴백하는데, **Spot 회수로 00:30에 재기동되면 날짜가 넘어가 전날 미처리분 prefix를
+  영영 보지 않는다.** 마커도 Redis도 되살리지 못한다(둘 다 날짜 prefix 안에서만 의미가 있다).
+- **이미지 1개**: 러너 3개(`run_validation`·`run_bedrock`·`run_backfill`)가 `victoryfairy-pipeline`
+  이미지 하나를 공유하고 `command`로 갈린다. 274MB — analysis 계열(torch·NER 모델)은
+  배치가 쓰지 않아 뺐다(1.63GB→274MB). **Spot은 노드가 뜰 때마다 pull하므로 되돌려 넣지 말 것.**
 
 ## 5. Terraform / Kubernetes 경계
 
-- **Terraform(`.tf`, 이 레포)**: VPC·서브넷·NAT, EKS 클러스터, 노드그룹 2개(app/batch), MySQL EC2·EBS·SG·IAM, S3. **클러스터와 노드그룹까지.**
-- **Kubernetes(YAML/Helm, `VictoryFairy_Infra/k8s/`)**: Deployment(user/quiz), HPA(user/quiz), CronJob(배치), 배치 워커, 배치 Redis 파드, taint↔toleration/nodeSelector, Argo/트리거 컨트롤러, Kubernetes Dashboard(학습용). Spring `SPRING_PROFILES_ACTIVE=prod`. (앱 코드는 별도 레포/브랜치지만, 배포 매니페스트는 결합도가 큰 Terraform과 **같은 인프라 레포에 co-locate** — 도구/레이어 경계는 유지)
+- **Terraform(`.tf`, 이 레포)**: VPC·서브넷·NAT, EKS 클러스터, 노드그룹 2개(app/batch), MySQL EC2·EBS·SG·IAM, S3, **ECR 리포지토리**, **배치용 IRSA**(S3 read/write + `bedrock:InvokeModel`). **클러스터와 노드그룹까지.**
+- **Kubernetes(YAML/Helm, `VictoryFairy_Infra/k8s/`)**: Deployment(user/quiz), HPA(user/quiz), CronJob(배치), 배치 워커 Job, 배치 Redis 파드, 트리거 컨트롤러, taint↔toleration/nodeSelector, Kubernetes Dashboard(학습용). Spring `SPRING_PROFILES_ACTIVE=prod`. (앱 코드는 별도 레포/브랜치지만, 배포 매니페스트는 결합도가 큰 Terraform과 **같은 인프라 레포에 co-locate** — 도구/레이어 경계는 유지)
+- **애플리케이션 코드(`VictoryFairy_AI/`, `dev_ai` 브랜치)**: 러너 3개와 **트리거 컨트롤러 로직**. 컨트롤러는 인프라가 아니라 앱이다 — Redis 작업 집합·예산 카운터를 읽고 판단하는 코드라 러너와 같은 이미지·같은 저장소에 둔다. 인프라는 그것을 **띄우는 매니페스트·RBAC·IRSA**를 맡는다.
 - **커플링 주의**: TF의 노드그룹 `taint`/label ↔ YAML의 `toleration`/`nodeSelector`가 반드시 일치해야 한다(`workload=app|batch`, app은 taint 없음). 한쪽만 바꾸면 파드가 스케줄되지 않는다.
 
 ## 미결정 / TODO
 
-- [ ] batch 인스턴스 타입: CPU 바운드(`c*`) vs 균형(`m*`) vs 혼합(Spot 재고·ICE 회피)
-- [ ] 배치 완료 판정: 크롤 종료 마커 + 큐/폴더 소진 감지 → scale 0
-- [ ] 트리거 오케스트레이션: 경량 컨트롤러 vs Argo Workflows/Events
-- [ ] N 임계치: raw/·clean/ 동일값 vs 단계별 상이
-- [ ] batch 노드 SG: 공용 노드 SG vs 전용 SG(전용이면 데이터 호스트 3306 인입에 batch SG 추가)
+### 닫힌 항목 (2026-07-26 — AI 요구사항 승인으로 결정됨)
+
+- [x] **배치 완료 판정** → `PIPE-2SB-35c`. `pending:pattern`이 비고 크롤·패턴 Job이 모두 종료했으며,
+      `pending:bedrock`이 비었거나 예산 상한 이상이면, 실행 중인 Bedrock Job 종료를 기다린 뒤 파이프라인 종료.
+      **작업 집합이 `SREM`으로 줄어들기 때문에 `SCARD == 0`이 곧 소진 신호다** — 구 카운터 방식에서는 불가능했던 판정.
+- [x] **N 임계치** → **두 단계 모두 1000**(`PIPE-2SB-28`·`-49`). 단계별로 다르게 두지 않는다.
+- [x] **트리거 = 폴링** → `PIPE-2SB-27`이 "컨트롤러가 60초 주기로 폴링한다"를 계약으로 확정했다.
+      **이벤트 방식은 선택지가 아니다** — 러너는 `SADD`/`SREM`만 하고 이벤트를 발행하지 않으며,
+      `SCARD` 임계값을 감시하는 이벤트 소스는 Redis에도 Argo Events에도 없다.
+
+### 열린 항목
+
+- [ ] **컨트롤러 구현체**: 폴링이라는 계약은 정해졌고, **무엇으로 짜느냐가 남았다.**
+      - 권장: **Python + `kubernetes` 클라이언트**. 러너와 같은 언어이고 `victoryfairy-pipeline`
+        이미지에 얹으면 **새 이미지·새 ECR 리포지토리가 필요 없다**(`redis`는 이미 있고 `kubernetes`만 추가).
+      - Argo Workflows는 맞지 않는다: `-30`(중복 Job 방지)·`-68`(예산 게이트)·`-32`/`-50`(잔여분 flush)·
+        `-35c`(종료 판정)가 전부 외부 상태를 보는 커스텀 로직이라 **DSL이 대신해 주는 게 사실상 없고**,
+        상시 기동 컨트롤러 4개가 "평소 0대" 원칙과 마찰한다.
+      - shell + `kubectl`도 가능하나 위 조건 조합에서 금방 지저분해진다.
+- [ ] **batch 인스턴스 타입**: 현재 `m5.xlarge`(배포됨). CPU 바운드(`c*`) vs 균형(`m*`) vs 혼합(Spot 재고·ICE 회피).
+      정제는 I/O·API 대기가 지배적이라 CPU 바운드가 아닐 가능성이 높다 — 실측 후 판단.
+- [ ] **batch 노드 SG**: 공용 노드 SG vs 전용 SG.
+      ⚠️ **판단 근거가 바뀌었다** — 정제 파이프라인은 MySQL을 쓰지 않으므로(§3) "데이터 호스트 3306 인입에
+      batch SG 추가"는 **지금은 불필요하다.** 문제 생성 단계가 생길 때 다시 볼 것.
+- [ ] **크롤 Job 종료 감지 방식**: `PIPE-2SB-32`·`-50`의 flush 조건이 "크롤 Job이 종료되고"인데,
+      컨트롤러가 이를 k8s Job status로 볼지 별도 마커로 볼지 미정.
 
 ## 참고
 
