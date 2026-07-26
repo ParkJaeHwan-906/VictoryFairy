@@ -11,9 +11,9 @@ Terraform 으로 관리하는 VictoryFairy 의 AWS 인프라 코드입니다.
 - **DB**: **단일 고정 EC2**(비 EKS)에 MySQL + Redis 컨테이너 + EBS 영속 볼륨 (RDS 미사용, 비용 사유)
   - Redis 는 채팅·퀴즈·인증 **서비스 브로커 전용**. 앱과 격리, 스케일아웃 없음(부족 시 수직 승급)
   - MySQL 데이터는 **하루 단위로 S3 백업** (+ EBS 스냅샷 병행 권장)
-- **배치**: 매일 **02:00 KST**, **Spot xlarge 노드그룹 0→N→0**. 크롤→패턴 검열→LLM 검열(AWS Bedrock)
-  스트리밍 파이프라인 (**Redis 작업 집합 크기 트리거**, 배치 전용 임시 Redis 로 상태 관리 → ARCHITECTURE.md §4).
-  산출물은 **S3 에서 끝난다** — 이 파이프라인은 MySQL 을 쓰지 않는다
+- **정제**: **서버리스**. 크롤(Lambda, 상시) → S3 이벤트 → 패턴 검열(Lambda) → SQS → LLM 검열(Lambda, AWS Bedrock).
+  트리거가 인프라 부품이라 **폴링 컨트롤러가 없다**. 산출물은 **S3 에서 끝난다** — MySQL 을 쓰지 않는다 → ARCHITECTURE.md §4
+- **batch 노드그룹**(Spot·min0): **정제에는 쓰이지 않는다.** 문제 생성 단계용으로 보류
 - **외부 접근**: DB·EKS 노드 SSH는 SSM Session Manager 포트포워딩(인바운드 22/3306 개방 없음), EKS API는 퍼블릭 엔드포인트+IAM 인증(`kubectl`) — 절차는 [`scripts/README.md`](scripts/README.md)
 
 ## 디렉토리 구조
