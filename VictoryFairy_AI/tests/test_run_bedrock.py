@@ -391,6 +391,43 @@ def test_main_shadow_mode_only_writes_shadow_key_and_skips_success_failed_marker
     assert tracker.srem_calls == [], "shadow 는 작업 집합(SREM)을 전혀 건드리지 않아야 한다"
 
 
+def test_main_dry_run_writes_nothing_to_s3():
+    """PIPE-2SB-78 — DRY_RUN 은 S3 에 아무것도 쓰지 않는다.
+
+    ⚠️ 회귀 방지가 목적이다. 이전에는 DRY_RUN 이 success + 완결 마커를 기록했고,
+    그 결과 **판정을 한 번도 하지 않은 게시글이 "2차 검열 완결"로 남았다.** 마커가
+    붙으면 멱등 skip 대상이라 진짜 실행도 섀도 측정도 그 게시글을 영영 건너뛴다 —
+    실버킷에 DRY_RUN 을 한 번 돌린 것만으로 그 날짜가 통째로 미판정인 채 완결
+    처리됐다(실제 사고).
+
+    DRY_RUN 은 모델을 호출하지 않으므로 judge_batch 를 스텁하지 않는다 — 호출이
+    일어나면 그 자체가 계약 위반이다(BRK-LLM-16).
+    """
+    client = _FakeS3Client()
+    bucket = "test-bucket"
+    post = _post(post_id="9", body="배선 검증용 본문")
+    _seed_pattern_success(client, bucket, post)
+
+    tracker = _NoOpCostTracker()
+
+    with _bedrock_ready(BEDROCK_DRY_RUN=True), _override(pipeline_settings, S3_BUCKET=bucket), \
+            _override(run_bedrock, build_s3_client=lambda: client):
+        result = main(date=DATE, cost_tracker=tracker, spend_limit_usd=30.0)
+
+    assert result["processed"] == 1, "리스팅·판정 배선 자체는 돌아야 검증 목적이 성립한다"
+    assert result["call_count"] == 0, "DRY_RUN 은 모델을 호출하지 않는다(BRK-LLM-16)"
+
+    for key in (
+        output_key("success", SOURCE, DATE, "9", method="bedrock"),
+        output_key("failed", SOURCE, DATE, "9", method="bedrock"),
+        manifest_key(SOURCE, DATE, "9", method="bedrock"),
+        shadow_key(SOURCE, DATE, "9", method="bedrock"),
+    ):
+        assert not object_exists(client, bucket, key), f"DRY_RUN 이 {key} 를 기록했다(PIPE-2SB-78 위반)"
+
+    assert tracker.srem_calls == [], "DRY_RUN 은 작업 집합도 건드리지 않는다"
+
+
 # ---------------------------------------------------------------------------
 # BatchRedis — 비용 카운터 실패(raise)와 작업 집합 실패(log-only)의 구분
 # ---------------------------------------------------------------------------

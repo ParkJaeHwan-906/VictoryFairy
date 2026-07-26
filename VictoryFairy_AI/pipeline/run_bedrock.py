@@ -658,8 +658,9 @@ def main(
     batch_size = max(1, runner_settings.BEDROCK_BATCH_POST_SIZE)
     spend_limit = spend_limit_usd if spend_limit_usd is not None else runner_settings.BEDROCK_SPEND_LIMIT_USD
     shadow_mode = judge_service.shadow_mode
+    dry_run_mode = bedrock_settings.BEDROCK_DRY_RUN
 
-    print(f"BATCH_DATE={date} / batch_size={batch_size} / shadow={shadow_mode}")
+    print(f"BATCH_DATE={date} / batch_size={batch_size} / shadow={shadow_mode} / dry_run={dry_run_mode}")
 
     pending, total_skipped_done, total_skipped_bad = _collect_pending(client, bucket, date)
 
@@ -763,7 +764,16 @@ def main(
             source = entry["source"]
             post_id = entry["post_id"]
 
-            if shadow_mode:
+            if dry_run_mode:
+                # DRY_RUN 은 S3 에 아무것도 쓰지 않는다(PIPE-2SB-78).
+                #
+                # ⚠️ 예전에는 여기서 success + 완결 마커를 썼다. 판정을 한 번도 하지 않은
+                # 게시글이 "2차 검열 완결"로 기록되고, 마커가 붙는 순간 멱등 skip 대상이
+                # 되어 **진짜 실행도 섀도 측정도 그 게시글을 영영 건너뛴다.** 배선 검증용
+                # 모드가 운영 상태를 영구히 바꾸는 셈이라, 실버킷에 한 번만 돌려도 그
+                # 날짜가 통째로 미판정인 채 완결 처리됐다(실제로 발생시킨 사고다).
+                pass
+            elif shadow_mode:
                 _finalize_shadow(
                     client, bucket, source, date, post_id, slot_unit, slot_text, comments, results
                 )
@@ -784,7 +794,9 @@ def main(
         f"폐기단위 {total_discarded_units} / 폴백통과 {total_fallback_units} / 절단 {total_truncated} / "
         f"이번 실행 추정소비액 ${total_spend_this_run:.4f} / 캐시적중토큰 {total_cache_read_tokens}"
     )
-    if shadow_mode:
+    if dry_run_mode:
+        print("DRY_RUN 모드: S3 에 아무것도 기록하지 않았습니다(PIPE-2SB-78) — 배선 검증 전용.")
+    elif shadow_mode:
         print("SHADOW 모드: success/failed/마커/작업 집합 미기록 — _shadow 전용 경로에만 기록됨.")
 
     return {
