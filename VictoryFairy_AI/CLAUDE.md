@@ -1,12 +1,14 @@
 # VictoryFairy_AI
 
-한국어 텍스트를 **검열 → 형태소·개체명 추출 → 집계**하는 파이프라인.
+KBO 커뮤니티 텍스트를 **패턴 검열 → LLM 2차 검열**하는 배치 파이프라인.
+(형태소·개체명 추출은 코드가 남아 있으나 배선에서 빠져 있다 — `docs/modules/pipeline.md` "한계")
 
 ## 모듈 (컨텍스트 격리 단위)
 
-- **validation** — 검열(욕설·비속어 필터). 정규화 + 룰/정규식.
-- **analysis** — 형태소(명사·동사, Kiwi) + 개체명(이름·지명·기관·날짜, NER) 추출.
-- **pipeline** — 파일 기반 배치 러너(검열 → 분석 → 집계).
+- **validation** — 1차 검열(욕설·비속어 필터). 정규화 + 룰/정규식.
+- **bedrock** — 2차 검열(AWS Bedrock LLM). 문맥 의존 욕설·광고/스팸·야구 무관 글. **텍스트 in / 판정 out 이 전부** — S3를 모른다.
+- **analysis** — 형태소(명사·동사, Kiwi) + 개체명(이름·지명·기관·날짜, NER) 추출. **현재 배선에서 빠짐.**
+- **pipeline** — S3 기반 배치 러너(패턴 검열 → Bedrock 검열 → 백필). 오케스트레이션만 하고 판정 로직은 갖지 않는다.
 
 ## 작업 규칙 (하네스)
 
@@ -34,14 +36,21 @@
 - 전체 구조: `docs/architecture.md`
 - 하네스 전략: `docs/harness-strategy.md`
 - 기능 전략: `docs/feature-strategy.md`
-- 모듈별 상세: `docs/modules/{validation,analysis,pipeline}.md`
+- 모듈별 상세: `docs/modules/{validation,bedrock,analysis,pipeline}.md`
+- 요구사항(승인된 계약): `docs/requirements/{pipeline,bedrock}/*.md`
 
 ## 실행
 
 ```bash
-python -m pipeline.run_validation   # 검열
-python -m pipeline.run_analysis     # 형태소+NER
+BATCH_DATE=2026-07-25 python -m pipeline.run_validation   # 패턴 검열  community/ → validation/pattern/
+BATCH_DATE=2026-07-25 python -m pipeline.run_bedrock      # 2차 검열   pattern/success/ → validation/bedrock/
+BACKFILL_FROM=... BACKFILL_TO=... python -m pipeline.run_backfill   # 누적분 재처리
+
+python -m pipeline.run_analysis     # 형태소+NER (배선에서 빠짐 — 입력 수동 배치 필요)
 python -m pipeline.run_aggregate    # 인명 집계
 uvicorn validation.main:app --port 8000
 uvicorn analysis.main:app --port 8001
 ```
+
+`run_validation`·`run_bedrock` 은 `S3_BUCKET` 이 필요하고, `run_bedrock` 은 추가로
+`BEDROCK_MODEL_ID` 가 없으면 기동 시 거부된다(`BEDROCK_DRY_RUN` 제외).
