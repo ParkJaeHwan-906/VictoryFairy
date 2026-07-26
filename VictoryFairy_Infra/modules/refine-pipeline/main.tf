@@ -235,8 +235,13 @@ resource "aws_lambda_function" "pattern" {
   package_type  = "Image"
   image_uri     = "${var.pipeline_repository_url}:${var.image_tag}"
 
-  timeout     = 120 # 게시글 1건 · 정규식 판정. 콜드 스타트(274MB 이미지) 여유 포함.
+  timeout     = 120 # 게시글 1건 · 정규식 판정. 콜드 스타트 여유 포함.
   memory_size = 1024
+
+  # ⚠️ 이미지 아키텍처와 **반드시 일치**해야 한다. 다르면 함수 생성 자체가 실패한다.
+  # pipeline/Dockerfile 이 `FROM --platform=linux/arm64` 로 고정돼 있다 —
+  # 한쪽만 바꾸면 apply 가 깨진다. arm64(Graviton)는 x86 대비 약 20% 저렴하다.
+  architectures = ["arm64"]
 
   image_config {
     # TODO(앱): 핸들러 경로 확정 후 맞출 것. 러너를 이벤트 핸들러 구조로 바꾸는 작업이 선행된다.
@@ -264,6 +269,9 @@ resource "aws_lambda_function" "bedrock" {
 
   timeout     = local.bedrock_timeout_seconds
   memory_size = 1024
+
+  # 패턴 함수와 같은 이미지를 쓴다 — 아키텍처도 같아야 한다(위 주석 참고).
+  architectures = ["arm64"]
 
   # ⚠ **예산 상한의 두 번째 겹.** DynamoDB 카운터만으로는 동시에 뜬 함수들이 각자
   #   "아직 여유 있음"을 읽고 함께 넘긴다. 1로 묶어 직렬화한다.
