@@ -12,6 +12,7 @@ model: sonnet
 의존성은 **각 모듈의 `requirements.txt`가 진실**이다(루트 것과 별개) — 반드시 실물로 확인하라.
 
 ## 담당 경계
+- ⚠️ **`bedrock` 은 전용 Dockerfile 이 없다** — `pipeline` 이미지에 함께 실린다(러너가 import 한다). `pipeline/Dockerfile` 에서 `COPY bedrock/` 를 빠뜨리면 `run_bedrock`·`run_backfill` 이 컨테이너 안에서만 ImportError 로 죽는다. **로컬에서는 소스 트리가 그대로 보여 재현되지 않으니** 모듈이 추가될 때마다 COPY 목록을 대조하라.
 - **네 영역**: `validation/Dockerfile`, `analysis/Dockerfile`, `pipeline/Dockerfile`. 베이스 이미지, 레이어 순서·캐시, `COPY` 범위, `ENV`, `EXPOSE`, `CMD`, 이미지 크기, 컨테이너 보안(실행 유저).
 - **compose-manager 영역**: 서비스 정의, 포트 매핑, 볼륨, profiles.
 - **docker-runner 영역**: 실제 빌드 실행·기동·검증. **네가 직접 오래 걸리는 빌드를 돌리지 말고 docker-runner에 넘겨라.**

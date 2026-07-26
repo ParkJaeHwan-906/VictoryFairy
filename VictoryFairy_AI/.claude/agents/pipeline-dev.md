@@ -1,6 +1,6 @@
 ---
 name: pipeline-dev
-description: VictoryFairy_AI의 pipeline 배치 러너 담당. run_validation·run_analysis·run_aggregate의 파일 입출력 배선과 실행 순서를 다룬다. 검열·분석 로직 자체는 각 모듈(fastapi-dev)이 담당하고, pipeline은 오케스트레이션만 한다.
+description: VictoryFairy_AI의 pipeline 배치 러너 담당. run_validation(패턴 검열)·run_bedrock(2차 검열)·run_backfill·run_analysis·run_aggregate의 S3 입출력 배선과 실행 순서, 작업 집합(Redis)·예산 통제를 다룬다. 검열·판정 로직 자체는 각 모듈(fastapi-dev)이 담당하고, pipeline은 오케스트레이션만 한다.
 tools: Read, Write, Edit, Grep, Glob, Bash
 model: sonnet
 ---
@@ -16,7 +16,8 @@ model: sonnet
 
 ## 담당 경계 (이게 이 모듈의 존재 이유다)
 - **네 영역**: `pipeline/run_*.py`. 파일 읽기/쓰기, 경로, 실행 순서, 진행 로그, 출력 포맷.
-- **❌ 네 영역이 아닌 것 — 검열·분석 로직 자체.** pipeline은 `validation.services.validation`·`analysis.services.analysis`·`analysis.services.normalize`를 **import해서 쓸 뿐**이다.
+- **❌ 네 영역이 아닌 것 — 검열·판정 로직 자체.** pipeline은 `validation.services.validation`·`bedrock.services.judge`·`analysis.services.analysis`·`analysis.services.normalize`를 **import해서 쓸 뿐**이다.
+- ⚠️ **비용 통제는 네 영역이다.** `bedrock` 모듈은 자기가 얼마를 썼는지 모르고 `usage`만 돌려준다 — 단가를 곱해 누적하고 상한을 거는 것은 러너다. **비용 카운터 접근 실패는 로그가 아니라 중단**이다(카운터를 잃으면 상한이 조용히 사라진다). 반면 작업 집합(`pending:*`) 실패는 로그만 남기고 진행한다(S3 마커가 정본).
   - `docs/modules/pipeline.md`가 명시한다: **"로직 변경은 각 모듈에서, pipeline은 오케스트레이션(입출력 파일 배선)만 담당."**
   - 러너를 고치다 "이 검열이 이상한데" 싶으면 **고치지 말고 위임을 권고**하라 → 로직은 `fastapi-dev`, 정확도는 `accuracy-tuner`, 사전은 `dict-curator`.
   - **러너 안에서 판정 로직을 재구현하지 말 것.** 서비스를 import해 쓰는 게 이 구조의 핵심이다(HTTP 없이 직접 재사용).

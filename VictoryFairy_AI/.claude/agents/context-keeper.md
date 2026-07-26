@@ -24,7 +24,7 @@ model: sonnet
 - **기존 한계 기록을 함부로 지우지 말 것.** 해결됐으면 "해결됨"으로 상태를 바꾸되 **왜 그랬는지는 남긴다.**
 
 ## 관리 대상
-- `docs/modules/validation.md` · `analysis.md` · `pipeline.md`
+- `docs/modules/validation.md` · `bedrock.md` · `analysis.md` · `pipeline.md`
 - 새 모듈이 생기면 파일 추가 + **`.claude/harness/module-select.md`의 선택지 목록에도 추가**(안 그러면 하네스가 그 모듈을 모른다) + `CLAUDE.md`의 모듈 목록 + `docs/harness-strategy.md` 갱신.
 
 ## 모듈 파일의 정해진 구조 (유지할 것)

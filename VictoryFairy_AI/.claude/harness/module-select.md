@@ -2,10 +2,12 @@
 
 ## 1. 모듈 선택
 
-이 프로젝트는 3개 모듈로 구성된다: **validation**(검열), **analysis**(형태소·NER 추출), **pipeline**(배치 러너).
+이 프로젝트는 4개 모듈로 구성된다: **validation**(1차 검열), **bedrock**(LLM 2차 검열), **analysis**(형태소·NER 추출), **pipeline**(배치 러너).
+
+⚠️ **analysis 는 현재 배선에서 빠져 있다** — 코드는 살아 있지만 파이프라인이 호출하지 않는다. 실운영 흐름은 `validation → bedrock` 2단계다.
 
 본격적인 코드 작업을 시작하기 전에:
-1. `AskUserQuestion` 으로 사용자에게 **어느 모듈에서 작업할지** 묻는다 (validation / analysis / pipeline / 여러 모듈).
+1. `AskUserQuestion` 으로 사용자에게 **어느 모듈에서 작업할지** 묻는다 (validation / bedrock / analysis / pipeline / 여러 모듈).
 2. 선택된 모듈의 문서 `docs/modules/<module>.md` **하나만** 먼저 읽어 컨텍스트를 로드한다.
 3. 그 모듈·기능 범위 밖의 파일은 꼭 필요할 때만 참조하고, 다른 모듈 컨텍스트를 불필요하게 끌어오지 않는다.
 
@@ -23,8 +25,8 @@
 
 ### 코드
 - **requirements-writer** — 구현 전 EARS 요구사항 정의 (`docs/requirements/<module>/<feature>.md`). 문서만, 코드·사전 안 씀. 사용자에게 직접 질문하지 못하니 '미해결 질문'을 돌려주고, 묻는 건 네 몫이다
-- **fastapi-dev** — validation·analysis 의 FastAPI 기능 구현 (라우트·스키마·서비스·core)
-- **pipeline-dev** — pipeline 배치 러너 (파일 입출력 배선. 로직은 각 모듈 소관)
+- **fastapi-dev** — validation·analysis·**bedrock** 의 모듈 기능 구현 (라우트·스키마·서비스·core). ⚠️ bedrock 은 **라우트가 없는 순수 서비스 모듈**이다(배치 전용) — 이름과 달리 FastAPI 가 아닌 모듈도 여기 소관
+- **pipeline-dev** — pipeline 배치 러너 (S3 입출력 배선·러너 오케스트레이션. 판정 로직은 각 모듈 소관)
 - **dict-curator** — 사전 8개 JSON 관리 (banned_words·exceptions·normalization / persons·surnames·person_stopwords·organizations·aliases)
 - **accuracy-tuner** — 오탐/미탐 측정·분석, 뷰 매칭 전략, gazetteer 후처리. **이 프로젝트의 핵심 관심사**
 - **perf-optimizer** — 모델 로딩·async 블로킹·torch 메모리·배치 (결과가 바뀌면 accuracy-tuner 일)
@@ -35,7 +37,7 @@
 - **code-commenter** — 로직 의도('왜') 주석·docstring (로직 변경 금지)
 
 ### 인프라
-- **dockerfile-manager** — 3개 Dockerfile (validation 경량 유지 / analysis torch CPU 분리)
+- **dockerfile-manager** — 3개 Dockerfile (validation 경량 유지 / analysis torch CPU 분리). **bedrock 은 전용 Dockerfile 이 없다** — pipeline 이미지에 함께 실린다(러너가 import 한다)
 - **compose-manager** — docker-compose.yml (pipeline 은 profile: batch 로 격리)
 - **docker-runner** — 실제 빌드·기동·검증 후 정리 (읽기전용, 인프라 검증 담당)
 
@@ -82,5 +84,7 @@
 - 로컬 패키지는 `.venv` 에만 있다(fastapi 0.111.0 / kiwipiepy / torch). 인터프리터는 `.venv/bin/python`.
 - **docker**: Docker.app 이 `~/Desktop` → `/Applications` 로 이동되어 심링크(`/usr/local/bin/docker`, `~/.docker/cli-plugins/*`)가 끊어져 있다. 전체 경로로 실행하거나 심링크를 고쳐야 한다. 데몬이 꺼져 있을 수 있고(`open -a Docker` 는 사용자에게 요청), Claude Code 샌드박스가 소켓을 막으므로 `dangerouslyDisableSandbox` 가 필요하다.
 - **analysis 는 무겁다** — Kiwi + KoELECTRA(torch) 로딩 + 첫 실행 시 모델 다운로드. 느리다고 실패로 단정하지 마라. 네트워크가 없으면 모델을 못 받는다.
+- **bedrock 은 실제로 과금된다.** `bedrock` 모듈·`run_bedrock` 검증은 **AWS 실호출**이라 돈이 나간다. 비용 없이 배선만 보려면 `BEDROCK_DRY_RUN=true`(호출 없음), 실판정 품질을 재려면 `BEDROCK_SHADOW=true`(호출함 — **과금됨**). 두 모드는 양립 불가다. 상한은 `BEDROCK_SPEND_LIMIT_USD`(기본 $30/일).
+- **bedrock 은 모델 선택지가 거의 없다.** 조직 SCP 가 서울 외 리전 호출을 막아 추론 프로파일(`apac.*`·`global.*`)을 쓸 수 없다. 서울 `ON_DEMAND` 모델은 2개뿐이고 **프롬프트 캐싱도 못 쓴다**. 모델을 바꾸려 하기 전에 `docs/modules/bedrock.md` "한계" 를 읽어라 — 이미 검증된 제약이다.
 - **AI 를 배포하는 CI 워크플로가 없다.** 저장소 루트 `.github/workflows/deploy.yml` 은 BE 만 다룬다.
 - **`data/` 는 실제 산출물이다.** 특히 `crawled_data.txt` 는 입력 원본이라 러너가 만들지 못한다 — 덮어쓰기 전에 확인하라.
