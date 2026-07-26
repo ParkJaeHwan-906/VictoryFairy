@@ -78,6 +78,7 @@ from pipeline.s3_io import (
     put_json_object,
     shadow_key,
 )
+from pipeline.text_normalize import is_blank_content, strip_crawler_artifacts
 
 # 크롤러가 적재하는 커뮤니티 소스. run_validation과 동일(PIPE-S3IO-6).
 SOURCES: list[str] = ["dcinside", "fmkorea"]
@@ -289,13 +290,17 @@ def _body_slot(post: dict) -> tuple:
     않으므로(PIPE-S3IO-33) 정상적으로는 title이 비어 있지 않다. 다만 v1 규칙으로
     쌓인 과거 산출물이 섞여 있을 수 있어(문서 "알려진 한계") title도 비어 있으면
     빈 문자열을 그대로 흘려보낸다 — 크래시하지 않는 것이 계약이다.
+
+    ⚠️ 빈 판정과 서명 제거는 `pipeline.text_normalize` 를 **패턴 러너와 공유**한다
+    (PIPE-S3IO-39). 각자 구현하면 두 단계가 서로 다른 텍스트를 판정하게 되고,
+    1차에서 통과시킨 것과 2차가 보는 것이 어긋난다.
     """
     body_text = post.get("body")
-    if isinstance(body_text, str) and body_text.strip():
-        return "body", body_text
+    if not is_blank_content(body_text):
+        return "body", strip_crawler_artifacts(body_text)
     title_text = post.get("title")
-    if isinstance(title_text, str) and title_text.strip():
-        return "title", title_text
+    if not is_blank_content(title_text):
+        return "title", strip_crawler_artifacts(title_text)
     return "title", title_text if isinstance(title_text, str) else ""
 
 

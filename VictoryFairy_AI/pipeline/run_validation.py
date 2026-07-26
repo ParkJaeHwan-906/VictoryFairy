@@ -56,6 +56,7 @@ from pipeline.s3_io import (
     output_key,
     put_json_object,
 )
+from pipeline.text_normalize import is_blank_content, strip_crawler_artifacts
 
 # 크롤러가 적재하는 커뮤니티 소스. 한 번의 실행에서 둘 다 처리한다(PIPE-S3IO-6).
 SOURCES: list[str] = ["dcinside", "fmkorea"]
@@ -224,24 +225,28 @@ def process_post(post: dict) -> tuple:
     """
     body_text = post.get("body")
     title_text = post.get("title")
-    body_is_blank = not isinstance(body_text, str) or not body_text.strip()
+    # PIPE-S3IO-39: 크롤러 자동 서명만 남은 본문은 **내용이 없는 것으로 본다**.
+    # str.strip() 을 그대로 쓰면 `- dc official App` 뿐인 본문이 "내용 있음"으로
+    # 판정돼 아래 title 대체가 발동하지 않는다(실측 15건이 그랬다).
+    body_is_blank = is_blank_content(body_text)
 
     if body_is_blank:
         # PIPE-S3IO-32: 빈 본문이면 title 을 본문 자리 판정 단위로 삼는다.
         body_slot_unit = "title"
         body_slot_text = title_text
-        title_is_blank = not isinstance(title_text, str) or not title_text.strip()
+        title_is_blank = is_blank_content(title_text)
         if title_is_blank:
             # PIPE-S3IO-33: 본문·제목 모두 비어 있으면 판정할 텍스트가 없으므로 fail 확정.
             # (댓글은 있을 수 있으므로 여기서 곧장 리턴하지 않고 아래에서 마저 판정한다.)
             body_slot_ok, body_slot_message = False, "빈 본문·빈 제목"
         else:
-            body_slot_ok, body_slot_message = _validate_unit(title_text)
+            body_slot_ok, body_slot_message = _validate_unit(strip_crawler_artifacts(title_text))
     else:
         # PIPE-S3IO-35: body 가 있으면 title 은 판정하지 않는다.
         body_slot_unit = "body"
         body_slot_text = body_text
-        body_slot_ok, body_slot_message = _validate_unit(body_text)
+        # 서명을 뗀 텍스트로 판정한다. 저장은 원문 그대로다(text_normalize 모듈 주석).
+        body_slot_ok, body_slot_message = _validate_unit(strip_crawler_artifacts(body_text))
 
     failed_reasons: list[dict] = []
     if not body_slot_ok:
