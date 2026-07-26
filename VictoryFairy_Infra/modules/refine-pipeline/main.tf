@@ -344,8 +344,16 @@ resource "aws_lambda_event_source_mapping" "bedrock" {
   # 재처리 자체는 마커가 막지만, 다시 모델을 부르는 낭비를 없앤다.
   function_response_types = ["ReportBatchItemFailures"]
 
-  scaling_config {
-    # 예약 동시성 1과 짝을 이룬다. 폴러가 동시에 여러 배치를 밀어 넣지 않게 한다.
-    maximum_concurrency = 2
-  }
+  # ⚠️ `scaling_config { maximum_concurrency }` 를 두지 않는다.
+  #
+  # 처음에는 2로 넣었다가 apply 에서 막혔다:
+  #     InvalidParameterValueException: MaximumConcurrency: 2 is greater than
+  #     Function Reserved Concurrency: 1
+  # AWS 는 `maximum_concurrency <= reserved_concurrency` 를 요구하는데, 이 설정의
+  # **최소값이 2** 라 예약 동시성 1과는 애초에 공존할 수 없다.
+  #
+  # 그리고 필요하지도 않다 — 함수의 `reserved_concurrent_executions = 1` 이 이미
+  # 직렬화를 강제한다. 폴러 쪽 제한은 **불필요한 이중 장치**였다.
+  #
+  # ⚠️ 이 제약은 두 리소스에 걸쳐 있어 **plan 에서 잡히지 않는다.** API 호출에서야 드러난다.
 }
