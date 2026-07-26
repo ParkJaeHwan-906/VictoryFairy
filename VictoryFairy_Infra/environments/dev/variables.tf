@@ -56,7 +56,14 @@ variable "crawl_bucket_name" {
 }
 
 variable "refine_image_tag" {
-  description = "정제 러너 Lambda 컨테이너 이미지 태그(커밋 SHA 등 불변 태그). ⚠ ECR 에 push 되기 전에는 apply 가 실패한다"
+  description = "정제 러너 Lambda 컨테이너 이미지 태그. VictoryFairy_AI 의 커밋 SHA 를 쓴다(불변 태그)"
   type        = string
-  default     = "bootstrap"
+
+  # VictoryFairy_AI dev_ai 계열 커밋 aea6fca5 로 빌드해 push 한 이미지.
+  # 리포지토리가 IMMUTABLE 이라 같은 태그 재push 가 막히므로, 이 값이 곧 배포된 코드다.
+  #
+  # ⚠ 이미지를 바꾸려면 **AI 저장소에서 빌드·push 한 뒤 이 값을 갱신**한다. 태그가 ECR 에
+  #   없으면 apply 가 Lambda 생성에서 실패한다(plan 은 통과하므로 plan 만으로는 못 잡는다).
+  #   아키텍처도 arm64 여야 한다 — 다르면 함수 생성 자체가 실패한다(modules/refine-pipeline 주석).
+  default = "aea6fca5"
 }
