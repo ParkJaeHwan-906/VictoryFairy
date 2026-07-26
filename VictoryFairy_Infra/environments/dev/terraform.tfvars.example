@@ -7,3 +7,9 @@ environment      = "dev"
 vpc_cidr         = "10.0.0.0/16"
 azs              = ["ap-northeast-2a", "ap-northeast-2c"]
 backup_s3_bucket = "victoryfairy-mysql-backup-dev"
+domain_name      = "victoryfairy.com" # Route53 호스팅영역 + ACM 인증서 기준 도메인
+
+# dev 전용 DB(퍼블릭 MySQL+Redis, 매일 restore)를 만들려면 본인 IP CIDR 을 넣으세요.
+# 비워두면(미설정) dev DB 는 생성되지 않습니다(plan 에도 안 뜸).
+# dev_db_allowed_cidrs = ["1.2.3.4/32", "5.6.7.8/32"]   # 허용할 개발자 IP 들(/32), 비우면 dev DB 미생성
+# dev_db_use_eip       = true                            # dev DB 에 고정 IP(Elastic IP) 부여(stop/start 후 IP 유지)

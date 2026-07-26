@@ -27,3 +27,8 @@ output "oidc_provider_arn" {
   description = "IRSA용 OIDC 프로바이더 ARN. 파드 단위 IAM 역할의 신뢰 정책에서 참조."
   value       = aws_iam_openid_connect_provider.this.arn
 }
+
+output "oidc_provider_url" {
+  description = "IRSA용 OIDC 프로바이더 URL(https:// 제거). 파드 IAM 역할 신뢰정책의 sub/aud 조건 변수 접두사로 사용(alb·dns 모듈)."
+  value       = replace(aws_eks_cluster.this.identity[0].oidc[0].issuer, "https://", "")
+}

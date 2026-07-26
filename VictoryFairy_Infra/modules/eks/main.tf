@@ -132,6 +132,11 @@ resource "aws_eks_node_group" "this" {
   node_role_arn   = aws_iam_role.node.arn
   subnet_ids      = var.node_subnet_ids
 
+  # 노드 k8s 버전을 컨트롤플레인(cluster_version)과 함께 관리한다. 업그레이드 시 이 값이 바뀌면
+  # 관리형 노드그룹이 롤링 교체(surge→drain)로 새 버전 노드로 전환된다(update_config.max_unavailable=1).
+  # 참고: aws CLI update-nodegroup-version 이 일부 환경에서 무력화되어, 버전 관리를 Terraform으로 일원화함.
+  version = var.cluster_version
+
   instance_types = each.value.instance_types
   capacity_type  = each.value.capacity_type
 

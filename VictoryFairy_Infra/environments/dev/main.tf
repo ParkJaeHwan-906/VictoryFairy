@@ -17,7 +17,7 @@ module "eks" {
 
   environment     = var.environment
   cluster_name    = local.cluster_name # 서브넷 EKS 발견 태그 ↔ network 모듈과 동일
-  cluster_version = "1.30"
+  cluster_version = "1.35"             # 1.30(연장지원) 탈출 여정, 목표 1.35. 단일 apply로 CP+노드 함께 업그레이드(애드온은 apply 후 CLI).
 
   # 컨트롤플레인: 프라이빗 서브넷 2 AZ(2a+2c) 모두 — EKS 2 AZ 요건 충족.
   cluster_subnet_ids = module.network.private_subnet_ids
@@ -64,8 +64,56 @@ module "eks" {
 module "ecr" {
   source = "../../modules/ecr"
 
-  name_prefix      = "victoryfairy"
-  repository_names = ["user", "quiz"] # BE Gradle 모듈과 1:1 (Dockerfile ARG MODULE)
+  name_prefix = "victoryfairy"
+  # user/quiz 는 BE Gradle 모듈과 1:1 (Dockerfile ARG MODULE).
+  # pipeline 은 정제 러너 이미지 — 패턴·Bedrock Lambda 가 같은 이미지를 공유한다(ARCHITECTURE §4).
+  repository_names = ["user", "quiz", "pipeline"]
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 정제 파이프라인 (서버리스) — ARCHITECTURE §4
+# ─────────────────────────────────────────────────────────────────────────────
+# 크롤(Lambda kbo-collector, Terraform 관리 밖) → S3 community/ → [S3 이벤트]
+#   → pattern Lambda → SQS → [batch_size] → bedrock Lambda → S3 validation/bedrock/
+#
+# ⚠ apply 선행 조건: victoryfairy-pipeline 리포지토리에 var.refine_image_tag 태그가
+#   push 돼 있어야 한다. 이미지가 없으면 Lambda 생성에서 실패한다(plan 은 통과).
+#   이미지는 VictoryFairy_AI 의 pipeline/Dockerfile 로 빌드한다.
+module "refine_pipeline" {
+  source = "../../modules/refine-pipeline"
+
+  name_prefix       = local.cluster_name # victoryfairy-dev
+  crawl_bucket_name = var.crawl_bucket_name
+
+  pipeline_repository_url = module.ecr.repository_urls["pipeline"]
+  image_tag               = var.refine_image_tag
+}
+
+# AWS Load Balancer Controller 용 IRSA. 컨트롤러 파드는 Helm 설치(runbook)하고,
+# 이 역할 ARN 을 SA 어노테이션에 지정한다. Ingress(k8s/22-ingress.yaml)가 ALB 를 프로비저닝.
+module "alb" {
+  source = "../../modules/alb"
+
+  name_prefix       = local.cluster_name
+  oidc_provider_arn = module.eks.oidc_provider_arn
+  oidc_provider_url = module.eks.oidc_provider_url
+}
+
+# 퍼블릭 DNS(Route53) + TLS(ACM) + ExternalDNS IRSA.
+# apply 후 name_servers 를 레지스트라에 등록해야 존이 활성화되고 ACM 검증이 완료된다(runbook).
+module "dns" {
+  source = "../../modules/dns"
+
+  domain_name       = var.domain_name
+  cluster_name      = module.eks.cluster_name
+  oidc_provider_arn = module.eks.oidc_provider_arn
+  oidc_provider_url = module.eks.oidc_provider_url
+
+  # Mailjet 이메일 발신 도메인 인증 레코드. DKIM·검증만 지금 등록(ExternalDNS/apex와 무충돌).
+  # SPF(mailjet_spf_value)는 apex TXT ↔ ExternalDNS 소유권 TXT 충돌로 보류 — 미주입=미생성.
+  mailjet_dkim_value         = "k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxm06i102hkoIV0UEihUmZjbLFVK+tYrU2JUKAOD8sSkKEUIXSXCdTe4dUCcSGoJAzf9NwuvNhChDzT8aQCBtpWzQlmAPyljd7Pkb5jsOyExoCz9vP/9pKvCTun8OIl7rGtv7mIiT5tIiSFl4dJdHzVWFPnCcA+IK/agQocbWymeRWKfsnP7Z/pqz3YERNbs10rIT11RsW09eBvqKiU8V008tkBtd43jcTMnuc0NWp2ZItHVQ9Ha8tz4dH+xI8JzPjD+wPnjlRKl4lJlo4im298RyE6GQjf07vzCa45L9pk4C8gZUA8a73SX462HyPrrfEXAdX324Wgi+vNU9CUhRGQIDAQAB"
+  mailjet_verification_name  = "mailjet._bc2f75b5"
+  mailjet_verification_value = "bc2f75b58109420e2abf5666cdeff8f5"
 }
 
 module "security" {
@@ -102,4 +150,30 @@ module "mysql_ec2" {
   # DLM 스냅샷 정책 생성이 불가. 백업은 mysqldump→S3 크론으로만 수행한다.
   # SCP 제약이 없는 계정으로 이전 시 이 줄을 제거해 스냅샷 병행을 복원할 것.
   enable_dlm_snapshot = false
+}
+
+# dev 전용 DB(비 프로덕션): 프로덕션 mysqldump S3 백업을 매일 restore 로 받아 데이터를
+# 갱신하는 퍼블릭 MySQL+Redis(fresh) EC2. 개발자가 로컬에서 직접 붙어 쓰기 위한 용도라
+# 프라이빗이 아닌 '퍼블릭 서브넷 + 퍼블릭 IP', 인입은 dev_db_allowed_cidr 하나에서만 연다.
+#
+# 조건부 생성: dev_db_allowed_cidr 가 빈 값이면 count=0 → 미생성(plan 에도 안 뜬다).
+# 사용자가 자신의 IP CIDR 을 terraform.tfvars 에 넣어야 비로소 생성된다.
+module "dev_db" {
+  source = "../../modules/dev-db"
+
+  count = length(var.dev_db_allowed_cidrs) > 0 ? 1 : 0
+
+  environment   = var.environment
+  vpc_id        = module.network.vpc_id
+  subnet_id     = module.network.public_subnet_ids_by_az[var.azs[0]] # 2a(운영 AZ) 퍼블릭
+  allowed_cidrs = var.dev_db_allowed_cidrs
+
+  # restore 원본 = 프로덕션 mysqldump 백업 버킷(읽기 전용).
+  backup_s3_bucket = var.backup_s3_bucket
+
+  # 프로덕션 mysql-ec2 와 '동일한' 비밀번호 파라미터여야 --all-databases 복원 후에도
+  # root 비번이 일관된다. mysql_ec2 모듈은 이 값을 default 로 사용한다(무명시).
+  mysql_root_password_ssm_parameter_name = "/victoryfairy/mysql/root-password"
+
+  use_eip = var.dev_db_use_eip # true 면 stop/start 후에도 퍼블릭 IP 고정(EIP)
 }
