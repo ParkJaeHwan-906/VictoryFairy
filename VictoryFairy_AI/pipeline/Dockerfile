@@ -36,7 +36,19 @@
 # 이미지를 캐시하고 청크 단위로 지연 로딩하므로 이 크기가 콜드 스타트를 크게 좌우하지
 # 않는다 — 노드가 뜰 때마다 pull 하던 배치 이미지와는 상황이 다르다.
 #
-# 빌드 컨텍스트는 레포 루트: docker build -f pipeline/Dockerfile .
+# ⚠️ **빌드 명령에 `--provenance=false --sbom=false` 가 반드시 들어가야 한다.**
+# buildx 는 기본으로 provenance attestation 을 붙이는데, 그러면 매니페스트가
+# **OCI image index(멀티아치 목록)** 형태가 된다 — 안에 든 이미지가 arm64 하나뿐이어도
+# 그렇다. **Lambda 는 단일 아키텍처 매니페스트만 받으므로 함수 생성이 거부된다.**
+# `docker build` 출력만 봐서는 드러나지 않고 ECR 매니페스트를 열어야 보인다(실제로 겪었다).
+#
+#     docker build --provenance=false --sbom=false --platform linux/arm64 \
+#       -f pipeline/Dockerfile -t <ECR_URI>:<커밋SHA> .
+#
+# push 후 확인: mediaType 이 `application/vnd.oci.image.manifest.v1+json` 이어야 한다.
+# `...image.index.v1+json` 이면 위 플래그가 빠진 것이다.
+#
+# 빌드 컨텍스트는 레포 루트.
 FROM --platform=linux/arm64 public.ecr.aws/lambda/python:3.11
 
 # ${LAMBDA_TASK_ROOT} = /var/task. 베이스 이미지가 이 경로를 sys.path 에 넣어 두므로
