@@ -156,7 +156,7 @@ class _bedrock_ready:
     덮어쓸 수 있다."""
 
     def __init__(self, **overrides):
-        defaults = dict(BEDROCK_MODEL_ID="apac.test-model", BEDROCK_DRY_RUN=False, BEDROCK_SHADOW=False)
+        defaults = dict(BEDROCK_MODEL_ID="anthropic.test-model", BEDROCK_DRY_RUN=False, BEDROCK_SHADOW=False)
         defaults.update(overrides)
         self._override = _override(bedrock_settings, **defaults)
 

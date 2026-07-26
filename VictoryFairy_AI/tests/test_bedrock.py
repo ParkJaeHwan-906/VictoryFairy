@@ -27,8 +27,11 @@ pytest 없이 stdlib 로만 실행:  `.venv/bin/python3 tests/test_bedrock.py`
                  나란히 실행해 대조 확인한다 — 하나는 폴백, 하나는 예외 전파)
   BRK-LLM-16/16b test_dry_run_returns_all_pass_without_calling_model
   BRK-LLM-48b    test_validate_startup_rejects_dry_run_and_shadow_together
-  BRK-LLM-6b     test_validate_startup_rejects_global_profile,
-                 test_validate_startup_accepts_apac_profile
+  BRK-LLM-6b     test_validate_startup_rejects_global_profile
+  BRK-LLM-6/6d   test_validate_startup_rejects_apac_profile,
+                 test_validate_startup_accepts_bare_model_id
+                 (v2 에서 방향이 뒤집힌 계약 — apac.* 는 SCP 에 막혀 반드시 실패하므로
+                  기동에서 거부하고, 베어 모델 ID 가 정상 경로가 됐다)
   BRK-LLM-11b/17 test_classify_error_distinguishes_fatal_from_transient (client.py 예외 분류)
   BRK-LLM-4      test_parser_fills_default_message_when_blank
   (parser 순수 로직 보강) test_parser_strips_code_fence_wrapped_json,
@@ -72,7 +75,7 @@ from bedrock.services.judge import BedrockJudgeService  # noqa: E402
 
 def _settings(**overrides):
     defaults = dict(
-        BEDROCK_MODEL_ID="apac.anthropic.claude-sonnet-4-20250514-v1:0",
+        BEDROCK_MODEL_ID="anthropic.claude-3-5-sonnet-20240620-v1:0",
         BEDROCK_REGION="ap-northeast-2",
         BEDROCK_SCHEMA_RETRIES=2,
         BEDROCK_TRANSIENT_RETRIES=3,
@@ -327,9 +330,50 @@ def test_validate_startup_rejects_global_profile():
     assert raised, "global.* 프로파일은 기동을 거부해야 한다(BRK-LLM-6b — 데이터 리전 제약)"
 
 
-def test_validate_startup_accepts_apac_profile():
+def test_validate_startup_rejects_apac_profile():
+    """v2 에서 뒤집힌 계약(BRK-LLM-6d).
+
+    v1 은 apac.* 를 정상 경로로 보고 이 테스트가 `validate_startup` 이 통과하는지를
+    확인했다. 조직 SCP p-meobeew3 가 서울 외 리전의 bedrock:InvokeModel 을 명시적으로
+    거부한다는 사실이 실측되면서(apac.* 호출이 도쿄 ARN 으로 AccessDeniedException),
+    apac.* 는 **반드시 실패하는 설정**이 됐다. 기동에서 잡지 않으면 첫 배치에서 전량
+    죽는다.
+    """
     settings = _settings(BEDROCK_MODEL_ID="apac.anthropic.claude-sonnet-4-20250514-v1:0")
+    try:
+        validate_startup(settings)
+        raised = False
+    except BedrockConfigError:
+        raised = True
+    assert raised, "apac.* 프로파일은 기동을 거부해야 한다(BRK-LLM-6d — SCP 가 서울 밖을 차단)"
+
+
+def test_validate_startup_accepts_bare_model_id():
+    """서울 ON_DEMAND 베어 모델 ID 는 통과해야 한다(BRK-LLM-6, v2)."""
+    settings = _settings(BEDROCK_MODEL_ID="anthropic.claude-3-5-sonnet-20240620-v1:0")
     validate_startup(settings)  # 예외가 나지 않아야 통과.
+
+
+def test_prompt_cache_defaults_off_and_omits_cache_point():
+    """PIPE-2SB-77 — 캐시 breakpoint 기본값은 꺼져 있어야 한다.
+
+    현행 모델(claude-3-5-sonnet-20240620)은 Bedrock 프롬프트 캐싱을 지원하지 않아
+    `cachePoint` 를 붙이면 AccessDeniedException -> BedrockFatalError 로 러너가 즉시
+    중단된다. 기본값이 켜져 있으면 **배포 즉시 한 건도 처리하지 못한다.**
+    배선(PIPE-2SB-64/65)은 남겨 두므로 지원 모델로 바꾸면 켜기만 하면 된다.
+    """
+    from bedrock.core.prompt import build_system_blocks
+
+    # 클래스 기본값을 본다 — .env 가 있어도 영향받지 않도록 인스턴스가 아니라 필드 정의를 검사.
+    default = BedrockSettings.model_fields["BEDROCK_PROMPT_CACHE"].default
+    assert default is False, "BEDROCK_PROMPT_CACHE 기본값은 False 여야 한다(PIPE-2SB-77)"
+
+    off = build_system_blocks(False)
+    assert all("cachePoint" not in b for b in off), "캐싱이 꺼지면 cachePoint 가 없어야 한다"
+
+    on = build_system_blocks(True)
+    assert any("cachePoint" in b for b in on), "캐싱을 켜면 배선이 살아 있어야 한다(PIPE-2SB-64)"
+    assert "cachePoint" not in on[0], "breakpoint 는 시스템 프롬프트 **뒤**에 온다(PIPE-2SB-65)"
 
 
 # ---------------------------------------------------------------------------
