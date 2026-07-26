@@ -123,7 +123,8 @@
 | ID | 유형 | 요구사항 | 인수 기준 |
 |---|---|---|---|
 | PIPE-S3IO-28 | 유비쿼터스 | THE 시스템 SHALL 이번 이터레이션 파이프라인 흐름을 `run_validation` 단독으로 구성한다 | pipeline Dockerfile CMD/문서 흐름에서 `run_analysis`·`run_aggregate` 배선 제거 |
-| PIPE-S3IO-29 | 유비쿼터스 | THE 시스템 SHALL `run_analysis.py`·`run_aggregate.py` 파일과 analysis 모듈 코드를 보존한다 | 파일 삭제·수정 없음; 문서에서 "우선/임시" 표현만 제거 |
+| PIPE-S3IO-29 | 유비쿼터스 | THE 시스템 SHALL `run_analysis.py`·`run_aggregate.py` 파일과 analysis 모듈 코드를 보존한다 | 파일 삭제·수정 없음; 문서에서 "우선/임시" 표현만 제거. ⚠️ **"보존"은 저장소의 코드에 대한 것이지 배치 이미지 포함을 요구하지 않는다** — PIPE-S3IO-40 참조 |
+| PIPE-S3IO-40 | 유비쿼터스 **(신규 2026-07-26)** | THE 시스템 SHALL 배치 이미지(`pipeline/Dockerfile`)에 **현행 흐름이 실제로 쓰는 모듈만** 담고, 배선에서 빠진 analysis 계열(`analysis/` · `kiwipiepy` · `transformers` · `torch` · NER 모델)은 **포함하지 않는다** | 배치 흐름은 `run_validation` → `run_bedrock` 2단계뿐인데(PIPE-S3IO-28) 이미지가 torch(CPU 빌드)와 KoELECTRA 모델까지 담아 **1.63GB** 였다 — **전부 쓰지 않는 무게다.** Spot 노드는 **뜰 때마다 이미지를 pull** 하므로 이 무게가 기동 시간에 그대로 붙고, 02:00 배치가 노드 회수·재기동을 반복하는 구조에서 누적된다. `analysis/Dockerfile` 이 이미 torch·모델·코드를 모두 갖고 있어 배치 이미지의 사본은 **순수 중복**이었다. ⚠️ **결과: `run_analysis`·`run_aggregate` 는 이 이미지로 돌지 않는다** — `analysis/Dockerfile` 이미지나 로컬 `.venv` 를 쓴다. PIPE-S3IO-29(코드 보존)와 충돌하지 않는다: 파일은 저장소에 그대로 있다. analysis 가 배선에 복귀하면 이 조항을 재검토한다 |
 
 ### 테스트 (통합 — dev 버킷 실입출력)
 

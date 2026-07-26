@@ -205,6 +205,11 @@ python -m pipeline.run_aggregate
 - **분석·집계는 배선에서 빠져 있다.** `data/processed_data.txt`의 공급원(예전엔
   `run_validation`)이 끊긴 상태다. 재연결은 미도입. 두 러너는 **재실행=덮어쓰기** 한계도
   그대로다 — 산출물에 버전·타임스탬프가 없다.
+- **`run_analysis`·`run_aggregate`는 배치 이미지로 돌지 않는다**(`PIPE-S3IO-40`). 배치 흐름이
+  쓰지 않는 torch·KoELECTRA 모델이 이미지를 **1.63GB**로 부풀리고 있었고, Spot 노드는 뜰 때마다
+  이미지를 pull 하므로 그 무게가 기동 시간에 그대로 붙는다. 분리 후 **274MB**(83% 감소).
+  두 러너를 돌리려면 `analysis/Dockerfile` 이미지나 로컬 `.venv`를 쓴다 — **코드는 저장소에
+  그대로 보존된다**(`PIPE-S3IO-29`). analysis가 배선에 복귀하면 이 결정을 재검토한다.
 - **`run_analysis`는 무겁다**: Kiwi + KoELECTRA(torch) 로딩 + 첫 실행 시 모델 다운로드.
 - **S3 통합 테스트는 비결정적**: dev 버킷 실입출력을 쓰므로 자격증명·네트워크에 의존한다.
   로컬 격리(moto/페이크)는 **의도적 미도입**.
