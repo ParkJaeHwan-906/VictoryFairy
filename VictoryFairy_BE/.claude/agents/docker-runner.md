@@ -79,7 +79,11 @@ model: sonnet
    curl -s -m 10 -w "\n%{http_code}" -X POST http://localhost:<port>/<경로> \
      -H 'Content-Type: application/json' -d '<샘플>'
    ```
-   - ⚠️ **`/health`를 기동 확인에 쓰지 말 것.** 이 프로젝트에는 **`/health` 핸들러가 없다** — SecurityConfig에 `permitAll` 규칙만 있고 컨트롤러도 actuator도 없어 **404가 돌아온다.** (nginx의 `/healthz`는 nginx 자신이 200을 반환할 뿐 백엔드를 보지 않는다.)
+   - ⚠️ **`/health`·`/healthz`를 기동 확인에 쓰지 말 것.** 둘 다 핸들러가 없어 **404가 돌아온다.** (nginx의 `/healthz`는 nginx 자신이 200을 반환할 뿐 백엔드를 보지 않는다.)
+   - ✅ 대신 **actuator readiness**를 쓴다(2026-07-27 도입). 앱이 `server.servlet.context-path`를 쓰므로 경로가 모듈마다 다르다:
+     - user → `http://localhost:8080/api/member/actuator/health/readiness`
+     - quiz → `http://localhost:8081/api/game/actuator/health/readiness`
+     - 200 `{"status":"UP"}`이면 기동 완료. 접두사를 빼면(`/actuator/health/readiness`) 404다.
    - → **기동 판정은 포트 LISTEN + 컨테이너 상태 + 로그의 "Started ...Application"**으로 하고, 동작 검증은 **모듈 컨텍스트에 실재하는 엔드포인트**로 한다.
    - 검증할 경로는 **모듈 컨텍스트 + 실제 컨트롤러를 대조해** 정한다. 없는 경로를 지어내지 말 것.
    - 샘플 데이터가 필요하면 **지어내지 말고 test-data 에이전트 산출물을 쓰거나 요청**한다.

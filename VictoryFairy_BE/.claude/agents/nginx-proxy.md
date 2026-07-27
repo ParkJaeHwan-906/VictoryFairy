@@ -33,8 +33,8 @@ location /          → return 404
 ## 역할 고유 주의점
 - **컨트롤러가 아직 없는 모듈로 가는 location이 있을 수 있다.** 앞으로를 위해 미리 열어둔 자리다 — 호출하면 401/404가 나는 게 정상이니 **"버그"로 오인해 지우지 말 것.** 모듈 컨텍스트에서 그 모듈에 엔드포인트가 있는지 먼저 확인하라.
 - **라우팅과 컨트롤러는 자동으로 맞춰지지 않는다.** location은 수동 관리다 — 아래 원칙 참고.
-- ⚠️ **health 경로 함정**: nginx가 자체적으로 `return 200`을 하는 경로는 **백엔드 생존을 증명하지 못한다**(앱이 다 죽어도 200). 그렇다고 앱의 `/health`로 프록시하면 **더 나쁘다** — 이 프로젝트에는 **`/health` 핸들러가 아예 없다.** SecurityConfig에 `permitAll` 규칙만 있고 컨트롤러도 actuator도 없어 **404가 돌아온다.**
-  → 앱 health를 프록시하려면 **먼저 health 엔드포인트를 만들어야 한다**(spring-dev 또는 actuator 도입). 순서를 뒤집으면 404를 프록시하게 된다. 현황은 `infra.md` 참고.
+- ⚠️ **health 경로 함정**: nginx가 자체적으로 `return 200`을 하는 경로(`/healthz`)는 **백엔드 생존을 증명하지 못한다**(앱이 다 죽어도 200). 앱의 `/health`로 프록시하는 것도 안 된다 — **`/health` 핸들러는 없다**(404).
+  → 앱 health를 보려면 **actuator readiness**로 프록시한다(2026-07-27 도입). 앱이 `server.servlet.context-path`를 쓰므로 경로가 모듈마다 갈린다: user `/api/member/actuator/health/readiness`, quiz `/api/game/actuator/health/readiness`. 둘 다 이미 `/api/member`·`/api/game` prefix location에 포함돼 별도 `location` 불필요. 현황은 `infra.md` 참고.
 
 ## 원칙 (가장 중요)
 - **location 경로는 컨트롤러의 `@RequestMapping`과 반드시 일치해야 한다.** 이건 자동으로 검증되지 않는다.
