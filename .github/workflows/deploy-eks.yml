@@ -15,9 +15,7 @@ on:
   push:
     branches: [main]
     paths:
-      # 브랜치별로 BE 디렉토리 표기가 다르므로 두 철자 모두 감시
       - "VictoryFairy_BE/**"
-      - "VitoryFairy_BE/**"
       - ".github/workflows/deploy-eks.yml"
   workflow_dispatch:
     inputs:
@@ -53,17 +51,17 @@ jobs:
         with:
           filters: |
             shared:
-              - "V*ctoryFairy_BE/common/**"
-              - "V*ctoryFairy_BE/domain/**"
-              - "V*ctoryFairy_BE/build.gradle"
-              - "V*ctoryFairy_BE/settings.gradle"
-              - "V*ctoryFairy_BE/gradle/**"
-              - "V*ctoryFairy_BE/Dockerfile"
+              - "VictoryFairy_BE/common/**"
+              - "VictoryFairy_BE/domain/**"
+              - "VictoryFairy_BE/build.gradle"
+              - "VictoryFairy_BE/settings.gradle"
+              - "VictoryFairy_BE/gradle/**"
+              - "VictoryFairy_BE/Dockerfile"
               - ".github/workflows/deploy-eks.yml"
             user:
-              - "V*ctoryFairy_BE/user/**"
+              - "VictoryFairy_BE/user/**"
             quiz:
-              - "V*ctoryFairy_BE/quiz/**"
+              - "VictoryFairy_BE/quiz/**"
 
       - name: Compute module set
         id: set
@@ -93,13 +91,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Resolve BE dir (브랜치별 철자 차이 대응)
+      - name: Resolve BE dir
         id: be
         run: |
-          for d in VictoryFairy_BE VitoryFairy_BE; do
-            if [ -f "$d/Dockerfile" ]; then echo "dir=$d" >> "$GITHUB_OUTPUT"; exit 0; fi
-          done
-          echo "::error::BE 디렉토리(Dockerfile)를 찾지 못했습니다"; exit 1
+          [ -f "VictoryFairy_BE/Dockerfile" ] || { echo "::error::VictoryFairy_BE/Dockerfile 를 찾지 못했습니다"; exit 1; }
+          echo "dir=VictoryFairy_BE" >> "$GITHUB_OUTPUT"
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4

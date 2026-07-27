@@ -1,21 +1,15 @@
 name: Deploy to EC2
 
-# main 브랜치에 push(= PR merge)되면 자동 배포. UI에서 수동 실행도 가능.
+# ⚠ 레거시 파이프라인(GHCR → EC2 docker-compose). EKS 전환으로 자동 트리거를
+#   중지하고 수동 실행만 남긴다. EKS 배포는 deploy-eks.yml(infra 브랜치)이 대체 예정.
 # 변경이 감지된 모듈(+ 그에 의존하는 모듈)만 빌드한다.
-# 주의: 저장소 루트는 VictoryFairy/ 이고 프로젝트는 VitoryFairy_BE/ 하위에 있다.
+# 주의: 저장소 루트는 VictoryFairy/ 이고 프로젝트는 VictoryFairy_BE/ 하위에 있다.
 on:
-  push:
-    branches: [main]
-    # 배포 산출물에 영향 없는 경로만 바뀐 push 는 워크플로 자체를 건너뛴다.
-    # (Claude 하네스 설정/문서 등) — 코드와 섞여 바뀌면 정상 실행된다.
-    paths-ignore:
-      - 'VitoryFairy_BE/.claude/**'
-      - 'VitoryFairy_BE/docs/**'
   workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
-  PROJECT_DIR: VitoryFairy_BE
+  PROJECT_DIR: VictoryFairy_BE
 
 jobs:
   # 0단계: 어떤 모듈을 빌드/배포할지 판단 (의존성 그래프 반영)
@@ -37,32 +31,31 @@ jobs:
         with:
           filters: |
             common:
-              - 'VitoryFairy_BE/common/**'
+              - 'VictoryFairy_BE/common/**'
             domain:
-              - 'VitoryFairy_BE/domain/**'
+              - 'VictoryFairy_BE/domain/**'
             user:
-              - 'VitoryFairy_BE/user/**'
+              - 'VictoryFairy_BE/user/**'
             quiz:
-              - 'VitoryFairy_BE/quiz/**'
-            create:
-              - 'VitoryFairy_BE/create/**'
+              - 'VictoryFairy_BE/quiz/**'
             root:
-              - 'VitoryFairy_BE/build.gradle'
-              - 'VitoryFairy_BE/settings.gradle'
-              - 'VitoryFairy_BE/gradlew'
-              - 'VitoryFairy_BE/gradle/**'
-              - 'VitoryFairy_BE/Dockerfile'
+              - 'VictoryFairy_BE/build.gradle'
+              - 'VictoryFairy_BE/settings.gradle'
+              - 'VictoryFairy_BE/gradlew'
+              - 'VictoryFairy_BE/gradle/**'
+              - 'VictoryFairy_BE/Dockerfile'
               - '.github/workflows/deploy.yml'
             compose:
-              - 'VitoryFairy_BE/docker-compose.prod.yml'
-              - 'VitoryFairy_BE/nginx.conf'
+              - 'VictoryFairy_BE/docker-compose.prod.yml'
+              - 'VictoryFairy_BE/nginx.conf'
 
       - name: Compute build set (dependency graph)
         id: set
         run: |
           set -e
           declare -A want
-          all() { want[user]=1; want[quiz]=1; want[create]=1; }
+          # create(배치) 모듈은 아직 저장소에 없어 빌드 대상에서 제외 (모듈 머지 시 재추가)
+          all() { want[user]=1; want[quiz]=1; }
 
           if [ "${{ github.event_name }}" != "push" ]; then
             # 수동 실행(workflow_dispatch) → 안전하게 전체 빌드
@@ -73,13 +66,11 @@ jobs:
             D='${{ steps.filter.outputs.domain }}'
             U='${{ steps.filter.outputs.user }}'
             Q='${{ steps.filter.outputs.quiz }}'
-            CR='${{ steps.filter.outputs.create }}'
             if [ "$R" = "true" ] || [ "$C" = "true" ] || [ "$D" = "true" ]; then
               all                                   # 루트/공통 변경 → 전체
             else
               [ "$U" = "true" ]  && { want[user]=1; want[quiz]=1; }  # quiz 가 user 의존
               [ "$Q" = "true" ]  && want[quiz]=1
-              [ "$CR" = "true" ] && want[create]=1
             fi
           fi
 
@@ -155,7 +146,7 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           source: "${{ env.PROJECT_DIR }}/docker-compose.prod.yml,${{ env.PROJECT_DIR }}/nginx.conf"
-          strip_components: 1   # VitoryFairy_BE/ 접두사 제거 → ~/app/{docker-compose.prod.yml,nginx.conf}
+          strip_components: 1   # VictoryFairy_BE/ 접두사 제거 → ~/app/{docker-compose.prod.yml,nginx.conf}
           target: ~/app
 
       - name: Deploy on EC2
