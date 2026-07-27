@@ -1,6 +1,6 @@
 # 이메일 인증 발송 설정 가이드 (Mailjet SMTP · victoryfairy.com)
 
-> 대상: user 모듈의 이메일 인증(`/api/auth/email/send-code`) 실발송을 운영에 붙이는 배포 담당자
+> 대상: user 모듈의 이메일 인증(`/api/member/auth/email/send-code`) 실발송을 운영에 붙이는 배포 담당자
 > 발송 수단: **Mailjet**(무료 트랜잭션 메일) SMTP 릴레이 · 발신 도메인 **victoryfairy.com**
 
 ## 0. 배포 진행 상태 — 다음에 이어서 할 일
@@ -89,7 +89,7 @@ MAIL_PASSWORD=<Mailjet Secret Key>
 - [ ] Mailjet 콘솔에서 `victoryfairy.com` 도메인 인증이 **초록불**인지 (인증 전에는 발송 거부/스팸 처리됨)
 - [ ] EC2 `.env`에 `MAIL_USERNAME`(API Key)/`MAIL_PASSWORD`(Secret Key)가 채워졌는지 (비면 `${MAIL_USERNAME}`이 빈 값→ 인증 실패)
 - [ ] `user` 컨테이너가 `prod` 프로파일(`SPRING_PROFILES_ACTIVE=prod`)로 뜨는지 (아니면 mock sender가 로딩됨)
-- [ ] `POST /api/auth/email/send-code` 호출 → 실제 수신함에 `[VictoryFairy] 이메일 인증번호 안내` 도착
+- [ ] `POST /api/member/auth/email/send-code` 호출 → 실제 수신함에 `[VictoryFairy] 이메일 인증번호 안내` 도착
 - [ ] 첫 발송이 스팸함에 가면 DKIM/SPF/DMARC 정렬 재확인
 
 ## 8. 자주 겪는 문제

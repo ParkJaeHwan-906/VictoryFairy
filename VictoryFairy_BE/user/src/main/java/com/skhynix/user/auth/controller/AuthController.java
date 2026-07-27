@@ -25,7 +25,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequiredArgsConstructor
-@RequestMapping("/api/auth")
+// 접두사 /api/member 는 ApiPathPrefixConfig 가 전역으로 붙인다 → 실제 노출 경로는 /api/member/auth/**
+@RequestMapping("/auth")
 public class AuthController {
 
     private final AuthService authService;

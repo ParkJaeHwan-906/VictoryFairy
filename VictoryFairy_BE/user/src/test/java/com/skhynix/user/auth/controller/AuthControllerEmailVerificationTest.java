@@ -17,6 +17,7 @@ import com.skhynix.user.auth.dto.EmailSendCodeRequest;
 import com.skhynix.user.auth.dto.EmailVerifyRequest;
 import com.skhynix.user.auth.service.AuthService;
 import com.skhynix.user.auth.service.EmailVerificationService;
+import com.skhynix.user.global.config.ApiPathPrefixConfig;
 import com.skhynix.user.global.config.SecurityConfig;
 import com.skhynix.websupport.error.GlobalExceptionHandler;
 import com.skhynix.websupport.jwt.JwtTokenProvider;
@@ -32,12 +33,12 @@ import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * {@code POST /api/auth/email/send-code}·{@code POST /api/auth/email/verify}가 요구사항
+ * {@code POST /api/member/auth/email/send-code}·{@code POST /api/member/auth/email/verify}가 요구사항
  * {@code docs/requirements/user/email-verification.md}(USER-EMV-*)대로 동작하는지 검증한다.
  *
  * <p>슬라이스 구성(컨텍스트 자동 병합 우회, {@code UserAccountRepository}를 {@code @MockitoBean}으로
  * 대체하는 이유)은 {@code AuthControllerSignupTest}의 Javadoc과 동일한 패턴을 따른다. 이 슬라이스는 실제
- * {@link SecurityConfig}를 {@code @Import}해 {@code /api/auth/**}의 {@code permitAll} 규칙이 두 신규
+ * {@link SecurityConfig}를 {@code @Import}해 {@code /api/member/auth/**}의 {@code permitAll} 규칙이 두 신규
  * 엔드포인트에도 실제로 적용되는지(USER-EMV-7)까지 함께 검증한다. 저장소({@code EmailVerificationStore}·
  * Redis)는 {@link EmailVerificationService} 자체를 목으로 대체해 이 레이어의 관심사(요청 검증·상태코드·
  * 에러코드 매핑)만 격리해서 본다 — 정책 판정(쿨다운·시도횟수 등) 자체는 {@code EmailVerificationServiceTest}
@@ -45,7 +46,7 @@ import tools.jackson.databind.ObjectMapper;
  */
 @WebMvcTest(AuthController.class)
 @ContextConfiguration(classes = AuthController.class)
-@Import({SecurityConfig.class, GlobalExceptionHandler.class})
+@Import({ApiPathPrefixConfig.class, SecurityConfig.class, GlobalExceptionHandler.class})
 class AuthControllerEmailVerificationTest {
 
     private static final String VALIDATION_MESSAGE = "입력값이 올바르지 않습니다.";
@@ -68,7 +69,7 @@ class AuthControllerEmailVerificationTest {
     @MockitoBean
     private UserAccountRepository userAccountRepository;
 
-    // ---------- POST /api/auth/email/send-code ----------
+    // ---------- POST /api/member/auth/email/send-code ----------
 
     @Test
     @DisplayName("[USER-EMV-1, USER-EMV-7] 형식이 유효한 이메일로 발송을 요청하면 인증 없이도 200을 반환하고 "
@@ -78,7 +79,7 @@ class AuthControllerEmailVerificationTest {
         String json = objectMapper.writeValueAsString(new EmailSendCodeRequest("user@example.com"));
 
         // when & then: Authorization 헤더 없이 호출
-        mockMvc.perform(post("/api/auth/email/send-code")
+        mockMvc.perform(post("/api/member/auth/email/send-code")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isOk())
@@ -94,7 +95,7 @@ class AuthControllerEmailVerificationTest {
         String json = objectMapper.writeValueAsString(new EmailSendCodeRequest(""));
 
         // when & then
-        mockMvc.perform(post("/api/auth/email/send-code")
+        mockMvc.perform(post("/api/member/auth/email/send-code")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isBadRequest())
@@ -112,7 +113,7 @@ class AuthControllerEmailVerificationTest {
         String json = objectMapper.writeValueAsString(new EmailSendCodeRequest("not-an-email"));
 
         // when & then
-        mockMvc.perform(post("/api/auth/email/send-code")
+        mockMvc.perform(post("/api/member/auth/email/send-code")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isBadRequest())
@@ -133,7 +134,7 @@ class AuthControllerEmailVerificationTest {
         String json = objectMapper.writeValueAsString(new EmailSendCodeRequest(tooLongEmail));
 
         // when & then
-        mockMvc.perform(post("/api/auth/email/send-code")
+        mockMvc.perform(post("/api/member/auth/email/send-code")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isBadRequest())
@@ -151,7 +152,7 @@ class AuthControllerEmailVerificationTest {
         String json = objectMapper.writeValueAsString(new EmailSendCodeRequest("user@example.com"));
 
         // when & then
-        mockMvc.perform(post("/api/auth/email/send-code")
+        mockMvc.perform(post("/api/member/auth/email/send-code")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().is(429))
@@ -169,7 +170,7 @@ class AuthControllerEmailVerificationTest {
         String json = objectMapper.writeValueAsString(new EmailSendCodeRequest("registered@example.com"));
 
         // when & then
-        mockMvc.perform(post("/api/auth/email/send-code")
+        mockMvc.perform(post("/api/member/auth/email/send-code")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isConflict())
@@ -178,7 +179,7 @@ class AuthControllerEmailVerificationTest {
                 .andExpect(jsonPath("$.message").value(ErrorCode.DUPLICATE_EMAIL.getMessage()));
     }
 
-    // ---------- POST /api/auth/email/verify ----------
+    // ---------- POST /api/member/auth/email/verify ----------
 
     @Test
     @DisplayName("[USER-EMV-7, USER-EMV-8] 유효기간 내 올바른 인증번호로 검증을 요청하면 인증 없이도 200을 반환한다")
@@ -187,7 +188,7 @@ class AuthControllerEmailVerificationTest {
         String json = objectMapper.writeValueAsString(new EmailVerifyRequest("user@example.com", "123456"));
 
         // when & then: Authorization 헤더 없이 호출
-        mockMvc.perform(post("/api/auth/email/verify")
+        mockMvc.perform(post("/api/member/auth/email/verify")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isOk())
@@ -203,7 +204,7 @@ class AuthControllerEmailVerificationTest {
         String json = objectMapper.writeValueAsString(new EmailVerifyRequest("", ""));
 
         // when & then
-        mockMvc.perform(post("/api/auth/email/verify")
+        mockMvc.perform(post("/api/member/auth/email/verify")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isBadRequest())
@@ -222,7 +223,7 @@ class AuthControllerEmailVerificationTest {
         String json = objectMapper.writeValueAsString(new EmailVerifyRequest("user@example.com", "12345"));
 
         // when & then
-        mockMvc.perform(post("/api/auth/email/verify")
+        mockMvc.perform(post("/api/member/auth/email/verify")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isBadRequest())
@@ -238,7 +239,7 @@ class AuthControllerEmailVerificationTest {
         String json = objectMapper.writeValueAsString(new EmailVerifyRequest("user@example.com", "12a45b"));
 
         // when & then
-        mockMvc.perform(post("/api/auth/email/verify")
+        mockMvc.perform(post("/api/member/auth/email/verify")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isBadRequest())
@@ -256,7 +257,7 @@ class AuthControllerEmailVerificationTest {
         String json = objectMapper.writeValueAsString(new EmailVerifyRequest("user@example.com", "999999"));
 
         // when & then
-        mockMvc.perform(post("/api/auth/email/verify")
+        mockMvc.perform(post("/api/member/auth/email/verify")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isBadRequest())
@@ -274,7 +275,7 @@ class AuthControllerEmailVerificationTest {
         String json = objectMapper.writeValueAsString(new EmailVerifyRequest("never-sent@example.com", "123456"));
 
         // when & then
-        mockMvc.perform(post("/api/auth/email/verify")
+        mockMvc.perform(post("/api/member/auth/email/verify")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isBadRequest())
@@ -291,7 +292,7 @@ class AuthControllerEmailVerificationTest {
         String json = objectMapper.writeValueAsString(new EmailVerifyRequest("user@example.com", "123456"));
 
         // when & then
-        mockMvc.perform(post("/api/auth/email/verify")
+        mockMvc.perform(post("/api/member/auth/email/verify")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isBadRequest())
@@ -315,7 +316,7 @@ class AuthControllerEmailVerificationTest {
                 com.skhynix.domain.user.entity.Gender.MALE, "nickname", "abc123!@"));
 
         // when & then
-        mockMvc.perform(post("/api/auth/signup")
+        mockMvc.perform(post("/api/member/auth/signup")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isBadRequest())

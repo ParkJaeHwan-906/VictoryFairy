@@ -41,7 +41,7 @@ model: sonnet
 > 코드 기준 자동 작성. 포트 <port>. 최종 갱신: <YYYY-MM-DD>
 > 인증: <JWT Bearer 정책 요약>
 
-## POST /api/auth/login
+## POST /api/member/auth/login
 로그인하고 토큰 쌍을 발급받는다.
 
 **인증** 불필요
@@ -66,7 +66,7 @@ model: sonnet
 
 **예시**
 ```bash
-curl -X POST http://localhost:8080/api/auth/login \
+curl -X POST http://localhost:8080/api/member/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"email":"user@example.com","password":"password123"}'
 ```

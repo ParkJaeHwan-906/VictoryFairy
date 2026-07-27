@@ -17,6 +17,7 @@ import com.skhynix.domain.user.repository.UserAccountRepository;
 import com.skhynix.quiz.chat.dto.MessageResponse;
 import com.skhynix.quiz.chat.dto.SendMessageRequest;
 import com.skhynix.quiz.chat.service.ChatService;
+import com.skhynix.quiz.global.config.ApiPathPrefixConfig;
 import com.skhynix.quiz.global.config.SecurityConfig;
 import com.skhynix.websupport.error.GlobalExceptionHandler;
 import java.time.LocalDateTime;
@@ -32,7 +33,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * {@code POST /api/chat/rooms/{roomUid}/messages}(메시지 전송) 슬라이스 테스트.
+ * {@code POST /api/game/chat/rooms/{roomUid}/messages}(메시지 전송) 슬라이스 테스트.
  *
  * <p>content 검증({@code @NotBlank}·{@code @Size(max=500)})은 {@code @Valid}가 컨트롤러 진입 전(인자
  * 바인딩 단계)에 수행하므로, 위반 케이스는 {@code ChatService}를 전혀 호출하지 않는다는 것까지 함께
@@ -41,7 +42,7 @@ import tools.jackson.databind.ObjectMapper;
  */
 @WebMvcTest(ChatController.class)
 @ContextConfiguration(classes = ChatController.class)
-@Import({SecurityConfig.class, GlobalExceptionHandler.class})
+@Import({ApiPathPrefixConfig.class, SecurityConfig.class, GlobalExceptionHandler.class})
 class ChatControllerSendMessageTest {
 
     private static final Long USER_ID = 1L;
@@ -70,7 +71,7 @@ class ChatControllerSendMessageTest {
         given(chatService.sendMessage(eq(ROOM_UID), eq(USER_ID), eq("안녕")))
                 .willReturn(new MessageResponse("안녕", "두산팬1", createdAt));
 
-        mockMvc.perform(post("/api/chat/rooms/{roomUid}/messages", ROOM_UID)
+        mockMvc.perform(post("/api/game/chat/rooms/{roomUid}/messages", ROOM_UID)
                         .with(authenticatedAs(USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestJson("안녕")))
@@ -86,7 +87,7 @@ class ChatControllerSendMessageTest {
     @Test
     @DisplayName("[AC-CHAT-4-1] 인증 헤더 없이 메시지를 전송하면 401을 반환하고 서비스는 호출되지 않는다")
     void sendMessage_withoutAuthentication_returns401AndNeverCallsService() throws Exception {
-        mockMvc.perform(post("/api/chat/rooms/{roomUid}/messages", ROOM_UID)
+        mockMvc.perform(post("/api/game/chat/rooms/{roomUid}/messages", ROOM_UID)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestJson("안녕")))
                 .andExpect(status().isUnauthorized());
@@ -97,7 +98,7 @@ class ChatControllerSendMessageTest {
     @Test
     @DisplayName("[AC-CHAT-12-1] content가 null이면 400을 반환하고 저장하지 않는다")
     void sendMessage_nullContent_returns400WithoutSaving() throws Exception {
-        mockMvc.perform(post("/api/chat/rooms/{roomUid}/messages", ROOM_UID)
+        mockMvc.perform(post("/api/game/chat/rooms/{roomUid}/messages", ROOM_UID)
                         .with(authenticatedAs(USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestJson(null)))
@@ -109,7 +110,7 @@ class ChatControllerSendMessageTest {
     @Test
     @DisplayName("[AC-CHAT-12-2] content가 빈 문자열이면 400을 반환하고 저장하지 않는다")
     void sendMessage_emptyContent_returns400WithoutSaving() throws Exception {
-        mockMvc.perform(post("/api/chat/rooms/{roomUid}/messages", ROOM_UID)
+        mockMvc.perform(post("/api/game/chat/rooms/{roomUid}/messages", ROOM_UID)
                         .with(authenticatedAs(USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestJson("")))
@@ -121,7 +122,7 @@ class ChatControllerSendMessageTest {
     @Test
     @DisplayName("[AC-CHAT-12-3] content가 공백 3칸이면 400을 반환하고 저장하지 않는다")
     void sendMessage_blankContent_returns400WithoutSaving() throws Exception {
-        mockMvc.perform(post("/api/chat/rooms/{roomUid}/messages", ROOM_UID)
+        mockMvc.perform(post("/api/game/chat/rooms/{roomUid}/messages", ROOM_UID)
                         .with(authenticatedAs(USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestJson("   ")))
@@ -133,7 +134,7 @@ class ChatControllerSendMessageTest {
     @Test
     @DisplayName("[AC-CHAT-12-4] content가 개행·탭만이면 400을 반환하고 저장하지 않는다(trim 후 빈 값)")
     void sendMessage_whitespaceOnlyContent_returns400WithoutSaving() throws Exception {
-        mockMvc.perform(post("/api/chat/rooms/{roomUid}/messages", ROOM_UID)
+        mockMvc.perform(post("/api/game/chat/rooms/{roomUid}/messages", ROOM_UID)
                         .with(authenticatedAs(USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestJson("\n\t")))
@@ -148,7 +149,7 @@ class ChatControllerSendMessageTest {
         given(chatService.sendMessage(eq(ROOM_UID), eq(USER_ID), eq("a")))
                 .willReturn(new MessageResponse("a", "닉네임", LocalDateTime.now()));
 
-        mockMvc.perform(post("/api/chat/rooms/{roomUid}/messages", ROOM_UID)
+        mockMvc.perform(post("/api/game/chat/rooms/{roomUid}/messages", ROOM_UID)
                         .with(authenticatedAs(USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestJson("a")))
@@ -164,7 +165,7 @@ class ChatControllerSendMessageTest {
         given(chatService.sendMessage(eq(ROOM_UID), eq(USER_ID), eq(content)))
                 .willReturn(new MessageResponse(content, "닉네임", LocalDateTime.now()));
 
-        mockMvc.perform(post("/api/chat/rooms/{roomUid}/messages", ROOM_UID)
+        mockMvc.perform(post("/api/game/chat/rooms/{roomUid}/messages", ROOM_UID)
                         .with(authenticatedAs(USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestJson(content)))
@@ -178,7 +179,7 @@ class ChatControllerSendMessageTest {
     void sendMessage_501Chars_returns400WithoutSaving() throws Exception {
         String content = "a".repeat(501);
 
-        mockMvc.perform(post("/api/chat/rooms/{roomUid}/messages", ROOM_UID)
+        mockMvc.perform(post("/api/game/chat/rooms/{roomUid}/messages", ROOM_UID)
                         .with(authenticatedAs(USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestJson(content)))
@@ -194,7 +195,7 @@ class ChatControllerSendMessageTest {
         given(chatService.sendMessage(eq(ROOM_UID), eq(USER_ID), eq(content)))
                 .willReturn(new MessageResponse(content, "닉네임", LocalDateTime.now()));
 
-        mockMvc.perform(post("/api/chat/rooms/{roomUid}/messages", ROOM_UID)
+        mockMvc.perform(post("/api/game/chat/rooms/{roomUid}/messages", ROOM_UID)
                         .with(authenticatedAs(USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestJson(content)))
@@ -208,7 +209,7 @@ class ChatControllerSendMessageTest {
     void sendMessage_251SurrogatePairEmojis_returns400() throws Exception {
         String content = "😀".repeat(251); // length() == 502
 
-        mockMvc.perform(post("/api/chat/rooms/{roomUid}/messages", ROOM_UID)
+        mockMvc.perform(post("/api/game/chat/rooms/{roomUid}/messages", ROOM_UID)
                         .with(authenticatedAs(USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestJson(content)))
@@ -223,7 +224,7 @@ class ChatControllerSendMessageTest {
         given(chatService.sendMessage(eq("nope"), eq(USER_ID), eq("안녕")))
                 .willThrow(new BusinessException(ErrorCode.CHATROOM_NOT_FOUND));
 
-        mockMvc.perform(post("/api/chat/rooms/{roomUid}/messages", "nope")
+        mockMvc.perform(post("/api/game/chat/rooms/{roomUid}/messages", "nope")
                         .with(authenticatedAs(USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestJson("안녕")))
@@ -237,7 +238,7 @@ class ChatControllerSendMessageTest {
         given(chatService.sendMessage(eq("deleted-uid"), eq(USER_ID), eq("안녕")))
                 .willThrow(new BusinessException(ErrorCode.CHATROOM_NOT_FOUND));
 
-        mockMvc.perform(post("/api/chat/rooms/{roomUid}/messages", "deleted-uid")
+        mockMvc.perform(post("/api/game/chat/rooms/{roomUid}/messages", "deleted-uid")
                         .with(authenticatedAs(USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestJson("안녕")))
@@ -250,7 +251,7 @@ class ChatControllerSendMessageTest {
     void sendMessage_nonexistentRoomAndInvalidContent_400TakesPriorityOver404() throws Exception {
         String tooLong = "a".repeat(501);
 
-        mockMvc.perform(post("/api/chat/rooms/{roomUid}/messages", "definitely-does-not-exist")
+        mockMvc.perform(post("/api/game/chat/rooms/{roomUid}/messages", "definitely-does-not-exist")
                         .with(authenticatedAs(USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestJson(tooLong)))

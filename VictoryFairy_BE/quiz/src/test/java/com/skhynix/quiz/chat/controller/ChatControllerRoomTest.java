@@ -15,6 +15,7 @@ import com.skhynix.common.error.ErrorCode;
 import com.skhynix.domain.user.repository.UserAccountRepository;
 import com.skhynix.quiz.chat.dto.RoomResponse;
 import com.skhynix.quiz.chat.service.ChatService;
+import com.skhynix.quiz.global.config.ApiPathPrefixConfig;
 import com.skhynix.quiz.global.config.SecurityConfig;
 import com.skhynix.websupport.error.GlobalExceptionHandler;
 import java.util.List;
@@ -43,7 +44,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  */
 @WebMvcTest(ChatController.class)
 @ContextConfiguration(classes = ChatController.class)
-@Import({SecurityConfig.class, GlobalExceptionHandler.class})
+@Import({ApiPathPrefixConfig.class, SecurityConfig.class, GlobalExceptionHandler.class})
 class ChatControllerRoomTest {
 
     private static final Long USER_ID = 1L;
@@ -65,7 +66,7 @@ class ChatControllerRoomTest {
                 new RoomResponse("uid-2", "롯데", "롯데 채팅방", 0));
         given(chatService.getRooms()).willReturn(rooms);
 
-        mockMvc.perform(get("/api/chat/rooms").with(authenticatedAs(USER_ID)))
+        mockMvc.perform(get("/api/game/chat/rooms").with(authenticatedAs(USER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.length()").value(2))
@@ -80,7 +81,7 @@ class ChatControllerRoomTest {
     void getRooms_noRooms_returns200WithEmptyArray() throws Exception {
         given(chatService.getRooms()).willReturn(List.of());
 
-        mockMvc.perform(get("/api/chat/rooms").with(authenticatedAs(USER_ID)))
+        mockMvc.perform(get("/api/game/chat/rooms").with(authenticatedAs(USER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data").isArray())
                 .andExpect(jsonPath("$.data.length()").value(0));
@@ -91,7 +92,7 @@ class ChatControllerRoomTest {
     void getRoom_notFound_returns404() throws Exception {
         given(chatService.getRoom(eq("nope"))).willThrow(new BusinessException(ErrorCode.CHATROOM_NOT_FOUND));
 
-        mockMvc.perform(get("/api/chat/rooms/{roomUid}", "nope").with(authenticatedAs(USER_ID)))
+        mockMvc.perform(get("/api/game/chat/rooms/{roomUid}", "nope").with(authenticatedAs(USER_ID)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.message").value(ErrorCode.CHATROOM_NOT_FOUND.getMessage()));
@@ -103,14 +104,14 @@ class ChatControllerRoomTest {
         given(chatService.getRoom(eq("deleted-uid")))
                 .willThrow(new BusinessException(ErrorCode.CHATROOM_NOT_FOUND));
 
-        mockMvc.perform(get("/api/chat/rooms/{roomUid}", "deleted-uid").with(authenticatedAs(USER_ID)))
+        mockMvc.perform(get("/api/game/chat/rooms/{roomUid}", "deleted-uid").with(authenticatedAs(USER_ID)))
                 .andExpect(status().isNotFound());
     }
 
     @Test
     @DisplayName("[AC-CHAT-4-1] 인증 헤더 없이 방 목록을 요청하면 401을 반환한다")
     void getRooms_withoutAuthentication_returns401() throws Exception {
-        mockMvc.perform(get("/api/chat/rooms"))
+        mockMvc.perform(get("/api/game/chat/rooms"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.message").value(ErrorCode.UNAUTHENTICATED.getMessage()));
@@ -120,7 +121,7 @@ class ChatControllerRoomTest {
     @DisplayName("[AC-CHAT-6-2] Authorization 헤더 없이 SSE 구독을 요청하면 401을 반환한다"
             + "(표준 브라우저 EventSource는 헤더를 못 실어 이 경로로 귀결됨을 서버 관점에서 고정)")
     void subscribe_withoutAuthentication_returns401() throws Exception {
-        mockMvc.perform(get("/api/chat/rooms/{roomUid}/subscribe", "uid-1"))
+        mockMvc.perform(get("/api/game/chat/rooms/{roomUid}/subscribe", "uid-1"))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -130,7 +131,7 @@ class ChatControllerRoomTest {
         SseEmitter emitter = new SseEmitter();
         given(chatService.subscribe(eq("uid-1"), eq(USER_ID))).willReturn(emitter);
 
-        MvcResult result = mockMvc.perform(get("/api/chat/rooms/{roomUid}/subscribe", "uid-1")
+        MvcResult result = mockMvc.perform(get("/api/game/chat/rooms/{roomUid}/subscribe", "uid-1")
                         .with(authenticatedAs(USER_ID)))
                 .andExpect(request().asyncStarted())
                 .andReturn();
@@ -149,7 +150,7 @@ class ChatControllerRoomTest {
         given(chatService.subscribe(eq("deleted-uid"), eq(USER_ID)))
                 .willThrow(new BusinessException(ErrorCode.CHATROOM_NOT_FOUND));
 
-        mockMvc.perform(get("/api/chat/rooms/{roomUid}/subscribe", "deleted-uid")
+        mockMvc.perform(get("/api/game/chat/rooms/{roomUid}/subscribe", "deleted-uid")
                         .with(authenticatedAs(USER_ID)))
                 .andExpect(status().isNotFound());
     }

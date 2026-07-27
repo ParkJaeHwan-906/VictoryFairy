@@ -16,6 +16,7 @@ import com.skhynix.user.auth.dto.SignupRequest;
 import com.skhynix.user.auth.policy.NicknamePolicy;
 import com.skhynix.user.auth.service.AuthService;
 import com.skhynix.user.auth.service.EmailVerificationService;
+import com.skhynix.user.global.config.ApiPathPrefixConfig;
 import com.skhynix.user.global.config.SecurityConfig;
 import com.skhynix.websupport.error.GlobalExceptionHandler;
 import com.skhynix.websupport.jwt.JwtTokenProvider;
@@ -31,7 +32,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * {@code POST /api/auth/nickname/validate}가 계약대로 동작하는지 확인한다: 인증 없이 접근 가능하고
+ * {@code POST /api/member/auth/nickname/validate}가 계약대로 동작하는지 확인한다: 인증 없이 접근 가능하고
  * (USER-NICK-2), 정책 위반·중복 어느 경우든 항상 HTTP 200을 반환하며(USER-NICK-3, 5, 12, 15),
  * 정책 위반 시 signup의 409 중복과 상태 코드가 다름을 확인한다(USER-NICK-14, 15).
  *
@@ -43,7 +44,7 @@ import tools.jackson.databind.ObjectMapper;
  */
 @WebMvcTest(AuthController.class)
 @ContextConfiguration(classes = AuthController.class)
-@Import({SecurityConfig.class, GlobalExceptionHandler.class})
+@Import({ApiPathPrefixConfig.class, SecurityConfig.class, GlobalExceptionHandler.class})
 class AuthControllerNicknameValidateTest {
 
     @Autowired
@@ -76,7 +77,7 @@ class AuthControllerNicknameValidateTest {
         String json = validateNicknameJson("길동gil9");
 
         // when & then: Authorization 헤더를 일부러 붙이지 않는다.
-        mockMvc.perform(post("/api/auth/nickname/validate")
+        mockMvc.perform(post("/api/member/auth/nickname/validate")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isOk());
@@ -90,7 +91,7 @@ class AuthControllerNicknameValidateTest {
         String json = validateNicknameJson("길동gil9");
 
         // when & then
-        mockMvc.perform(post("/api/auth/nickname/validate")
+        mockMvc.perform(post("/api/member/auth/nickname/validate")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isOk())
@@ -110,7 +111,7 @@ class AuthControllerNicknameValidateTest {
         String json = validateNicknameJson("hi!");
 
         // when & then
-        mockMvc.perform(post("/api/auth/nickname/validate")
+        mockMvc.perform(post("/api/member/auth/nickname/validate")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isOk())
@@ -129,7 +130,7 @@ class AuthControllerNicknameValidateTest {
         String json = validateNicknameJson(nickname);
 
         // when & then
-        mockMvc.perform(post("/api/auth/nickname/validate")
+        mockMvc.perform(post("/api/member/auth/nickname/validate")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isOk())
@@ -146,7 +147,7 @@ class AuthControllerNicknameValidateTest {
         String json = validateNicknameJson(null);
 
         // when & then
-        mockMvc.perform(post("/api/auth/nickname/validate")
+        mockMvc.perform(post("/api/member/auth/nickname/validate")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isOk())
@@ -163,7 +164,7 @@ class AuthControllerNicknameValidateTest {
         String json = validateNicknameJson("이미있음");
 
         // when & then
-        mockMvc.perform(post("/api/auth/nickname/validate")
+        mockMvc.perform(post("/api/member/auth/nickname/validate")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isOk())
@@ -187,7 +188,7 @@ class AuthControllerNicknameValidateTest {
                 .willThrow(new BusinessException(ErrorCode.DUPLICATE_NICKNAME));
 
         // when & then: validate는 200
-        mockMvc.perform(post("/api/auth/nickname/validate")
+        mockMvc.perform(post("/api/member/auth/nickname/validate")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(validateNicknameJson(duplicatedNickname)))
                 .andExpect(status().isOk())
@@ -198,7 +199,7 @@ class AuthControllerNicknameValidateTest {
         SignupRequest signupRequest = new SignupRequest(
                 "홍길동", "01012345678", "test@example.com",
                 com.skhynix.domain.user.entity.Gender.MALE, duplicatedNickname, "abc123!@");
-        mockMvc.perform(post("/api/auth/signup")
+        mockMvc.perform(post("/api/member/auth/signup")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(signupRequest)))
                 .andExpect(status().isConflict())

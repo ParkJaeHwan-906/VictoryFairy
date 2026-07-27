@@ -15,6 +15,7 @@ import com.skhynix.user.auth.dto.SignupRequest;
 import com.skhynix.user.auth.policy.NicknamePolicy;
 import com.skhynix.user.auth.service.AuthService;
 import com.skhynix.user.auth.service.EmailVerificationService;
+import com.skhynix.user.global.config.ApiPathPrefixConfig;
 import com.skhynix.user.global.config.SecurityConfig;
 import com.skhynix.websupport.error.GlobalExceptionHandler;
 import com.skhynix.websupport.jwt.JwtTokenProvider;
@@ -34,13 +35,13 @@ import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * {@code POST /api/auth/signup}의 {@link SignupRequest#nickname()} 검증 정책이 서블릿 레이어
+ * {@code POST /api/member/auth/signup}의 {@link SignupRequest#nickname()} 검증 정책이 서블릿 레이어
  * (@Valid + GlobalExceptionHandler)까지 실제로 적용되는지 확인한다. {@code AuthControllerSignupTest}와
  * 동일한 슬라이스 구성 패턴을 따른다({@code docs/requirements/user/nickname-policy.md} USER-NICK-4, 6, 10).
  */
 @WebMvcTest(AuthController.class)
 @ContextConfiguration(classes = AuthController.class)
-@Import({SecurityConfig.class, GlobalExceptionHandler.class})
+@Import({ApiPathPrefixConfig.class, SecurityConfig.class, GlobalExceptionHandler.class})
 class AuthControllerSignupNicknameTest {
 
     @Autowired
@@ -74,7 +75,7 @@ class AuthControllerSignupNicknameTest {
         String json = objectMapper.writeValueAsString(requestWithNickname("길동gil9"));
 
         // when & then
-        mockMvc.perform(post("/api/auth/signup")
+        mockMvc.perform(post("/api/member/auth/signup")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isCreated())
@@ -106,7 +107,7 @@ class AuthControllerSignupNicknameTest {
         String json = objectMapper.writeValueAsString(requestWithNickname(nickname));
 
         // when & then
-        mockMvc.perform(post("/api/auth/signup")
+        mockMvc.perform(post("/api/member/auth/signup")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isBadRequest())

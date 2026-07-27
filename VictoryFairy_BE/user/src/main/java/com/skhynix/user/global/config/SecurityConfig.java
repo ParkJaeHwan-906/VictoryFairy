@@ -29,7 +29,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/", "/error").permitAll()
                         .requestMatchers(HttpMethod.GET, "/health").permitAll()
-                        .requestMatchers("/api/auth/**").permitAll()
+                        .requestMatchers("/api/member/auth/**").permitAll()
                         .anyRequest().authenticated()
                 )
                 // formLogin/httpBasic을 모두 disable하면 엔트리포인트를 등록하는 주체가 없어

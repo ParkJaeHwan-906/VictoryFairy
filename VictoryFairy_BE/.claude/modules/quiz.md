@@ -8,13 +8,13 @@ Quiz 도메인 REST API 서버. **구단별 채팅 기능 구현 완료**: `chat
 ## 핵심 클래스 (`quiz/src/main/java/com/skhynix/quiz/`)
 - `QuizApplication` — 메인 진입점. `scanBasePackages = "com.skhynix.quiz"`로 **좁게** 스캔 (user는 `com.skhynix` 전체). `@EntityScan`/`@EnableJpaRepositories`만 `com.skhynix` 전역.
 - `SecurityConfig` — stateless, `@Import({JwtVerificationConfig.class, GlobalExceptionHandler.class})`로 `web-support`의 JWT 검증 부품 + 예외 어드바이스를 명시적으로 끌어옴(좁은 스캔이 `com.skhynix.websupport.*`를 놓쳐 자동 감지 안 됨). `securityFilterChain`이 `JwtAuthenticationFilter`를 직접 `new`로 생성하며 `UserAccountRepository`(`:domain`, uid→id 조회)도 함께 넘김 — `web-support`의 필터 생성자가 바뀌면 여기도 같이 고쳐야 함. `/`, `/error`, `GET /health` 외 전부 인증 필수. 미인증 401도 `web-support`의 `RestAuthenticationEntryPoint`를 그대로 import해 등록(동일 커플링 — 생성자 바뀌면 같이 고칠 것)
-- `chat/controller/ChatController` — `/api/chat/**` REST+SSE. principal은 `@AuthenticationPrincipal Long userAccountId`(`JwtAuthenticationFilter`가 주입)
+- `chat/controller/ChatController` — `/api/game/chat/**` REST+SSE. principal은 `@AuthenticationPrincipal Long userAccountId`(`JwtAuthenticationFilter`가 주입)
 - `chat/service/ChatService` — 방 조회/구독/전송/히스토리/신고 로직. 전송 성공 후 SSE 발행은 fire-and-forget(예외 삼킴, 저장·응답은 되돌리지 않음)
 - `realtime/RealtimeEventPublisher` — 실시간 전송 포트(토픽=roomUid). **quiz 정답 집계 등 향후 기능도 재사용할 일반 설계**로 만들어짐. 기본(유일) 구현은 `InMemoryPublisher`(같은 프로세스 내 전달) — Redis pub/sub 어댑터는 미구현(포트 Javadoc에 이음새 TODO만, 다중 인스턴스 확장 시 추가 예정)
 - `realtime/SseEmitterRegistry` — 방별 SSE 구독 관리. 타임아웃 30분·하트비트 15초(`:ping` 주석 프레임). **participants는 DB 컬럼이 아니라 이 레지스트리의 현재 구독 수로 서빙**(connect/disconnect마다 DB write가 폭주하는 걸 피하고, 단일 인스턴스에선 정확 — 다중 인스턴스 전역 집계는 후속). `Chatroom.participants`/`join()`/`leave()`는 domain에 존재하나 이번 범위에서 미사용
 - `realtime/RealtimeSchedulingConfig` — `@EnableScheduling`으로 하트비트 구동(quiz 좁은 스캔 범위 안이라 자동 등록)
 
-## 엔드포인트 (`/api/chat`)
+## 엔드포인트 (`/api/game/chat`)
 - `GET /rooms` → 방 목록(소프트삭제 제외, participants=구독 수)
 - `GET /rooms/{roomUid}` → 방 상세. 없거나 삭제된 방 404
 - `GET /rooms/{roomUid}/subscribe` → SSE 구독(`text/event-stream`). 표준 `EventSource`는 헤더를 못 실어 인증 실패(401) — fetch 기반 폴리필로 `Authorization` 헤더를 실어야 함
