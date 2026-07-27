@@ -26,8 +26,14 @@ public class SmtpEmailSender implements EmailSender {
         SimpleMailMessage message = new SimpleMailMessage();
         message.setFrom(from);
         message.setTo(email);
-        message.setSubject("[VictoryFairy] 이메일 인증번호 안내");
-        message.setText("인증번호는 [" + code + "] 입니다. 5분 이내에 입력해 주세요.");
+        message.setSubject("승리요정 : 이메일 인증번호 안내");
+        message.setText("""
+                승리를 기다리는 모든 순간 더 재미있게!
+                아래 인증번호를 입력하여 이메일 인증을 완료해주세요.
+
+                인증번호 : %s
+
+                인증번호는 발송 후 5분간 유효합니다.""".formatted(code));
         mailSender.send(message);
     }
 }
