@@ -12,6 +12,25 @@ spring:
     properties:
       hibernate:
         format_sql: true
+    # 시드 스크립트(아래 sql.init)를 Hibernate 초기화 '이후'에 돌리기 위한 스위치.
+    # 기본값(false)이면 EntityManagerFactory 준비 전에 실행돼 순서가 뒤집힌다.
+    defer-datasource-initialization: true
+
+  # 로컬 자동 시드 — 비어 있으면 채우고, 있으면 건너뛴다.
+  #   teams-init.sql : 10개 구단
+  #   chat-init.sql  : (chatrooms/chats DDL) + SYSTEM 계정 + 구단별 채팅방 10개
+  # 두 파일 모두 배포 선행 SQL 원본(infra/sql)이며 build.gradle 이 클래스패스로 복사한다.
+  # 전부 INSERT ... WHERE NOT EXISTS / CREATE TABLE IF NOT EXISTS 라 **재실행 안전**이다
+  # → 매 기동마다 돌아도 중복 행이 생기지 않는다(그래서 mode: always 로 둔다).
+  # ⚠ encoding 을 지정하지 않으면 플랫폼 기본 인코딩으로 읽어 한글 팀명이 깨진 채 저장된다.
+  # ⚠ dev 전용이다. prod 는 ddl-auto=none + 수동 적용이 규칙이라 앱이 스키마·데이터를 건드리지 않는다.
+  sql:
+    init:
+      mode: always
+      encoding: UTF-8
+      data-locations:
+        - classpath:sql/teams-init.sql
+        - classpath:sql/chat-init.sql
 
 # dev 는 Redis 를 쓰지 않는다(fan-out 은 InMemoryPublisher). spring-boot-starter-data-redis 가
 # 클래스패스에 있다는 이유만으로 액추에이터가 redis 인디케이터를 켜서, 로컬에 Redis 가 없으면

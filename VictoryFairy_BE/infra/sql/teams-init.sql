@@ -7,6 +7,10 @@
 --
 -- 적용 순서:  teams-init.sql  →  chat-init.sql
 --
+-- 로컬(dev)은 이 파일을 직접 실행할 필요가 없다 — quiz 앱이 dev 프로파일로 뜰 때
+-- `spring.sql.init`(application-dev.yaml)이 위 순서대로 자동 실행한다. 운영은 자동 실행이
+-- 없으므로(ddl-auto=none 규칙) 아래 순서대로 사람이 적용한다.
+--
 -- ⚠ name/code 는 임의로 정한 값이 아니다. py-collector 의 팀 차원 정의
 --   (VictoryFairy_AI/py-collector/kbo_collector/dimensions.py 의 TEAMS)를 그대로 옮겼다.
 --   code 는 Team.java 주석대로 "py-collector 가 재실행해도 중복 없이 upsert 하기 위한
