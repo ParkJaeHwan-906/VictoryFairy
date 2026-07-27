@@ -18,10 +18,10 @@ KBO 구단(team)별 실시간 채팅을 제공한다. 아키텍처는 사용자�
 ## 확정 전제 (코드에서 확인 + Q 확정 반영 — 요구사항의 바탕)
 1. **인증 principal = `Long userAccountId`.** `JwtAuthenticationFilter`가 토큰 subject(`uid`)를 활성 계정의 내부 PK로 변환해 SecurityContext에 넣는다. 컨트롤러는 이 값으로 발신자를 식별한다.
 2. **JWT는 `Authorization: Bearer` 헤더에서만 읽는다(Q7 확정).** SSE 인증도 **헤더 방식을 유지**하며, 표준 브라우저 `EventSource`는 헤더를 실을 수 없으므로 **fetch 기반 EventSource 폴리필로 `Authorization: Bearer`를 유지**하는 것을 전제한다. 쿼리 파라미터·쿠키 토큰 방식은 채택하지 않는다. SecurityConfig·JWT 필터는 변경하지 않는다.
-3. **`/api/chat/**`는 자동으로 인증 필수.** quiz `SecurityConfig`가 `/`, `/error`, `GET /health` 외 `anyRequest().authenticated()`이며 미인증은 user의 `RestAuthenticationEntryPoint`로 **401**을 낸다. chat 경로용 SecurityConfig 수정은 불필요.
+3. **`/api/game/chat/**`는 자동으로 인증 필수.** quiz `SecurityConfig`가 `/`, `/error`, `GET /health` 외 `anyRequest().authenticated()`이며 미인증은 user의 `RestAuthenticationEntryPoint`로 **401**을 낸다. chat 경로용 SecurityConfig 수정은 불필요.
 4. **방 접근에는 구단 소속 제한이 없다(Q1 확정).** 모든 인증 사용자가 모든 구단 방을 조회·입장·전송할 수 있다. user↔team 소속 개념은 도입하지 않는다.
 5. **관리자 개념이 없다(Q4 재확정).** 이번 범위엔 관리자/Role 체계도, admin 허용목록도 두지 않는다. 신고→blind는 **완전 자동**이며 사람이 승인·해제하는 경로가 없다. unblind/메시지 soft-delete는 후속 과제(하단 제외 범위).
-6. **`Chat`에는 외부 식별자(`uid`)가 없고, 추가하지 않는다(Q5 확정).** `chats`는 고write 테이블이라 랜덤 UUID 유니크 인덱스는 삽입 지역성을 해쳐 채택하지 않는다. 메시지를 지목해야 하는 유일한 경로인 신고는 **내부 PK를 room-스코프 경로로 지목**한다: `POST /api/chat/rooms/{roomUid}/messages/{messageId}/report`. 열거 방어는 인가(방 접근 사용자)·신고 규칙·blind 가역성으로 충당한다. **SSE·히스토리 응답 payload에는 메시지 식별자를 싣지 않는다.**
+6. **`Chat`에는 외부 식별자(`uid`)가 없고, 추가하지 않는다(Q5 확정).** `chats`는 고write 테이블이라 랜덤 UUID 유니크 인덱스는 삽입 지역성을 해쳐 채택하지 않는다. 메시지를 지목해야 하는 유일한 경로인 신고는 **내부 PK를 room-스코프 경로로 지목**한다: `POST /api/game/chat/rooms/{roomUid}/messages/{messageId}/report`. 열거 방어는 인가(방 접근 사용자)·신고 규칙·blind 가역성으로 충당한다. **SSE·히스토리 응답 payload에는 메시지 식별자를 싣지 않는다.**
 7. **발신자에게는 SSE 에코를 하지 않는다(Q8 확정).** 서버는 emitter를 `userAccountId`로 식별해 발신자 구독을 fan-out에서 제외한다. 발신자 본인 메시지는 POST 응답으로 렌더한다. 발신자의 다른 탭은 실시간 수신 대신 재접속 시 히스토리로 보정된다(알려진 한계).
 8. **quiz 스캔 범위 안에 `GlobalExceptionHandler`가 없다.** `BusinessException`을 던지면 `ApiResponse.fail`이 아니라 스프링 기본 500이 나간다(모듈 컨텍스트 quiz.md). 아래 표의 4xx 오류 응답이 `ApiResponse` 형태로 나오려면 quiz에 별도 `@RestControllerAdvice` 추가가 **제약**이다(구현 지시가 아니라 계약 성립 조건, 하단 제약 절 1).
 9. **채팅방에 소유자(`owner_account_id`)를 둔다(승인 후 확정, 선제 모델링).** 사용자 직접 방 생성 기능을 로드맵에 두기 위한 준비로, `Chatroom`에 `owner_account_id` FK(→`users_account`, **non-null·비-CASCADE**)를 추가한다. 계정은 소프트삭제(exit_at)이고 FK가 비-CASCADE이므로 소유자 계정이 탈퇴해도 방은 보존된다. **이번 범위엔 방 생성·삭제 엔드포인트가 없어 `owner_account_id`는 아직 활성 동작이 없는 선제 모델링이다**(사용자 생성 방 + 삭제 기능 도입 시 실효). 방 삭제 인가(후속)는 Role 체계가 아니라 `room.owner == 현재 userAccountId` 단순 비교로 한다.
@@ -35,22 +35,22 @@ KBO 구단(team)별 실시간 채팅을 제공한다. 아키텍처는 사용자�
 | ID | 유형 | 요구사항 | 인수 기준 |
 |---|---|---|---|
 | QUIZ-CHAT-1 | 유비쿼터스 | THE 시스템 SHALL 각 KBO 구단(team)에 1:1로 대응하는 채팅방을 제공하고, 외부에는 순차 PK가 아니라 `Chatroom.uid`로만 노출한다 | 10개 구단 방이 team↔room 1:1로 존재(팀 시드와 함께 미리 생성, owner는 시스템 계정, 방 생성 API 없음). 방 목록·구독·전송 응답/경로에 정수 PK가 없고 36자 UUID(`uid`)만 나타난다 |
-| QUIZ-CHAT-2 | 이벤트 | WHEN 인증된 사용자가 채팅방 목록을 요청하면, THE 시스템 SHALL 소프트삭제되지 않은 방 목록을 200으로 반환한다 | `GET /api/chat/rooms` → 200, 각 항목에 `roomUid`·`team`·`name`·`participants` 포함, `deletedAt`이 채워진 방은 목록에 없다 |
-| QUIZ-CHAT-3 | 예외 | IF 존재하지 않거나 소프트삭제된 `roomUid`로 접근하면, THEN THE 시스템 SHALL 404를 반환한다 | 임의 UUID로 `GET /api/chat/rooms/{roomUid}` → 404. 삭제된 방도 404 |
+| QUIZ-CHAT-2 | 이벤트 | WHEN 인증된 사용자가 채팅방 목록을 요청하면, THE 시스템 SHALL 소프트삭제되지 않은 방 목록을 200으로 반환한다 | `GET /api/game/chat/rooms` → 200, 각 항목에 `roomUid`·`team`·`name`·`participants` 포함, `deletedAt`이 채워진 방은 목록에 없다 |
+| QUIZ-CHAT-3 | 예외 | IF 존재하지 않거나 소프트삭제된 `roomUid`로 접근하면, THEN THE 시스템 SHALL 404를 반환한다 | 임의 UUID로 `GET /api/game/chat/rooms/{roomUid}` → 404. 삭제된 방도 404 |
 
 ### B. 인증·인가
 
 | ID | 유형 | 요구사항 | 인수 기준 |
 |---|---|---|---|
-| QUIZ-CHAT-4 | 예외 | IF `/api/chat/**` 요청에 유효한 액세스 토큰이 없으면, THEN THE 시스템 SHALL 401을 반환한다 | `Authorization` 헤더 없이 `POST /api/chat/rooms/{roomUid}/messages` → 401(`RestAuthenticationEntryPoint` 형식). 만료·리프레시 토큰도 401 |
+| QUIZ-CHAT-4 | 예외 | IF `/api/game/chat/**` 요청에 유효한 액세스 토큰이 없으면, THEN THE 시스템 SHALL 401을 반환한다 | `Authorization` 헤더 없이 `POST /api/game/chat/rooms/{roomUid}/messages` → 401(`RestAuthenticationEntryPoint` 형식). 만료·리프레시 토큰도 401 |
 | QUIZ-CHAT-5 | 유비쿼터스 | THE 시스템 SHALL 인증된 모든 사용자에게 모든 구단 방의 조회·입장·전송을 허용한다(구단 소속에 따른 접근 제한 없음) | 임의 인증 사용자가 임의 구단 방에 입장·전송 → 403이 발생하지 않는다. user↔team 소속 개념 없음 |
 
 ### C. 입장(SSE 구독)·퇴장·참여 인원
 
 | ID | 유형 | 요구사항 | 인수 기준 |
 |---|---|---|---|
-| QUIZ-CHAT-6 | 이벤트 | WHEN 인증 사용자가 방 구독을 요청하면, THE 시스템 SHALL `text/event-stream` 스트림을 200으로 열어 유지한다 | `GET /api/chat/rooms/{roomUid}/subscribe`(fetch 기반 폴리필로 `Authorization` 헤더 유지) → 200, `Content-Type: text/event-stream`, 연결이 즉시 끊기지 않는다 |
-| QUIZ-CHAT-7 | 이벤트 | WHEN 방 구독이 성립하면, THE 시스템 SHALL 해당 방 `participants`를 1 증가시킨다 | 구독 직후 `GET /api/chat/rooms/{roomUid}` 의 `participants`가 구독 전보다 1 크다. 같은 사용자의 두 번째 구독(멀티탭)도 +1(연결 기준 카운트) |
+| QUIZ-CHAT-6 | 이벤트 | WHEN 인증 사용자가 방 구독을 요청하면, THE 시스템 SHALL `text/event-stream` 스트림을 200으로 열어 유지한다 | `GET /api/game/chat/rooms/{roomUid}/subscribe`(fetch 기반 폴리필로 `Authorization` 헤더 유지) → 200, `Content-Type: text/event-stream`, 연결이 즉시 끊기지 않는다 |
+| QUIZ-CHAT-7 | 이벤트 | WHEN 방 구독이 성립하면, THE 시스템 SHALL 해당 방 `participants`를 1 증가시킨다 | 구독 직후 `GET /api/game/chat/rooms/{roomUid}` 의 `participants`가 구독 전보다 1 크다. 같은 사용자의 두 번째 구독(멀티탭)도 +1(연결 기준 카운트) |
 | QUIZ-CHAT-8 | 이벤트 | WHEN 구독 연결이 종료되면(클라이언트 종료 또는 타임아웃), THE 시스템 SHALL 해당 방 `participants`를 1 감소시킨다 | 구독 종료 후 `participants`가 1 줄어든다. best-effort 카운트이며 `Chatroom.leave()`로 0 미만으로 내려가지 않는다 |
 | QUIZ-CHAT-26 | 상태 | WHILE SSE 연결이 열려 있는 동안, THE 시스템 SHALL 주기적으로 하트비트(SSE 주석 `:ping`)를 전송하고 타임아웃·전송 실패로 감지된 죽은 연결을 회수해 `participants`를 보정한다 | 유휴 연결에서 주기적 `:ping` 주석 프레임이 관찰된다. 비정상 종료로 leave 신호 없이 끊긴 연결이 하트비트 실패로 정리되면 `participants`가 그만큼 감소한다(정확성 보장이 아닌 근사 정확도) |
 | QUIZ-CHAT-9 | 상태 | WHILE 방이 소프트삭제된 상태이면, THE 시스템 SHALL 그 방의 신규 구독 요청을 404로 거부한다 | 삭제된 방 `.../subscribe` → 404, 스트림을 열지 않는다 |
@@ -59,7 +59,7 @@ KBO 구단(team)별 실시간 채팅을 제공한다. 아키텍처는 사용자�
 
 | ID | 유형 | 요구사항 | 인수 기준 |
 |---|---|---|---|
-| QUIZ-CHAT-10 | 이벤트 | WHEN 인증 사용자가 유효한 content로 메시지 전송을 요청하면, THE 시스템 SHALL `Chat`을 `blind=false`·`deletedAt=null`로 저장하고 저장된 메시지를 201로 반환한다 | `POST /api/chat/rooms/{roomUid}/messages` `{"content":"안녕"}` → 201, 응답에 `content`·`senderNickname`(발신자 `UserAccount.nickname`)·`createdAt`, `chats`에 1행 증가 |
+| QUIZ-CHAT-10 | 이벤트 | WHEN 인증 사용자가 유효한 content로 메시지 전송을 요청하면, THE 시스템 SHALL `Chat`을 `blind=false`·`deletedAt=null`로 저장하고 저장된 메시지를 201로 반환한다 | `POST /api/game/chat/rooms/{roomUid}/messages` `{"content":"안녕"}` → 201, 응답에 `content`·`senderNickname`(발신자 `UserAccount.nickname`)·`createdAt`, `chats`에 1행 증가 |
 | QUIZ-CHAT-11 | 이벤트 | WHEN 메시지가 저장되면, THE 시스템 SHALL 그 메시지를 발신자를 제외한 같은 방 구독자에게 SSE 이벤트로 전달한다 | 같은 방 구독 중인 다른 사용자 B가 메시지를 SSE로 수신한다. **발신자 A 자신은 SSE로 받지 않고**(emitter를 `userAccountId`로 식별해 제외) POST 응답으로만 렌더한다 |
 | QUIZ-CHAT-12 | 예외 | IF content가 `null`·빈 문자열·공백만이면, THEN THE 시스템 SHALL 400을 반환하고 메시지를 저장하지 않는다 | `{"content":"   "}` → 400, `chats` 행 증가 없음(4xx가 `ApiResponse` 형태로 나가려면 제약 절 1 충족) |
 | QUIZ-CHAT-13 | 예외 | IF content가 최대 길이 500자를 초과하면, THEN THE 시스템 SHALL 400을 반환하고 저장하지 않는다 | 501자 content → 400. 경계: 500자 통과, 501자 거부. 길이는 `String.length()` UTF-16 code unit 기준(닉네임 정책과 동일 컨벤션 — 이모지 surrogate pair는 2로 계수) |
@@ -77,14 +77,14 @@ KBO 구단(team)별 실시간 채팅을 제공한다. 아키텍처는 사용자�
 
 | ID | 유형 | 요구사항 | 인수 기준 |
 |---|---|---|---|
-| QUIZ-CHAT-18 | 이벤트 | WHEN 인증 사용자가 방의 과거 메시지를 요청하면, THE 시스템 SHALL 페이지 크기 30·최신순(`createdAt` desc)으로 페이징된 메시지 목록을 200으로 반환한다 | `GET /api/chat/rooms/{roomUid}/messages?...` → 200, 한 페이지 최대 30건, 최신 메시지가 먼저 |
+| QUIZ-CHAT-18 | 이벤트 | WHEN 인증 사용자가 방의 과거 메시지를 요청하면, THE 시스템 SHALL 페이지 크기 30·최신순(`createdAt` desc)으로 페이징된 메시지 목록을 200으로 반환한다 | `GET /api/game/chat/rooms/{roomUid}/messages?...` → 200, 한 페이지 최대 30건, 최신 메시지가 먼저 |
 | QUIZ-CHAT-19 | 유비쿼터스 | THE 시스템 SHALL 히스토리 응답에서 `blind=true`이거나 `deletedAt`이 채워진 메시지를 제외한다 | blind 처리된 메시지와 소프트삭제된 메시지가 히스토리 결과에 나타나지 않는다 |
 
 ### G. 신고·블라인드 (자동, 관리자 개입 없음)
 
 | ID | 유형 | 요구사항 | 인수 기준 |
 |---|---|---|---|
-| QUIZ-CHAT-20 | 이벤트 | WHEN 인증 사용자가 방 접근 권한 내에서 타인의 메시지를 신고하면, THE 시스템 SHALL 대상 `Chat`을 즉시 `blind=true`로 전환한다(신고 1건으로 즉시 숨김, 임계치·관리자 승인 없음) | `POST /api/chat/rooms/{roomUid}/messages/{messageId}/report` → 2xx, 대상 메시지 `blind=true` |
+| QUIZ-CHAT-20 | 이벤트 | WHEN 인증 사용자가 방 접근 권한 내에서 타인의 메시지를 신고하면, THE 시스템 SHALL 대상 `Chat`을 즉시 `blind=true`로 전환한다(신고 1건으로 즉시 숨김, 임계치·관리자 승인 없음) | `POST /api/game/chat/rooms/{roomUid}/messages/{messageId}/report` → 2xx, 대상 메시지 `blind=true` |
 | QUIZ-CHAT-27 | 예외 | IF 신고자가 대상 메시지의 작성자와 동일하면, THEN THE 시스템 SHALL 403을 반환하고 blind하지 않는다 | 자기 메시지 신고(`Chat.userAccount.id` == 요청자 `userAccountId`) → 403, 대상 `blind=false` 유지 |
 | QUIZ-CHAT-28 | 예외 | IF 이미 `blind=true`인 메시지를 신고하면, THEN THE 시스템 SHALL 상태를 바꾸지 않고(no-op) 2xx를 반환한다 | 이미 blind된 메시지 재신고 → 2xx, 여전히 `blind=true`(멱등). 신고 이력을 저장하지 않아 재신고 횟수는 추적되지 않는다 |
 | QUIZ-CHAT-29 | 예외 | IF 이미 소프트삭제된 메시지를 신고하면, THEN THE 시스템 SHALL 404를 반환한다 | `deletedAt`이 채워진 메시지 신고 → 404 |
@@ -94,7 +94,7 @@ KBO 구단(team)별 실시간 채팅을 제공한다. 아키텍처는 사용자�
 
 | ID | 유형 | 요구사항 | 인수 기준 |
 |---|---|---|---|
-| QUIZ-CHAT-24 | 상태 | WHILE 채팅방이 소프트삭제된 상태이면, THE 시스템 SHALL 목록·조회·구독·전송·히스토리 전부에서 그 방을 404로 취급한다 | 삭제된 방은 `GET /api/chat/rooms` 목록에 없고, 구독·전송·히스토리 요청은 404. **방을 삭제하는 사용자·엔드포인트 트리거는 이번 범위 밖**(관리자 없음) — "삭제된 상태이면 이렇게 동작한다"는 계약만 정의 |
+| QUIZ-CHAT-24 | 상태 | WHILE 채팅방이 소프트삭제된 상태이면, THE 시스템 SHALL 목록·조회·구독·전송·히스토리 전부에서 그 방을 404로 취급한다 | 삭제된 방은 `GET /api/game/chat/rooms` 목록에 없고, 구독·전송·히스토리 요청은 404. **방을 삭제하는 사용자·엔드포인트 트리거는 이번 범위 밖**(관리자 없음) — "삭제된 상태이면 이렇게 동작한다"는 계약만 정의 |
 
 ### I. 재연결·놓친 메시지 복구
 

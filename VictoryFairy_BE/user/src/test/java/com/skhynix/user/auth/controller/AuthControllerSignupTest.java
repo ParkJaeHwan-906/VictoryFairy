@@ -33,11 +33,11 @@ import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * {@code POST /api/auth/signup}의 {@link SignupRequest#password()} 검증 정책이
+ * {@code POST /auth/signup}의 {@link SignupRequest#password()} 검증 정책이
  * 서블릿 레이어(@Valid + GlobalExceptionHandler)까지 실제로 적용되는지 확인한다.
  *
  * <p><b>보안 설정 관련 결정</b>: 이 슬라이스는 {@code @WithMockUser}로 인증을 우회하는 대신
- * 운영 {@link SecurityConfig}를 {@code @Import}해 실제 {@code permitAll} 규칙(/api/auth/**)이
+ * 운영 {@link SecurityConfig}를 {@code @Import}해 실제 {@code permitAll} 규칙(/auth/**)이
  * 그대로 적용되는지까지 함께 검증한다. {@link JwtTokenProvider}는 요청에 토큰이 없으므로
  * 실제 호출되지 않지만, {@code SecurityFilterChain} 빈 구성에 필요해 {@code @MockitoBean}으로
  * 대체했다. {@code SecurityConfig#securityFilterChain}이 {@code UserAccountRepository}도
@@ -93,7 +93,7 @@ class AuthControllerSignupTest {
         String json = objectMapper.writeValueAsString(requestWithPassword("abc123!@"));
 
         // when & then
-        mockMvc.perform(post("/api/auth/signup")
+        mockMvc.perform(post("/auth/signup")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isCreated())
@@ -125,7 +125,7 @@ class AuthControllerSignupTest {
         String json = objectMapper.writeValueAsString(requestWithPassword(password));
 
         // when & then
-        mockMvc.perform(post("/api/auth/signup")
+        mockMvc.perform(post("/auth/signup")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isBadRequest())

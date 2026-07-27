@@ -16,7 +16,7 @@ import java.lang.annotation.Target;
  * {@code Map<필드명, 메시지>}에 {@code put}하므로 마지막 하나만 살아남고, 그 순회 순서는 보장되지
  * 않아 <b>같은 요청인데 응답 메시지가 호출마다 달라진다</b>(password가 이미 겪은 문제). 이 제약은
  * {@link NicknamePolicy#findViolation(String)}에 판정을 위임해 <b>위반을 항상 정확히 1개만</b>
- * 만들므로 비결정성이 원인에서 사라지고, 사전 검사 API({@code POST /api/auth/nickname/validate})의
+ * 만들므로 비결정성이 원인에서 사라지고, 사전 검사 API({@code POST /api/member/auth/nickname/validate})의
  * 정책 단계와 문자 그대로 같은 함수를 공유하게 된다.
  *
  * <p><b>{@code null}·빈 문자열도 이 제약이 책임진다</b>: {@code @NotBlank}를 함께 걸지 말 것.

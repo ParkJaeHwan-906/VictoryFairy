@@ -7,7 +7,7 @@ import java.util.regex.Pattern;
  * 비밀번호 정책의 <b>단일 출처</b>.
  *
  * <p>회원가입({@code SignupRequest}의 Bean Validation 애노테이션)과 사전 검사 API
- * ({@code POST /api/auth/password/validate})가 같은 정책을 각자 하드코딩해 어긋나는 것을 막는다.
+ * ({@code POST /api/member/auth/password/validate})가 같은 정책을 각자 하드코딩해 어긋나는 것을 막는다.
  * 정책을 바꿀 일이 생기면 <b>이 클래스만</b> 수정하면 양쪽에 동시에 반영된다.
  *
  * <p>여기의 상수는 모두 컴파일 타임 상수(constant variable)라 애노테이션 속성에 그대로 쓸 수 있다.

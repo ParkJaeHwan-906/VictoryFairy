@@ -2,8 +2,8 @@
 
 > 코드 기준 자동 작성. 포트 **8081**(`quiz/src/main/resources/application.yaml`의 `server.port: 8081`), `server.servlet.context-path` 미설정이므로 base URL은 `http://localhost:8081`.
 > 최종 갱신: 2026-07-20 (구단별 채팅 API 신규 문서화)
-> 대상 컨트롤러: `quiz/src/main/java/com/skhynix/quiz/chat/controller/ChatController.java` (`@RequestMapping("/api/chat")`) — 현재 quiz 모듈의 유일한 컨트롤러.
-> 인증: JWT Bearer (`Authorization: Bearer <accessToken>`). `SecurityConfig`가 `/`, `/error`, `GET /health`만 permitAll이고 그 외 `anyRequest().authenticated()`이므로 **`/api/chat/**` 6개 엔드포인트 전부 인증 필수**다. 인증 방식·401 형식은 `docs/api/user.md`의 "인증 방식" 절과 동일(`RestAuthenticationEntryPoint`가 필터 단계에서 401 `ApiResponse` JSON을 직렬화). `@AuthenticationPrincipal Long userAccountId`는 `JwtAuthenticationFilter`가 토큰 `sub`(uid)를 활성 계정의 내부 PK로 변환해 주입한 값이다.
+> 대상 컨트롤러: `quiz/src/main/java/com/skhynix/quiz/chat/controller/ChatController.java` (`@RequestMapping("/api/game/chat")`) — 현재 quiz 모듈의 유일한 컨트롤러.
+> 인증: JWT Bearer (`Authorization: Bearer <accessToken>`). `SecurityConfig`가 `/`, `/error`, `GET /health`만 permitAll이고 그 외 `anyRequest().authenticated()`이므로 **`/api/game/chat/**` 6개 엔드포인트 전부 인증 필수**다. 인증 방식·401 형식은 `docs/api/user.md`의 "인증 방식" 절과 동일(`RestAuthenticationEntryPoint`가 필터 단계에서 401 `ApiResponse` JSON을 직렬화). `@AuthenticationPrincipal Long userAccountId`는 `JwtAuthenticationFilter`가 토큰 `sub`(uid)를 활성 계정의 내부 PK로 변환해 주입한 값이다.
 
 ## 공통 사항
 
@@ -26,7 +26,7 @@ blind 해제(unblind), 메시지/방 삭제를 수행하는 엔드포인트는 �
 
 ---
 
-## GET /api/chat/rooms
+## GET /api/game/chat/rooms
 채팅방 목록(소프트삭제 제외).
 
 **인증 필요** — `Authorization: Bearer <accessToken>`
@@ -48,13 +48,13 @@ blind 해제(unblind), 메시지/방 삭제를 수행하는 엔드포인트는 �
 
 **예시**
 ```bash
-curl -i http://localhost:8081/api/chat/rooms \
+curl -i http://localhost:8081/api/game/chat/rooms \
   -H 'Authorization: Bearer eyJ...'
 ```
 
 ---
 
-## GET /api/chat/rooms/{roomUid}
+## GET /api/game/chat/rooms/{roomUid}
 채팅방 상세.
 
 **인증 필요** — `Authorization: Bearer <accessToken>`
@@ -75,13 +75,13 @@ curl -i http://localhost:8081/api/chat/rooms \
 
 **예시**
 ```bash
-curl -i http://localhost:8081/api/chat/rooms/3f9c2e10-... \
+curl -i http://localhost:8081/api/game/chat/rooms/3f9c2e10-... \
   -H 'Authorization: Bearer eyJ...'
 ```
 
 ---
 
-## GET /api/chat/rooms/{roomUid}/subscribe
+## GET /api/game/chat/rooms/{roomUid}/subscribe
 방 실시간 구독(SSE). `produces = text/event-stream`. 반환 타입은 `SseEmitter`이며 `ApiResponse`로 감싸지 않는다(다른 5개 엔드포인트와 다름 — 이벤트 스트림이라 JSON 래핑 대상이 아님).
 
 **인증 필요** — `Authorization: Bearer <accessToken>`. **표준 브라우저 `EventSource`는 커스텀 헤더를 실을 수 없으므로 이 엔드포인트를 그대로 쓸 수 없다.** 클라이언트는 fetch 기반 EventSource 폴리필로 `Authorization: Bearer` 헤더를 유지한 채 스트림을 열어야 한다(쿼리 파라미터·쿠키 토큰 방식은 서버가 지원하지 않음).
@@ -114,14 +114,14 @@ curl -i http://localhost:8081/api/chat/rooms/3f9c2e10-... \
 
 **예시(fetch 기반 폴리필 개념 — 실제 라이브러리는 프로젝트마다 다름)**
 ```bash
-curl -i -N http://localhost:8081/api/chat/rooms/3f9c2e10-.../subscribe \
+curl -i -N http://localhost:8081/api/game/chat/rooms/3f9c2e10-.../subscribe \
   -H 'Authorization: Bearer eyJ...' \
   -H 'Accept: text/event-stream'
 ```
 
 ---
 
-## POST /api/chat/rooms/{roomUid}/messages
+## POST /api/game/chat/rooms/{roomUid}/messages
 메시지 전송. 저장 후 발신자를 제외한 같은 방 구독자에게 SSE `message` 이벤트로 전달(fire-and-forget)하고, 저장된 메시지를 응답으로 반환한다.
 
 **인증 필요** — `Authorization: Bearer <accessToken>`
@@ -161,7 +161,7 @@ curl -i -N http://localhost:8081/api/chat/rooms/3f9c2e10-.../subscribe \
 
 **예시**
 ```bash
-curl -i -X POST http://localhost:8081/api/chat/rooms/3f9c2e10-.../messages \
+curl -i -X POST http://localhost:8081/api/game/chat/rooms/3f9c2e10-.../messages \
   -H 'Authorization: Bearer eyJ...' \
   -H 'Content-Type: application/json' \
   -d '{"content":"안녕하세요"}'
@@ -175,7 +175,7 @@ curl -i -X POST http://localhost:8081/api/chat/rooms/3f9c2e10-.../messages \
 
 ---
 
-## GET /api/chat/rooms/{roomUid}/messages
+## GET /api/game/chat/rooms/{roomUid}/messages
 방 히스토리 조회(페이징).
 
 **인증 필요** — `Authorization: Bearer <accessToken>`
@@ -215,13 +215,13 @@ curl -i -X POST http://localhost:8081/api/chat/rooms/3f9c2e10-.../messages \
 
 **예시**
 ```bash
-curl -i "http://localhost:8081/api/chat/rooms/3f9c2e10-.../messages?page=0" \
+curl -i "http://localhost:8081/api/game/chat/rooms/3f9c2e10-.../messages?page=0" \
   -H 'Authorization: Bearer eyJ...'
 ```
 
 ---
 
-## POST /api/chat/rooms/{roomUid}/messages/{messageId}/report
+## POST /api/game/chat/rooms/{roomUid}/messages/{messageId}/report
 메시지 신고 → 즉시 blind 전환(자동, 관리자 개입 없음, 멱등).
 
 **인증 필요** — `Authorization: Bearer <accessToken>`
@@ -251,7 +251,7 @@ curl -i "http://localhost:8081/api/chat/rooms/3f9c2e10-.../messages?page=0" \
 
 **예시**
 ```bash
-curl -i -X POST http://localhost:8081/api/chat/rooms/3f9c2e10-.../messages/42/report \
+curl -i -X POST http://localhost:8081/api/game/chat/rooms/3f9c2e10-.../messages/42/report \
   -H 'Authorization: Bearer eyJ...'
 ```
 
