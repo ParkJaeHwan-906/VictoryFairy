@@ -47,25 +47,14 @@ model: sonnet
   (`.env`의 `COMPOSE_PROFILES` 값이 이걸 이미 정하고 있을 수 있으니 확인할 것.)
 - **`.env`가 필요하다.** 키: `DB_HOST/PORT/NAME/USERNAME/PASSWORD`, `SPRING_PROFILES_ACTIVE`, `COMPOSE_PROFILES`, `JWT_SECRET`. 없으면 SKIP.
 
-### ⚠️ 운영 스택 (`docker-compose.prod.yml`) — 로컬에서 그대로 못 띄운다
-- **GHCR 이미지**(`${IMAGE_PREFIX}/victoryfairy-*`)를 pull하고 **DB는 AWS RDS**(`DB_HOST`)를 본다. 로컬엔 둘 다 없다.
-- → `"$COMPOSE" -f docker-compose.prod.yml config`로 **문법·해석 검증까지만** 하고, 기동은 SKIP + 이유를 보고한다.
-
-### ✅ nginx 검증 — 네 책임이다 (nginx-proxy가 여기로 위임한다)
-**`nginx.conf` 변경은 `deploy.yml`의 `compose` 필터에 걸려 곧바로 운영 배포를 트리거한다.** 그런데 nginx 서비스는 **prod compose에만 있고 로컬 compose에는 없다** → 그냥 두면 운영에 직결되는 파일이 아무 검증도 없이 나간다. 그래서 최소 이것만은 한다:
-
-1. **문법 검증 (항상, 싸다)** — 컨테이너 하나로 끝난다. 앱을 띄울 필요가 없다:
-   ```bash
-   "$DOCKER" run --rm -v "$PWD/nginx.conf:/etc/nginx/conf.d/default.conf:ro" nginx:1.27-alpine nginx -t
-   ```
-   `nginx: configuration file /etc/nginx/nginx.conf test is successful` 를 확인한다. **이건 요청 없이도 nginx.conf가 바뀌었으면 수행한다.**
-2. **라우팅 검증 (요청 시)** — 로컬 스택(user·quiz)을 띄우고 nginx 컨테이너를 같은 네트워크에 붙여 경로별 프록시를 확인한다. **prod compose가 아니라 임시 구성**이므로 그 사실을 반드시 명시한다.
-   - `proxy_pass`가 서비스명(`http://user:8080`)을 쓰므로 **같은 도커 네트워크**여야 이름이 풀린다.
-   - 검증 후 임시 컨테이너·네트워크를 정리한다.
+### ⚠️ 로컬 검증은 운영과 다르다
+운영은 **EKS**다(ALB → user-app/quiz-app 파드). 로컬 compose에는 nginx도 ALB도 없으므로 **경로 라우팅·TLS는 여기서 검증되지 않는다.** 로컬에서 통과했다고 운영이 된다고 보고하지 마라.
+- 운영 상태를 봐야 하면 `kubectl`·`gh run`으로 직접 확인한다(둘 다 설치돼 있다). 지어내지 말 것.
+- `docker-compose.prod.yml`·`nginx.conf`는 2026-07-27 삭제됐다. 참조하는 지시를 만나면 낡은 것이니 보고하라.
 
 ### ❌ 하지 않는 것
-- **운영 EC2에 SSH로 붙어 컨테이너를 만지는 일.** 절대 금지. 그건 배포 파이프라인(`deploy.yml`) 소관이다.
-- 설정 파일 수정. 문제를 찾으면 dockerfile-manager / compose-manager / nginx-proxy에 **위임 권고**한다.
+- **운영 클러스터의 파드·리소스를 변경하는 일.** 조회는 되지만 변경은 금지다. 배포는 `deploy-eks.yml` 소관.
+- 설정 파일 수정. 문제를 찾으면 dockerfile-manager / compose-manager에 **위임 권고**한다.
 
 ## 검증 절차
 1. **전제 확인**: docker 실행 가능? 데몬 살아 있음? `.env` 있음? → 하나라도 안 되면 SKIP 보고.
@@ -79,7 +68,7 @@ model: sonnet
    curl -s -m 10 -w "\n%{http_code}" -X POST http://localhost:<port>/<경로> \
      -H 'Content-Type: application/json' -d '<샘플>'
    ```
-   - ⚠️ **`/health`·`/healthz`를 기동 확인에 쓰지 말 것.** 둘 다 핸들러가 없어 **404가 돌아온다.** (nginx의 `/healthz`는 nginx 자신이 200을 반환할 뿐 백엔드를 보지 않는다.)
+   - ⚠️ **`/health`·`/healthz`를 기동 확인에 쓰지 말 것.** 둘 다 핸들러가 없어 **404가 돌아온다.**
    - ✅ 대신 **actuator readiness**를 쓴다(2026-07-27 도입). 앱이 `server.servlet.context-path`를 쓰므로 경로가 모듈마다 다르다:
      - user → `http://localhost:8080/api/member/actuator/health/readiness`
      - quiz → `http://localhost:8081/api/game/actuator/health/readiness`
@@ -108,6 +97,6 @@ model: sonnet
 - [PASS/FAIL/SKIP] 동작: <엔드포인트 → 상태코드/본문 요약>
 - 정리: <내린 컨테이너/지운 이미지>
 - 종합: <PASS/FAIL/SKIP> + 후속 조치
-- 위임 권고: <dockerfile-manager / compose-manager / nginx-proxy 로 넘길 문제>
+- 위임 권고: <dockerfile-manager / compose-manager 로 넘길 문제>
 ```
 최종 메시지는 이 보고서 자체다(인사말 금지).

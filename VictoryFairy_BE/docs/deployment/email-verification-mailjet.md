@@ -13,8 +13,8 @@
       - 호스트칸: 루트는 `@`, 서브는 접두사만(`mailjet._domainkey`). 도메인명 붙이지 말 것
       - SPF는 도메인당 1개 — 기존 SPF 있으면 `include:spf.mailjet.com`만 추가
 - [ ] Mailjet **API Key / Secret Key** 발급 (5단계)
-- [ ] **EC2 `.env`** 에 `MAIL_USERNAME`(API Key)/`MAIL_PASSWORD`(Secret Key) 채우기 (6단계)
-- [ ] `docker compose -f docker-compose.prod.yml up -d`로 user 컨테이너 재생성 → 실발송 확인 (7단계)
+- [ ] **EKS Secret `app-secret`** 에 `MAIL_USERNAME`(API Key)/`MAIL_PASSWORD`(Secret Key) 채우기 (6단계)
+- [ ] `kubectl rollout restart deploy/user-app` 로 파드 재기동 → 실발송 확인 (7단계)
 
 > 참고: **도메인을 EC2에 연결(A 레코드)하는 것과 이메일 발송은 무관**하다. 메일 발송은 DNS에 TXT 레코드(SPF/DKIM)만 있으면 되고, 실제 발송은 Mailjet이 대신 한다.
 
@@ -33,13 +33,13 @@
 
 | 프로퍼티 | 환경변수 | 값 | 정의 위치 |
 |---|---|---|---|
-| `spring.mail.host` | `MAIL_HOST` | `in-v3.mailjet.com` | `docker-compose.prod.yml` (하드코딩) |
-| `spring.mail.port` | `MAIL_PORT` | `587` (STARTTLS) | `docker-compose.prod.yml` (하드코딩) |
-| `spring.mail.username` | `MAIL_USERNAME` | Mailjet **API Key** | `.env` (시크릿) |
-| `spring.mail.password` | `MAIL_PASSWORD` | Mailjet **Secret Key** | `.env` (시크릿) |
+| `spring.mail.host` | `MAIL_HOST` | `in-v3.mailjet.com` | ConfigMap `app-config` (EKS) |
+| `spring.mail.port` | `MAIL_PORT` | `587` (STARTTLS) | ConfigMap `app-config` (EKS) |
+| `spring.mail.username` | `MAIL_USERNAME` | Mailjet **API Key** | Secret `app-secret` (EKS) / 로컬은 `.env` |
+| `spring.mail.password` | `MAIL_PASSWORD` | Mailjet **Secret Key** | Secret `app-secret` (EKS) / 로컬은 `.env` |
 | `app.mail.from` | `MAIL_FROM` | `no-reply@victoryfairy.com` | `application.yaml` (기본값 동일) |
 
-`docker-compose.prod.yml`의 `user` 서비스가 위 환경변수를 주입한다. `MAIL_HOST`/`MAIL_PORT`는 고정값, `MAIL_USERNAME`/`MAIL_PASSWORD`는 **시크릿이라 `.env`에서 주입**, `MAIL_FROM`은 `.env`로 덮어쓸 수 있고 없으면 `no-reply@victoryfairy.com`을 쓴다. (템플릿은 `.env.example` 참고.)
+운영(EKS)에서는 user·quiz 파드가 `envFrom` 으로 ConfigMap `app-config` + Secret `app-secret` 을 읽어 주입받는다. ⚠ `envFrom` 은 핫리로드가 안 되므로 값을 바꾸면 `kubectl rollout restart` 가 필요하다. 로컬은 `.env` 를 쓴다. `MAIL_HOST`/`MAIL_PORT`는 고정값, `MAIL_USERNAME`/`MAIL_PASSWORD`는 **시크릿이라 `.env`에서 주입**, `MAIL_FROM`은 `.env`로 덮어쓸 수 있고 없으면 `no-reply@victoryfairy.com`을 쓴다. (템플릿은 `.env.example` 참고.)
 
 > ⚠️ Mailjet은 **로그인 이메일이 아니라 API Key/Secret Key 쌍**으로 SMTP 인증한다. `MAIL_USERNAME`에 가입 이메일을 넣으면 인증(535)에 실패한다.
 
@@ -69,9 +69,9 @@ Mailjet 콘솔 **Account Settings → API Key Management (REST API, SMTP)** 에�
 
 (SMTP 릴레이는 이 API Key/Secret Key 쌍을 그대로 SMTP username/password로 쓴다.)
 
-## 6. EC2 `.env` 채우기
+## 6. 시크릿 채우기 (EKS Secret / 로컬 .env)
 
-운영 서버의 `.env`(배포 compose가 읽는 파일)에 시크릿을 추가한다. 형식은 저장소의 **`.env.example`** 참고.
+운영은 EKS Secret `app-secret` 에 넣는다. 로컬은 저장소의 **`.env.example`** 형식대로 `.env` 에 넣는다(단 dev 프로파일은 mock 이라 없어도 된다).
 
 ```dotenv
 MAIL_USERNAME=<Mailjet API Key>
@@ -80,14 +80,14 @@ MAIL_PASSWORD=<Mailjet Secret Key>
 # MAIL_FROM=no-reply@victoryfairy.com
 ```
 
-`MAIL_HOST`/`MAIL_PORT`/`MAIL_FROM`은 compose에 고정값·기본값으로 들어있어 `.env`에 없어도 된다. 로컬 `.env`(docker-compose.yml)에는 이 키들이 필요 없다(dev는 mock).
+`MAIL_HOST`/`MAIL_PORT` 는 고정값, `MAIL_FROM` 은 `application.yaml` 기본값이 있어 생략 가능하다.
 
-값을 채운 뒤 다음 배포 또는 `docker compose -f docker-compose.prod.yml up -d`로 `user` 컨테이너를 재생성해야 반영된다.
+값을 채운 뒤 `kubectl -n victoryfairy rollout restart deploy/user-app` 으로 파드를 재기동해야 반영된다(`envFrom` 은 핫리로드가 안 된다).
 
 ## 7. 배포 후 확인 체크리스트
 
 - [ ] Mailjet 콘솔에서 `victoryfairy.com` 도메인 인증이 **초록불**인지 (인증 전에는 발송 거부/스팸 처리됨)
-- [ ] EC2 `.env`에 `MAIL_USERNAME`(API Key)/`MAIL_PASSWORD`(Secret Key)가 채워졌는지 (비면 `${MAIL_USERNAME}`이 빈 값→ 인증 실패)
+- [ ] Secret `app-secret` 에 `MAIL_USERNAME`(API Key)/`MAIL_PASSWORD`(Secret Key)가 채워졌는지 (비면 `${MAIL_USERNAME}`이 빈 값→ 인증 실패)
 - [ ] `user` 컨테이너가 `prod` 프로파일(`SPRING_PROFILES_ACTIVE=prod`)로 뜨는지 (아니면 mock sender가 로딩됨)
 - [ ] `POST /api/member/auth/email/send-code` 호출 → 실제 수신함에 `[VictoryFairy] 이메일 인증번호 안내` 도착
 - [ ] 첫 발송이 스팸함에 가면 DKIM/SPF/DMARC 정렬 재확인
@@ -100,8 +100,8 @@ MAIL_PASSWORD=<Mailjet Secret Key>
 | SMTP 인증 실패(535 등) | `MAIL_USERNAME`에 가입 이메일을, `MAIL_PASSWORD`에 로그인 비밀번호를 넣음 | Mailjet **API Key/Secret Key** 쌍으로 교체 |
 | 메일이 스팸함으로 | 도메인 미인증 / SPF·DKIM 미정렬 | 3~4단계 도메인 인증 완료 |
 | 일 200통에서 발송 막힘 | Mailjet 무료 티어 일일 한도 | 유료 플랜 상향 또는 발송량 분산 |
-| `${MAIL_USERNAME}` 빈 값으로 기동 | EC2 `.env` 미갱신 | 6단계대로 `.env` 채우고 컨테이너 재생성 |
+| `${MAIL_USERNAME}` 빈 값으로 기동 | Secret 미갱신 | 6단계대로 채우고 `rollout restart` |
 
 ---
 
-관련 코드: `user/.../auth/email/SmtpEmailSender.java`, `LogEmailSender.java` · 설정: `user/src/main/resources/application-prod.yaml`, `application.yaml` · compose: `docker-compose.prod.yml` · env 템플릿: `.env.example`
+관련 코드: `user/.../auth/email/SmtpEmailSender.java`, `LogEmailSender.java` · 설정: `user/src/main/resources/application-prod.yaml`, `application.yaml` · 운영 주입: ConfigMap `app-config`/Secret `app-secret` · env 템플릿: `.env.example`
