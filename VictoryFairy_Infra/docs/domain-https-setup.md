@@ -106,13 +106,18 @@ kubectl get ingressclass
 kubectl apply -f k8s/00-namespaces.yaml
 # (앱/설정 매니페스트: 10·20·21 등 기존 순서대로)
 kubectl apply -f k8s/23-external-dns.yaml
+
+# ⚠ 종전 단일 Ingress 가 남아 있으면 먼저 지운다. 22-ingress.yaml 은 이름이 다른
+#   Ingress 2개(victoryfairy-user / -quiz)라 apply 로 대체되지 않고, 옛 규칙이 같은 ALB
+#   그룹에 계속 붙어 /healthz 헬스체크를 물고 있게 된다.
+kubectl -n victoryfairy delete ingress victoryfairy --ignore-not-found
 kubectl apply -f k8s/22-ingress.yaml
 ```
 
 ### 6. 검증
 ```bash
 # ALB 프로비저닝 확인 (ADDRESS 에 *.elb.amazonaws.com 가 뜬다)
-kubectl -n victoryfairy get ingress victoryfairy -w
+kubectl -n victoryfairy get ingress -w
 
 # ExternalDNS 가 A(ALIAS)/TXT 레코드를 만들었는지
 kubectl -n kube-system logs deploy/external-dns | tail
@@ -126,10 +131,24 @@ curl -I https://victoryfairy.com/api/member   # TLS 핸드셰이크 + 응답
 
 ## ⚠ 알려진 블로커 / 주의
 
-1. **헬스체크 503**: ALB 타깃그룹은 `healthcheck-path: /healthz`(22-ingress.yaml)에서 **200 을
-   받아야** 타깃을 Healthy 로 본다. 현재 user/quiz 앱에 헬스 엔드포인트가 없으면 모든 타깃이
-   Unhealthy → ALB 가 503 을 반환한다. **HTTPS 는 붙었는데 503 이면 이 문제다.**
-   → 앱에 헬스 엔드포인트(예: `/healthz` 또는 actuator `/actuator/health`) 추가 필요(BE 작업).
+1. **헬스체크 503** — *해소됨(2026-07-27). 아래는 경위와 현재 구성.*
+   종전 `healthcheck-path: /healthz` 는 앱에 처리할 핸들러가 없어 항상 404 를 받았고, 두 타깃그룹이
+   모두 `Target.ResponseCodeMismatch` 로 Unhealthy → ALB 가 503 을 반환했다(파드는 살아 있었다).
+   BE 에 actuator 를 도입해 각 앱의 context-path 아래 readiness 엔드포인트를 노출하고, Ingress 를
+   앱별로 분리해 각자의 경로를 가리키게 했다.
+
+   | Ingress | healthcheck-path |
+   |---|---|
+   | `victoryfairy-user` | `/api/member/actuator/health/readiness` |
+   | `victoryfairy-quiz` | `/api/game/actuator/health/readiness` |
+
+   `/actuator/health` 전체가 아니라 **readiness 그룹**인 것이 중요하다. 전체 health 는 db·redis
+   인디케이터를 합산해 DOWN 을 내므로, MySQL EC2 가 잠깐 흔들리면 멀쩡한 파드까지 타깃에서 빠져
+   전면 503 이 된다. readiness 는 기본적으로 `readinessState` 만 본다.
+   **여전히 503 이 뜬다면** 타깃 상태부터 확인할 것:
+   ```bash
+   aws elbv2 describe-target-health --region ap-northeast-2 --target-group-arn <arn>
+   ```
 
 2. **인증서 자동 탐색**: `22-ingress.yaml` 은 `certificate-arn` 을 생략해 LBC 가 host 로 ACM
    인증서를 자동 매칭한다. 여러 인증서가 같은 도메인을 커버하면 명시(`terraform output
