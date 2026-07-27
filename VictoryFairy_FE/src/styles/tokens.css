@@ -1,0 +1,97 @@
+/**
+ * VictoryFairy 디자인 토큰.
+ * Figma `SWM` 파일의 Variables / Styles 를 CSS 커스텀 프로퍼티로 옮긴 것.
+ * 하드코딩된 색·반경·타이포 값을 여기서만 관리한다.
+ */
+
+:root {
+  /* ---------------------------------------------------------------- *
+   * Color — Gray Scale
+   * ---------------------------------------------------------------- */
+  --color-gray-50: #f9f9fb;
+  --color-gray-200: #e4e4e9;
+  --color-gray-300: #d0d0da;
+  --color-gray-400: #b2b2c0;
+  --color-gray-600: #6a6a7d;
+  --color-gray-800: #313140;
+  --color-white: #ffffff;
+
+  /* Color — Primary (orange-red) */
+  --color-primary-400: #ff7443;
+
+  /* Color — Line */
+  --color-line-light: #f1f1f5;
+
+  /* Color — Brand (소셜 로그인) */
+  --color-kakao-container: #fee500;
+  --color-naver-container: #03c75a;
+  --color-google-container: #f2f2f2;
+
+  /* ---------------------------------------------------------------- *
+   * Color — Semantic alias (컴포넌트에서는 되도록 이쪽을 사용)
+   * ---------------------------------------------------------------- */
+  --color-background-basic: var(--color-white);
+  --color-background-gray: var(--color-gray-50);
+  --color-surface: var(--color-white);
+  --color-label-normal: var(--color-gray-800);
+  --color-label-neutral: var(--color-gray-600);
+  --color-label-alternative: var(--color-gray-400);
+  --color-label-assistive: var(--color-gray-300);
+  --color-label-disable: var(--color-gray-200);
+  --color-action-disabled: var(--color-gray-300);
+
+  /* ---------------------------------------------------------------- *
+   * Radius
+   * ---------------------------------------------------------------- */
+  --radius-10: 10px;
+  --radius-12: 12px;
+  --radius-15: 15px;
+  --radius-30: 30px;
+  --radius-40: 40px;
+
+  /* ---------------------------------------------------------------- *
+   * Typography
+   * Pretendard 는 src/fonts 에 아직 없어 시스템 폰트로 폴백된다.
+   * ---------------------------------------------------------------- */
+  --font-family-base: 'Pretendard', 'Pretendard Variable', -apple-system,
+    BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui,
+    sans-serif;
+
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+
+  /* Title/Title1 — SemiBold 24 / 1.4 / -2% */
+  --font-size-title1: 24px;
+  --letter-spacing-title1: -0.48px;
+
+  /* Title/Title2 — SemiBold 20 / 1.4 / -1% */
+  --font-size-title2: 20px;
+  --letter-spacing-title2: -0.2px;
+
+  /* Body/Body1 — Medium 16 / 1.5 (크기·행간은 Body2 와 동일, 굵기만 다름) */
+  --font-size-body1: 16px;
+  --line-height-body1: 1.5;
+
+  /* Body/Body2 — Regular 16 / 1.5 */
+  --font-size-body2: 16px;
+  --line-height-body2: 1.5;
+
+  /* Button/Button2 — Medium 16 / 1.4 */
+  --font-size-button2: 16px;
+
+  /* Label/Label2 — Regular 14 / 1.4 */
+  --font-size-label2: 14px;
+
+  /* Caption/Caption2 — Regular 12 / 1.4 */
+  --font-size-caption2: 12px;
+
+  --line-height-tight: 1.4;
+
+  /* ---------------------------------------------------------------- *
+   * Layout — 디자인 기준 프레임(iPhone 16 Pro, 402 x 874)
+   * ---------------------------------------------------------------- */
+  --layout-app-width: 402px;
+  --layout-gutter: 24px;
+  --layout-sheet-height: 600px;
+}
