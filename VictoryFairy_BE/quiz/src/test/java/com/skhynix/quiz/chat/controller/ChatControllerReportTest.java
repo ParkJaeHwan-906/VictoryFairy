@@ -24,7 +24,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
- * {@code POST /api/chat/rooms/{roomUid}/messages/{messageId}/report}(신고→즉시 blind) 슬라이스 테스트.
+ * {@code POST /chat/rooms/{roomUid}/messages/{messageId}/report}(신고→즉시 blind) 슬라이스 테스트.
  *
  * <p>blind 상태 전이 자체({@code Chat.blind()})와 멱등·자기신고·삭제메시지 판정 로직은
  * {@code ChatService}가 목이라 이 슬라이스에서 검증되지 않는다(그건 {@code ChatServiceTest} 소관).
@@ -53,7 +53,7 @@ class ChatControllerReportTest {
     void reportMessage_normalMessage_returns200() throws Exception {
         willDoNothing().given(chatService).reportMessage(eq(ROOM_UID), eq(MESSAGE_ID), eq(USER_ID));
 
-        mockMvc.perform(post("/api/chat/rooms/{roomUid}/messages/{messageId}/report", ROOM_UID, MESSAGE_ID)
+        mockMvc.perform(post("/chat/rooms/{roomUid}/messages/{messageId}/report", ROOM_UID, MESSAGE_ID)
                         .with(authenticatedAs(USER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true));
@@ -65,7 +65,7 @@ class ChatControllerReportTest {
         willThrow(new BusinessException(ErrorCode.CHAT_MESSAGE_NOT_FOUND))
                 .given(chatService).reportMessage(eq(ROOM_UID), eq(999L), eq(USER_ID));
 
-        mockMvc.perform(post("/api/chat/rooms/{roomUid}/messages/{messageId}/report", ROOM_UID, 999L)
+        mockMvc.perform(post("/chat/rooms/{roomUid}/messages/{messageId}/report", ROOM_UID, 999L)
                         .with(authenticatedAs(USER_ID)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.message").value(ErrorCode.CHAT_MESSAGE_NOT_FOUND.getMessage()));
@@ -74,7 +74,7 @@ class ChatControllerReportTest {
     @Test
     @DisplayName("[AC-CHAT-20-3] 미인증 요청으로 신고하면 401을 반환한다")
     void reportMessage_withoutAuthentication_returns401() throws Exception {
-        mockMvc.perform(post("/api/chat/rooms/{roomUid}/messages/{messageId}/report", ROOM_UID, MESSAGE_ID))
+        mockMvc.perform(post("/chat/rooms/{roomUid}/messages/{messageId}/report", ROOM_UID, MESSAGE_ID))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -84,7 +84,7 @@ class ChatControllerReportTest {
         willThrow(new BusinessException(ErrorCode.SELF_REPORT_NOT_ALLOWED))
                 .given(chatService).reportMessage(eq(ROOM_UID), eq(MESSAGE_ID), eq(USER_ID));
 
-        mockMvc.perform(post("/api/chat/rooms/{roomUid}/messages/{messageId}/report", ROOM_UID, MESSAGE_ID)
+        mockMvc.perform(post("/chat/rooms/{roomUid}/messages/{messageId}/report", ROOM_UID, MESSAGE_ID)
                         .with(authenticatedAs(USER_ID)))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.message").value(ErrorCode.SELF_REPORT_NOT_ALLOWED.getMessage()));
@@ -95,12 +95,12 @@ class ChatControllerReportTest {
     void reportMessage_alreadyBlindMessage_isIdempotentAndReturns200Twice() throws Exception {
         willDoNothing().given(chatService).reportMessage(eq(ROOM_UID), eq(MESSAGE_ID), eq(USER_ID));
 
-        mockMvc.perform(post("/api/chat/rooms/{roomUid}/messages/{messageId}/report", ROOM_UID, MESSAGE_ID)
+        mockMvc.perform(post("/chat/rooms/{roomUid}/messages/{messageId}/report", ROOM_UID, MESSAGE_ID)
                         .with(authenticatedAs(USER_ID)))
                 .andExpect(status().isOk());
 
         // 재신고
-        mockMvc.perform(post("/api/chat/rooms/{roomUid}/messages/{messageId}/report", ROOM_UID, MESSAGE_ID)
+        mockMvc.perform(post("/chat/rooms/{roomUid}/messages/{messageId}/report", ROOM_UID, MESSAGE_ID)
                         .with(authenticatedAs(USER_ID)))
                 .andExpect(status().isOk());
     }
@@ -111,7 +111,7 @@ class ChatControllerReportTest {
         willThrow(new BusinessException(ErrorCode.CHAT_MESSAGE_NOT_FOUND))
                 .given(chatService).reportMessage(eq(ROOM_UID), eq(MESSAGE_ID), eq(USER_ID));
 
-        mockMvc.perform(post("/api/chat/rooms/{roomUid}/messages/{messageId}/report", ROOM_UID, MESSAGE_ID)
+        mockMvc.perform(post("/chat/rooms/{roomUid}/messages/{messageId}/report", ROOM_UID, MESSAGE_ID)
                         .with(authenticatedAs(USER_ID)))
                 .andExpect(status().isNotFound());
     }

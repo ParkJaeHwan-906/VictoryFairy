@@ -28,8 +28,13 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/", "/error").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/health").permitAll()
-                        .requestMatchers("/api/auth/**").permitAll()
+                        // ALB 타깃 헬스체크. 종전 "/health" 는 처리할 핸들러가 없어 항상 404 였다
+                        // (그래서 타깃이 Unhealthy → 503). actuator 경로로 교체한다.
+                        // context-path(/api/member)는 필터 이전에 떨어지므로 접두사 없이 쓴다.
+                        .requestMatchers(HttpMethod.GET, "/actuator/health/**").permitAll()
+                        // context-path(/api/member)는 컨테이너가 필터 체인 이전에 떼므로
+                        // 여기서는 접두사를 뺀 경로를 쓴다. 외부 노출 경로는 /api/member/auth/**.
+                        .requestMatchers("/auth/**").permitAll()
                         .anyRequest().authenticated()
                 )
                 // formLogin/httpBasic을 모두 disable하면 엔트리포인트를 등록하는 주체가 없어

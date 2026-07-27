@@ -21,8 +21,9 @@ model: sonnet
 ```
 listen 80, server_name _        # 도메인 없음 → EC2 퍼블릭 IP로 접근
 proxy_set_header Host / X-Real-IP / X-Forwarded-For / X-Forwarded-Proto
-location /api/auth  → http://user:8080     # 도커 내부 DNS(서비스명)
-location /api/quiz  → http://quiz:8081
+location /api/member  → http://user:8080     # 도커 내부 DNS(서비스명)
+location ~ ^/api/game/chat/rooms/[^/]+/subscribe$ → http://quiz:8081   # SSE(버퍼링 off)
+location /api/game    → http://quiz:8081
 location = /healthz → return 200 "ok"
 location /          → return 404
 ```
@@ -37,7 +38,7 @@ location /          → return 404
 
 ## 원칙 (가장 중요)
 - **location 경로는 컨트롤러의 `@RequestMapping`과 반드시 일치해야 한다.** 이건 자동으로 검증되지 않는다.
-  - 라우팅을 건드릴 때는 **Grep으로 실제 매핑을 확인**하라: `@RequestMapping|@GetMapping|@PostMapping` → 현재 `AuthController`가 `/api/auth`.
+  - 라우팅을 건드릴 때는 **Grep으로 실제 매핑을 확인**하라: `@RequestMapping|@GetMapping|@PostMapping` → 현재 `AuthController`가 `/api/member/auth`.
   - **새 컨트롤러가 추가됐는데 location을 안 늘리면, 로컬에선 되고 운영에선 404가 난다.** 이게 이 구조의 대표적 함정이다.
 - **`nginx.conf` 변경은 다음 배포에서 곧바로 운영에 반영된다**(`deploy.yml`의 `compose` 필터에 `nginx.conf`가 포함되어 있어 **배포까지 트리거된다**). 위험하면 제안만.
 - **`location /`의 `return 404`를 함부로 풀지 말 것.** 명시적으로 막아둔 것이다.

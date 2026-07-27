@@ -7,7 +7,7 @@ import java.util.regex.Pattern;
  * 닉네임 정책의 <b>단일 출처</b>. {@link PasswordPolicy}를 그대로 미러링한다.
  *
  * <p>회원가입({@code SignupRequest}의 Bean Validation 애노테이션)과 사전 검사 API
- * ({@code POST /api/auth/nickname/validate})가 같은 정책을 각자 하드코딩해 어긋나는 것을 막는다.
+ * ({@code POST /api/member/auth/nickname/validate})가 같은 정책을 각자 하드코딩해 어긋나는 것을 막는다.
  * 정책을 바꿀 일이 생기면 <b>이 클래스만</b> 수정하면 양쪽에 동시에 반영된다.
  *
  * <p>이 클래스가 책임지는 것은 <b>순수 정책(허용 문자·길이)</b>뿐이다. 닉네임 <b>중복</b>은 DB를

@@ -29,7 +29,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
- * {@code GET /api/chat/rooms/{roomUid}/messages}(히스토리 조회) 슬라이스 테스트.
+ * {@code GET /chat/rooms/{roomUid}/messages}(히스토리 조회) 슬라이스 테스트.
  *
  * <p>{@code ChatService}를 목으로 대체하므로, 최신순 정렬·페이지 크기 30·blind/삭제 제외 같은 실제
  * 필터·정렬 로직(JPQL {@code ORDER BY}·{@code WHERE})은 이 슬라이스가 검증하지 못한다 — 컨트롤러가
@@ -62,7 +62,7 @@ class ChatControllerHistoryTest {
         PageResponse<MessageResponse> page = new PageResponse<>(messages, 0, 30, 50L, 2, true);
         given(chatService.getHistory(eq(ROOM_UID), eq(0))).willReturn(page);
 
-        mockMvc.perform(get("/api/chat/rooms/{roomUid}/messages", ROOM_UID)
+        mockMvc.perform(get("/chat/rooms/{roomUid}/messages", ROOM_UID)
                         .with(authenticatedAs(USER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content.length()").value(2))
@@ -80,7 +80,7 @@ class ChatControllerHistoryTest {
         PageResponse<MessageResponse> emptyPage = new PageResponse<>(List.of(), 0, 30, 0L, 0, false);
         given(chatService.getHistory(eq(ROOM_UID), eq(0))).willReturn(emptyPage);
 
-        mockMvc.perform(get("/api/chat/rooms/{roomUid}/messages", ROOM_UID)
+        mockMvc.perform(get("/chat/rooms/{roomUid}/messages", ROOM_UID)
                         .with(authenticatedAs(USER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content.length()").value(0));
@@ -96,7 +96,7 @@ class ChatControllerHistoryTest {
         PageResponse<MessageResponse> page = new PageResponse<>(messages, 0, 30, 30L, 1, false);
         given(chatService.getHistory(eq(ROOM_UID), eq(0))).willReturn(page);
 
-        mockMvc.perform(get("/api/chat/rooms/{roomUid}/messages", ROOM_UID)
+        mockMvc.perform(get("/chat/rooms/{roomUid}/messages", ROOM_UID)
                         .with(authenticatedAs(USER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content.length()").value(30))
@@ -109,7 +109,7 @@ class ChatControllerHistoryTest {
         given(chatService.getHistory(eq("nope"), eq(0)))
                 .willThrow(new BusinessException(ErrorCode.CHATROOM_NOT_FOUND));
 
-        mockMvc.perform(get("/api/chat/rooms/{roomUid}/messages", "nope")
+        mockMvc.perform(get("/chat/rooms/{roomUid}/messages", "nope")
                         .with(authenticatedAs(USER_ID)))
                 .andExpect(status().isNotFound());
     }
@@ -117,7 +117,7 @@ class ChatControllerHistoryTest {
     @Test
     @DisplayName("[QUIZ-CHAT-4] 인증 헤더 없이 히스토리를 조회하면 401을 반환한다")
     void getHistory_withoutAuthentication_returns401() throws Exception {
-        mockMvc.perform(get("/api/chat/rooms/{roomUid}/messages", ROOM_UID))
+        mockMvc.perform(get("/chat/rooms/{roomUid}/messages", ROOM_UID))
                 .andExpect(status().isUnauthorized());
     }
 }

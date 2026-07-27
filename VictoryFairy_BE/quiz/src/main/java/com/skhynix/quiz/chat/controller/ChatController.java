@@ -23,12 +23,13 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
- * 구단별 채팅 REST/SSE 엔드포인트. {@code /api/chat/**}는 quiz {@code SecurityConfig}에서 자동 인증
+ * 구단별 채팅 REST/SSE 엔드포인트. {@code /api/game/chat/**}는 quiz {@code SecurityConfig}에서 자동 인증
  * 필수이며, principal은 {@code JwtAuthenticationFilter}가 넣은 {@code Long userAccountId}다.
  */
 @RestController
 @RequiredArgsConstructor
-@RequestMapping("/api/chat")
+// 접두사 /api/game 은 server.servlet.context-path 가 붙인다 → 실제 노출 경로는 /api/game/chat/**
+@RequestMapping("/chat")
 public class ChatController {
 
     private final ChatService chatService;
