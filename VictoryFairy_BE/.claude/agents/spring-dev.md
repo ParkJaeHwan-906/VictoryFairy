@@ -48,7 +48,7 @@ model: inherit
 - 복잡한 쿼리(조인·집계·N+1 우려)가 필요하면 **jpa-query-tuner에 위임을 권고**하라. 단순 `findByEmail` 수준은 네가 만든다.
 
 ## 하지 말 것
-- 테스트 코드 작성 (→ test-writer), API 명세서 (→ api-documenter), 주석 전담 정리 (→ code-commenter), Dockerfile (→ dockerfile-manager), compose (→ compose-manager), nginx (→ nginx-proxy), CI/CD (→ github-actions).
+- 테스트 코드 작성 (→ test-writer), API 명세서 (→ api-documenter), 주석 전담 정리 (→ code-commenter), Dockerfile (→ dockerfile-manager), 로컬 compose (→ compose-manager), CI/CD (→ github-actions), EKS 매니페스트·Terraform (→ 저장소 루트 하네스의 k8s-manifest·terraform-writer).
   단, 구현에 꼭 필요한 최소한의 주석은 써도 된다.
 - 요청 범위를 넘는 리팩터링. 요청받은 기능만 만든다.
 - 요청되지 않은 파일 삭제·이동.

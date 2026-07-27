@@ -1,6 +1,6 @@
 # domain 모듈
 
-> domain 작업 시에만 로드되는 슬림 컨텍스트. (공통: `com.skhynix` 독립 앱, `:common`=ApiResponse/BusinessException/ErrorCode, MySQL+spring-dotenv, prod `ddl-auto=none`)
+> domain 작업 시에만 로드되는 슬림 컨텍스트. (공통: `com.skhynix` 독립 앱, `:common`=ApiResponse/BusinessException/ErrorCode, MySQL+spring-dotenv, prod `ddl-auto`는 앱마다 다름 — user=`update`, quiz=`none`)
 
 ## 책임
 프로젝트 전체 JPA 엔티티·리포지토리를 담는 `java-library` 모듈. 자체 실행 앱이 아니라 **포트 없음**. `user`·`quiz` 두 모듈이 이 모듈을 참조해 엔티티를 공유한다.
@@ -39,7 +39,7 @@
 - `Game`에는 **`winner` 컬럼이 없다** — 승자는 별도 컬럼으로 저장하지 않고 `home_score`/`away_score` + `game_status`에서 파생시키는 설계다(정규화, 스코어와 승자 불일치 방지).
 - Enum은 `@Enumerated(ORDINAL)` + `columnDefinition = "TINYINT"`, **선언 순서 변경 금지** (예: `Gender` MALE=0/FEMALE=1)
 - 상태 전이가 필요하면 `@Setter` 대신 **엔티티가 자신의 전이를 책임지는 의도 노출 메서드**를 둔다(예: `UserAccount.withdraw(LocalDateTime)`/`isWithdrawn()` — 이미 전이된 상태면 no-op으로 최초 값을 보존; 같은 패턴으로 `Chatroom.join()`/`leave()`(0 하한)/`delete(LocalDateTime)`/`isDeleted()`, `Chat.blind()`/`unblind()`/`delete(LocalDateTime)`/`isDeleted()`)
-- 인덱스가 필요하면 `@Table(indexes = {@Index(...)})`로 명시한다 — domain 최초 사례는 `Chat`의 `idx_chats_chatroom_created(chatroom_id, created_at)`(히스토리 페이징: chatroom_id 등치 필터 + created_at DESC 정렬을 인덱스만으로 만족). prod는 `ddl-auto=none`이라 인덱스도 마이그레이션 DDL에 수동 포함해야 한다.
+- 인덱스가 필요하면 `@Table(indexes = {@Index(...)})`로 명시한다 — domain 최초 사례는 `Chat`의 `idx_chats_chatroom_created(chatroom_id, created_at)`(히스토리 페이징: chatroom_id 등치 필터 + created_at DESC 정렬을 인덱스만으로 만족). prod 인덱스 생성은 `user`의 `ddl-auto=update`에 의존한다(Flyway 없음) — 위 "prod 스키마는 user 앱이 만든다" 참고.
 
 ## 의존
 - `api project(':common')`, `implementation spring-boot-starter-data-jpa`
@@ -51,11 +51,17 @@
 - `ChatroomRepository`는 `findAllByDeletedAtIsNull`(목록용)·`findByUidAndDeletedAtIsNull`(uid로 소프트삭제 제외 조회 — 조회·구독·전송·히스토리 경로의 404 판정 기준)을 갖는다. `ChatRepository`는 히스토리용 `@Query`(파생 쿼리명 대신 명시 — `userAccount` fetch join으로 N+1 회피 + 별도 `countQuery`로 count에서 조인 제거, blind=false·deletedAt is null·최신순)와 신고용 `findByIdAndChatroom`(room-스코프 조회로 다른 방 메시지 PK 지목 차단)을 갖는다.
 - `UserAccountRepository.findActiveIdByUid(String)`은 `Optional<Long>`을 반환하는 `@Query("select ua.id from UserAccount ua where ua.uid = :uid and ua.exitAt is null")` — **파생 쿼리명이 아니라 명시적 `@Query`인 이유**: Spring Data의 메서드 이름 파싱은 `By` 앞 subject에서 `Distinct`/`First|Top`만 인식하고 나머지(`Id` 포함)는 버리므로 이름만으로는 엔티티 전체가 반환된다. **`exit_at is null` 조건 때문에 커버링 인덱스를 의도적으로 포기했다**(옛 `findIdByUid`는 `uid` unique 인덱스만으로 커버링됐으나 `exit_at`이 인덱스에 없어 클러스터드 인덱스 조회가 부활). 그럼에도 감수하는 이유: 되살아나는 페이지는 대개 버퍼 풀 상주라 실이득 손실이 작고, 탈퇴 즉시 차단의 정확성(access 토큰이 stateless 3h라 이 조회가 유일한 차단점)이 우선이며, `(uid, exit_at)` 복합 인덱스는 100만 행 기준 ~45MB 대비 버퍼 풀 히트 1회 절약뿐이라 남는 게 없다(근거: `docs/requirements/user/withdraw.md` "결정 근거 2", 다시 조사하지 말 것). `user` 모듈의 `JwtAuthenticationFilter`가 uid→id 해석에 사용
 - `UserAccountRepository.findByUser_EmailAndExitAtIsNull`은 탈퇴 계정을 "못 찾음"으로 흡수해 미가입 이메일과 로그인 응답을 동일하게 만드는 용도(`user` 모듈 `AuthService.login`이 사용)
-- `team`/`player`/`stadium`/`game`/`record`/`chat` 엔티티를 소비하는 서비스·컨트롤러는 아직 없음 (현재 `user` 엔티티만 `user` 모듈과 `web-support`(`JwtAuthenticationFilter`가 `UserAccountRepository` 사용)가 실사용; 채팅용 앱 모듈 자체가 미착수)
+- `team`/`player`/`stadium`/`game`/`record` 엔티티를 소비하는 서비스·컨트롤러는 아직 없음. `chat` 계열(`Chatroom`·`Chat`)은 `quiz` 모듈의 `ChatService`/`ChatController`가 실사용한다. `user` 엔티티는 `user` 모듈과 `web-support`(`JwtAuthenticationFilter`가 `UserAccountRepository` 사용)가 쓴다
 - `Team.name`에 unique 제약은 **의도적으로** 걸지 않음
 - `@Column`에 `columnDefinition`을 지정하면 **`length`가 DDL에서 무시된다** (실측: `UserAccount.uid`에서 `length`를 바꿔도 생성 DDL은 `columnDefinition`의 `VARCHAR(36)` 그대로). 길이를 바꾸려면 `length`와 `columnDefinition` 두 곳을 같이 고쳐야 함
-- `UserAccount.uid`는 JWT subject로는 쓰이기 시작했으나(`user` 모듈) API 응답·URL에 노출하는 작업은 아직 미착수. **prod DDL 반영도 미착수**(`ddl-auto=none`, Flyway 없음 — prod `users_account`에 `uid` 컬럼이 없으므로 **이 상태로 배포하면 인증 전체가 실패한다**, 배포 선행 조건)
-- 같은 계열의 배포 선행 조건: `chatrooms`/`chats` 테이블도 아직 prod DDL에 없다(`chatrooms`엔 `owner_account_id` 컬럼 포함, `chats`엔 `idx_chats_chatroom_created(chatroom_id, created_at)` 인덱스 포함). `ddl-auto=none` + Flyway 부재이므로 배포 전 두 테이블을 만드는 마이그레이션이 별도로 필요하다. `Chatroom.owner`가 non-null FK라 **방 시드보다 owner로 쓸 계정(시스템/admin 계정) 행이 먼저 존재해야** 한다(배포 순서 제약, `game_statuses` 시드-우선 제약과 같은 종류)
+- `UserAccount.uid`는 JWT subject로 쓰인다(`user` 모듈). API 응답·URL에 노출하는 작업은 아직 미착수.
+  **prod DDL 반영은 완료**(2026-07-27 확인) — `user`가 `ddl-auto=update`라 기동 시 Hibernate 가 컬럼을 추가했다.
+- **prod 스키마는 `user` 앱이 만든다.** `UserApplication`이 `@EntityScan("com.skhynix")`로 domain 엔티티를 전부
+  스캔하는데 `user`의 prod `ddl-auto`가 `update`라, `quiz`가 `none`이어도 채팅 테이블까지 `user` 기동 시 생성된다.
+  실제로 `chatrooms`·`chats`와 `idx_chats_chatroom_created` 인덱스가 prod 에 존재한다(2026-07-27 확인, 총 14 테이블).
+  ⚠ 뒤집어 말하면 **`user`의 `ddl-auto`를 `none`으로 되돌리는 순간 새 엔티티는 아무도 만들지 않는다.** Flyway 는 여전히 없다.
+- 남은 선행 조건: `Chatroom.owner`가 non-null FK라 **방 시드보다 owner로 쓸 계정(시스템/admin) 행이 먼저 존재해야** 한다
+  (`game_statuses` 시드-우선 제약과 같은 종류 — 아래 참고).
 - `UserAccount.exit_at`은 실사용 컬럼이다(`withdraw()`로만 기록, `findActiveIdByUid`/`findByUser_EmailAndExitAtIsNull`이 조회 조건으로 사용). `@Builder`는 `exitAt`을 파라미터로 받지 않아 생성 시점부터 탈퇴 상태인 계정을 만들 수 없다(`uid`와 같은 이유로 빌더에서 제외)
 - 탈퇴한 계정의 email·tel·nickname은 영구 점유되어 **재가입이 불가**하다. `users.email`/`users.tel` UNIQUE + MySQL의 partial unique index 부재 + `UserAccount`↔`User` `@OneToOne(unique)`가 겹쳐 앱 코드만으로는 풀 수 없는 스키마 제약이다 — 근거는 `docs/requirements/user/withdraw.md`("결정 근거 1")에 있으니 다시 조사하지 말 것
 - 테스트 현황: `domain/src/test` 소스셋이 생겨 `GameTest`(3케이스)·`StadiumTest`(1케이스)·`ChatroomTest`(8케이스, Builder 배선·owner 동일 인스턴스 배선·uid 생성·join/leave/delete 전이)·`ChatTest`(4케이스, Builder 배선·blind/unblind 토글·delete 전이·이미 삭제된 메시지 재삭제 no-op)가 존재한다(Spring 컨텍스트/DB 없이 필드 배선·전이 로직만 확인하는 순수 단위 테스트). `record` 계열은 테스트 없음. `UserAccountWithdrawTest`는 여전히 `domain` 패키지 이름을 그대로 쓴 채 `user/src/test`에 얹혀 있다. 저장소 전체에 H2/Testcontainers/구동 중인 MySQL이 없어 `@DataJpaTest` 라운드트립 검증(FK 제약, nullable 컬럼 매핑, 코드 테이블 FK 저장·복원)은 여전히 보류 상태

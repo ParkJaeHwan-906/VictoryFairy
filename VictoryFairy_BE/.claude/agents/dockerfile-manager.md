@@ -44,7 +44,8 @@ runtime: eclipse-temurin:21-jre
 5. **`ENV SPRING_PROFILES_ACTIVE=dev`가 이미지에 구워져 있다.** prod compose가 환경변수로 덮어쓰지만, **덮어쓰기를 깜빡하면 운영에서 dev 프로파일로 뜨는 사고**가 난다. 기본값을 빼거나 prod로 두는 걸 검토.
 
 ## 원칙
-- **`ARG MODULE` 계약 유지.** compose와 CI가 전부 이 인터페이스에 의존한다. 바꾸려면 `docker-compose.yml`·`docker-compose.prod.yml`·`deploy.yml`을 **함께** 고쳐야 하고, 그 파급을 반드시 보고할 것.
+- **`ARG MODULE` 계약 유지.** 로컬 compose와 CI가 전부 이 인터페이스에 의존한다. 바꾸려면 `docker-compose.yml`·`deploy-eks.yml`을 **함께** 고쳐야 하고, 그 파급을 반드시 보고할 것.
+- ⚠ **이 Dockerfile 은 운영 빌드에도 쓰인다.** `deploy-eks.yml`이 `docker build --build-arg MODULE=...`로 그대로 사용해 ECR에 올린다. 로컬 전용이 아니다 — 깨뜨리면 배포가 멈춘다.
 - **비밀을 이미지에 굽지 말 것.** `.env`를 `COPY` 하거나 `ARG`로 `JWT_SECRET`·`DB_PASSWORD`를 받지 말 것. 비밀은 런타임 주입이다.
 - 빌드 캐시 구조를 바꾸면 **"무엇이 언제 무효화되는지"**를 설명할 것. "빨라집니다"는 근거가 아니다.
 - 변경 후 **문법 검증은 하되, 풀 빌드 검증은 docker-runner에 위임**한다(빌드가 오래 걸린다).

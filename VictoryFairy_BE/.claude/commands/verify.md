@@ -12,10 +12,10 @@ argument-hint: "[user|quiz|domain|infra] (생략 시 현재 작업 모듈/diff�
 |---|---|
 | `user` · `quiz` (앱 모듈) | **module-verifier** — gradle 컴파일 → 테스트 → 엔드포인트 대조 → bootRun 후 curl |
 | `domain` (공유 JPA 엔티티·리포지토리) | **module-verifier** — gradle 컴파일 → 테스트(`@DataJpaTest`)까지만. 포트·엔드포인트가 없으므로 bootRun·curl은 해당 없음 |
-| `infra` (Dockerfile · compose · nginx · CI/CD) | **docker-runner** — compose config → 빌드 → 로컬 스택 기동 → health·라우팅 curl → 정리 |
+| `infra` (Dockerfile · 로컬 compose · CI/CD) | **docker-runner** — compose config → 빌드 → 로컬 스택 기동 → health curl → 정리 |
 
-- 변경이 **양쪽에 걸쳐 있으면**(예: 컨트롤러 추가 + nginx location 추가) **둘 다** 실행한다. 서로 독립이므로 한 메시지에서 병렬로 띄울 것.
-- 어느 쪽인지 불명확하면 `git diff --name-only`로 판단한다: `domain/src/**` → domain, 그 외 `*/src/**` → 해당 앱 모듈, `Dockerfile`·`docker-compose*.yml`·`nginx.conf`·`.github/workflows/**` → 인프라.
+- 변경이 **양쪽에 걸쳐 있으면**(예: 컨트롤러 추가 + Dockerfile 수정) **둘 다** 실행한다. 서로 독립이므로 한 메시지에서 병렬로 띄울 것.
+- 어느 쪽인지 불명확하면 `git diff --name-only`로 판단한다: `domain/src/**` → domain, 그 외 `*/src/**` → 해당 앱 모듈, `Dockerfile`·`docker-compose.yml`·`.github/workflows/**` → 인프라.
 
 ## 전달할 것
 - **무엇을 바꿨는지**(파일/엔드포인트/기대값). 이게 없으면 검증자가 무엇을 확인해야 할지 모른다.
