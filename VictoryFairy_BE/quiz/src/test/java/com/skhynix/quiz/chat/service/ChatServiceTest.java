@@ -41,6 +41,8 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
@@ -193,7 +195,7 @@ class ChatServiceTest {
 
     @Test
     @DisplayName("[AC-CHAT-11/15-1] sendMessage()는 저장 후 발신자를 제외 대상으로 지정하고 "
-            + "{content, senderNickname, createdAt, roomUid} 4필드(메시지 식별자 없음)로 구성된 "
+            + "{id, content, senderNickname, createdAt, roomUid} 5필드로 구성된 "
             + "MessageEvent를 payload로 publish한다")
     void sendMessage_publishesRealtimeEventExcludingSenderWithMessageEventPayload() {
         Chatroom room = activeRoom(ROOM_UID);
@@ -205,6 +207,8 @@ class ChatServiceTest {
         given(chatRepository.saveAndFlush(any(Chat.class))).willAnswer(invocation -> {
             Chat chat = invocation.getArgument(0);
             ReflectionTestUtils.setField(chat, "createdAt", LocalDateTime.of(2026, 7, 20, 9, 0));
+            // 저장 시 채워지는 PK도 목이 대신 채운다(payload.id() 검증을 의미 있게 만들기 위함).
+            ReflectionTestUtils.setField(chat, "id", 7L);
             return chat;
         });
 
@@ -221,7 +225,34 @@ class ChatServiceTest {
         assertThat(payload.senderNickname()).isEqualTo("두산팬1");
         assertThat(payload.roomUid()).isEqualTo(ROOM_UID);
         assertThat(payload.createdAt()).isNotNull();
-        // MessageEvent record 자체에 식별자 필드가 없어(전제 6·QUIZ-CHAT-15) 컴파일 타임에 id 노출이 막힌다.
+        // id 는 저장된 Chat 의 PK 그대로 — 클라이언트가 히스토리 중복 제거·신고에 쓴다(QUIZ-CHAT-15 개정).
+        assertThat(payload.id()).isEqualTo(7L);
+    }
+
+    @Test
+    @DisplayName("[AC-CHAT-17] 트랜잭션 동기화가 활성이면 발행을 커밋 이후로 미룬다 — 커밋 전에는 "
+            + "publish 하지 않는다(커밋 실패 시 DB에 없는 유령 메시지가 전달되는 것을 막는다)")
+    void sendMessage_defersPublishUntilAfterCommit() {
+        Chatroom room = activeRoom(ROOM_UID);
+        UserAccount sender = userAccountWithId(1L, "두산팬1");
+        given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
+        given(userAccountRepository.findById(1L)).willReturn(Optional.of(sender));
+        given(chatRepository.saveAndFlush(any(Chat.class))).willAnswer(invocation -> invocation.getArgument(0));
+        // 실제 @Transactional 대신 동기화만 활성화해 "트랜잭션 안에서 호출된 상황"을 만든다.
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            chatService.sendMessage(ROOM_UID, 1L, "안녕");
+
+            // 커밋 전: 아직 아무것도 나가지 않았다.
+            verify(eventPublisher, never()).publish(anyString(), any());
+
+            // 커밋 시점에 등록된 콜백이 실행되면 그때 발행된다.
+            TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(TransactionSynchronization::afterCommit);
+            verify(eventPublisher).publish(eq(ROOM_UID), any(RealtimeEvent.class));
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
     }
 
     @Test

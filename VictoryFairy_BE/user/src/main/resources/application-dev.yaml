@@ -7,7 +7,10 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: create
+      # ⚠ 종전 create 였다 — 기동할 때마다 스키마를 **드롭 후 재생성**해 로컬 데이터가 전부 날아갔다.
+      #   quiz 가 dev 기동 시 채우는 시드(구단·SYSTEM 계정·채팅방)도 user-app 을 한 번 띄우면
+      #   같이 사라진다(두 앱이 같은 로컬 DB 를 본다). additive 한 update 로 바꿔 그 파괴를 없앤다.
+      ddl-auto: update
     show-sql: true
     properties:
       hibernate:

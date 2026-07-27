@@ -89,7 +89,7 @@ MAIL_PASSWORD=<Mailjet Secret Key>
 - [ ] Mailjet 콘솔에서 `victoryfairy.com` 도메인 인증이 **초록불**인지 (인증 전에는 발송 거부/스팸 처리됨)
 - [ ] Secret `app-secret` 에 `MAIL_USERNAME`(API Key)/`MAIL_PASSWORD`(Secret Key)가 채워졌는지 (비면 `${MAIL_USERNAME}`이 빈 값→ 인증 실패)
 - [ ] `user` 컨테이너가 `prod` 프로파일(`SPRING_PROFILES_ACTIVE=prod`)로 뜨는지 (아니면 mock sender가 로딩됨)
-- [ ] `POST /api/member/auth/email/send-code` 호출 → 실제 수신함에 `[VictoryFairy] 이메일 인증번호 안내` 도착
+- [ ] `POST /api/member/auth/email/send-code` 호출 → 실제 수신함에 `승리요정 : 이메일 인증번호 안내` 도착
 - [ ] 첫 발송이 스팸함에 가면 DKIM/SPF/DMARC 정렬 재확인
 
 ## 8. 자주 겪는 문제

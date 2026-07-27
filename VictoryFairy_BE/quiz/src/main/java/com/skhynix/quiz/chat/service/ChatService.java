@@ -22,6 +22,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
@@ -72,8 +74,8 @@ public class ChatService {
     }
 
     /**
-     * 메시지를 저장하고 발신자를 제외한 같은 방 구독자에게 전달한다. 전달은 fire-and-forget이라 발행
-     * 실패가 저장·응답 성공을 되돌리지 않는다.
+     * 메시지를 저장하고 발신자를 제외한 같은 방 구독자에게 전달한다. 전달은 커밋 이후에 일어나며
+     * fire-and-forget이라 발행 실패가 저장·응답 성공을 되돌리지 않는다({@link #publishMessage} 참고).
      */
     @Transactional
     public MessageResponse sendMessage(String roomUid, Long senderId, String content) {
@@ -127,11 +129,36 @@ public class ChatService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.CHATROOM_NOT_FOUND));
     }
 
+    /**
+     * 저장 트랜잭션이 <b>커밋된 뒤에</b> 전달한다. 커밋 전에 발행하면(=이 메서드를 그냥 호출하면)
+     * 뒤이어 커밋이 실패했을 때 구독자는 DB에 없는 메시지를 이미 받아버린다 — 새로고침하면 사라지는
+     * 유령 메시지이고, 재현이 어려워 원인 찾기가 고약하다. afterCommit 으로 미뤄 불변식을
+     * <b>"전달된 것은 반드시 저장돼 있다"</b> 한 방향으로 고정한다(역은 보장하지 않는다 — 전달 실패는
+     * 아래처럼 삼키고 클라이언트가 히스토리 조회로 수렴한다).
+     *
+     * <p>동기화가 없는 경우(트랜잭션 밖 호출)를 대비해 즉시 발행으로 떨어진다. 현재 호출부는
+     * {@code @Transactional} 안이지만, 이 메서드만 떼어 쓰는 미래 호출을 조용히 누락시키지 않기 위함이다.
+     */
     private void publishMessage(String roomUid, Chat chat, Long senderId) {
+        MessageEvent payload = MessageEvent.of(chat, roomUid);
+        RealtimeEvent event = new RealtimeEvent("message", payload, senderId);
+
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            publishNow(roomUid, event);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                publishNow(roomUid, event);
+            }
+        });
+    }
+
+    private void publishNow(String roomUid, RealtimeEvent event) {
         // fire-and-forget: 전달 실패가 저장·응답을 되돌리지 않도록 삼킨다(히스토리로 복구 가능).
         try {
-            MessageEvent payload = MessageEvent.of(chat, roomUid);
-            eventPublisher.publish(roomUid, new RealtimeEvent("message", payload, senderId));
+            eventPublisher.publish(roomUid, event);
         } catch (Exception ignored) {
             // 전달 실패는 무시한다(QUIZ-CHAT-17).
         }

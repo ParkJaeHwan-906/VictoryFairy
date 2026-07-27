@@ -71,6 +71,10 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+      # prod 프로파일의 실시간 fan-out(RedisPubSubPublisher + 리스너 컨테이너)이 기동 시점에
+      # Redis 구독 연결을 맺으므로 redis 가 먼저 떠 있어야 한다.
+      redis:
+        condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE}
       DB_HOST: mysql
@@ -78,6 +82,8 @@ services:
       DB_NAME: ${DB_NAME}
       DB_USERNAME: ${DB_USERNAME}
       DB_PASSWORD: ${DB_PASSWORD}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
     ports:
       - "8081:8081"
 
