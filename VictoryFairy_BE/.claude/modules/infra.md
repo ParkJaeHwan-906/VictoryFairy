@@ -25,6 +25,13 @@ apex A(ALIAS) → ALB → `user-app`/`quiz-app` 파드로 붙고, 두 타깃 그
 - **EKS**: 클러스터 `victoryfairy-dev`, k8s **1.30**(⚠ EKS 표준 지원 종료 → 연장 지원 과금 구간, 버전
   업그레이드 필요). 노드그룹 2개 — `app`(user·quiz 공용 t3.medium On-Demand, HPA+Cluster Autoscaler),
   `batch`(Spot, 평소 0대, CronJob 시각에만 0→N→0). 워커는 프라이빗 서브넷, 파드 권한은 IRSA(OIDC).
+- **앱 설정 주입**: user·quiz 파드가 `envFrom` 으로 ConfigMap `app-config` + Secret `app-secret` 을 함께 읽는다
+  (`DB_HOST/PORT/NAME`, `REDIS_HOST/PORT`, `SPRING_PROFILES_ACTIVE`, `JAVA_TOOL_OPTIONS` 등).
+  - ⚠ **두 앱이 같은 ConfigMap 을 공유**한다. 여기에 키를 넣으면 한쪽만 바꿀 수 없고 양쪽에 적용된다.
+  - ⚠ `envFrom` 은 **핫리로드가 안 된다.** ConfigMap 을 고쳤으면 `kubectl rollout restart` 로 파드를 새로 띄워야 반영된다.
+  - `ddl-auto` 는 ConfigMap 으로 덮어쓰지 않는다(2026-07-27 `SPRING_JPA_HIBERNATE_DDLAUTO` 키 제거).
+    각 앱의 `application-prod.yaml` 이 출처다 — user `update`, quiz `none`.
+    종전에는 ConfigMap 이 `update` 를 양쪽에 강제해 quiz 의 yaml 값이 무시되고 있었다.
 - **DB**: RDS 미사용 — **EC2 자체 호스팅 MySQL+Redis 컨테이너**(`modules/mysql-ec2`), EBS 영속 볼륨,
   SSM 포트포워딩 접근(22/3306 인입 미개방), mysqldump→S3 백업 크론.
 - **레지스트리/CI**: ECR(`user`,`quiz`) + GitHub Actions keyless(OIDC) 배포.
