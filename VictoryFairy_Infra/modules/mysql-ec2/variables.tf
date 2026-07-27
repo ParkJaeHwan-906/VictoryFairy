@@ -103,6 +103,46 @@ variable "mysql_root_password_ssm_parameter_name" {
   default     = "/victoryfairy/mysql/root-password"
 }
 
+variable "public_access_cidrs" {
+  description = <<-EOT
+    개발자 PC 에서 이 DB 호스트로 '직접' 접속을 허용할 CIDR 목록(예: ["1.2.3.4/32"]).
+    값이 있으면 인스턴스에 퍼블릭 IP + EIP 를 붙이고 이 CIDR 에서만 포트를 연다
+    (이때 subnet_id 로 '퍼블릭' 서브넷을 넘겨야 실제로 도달한다 — 루트에서 분기).
+    비우면([]) 퍼블릭 인입 규칙·EIP·퍼블릭 IP 를 만들지 않는다 — 기본값이 [] 이므로
+    이 변수를 주지 않으면 모듈 동작은 종전(프라이빗 + SSM 전용)과 100% 동일하다.
+
+    ⚠ SKILL §6("인바운드 개방 없이 SSM 만")의 '의도된 예외'다. 프로덕션 데이터 호스트에
+      인터넷 공격 표면을 만드는 선택이므로 반드시 /32 로 좁게 유지하고, 필요 없어지면
+      값을 비워 경로를 제거할 것. 접속 통제가 IP 하나뿐이니 CIDR 확대는 금물.
+    ⚠ 이 값의 유무가 서브넷 배치를 바꾸므로(루트 분기) 값을 켜고/끄면 인스턴스가
+      재생성된다. 데이터는 별도 EBS 라 보존되지만 프라이빗 IP 가 바뀐다.
+  EOT
+  type        = list(string)
+  default     = []
+  validation {
+    condition     = alltrue([for c in var.public_access_cidrs : can(cidrhost(c, 0))])
+    error_message = "public_access_cidrs 는 유효한 CIDR 표기여야 합니다(예: 1.2.3.4/32)."
+  }
+  validation {
+    condition     = alltrue([for c in var.public_access_cidrs : c != "0.0.0.0/0"])
+    error_message = "public_access_cidrs 에 0.0.0.0/0(전체 개방)은 허용하지 않습니다."
+  }
+}
+
+variable "public_access_ports" {
+  description = <<-EOT
+    public_access_cidrs 에 열어줄 TCP 포트 목록. 기본은 3306(MySQL) '만'.
+    ⚠ 6379 는 기본에서 제외한다 — 이 호스트의 Redis 는 requirepass 없이 뜨므로(user_data)
+      퍼블릭 노출 시 인증 없는 데이터 스토어가 된다. 정말 필요할 때만 추가할 것.
+  EOT
+  type        = list(number)
+  default     = [3306]
+  validation {
+    condition     = length(var.public_access_ports) > 0
+    error_message = "public_access_ports 는 최소 1개의 포트가 필요합니다."
+  }
+}
+
 variable "redis_ingress_sg_ids" {
   description = <<-EOT
     6379(서비스 Redis) 인입을 허용할 소스 보안그룹 맵. 키 = 논리 이름, 값 = 소스 SG ID.
@@ -136,7 +176,12 @@ variable "root_volume_size_gb" {
 }
 
 variable "subnet_id" {
-  description = "MySQL EC2를 배치할 프라이빗 서브넷 ID (운영 AZ = 2a, 단일 AZ)"
+  description = <<-EOT
+    MySQL EC2 를 배치할 서브넷 ID (운영 AZ = 2a, 단일 AZ).
+    기본은 프라이빗 서브넷(SSM 전용 접근). public_access_cidrs 를 쓸 때는 '퍼블릭'
+    서브넷을 넘겨야 EIP 로 실제 도달한다 — 루트(environments/dev/main.tf)에서 분기한다.
+    ⚠ 변경 시 인스턴스가 재생성되고 프라이빗 IP 가 바뀐다(k8s Endpoints 갱신 필요).
+  EOT
   type        = string
 }
 

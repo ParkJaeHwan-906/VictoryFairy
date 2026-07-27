@@ -156,6 +156,33 @@ resource "aws_vpc_security_group_ingress_rule" "redis" {
   })
 }
 
+# (옵션) 개발자 PC 직접 접속 — public_access_cidrs 가 비어있으면 규칙을 만들지 않는다.
+#
+# ⚠ SKILL §6("인바운드 개방 없이 SSM 만")의 '의도된 예외'다. dev_db(modules/dev-db)와
+#   같은 방식으로, 인스턴스를 퍼블릭 서브넷에 두고 허용 CIDR 에서만 포트를 연다.
+#
+# 이 방식을 택한 이유(2026-07-27): 처음엔 무중단을 노려 '프라이빗 인스턴스 + 퍼블릭
+#   서브넷의 보조 ENI(eth1) + EIP' 를 붙였으나, 그 구성으로는 인바운드가 전달되지 않았다.
+#   SG·NACL·라우트테이블·EIP 연결·OS 정책 라우팅(rp_filter=2)·리스닝이 모두 정상이고
+#   eth1 아웃바운드는 EIP 로 나가는데, tcpdump 에 인바운드 SYN 이 한 개도 잡히지 않았다
+#   (= NIC 도달 전 AWS 단계에서 드롭). 같은 서브넷의 dev_db(주 ENI 에 EIP)는 정상이라,
+#   차이는 "EIP 가 보조 ENI 에 있다" 하나였다. 인스턴스 stop/start 로도 회복되지 않았다.
+#   → 결론: EIP 는 '주 ENI' 에 있어야 한다. 그래서 인스턴스 자체를 퍼블릭 서브넷에 둔다.
+resource "aws_vpc_security_group_ingress_rule" "public_access" {
+  for_each = local.public_access_rules
+
+  security_group_id = aws_security_group.this.id
+  cidr_ipv4         = each.value.cidr
+  from_port         = each.value.port
+  to_port           = each.value.port
+  ip_protocol       = "tcp"
+  description       = "TCP ${each.value.port} from ${each.value.cidr} (developer direct access)"
+
+  tags = merge(var.tags, {
+    Name = "${local.name}-public-${each.key}"
+  })
+}
+
 # 아웃바운드 전체 허용 — 패키지 설치·백업 S3 업로드·SSM 엔드포인트 통신 등.
 resource "aws_vpc_security_group_egress_rule" "all" {
   security_group_id = aws_security_group.this.id
@@ -169,7 +196,11 @@ resource "aws_vpc_security_group_egress_rule" "all" {
 }
 
 # ---------------------------------------------------------------------------
-# EC2 인스턴스 — 프라이빗 서브넷, IMDSv2 강제, SSM 전용 접근.
+# EC2 인스턴스 — IMDSv2 강제. 기본은 프라이빗 서브넷 + SSM 전용 접근이고,
+#   public_access_cidrs 를 주면 루트에서 퍼블릭 서브넷을 넘겨 퍼블릭 IP 를 붙인다.
+# ⚠ subnet_id 변경은 force-replacement 다(인스턴스 재생성). 데이터는 별도 EBS 에 있어
+#   보존되지만(prevent_destroy + user_data 의 blkid 가드로 재포맷 없음), 프라이빗 IP 가
+#   바뀌므로 k8s/30-external-data.yaml 의 Endpoints IP 도 함께 갱신해야 한다.
 # ---------------------------------------------------------------------------
 resource "aws_instance" "this" {
   ami                    = data.aws_ami.al2023.id
@@ -177,6 +208,9 @@ resource "aws_instance" "this" {
   subnet_id              = var.subnet_id
   vpc_security_group_ids = [aws_security_group.this.id]
   iam_instance_profile   = aws_iam_instance_profile.this.name
+
+  # 퍼블릭 접속을 쓸 때만 퍼블릭 IP 를 붙인다(아래 EIP 로 고정 IP 부여).
+  associate_public_ip_address = local.public_access_enabled ? true : null
 
   user_data = templatefile("${path.module}/templates/user_data.sh.tftpl", {
     data_volume_device_name                = var.data_volume_device_name
@@ -211,7 +245,15 @@ resource "aws_instance" "this" {
     # ⚠ AMI most_recent(data.aws_ami.al2023) 가 새 AL2023 로 부동해도 기존 DB 인스턴스를
     #   교체하지 않는다. 스테이트풀 DB 호스트라 AMI 드리프트로 인한 재생성(=데이터/다운타임 위험)을
     #   막는다. 의도적 OS 교체는 이 줄을 임시 제거하거나 taint 로 명시적으로 수행할 것.
-    ignore_changes = [ami]
+    #
+    # ⚠ user_data 도 무시한다. 부트스트랩 템플릿을 고쳐도 cloud-init 은 '최초 부팅에만'
+    #   실행되므로 이미 뜬 인스턴스에는 반영되지 않는다. 그런데 aws_instance 의 user_data
+    #   변경은 in-place 갱신을 위해 인스턴스를 stop→start 시킨다 — 즉 "효과는 0, 운영 DB
+    #   다운타임만" 남는다. 그래서 드리프트를 아예 계획에 넣지 않는다.
+    #   → 실행 중 호스트의 부트스트랩 변경은 SSM Session Manager 로 직접 패치하고,
+    #     템플릿은 '다음 인스턴스 생성 시의 정답'으로만 관리한다. 의도적 재부트스트랩이
+    #     필요하면 이 항목을 임시 제거하거나 인스턴스를 명시적으로 교체할 것.
+    ignore_changes = [ami, user_data]
   }
 }
 
@@ -245,6 +287,22 @@ resource "aws_volume_attachment" "data" {
   # 인스턴스 교체 시 볼륨을 강제 분리하지 않는다(데이터 보호). 필요 시 수동 처리.
   stop_instance_before_detaching = true
 }
+
+# ---------------------------------------------------------------------------
+# (옵션) Elastic IP — 개발자 직접 접속을 쓸 때만. stop/start 후에도 퍼블릭 IP 고정.
+#   주 ENI(=인스턴스)에 연결한다. 보조 ENI 로는 인바운드가 오지 않는다(위 주석 참조).
+# ---------------------------------------------------------------------------
+resource "aws_eip" "this" {
+  count = local.public_access_enabled ? 1 : 0
+
+  domain   = "vpc"
+  instance = aws_instance.this.id
+
+  tags = merge(var.tags, {
+    Name = "${local.name}-eip"
+  })
+}
+
 
 # ---------------------------------------------------------------------------
 # 백업 병행책: DLM 라이프사이클 정책으로 데이터 EBS 일 단위 스냅샷 자동화(SKILL §5).
