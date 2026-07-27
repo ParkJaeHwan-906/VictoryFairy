@@ -1,4 +1,4 @@
-# quiz-app: 실시간 채팅/퀴즈 Spring 모듈(:quiz, 컨테이너 포트 8081, 경로 /api/quiz)
+# quiz-app: 실시간 채팅/퀴즈 Spring 모듈(:quiz, 컨테이너 포트 8081, 경로 /api/game)
 #
 # 인프라 커플링(설계 변경 2026-07 — user·quiz 공용 app 노드풀):
 #   app 노드그룹 = label workload=app, taint 없음. user·quiz 파드가 같은 노드에 동거.

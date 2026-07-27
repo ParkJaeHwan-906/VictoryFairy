@@ -119,7 +119,7 @@ kubectl -n kube-system logs deploy/external-dns | tail
 dig victoryfairy.com +short          # ALB 주소로 해석되면 성공
 
 # HTTPS 종단 확인
-curl -I https://victoryfairy.com/api/auth   # TLS 핸드셰이크 + 응답
+curl -I https://victoryfairy.com/api/member   # TLS 핸드셰이크 + 응답
 ```
 
 ---

@@ -111,6 +111,6 @@ kubectl get nodes -w                                              # 노드 증�
 
 ```bash
 kubectl -n victoryfairy run load --rm -it --image=busybox --restart=Never -- \
-  /bin/sh -c "while true; do wget -qO- http://quiz-app/api/quiz >/dev/null 2>&1; done"
+  /bin/sh -c "while true; do wget -qO- http://quiz-app/api/game >/dev/null 2>&1; done"
 # 별도 터미널에서: kubectl -n victoryfairy get hpa -w   (CPU% 상승 → REPLICAS 증가 관찰)
 ```
