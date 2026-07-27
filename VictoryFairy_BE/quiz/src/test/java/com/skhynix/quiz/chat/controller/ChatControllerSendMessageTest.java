@@ -68,7 +68,7 @@ class ChatControllerSendMessageTest {
     void sendMessage_validContent_returns201AndDelegatesToService() throws Exception {
         LocalDateTime createdAt = LocalDateTime.of(2026, 7, 20, 10, 0);
         given(chatService.sendMessage(eq(ROOM_UID), eq(USER_ID), eq("안녕")))
-                .willReturn(new MessageResponse("안녕", "두산팬1", createdAt));
+                .willReturn(new MessageResponse(1L, "안녕", "두산팬1", createdAt));
 
         mockMvc.perform(post("/chat/rooms/{roomUid}/messages", ROOM_UID)
                         .with(authenticatedAs(USER_ID))
@@ -146,7 +146,7 @@ class ChatControllerSendMessageTest {
     @DisplayName("[AC-CHAT-12-5] 공백이 아닌 1자 content는 201로 통과한다(최소 유효 경계)")
     void sendMessage_singleCharContent_returns201() throws Exception {
         given(chatService.sendMessage(eq(ROOM_UID), eq(USER_ID), eq("a")))
-                .willReturn(new MessageResponse("a", "닉네임", LocalDateTime.now()));
+                .willReturn(new MessageResponse(1L, "a", "닉네임", LocalDateTime.now()));
 
         mockMvc.perform(post("/chat/rooms/{roomUid}/messages", ROOM_UID)
                         .with(authenticatedAs(USER_ID))
@@ -162,7 +162,7 @@ class ChatControllerSendMessageTest {
     void sendMessage_exactly500Chars_returns201() throws Exception {
         String content = "a".repeat(500);
         given(chatService.sendMessage(eq(ROOM_UID), eq(USER_ID), eq(content)))
-                .willReturn(new MessageResponse(content, "닉네임", LocalDateTime.now()));
+                .willReturn(new MessageResponse(1L, content, "닉네임", LocalDateTime.now()));
 
         mockMvc.perform(post("/chat/rooms/{roomUid}/messages", ROOM_UID)
                         .with(authenticatedAs(USER_ID))
@@ -192,7 +192,7 @@ class ChatControllerSendMessageTest {
     void sendMessage_250SurrogatePairEmojis_returns201() throws Exception {
         String content = "😀".repeat(250); // 😀 x250, length() == 500
         given(chatService.sendMessage(eq(ROOM_UID), eq(USER_ID), eq(content)))
-                .willReturn(new MessageResponse(content, "닉네임", LocalDateTime.now()));
+                .willReturn(new MessageResponse(1L, content, "닉네임", LocalDateTime.now()));
 
         mockMvc.perform(post("/chat/rooms/{roomUid}/messages", ROOM_UID)
                         .with(authenticatedAs(USER_ID))

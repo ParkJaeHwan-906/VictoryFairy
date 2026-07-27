@@ -1,14 +1,18 @@
 package com.skhynix.quiz.realtime;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 /**
- * 같은 프로세스 안의 구독자에게 직접 전달하는 기본 {@link RealtimeEventPublisher} 구현.
- * {@code @Profile}/조건 없이 항상 등록되며, 단일 인스턴스 환경(로컬·테스트·현재 운영)에서 완결된다.
- * 다중 인스턴스 fan-out이 필요해지면 Redis 구현을 추가로 등록한다(포트 Javadoc 참고).
+ * 같은 프로세스 안의 구독자에게 직접 전달하는 {@link RealtimeEventPublisher} 구현({@code prod} 이외 전용).
+ * 인스턴스가 하나뿐인 로컬·테스트에서 완결되며, 이 경로 덕에 로컬 개발에 Redis가 필요 없다.
+ *
+ * <p>운영({@code prod})은 파드가 여러 개일 수 있어 이 구현으로는 부족하다 —
+ * {@link RedisPubSubPublisher}가 그 자리를 대신한다.
  */
 @Component
+@Profile("!prod")
 @RequiredArgsConstructor
 public class InMemoryPublisher implements RealtimeEventPublisher {
 

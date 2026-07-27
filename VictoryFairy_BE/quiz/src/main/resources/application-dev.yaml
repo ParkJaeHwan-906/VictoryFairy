@@ -12,3 +12,12 @@ spring:
     properties:
       hibernate:
         format_sql: true
+
+# dev 는 Redis 를 쓰지 않는다(fan-out 은 InMemoryPublisher). spring-boot-starter-data-redis 가
+# 클래스패스에 있다는 이유만으로 액추에이터가 redis 인디케이터를 켜서, 로컬에 Redis 가 없으면
+# /actuator/health 가 DOWN 으로 보인다 → 오해를 막기 위해 dev 에서만 끈다.
+# (readiness 그룹은 원래 이 인디케이터를 보지 않으므로 ALB 헬스체크와는 무관하다.)
+management:
+  health:
+    redis:
+      enabled: false

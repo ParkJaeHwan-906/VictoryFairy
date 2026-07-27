@@ -65,7 +65,7 @@
 
 | 시나리오 ID | 요구사항 | 구분 | Given | When | Then |
 |---|---|---|---|---|---|
-| AC-CHAT-10-1 | QUIZ-CHAT-10 | 정상 | 인증 사용자, 존재하는 방, `content="안녕"` | `POST .../{roomUid}/messages` | 201, 응답에 `content`·`senderNickname`(발신자 `UserAccount.nickname`)·`createdAt`, `chats` 1행 증가, 저장값 `blind=false`·`deletedAt=null` |
+| AC-CHAT-10-1 | QUIZ-CHAT-10 | 정상 | 인증 사용자, 존재하는 방, `content="안녕"` | `POST .../{roomUid}/messages` | 201, 응답에 `id`·`content`·`senderNickname`(발신자 `UserAccount.nickname`)·`createdAt`, `chats` 1행 증가, 저장값 `blind=false`·`deletedAt=null` |
 | AC-CHAT-11-1 | QUIZ-CHAT-11 | 정상 | 같은 방에 다른 사용자 B가 구독 중 | 클라이언트 A가 메시지 전송 | B가 저장된 메시지를 SSE로 수신 |
 | AC-CHAT-11-2 | QUIZ-CHAT-11 | 정상 | 발신자 A 자신도 같은 방 구독 중 | A가 전송 | **A는 SSE로 받지 않는다**(emitter를 `userAccountId`로 식별해 제외). A 본인 메시지는 201 POST 응답으로만 렌더 |
 | AC-CHAT-11-3 | QUIZ-CHAT-11 | 경계 | 방에 구독자가 아무도 없음 | 전송 | 201 저장 성공(전달 대상 0명이어도 전송은 성공), 히스토리로 조회됨 |
@@ -86,7 +86,7 @@
 
 | 시나리오 ID | 요구사항 | 구분 | Given | When | Then |
 |---|---|---|---|---|---|
-| AC-CHAT-15-1 | QUIZ-CHAT-15 | 정상 | 구독 중인 클라이언트 | 메시지가 전달됨 | SSE 프레임 `event: message`, `data:`가 `{content, senderNickname, createdAt, roomUid}` JSON. **메시지 id 필드 없음** |
+| AC-CHAT-15-1 | QUIZ-CHAT-15 | 정상 | 구독 중인 클라이언트 | 메시지가 전달됨 | SSE 프레임 `event: message`, `data:`가 `{id, content, senderNickname, createdAt, roomUid}` JSON. `id`는 히스토리 응답의 같은 메시지 `id`와 일치 |
 | AC-CHAT-15-2 | QUIZ-CHAT-15 | 경계 | 구독 유휴 상태 | 하트비트 발생 | 하트비트는 `data:` 이벤트가 아니라 별도 `:ping` 주석 프레임으로 구분된다 |
 | AC-CHAT-16-1 | QUIZ-CHAT-16 | 정상 | 인스턴스 A에 구독, 인스턴스 B로 POST(운영, Redis pub/sub) | B로 전송 | A의 구독자가 수신(인스턴스 경계 넘어 전달, 발신자 제외 규칙 유지) |
 | AC-CHAT-16-2 | QUIZ-CHAT-16 | 정상 | 단일 인스턴스(로컬/테스트, `InMemoryPublisher`) | 같은 인스턴스로 전송 | 같은 인스턴스 구독자 수신 |

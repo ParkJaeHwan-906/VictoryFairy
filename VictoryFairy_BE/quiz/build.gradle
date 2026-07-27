@@ -14,6 +14,7 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-webmvc'
     implementation 'org.springframework.boot:spring-boot-starter-websocket'
     implementation 'org.springframework.boot:spring-boot-starter-validation'   // 채팅 content 검증(@Valid/@NotBlank/@Size)
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'   // 실시간 fan-out pub/sub(prod 다중 파드)
     implementation 'org.springframework.boot:spring-boot-starter-actuator'     // ALB 타깃 헬스체크(/actuator/health/readiness)
     runtimeOnly 'me.paulschwarz:spring-dotenv:4.0.0'
 
