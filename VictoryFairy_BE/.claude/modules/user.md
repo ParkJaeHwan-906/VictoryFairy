@@ -59,7 +59,7 @@ DELETE /api/member/users/me              (본문 없음, access 필수) → 204
 - **알려진 한계**: 동시 `DELETE /api/member/users/me` 2건이 각각 필터를 통과하면 둘 다 `exitAt=null`을 읽어 last-write-wins로 `exit_at`이 밀리초 단위로 밀릴 수 있음(비관적 락/조건부 UPDATE 미도입, 영향 경미 — 계정은 탈퇴되고 토큰도 만료됨). 순차 호출은 실측 PASS
 - 비번: 저장 `passwordEncoder.encode()`, 검증 `matches()`
 - 설정: `jwt.secret`(32B+), access 3h(10800000ms) / refresh 14d(1209600000ms)
-- DB 환경변수: `DB_HOST/PORT/NAME/USERNAME/PASSWORD` · dev `ddl-auto=create`
+- DB 환경변수: `DB_HOST/PORT/NAME/USERNAME/PASSWORD` · dev `ddl-auto=update`(2026-07-27 `create`에서 변경 — `create`는 기동마다 스키마를 드롭·재생성해, 같은 로컬 DB 를 보는 quiz 의 dev 시드까지 함께 날렸다)
 - **`SignupRequest.password`/`nickname`에 `@Size`/`@Pattern`(nickname은 `@NotBlank`도)을 겹쳐 걸지 말 것**: 각각 `@ValidPassword`/`@ValidNickname` 단일 애노테이션만 사용. 동시 위반 시 `GlobalExceptionHandler`가 `Map<필드명,메시지>`에 `put`하는 구조라 위반이 2개면 순회 순서 비보장으로 응답 메시지가 비결정적이 된다. `/validate`류와 signup 메시지가 항상 같아야 하는 이유도 동일(각각 `PasswordPolicy`/`NicknamePolicy` 공유, 길이 위반 우선)
 - **닉네임 사전 검사는 정책→중복 2단 파이프라인**(비밀번호 사전 검사와 다름): `AuthService.validateNickname()`이 `findNicknamePolicyViolation()`(순수, DB 미조회) → `isNicknameDuplicated()`(`existsByNickname` 위임) 순서로 호출하고, 정책 위반이면 중복 조회를 생략한다. **validate의 중복은 200, signup의 중복은 409**(둘 다 같은 `existsByNickname`을 공유하지만 상태 코드는 의도적으로 다름 — signup만 실제 가입 실패라 409). 탈퇴 닉네임도 `existsByNickname`이 걸러내지 않아 두 경로 모두 점유로 판정(재가입 불가 정책과 일치)
 - **`checkNicknameDuplicate()`은 중복만 보는 단독 검사**(`/nickname/duplicate`): 정책(`findNicknamePolicyViolation`) 없이 `isNicknameDuplicated()`만 호출 — `validateNickname()`의 정책→중복 2단과 달리 1단이다. 정책 위반이지만 미점유인 닉네임(예: `"hi!"`)에도 `valid:true`가 나올 수 있음(의도된 동작, "사용 가능"=중복 아님일 뿐 가입 가능 보장 아님). 프론트에서 정책 검사를 이미 통과시킨 뒤 "중복 확인" 버튼 용도로 분리

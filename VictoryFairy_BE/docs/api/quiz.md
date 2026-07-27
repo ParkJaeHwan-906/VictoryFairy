@@ -1,7 +1,7 @@
 # quiz API 명세
 
-> 코드 기준 자동 작성. 포트 **8081**(`quiz/src/main/resources/application.yaml`의 `server.port: 8081`), `server.servlet.context-path` 미설정이므로 base URL은 `http://localhost:8081`.
-> 최종 갱신: 2026-07-20 (구단별 채팅 API 신규 문서화)
+> 코드 기준 자동 작성. 포트 **8081**(`quiz/src/main/resources/application.yaml`의 `server.port: 8081`), `server.servlet.context-path`는 `/api/game`이므로 base URL은 `http://localhost:8081/api/game`.
+> 최종 갱신: 2026-07-27 (메시지 `id` 노출 · Redis pub/sub fan-out · 커밋 이후 발행 · 로컬 자동 시드)
 > 대상 컨트롤러: `quiz/src/main/java/com/skhynix/quiz/chat/controller/ChatController.java` (`@RequestMapping("/api/game/chat")`) — 현재 quiz 모듈의 유일한 컨트롤러.
 > 인증: JWT Bearer (`Authorization: Bearer <accessToken>`). `SecurityConfig`가 `/`, `/error`, `GET /health`만 permitAll이고 그 외 `anyRequest().authenticated()`이므로 **`/api/game/chat/**` 6개 엔드포인트 전부 인증 필수**다. 인증 방식·401 형식은 `docs/api/user.md`의 "인증 방식" 절과 동일(`RestAuthenticationEntryPoint`가 필터 단계에서 401 `ApiResponse` JSON을 직렬화). `@AuthenticationPrincipal Long userAccountId`는 `JwtAuthenticationFilter`가 토큰 `sub`(uid)를 활성 계정의 내부 PK로 변환해 주입한 값이다.
 
@@ -20,6 +20,11 @@
 - 채팅방은 `roomUid`(`Chatroom.uid`, UUID)로만 노출된다. 응답 어디에도 순차 PK가 나타나지 않는다.
 - 메시지 식별자는 `id`(=`Chat` 내부 PK)이며 `MessageResponse`(전송 응답·히스토리)와 `MessageEvent`(SSE payload) 양쪽에 같은 값이 실린다. 신고(`POST .../messages/{messageId}/report`)의 `{messageId}`가 이 값이다. 클라이언트는 이 `id`로 (1) SSE로 이미 그린 메시지를 히스토리 재조회 때 중복 렌더하지 않도록 걸러내고 (2) 신고를 호출한다. 순차 PK가 노출되므로 **방 식별자는 계속 uid(UUID)** 를 쓴다(열거 방지는 방 단위에서 유지).
 - 발신자/작성자 계정 PK(`user_account_id`)도 응답에 노출되지 않는다. `senderNickname`(`UserAccount.nickname`)만 노출된다.
+
+### 로컬에서 띄우기
+`docker compose up -d mysql` 로 DB만 올린 뒤 `./gradlew :quiz:bootRun` 한 번이면 끝난다 — dev 프로파일이 `ddl-auto: update`로 스키마를 만들고, 이어서 `spring.sql.init`이 `infra/sql/teams-init.sql` → `chat-init.sql`을 실행해 **구단 10개 · SYSTEM 계정 · 구단별 채팅방 10개**를 채운다. 시드는 `INSERT ... WHERE NOT EXISTS`라 재기동해도 중복이 생기지 않는다. Redis는 dev에서 쓰지 않으므로 띄우지 않아도 된다(실시간 전달은 `InMemoryPublisher`).
+
+⚠ `user` 앱도 같은 로컬 DB를 본다. dev `ddl-auto`가 `create`였을 때는 user를 띄우는 순간 이 시드가 전부 사라졌다 — 현재는 둘 다 `update`라 안전하다.
 
 ### 관리자 기능은 범위 밖
 blind 해제(unblind), 메시지/방 삭제를 수행하는 엔드포인트는 코드에 없다(`Chat.unblind()`/`Chat.delete()`/`Chatroom.delete()`는 엔티티에 구현돼 있으나 어떤 컨트롤러에서도 호출되지 않는다). 이 문서는 그런 엔드포인트를 다루지 않는다.
