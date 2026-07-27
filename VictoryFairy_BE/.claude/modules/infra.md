@@ -3,33 +3,47 @@
 > 이 파일은 infra/배포 작업 시에만 로드되는 슬림 컨텍스트다.
 > EC2 → Docker → Kubernetes 단계적 학습 이력 + 이 백엔드의 배포를 다룬다.
 > ⚠️ 방향 전환: EKS 기반 인프라가 이미 Terraform 으로 프로비저닝됨 — 아래 "인프라 방향" 섹션 먼저 읽을 것.
-> 최종 업데이트: 2026-07-24
+> 최종 업데이트: 2026-07-27
 
 ---
 
 ## ⚠️ 인프라 방향: EKS 로 이행 중 (2026-07)
 이 문서의 본문(아래 "현재 인프라 상태"~"로드맵")은 **EC2 단일 인스턴스 + docker-compose** 기준의
-초기 배포·학습 이력이다. 그와 **별개로 EKS 기반 인프라가 이미 Terraform 으로 프로비저닝**되어 있고
-앱을 EKS 로 옮기는 이행이 진행 중이다. **EC2+compose 가 여전히 실서빙 경로인지, EKS 로 컷오버됐는지는
-이 문서만으로 단정하지 말 것**(작업 전 실제 상태 확인 필요).
+초기 배포·학습 이력이다. 그와 **별개로 EKS 기반 인프라가 Terraform 으로 프로비저닝**되어 있다.
+
+**도메인(`https://victoryfairy.com`)은 EKS 가 서빙한다** — 2026-07-27 종단 확인.
+apex A(ALIAS) → ALB → `user-app`/`quiz-app` 파드로 붙고, 두 타깃 그룹 모두 healthy 다.
+다만 EC2+compose 파이프라인(`.github/workflows/deploy.yml`)도 **여전히 main push 에서 함께 돈다**
+(EKS 용은 `deploy-eks.yml`). EC2 쪽을 정리할지는 미결이므로, "EC2 는 죽었다"고 단정하지 말 것.
 
 - **코드 위치**: 인프라 Terraform·k8s 매니페스트는 이 BE 트리가 아니라 **상위 레포의
-  `VictoryFairy_Infra/`(브랜치 `dev_infra`)** 에 있다(`dev_be` 트리엔 없음). Terraform 규약은
-  `.claude/skills/terraform-infra`. 상태는 S3 백엔드(`victoryfairy-tfstate`, key `dev/terraform.tfstate`).
+  `VictoryFairy_Infra/`** 에 있다. `main` 에는 `VictoryFairy_BE/`·`VictoryFairy_Infra/`·`VictoryFairy_AI/`
+  가 함께 있지만 `dev_*` 브랜치는 각자 담당 디렉터리만 가진 **분리된 트리**라, `dev_be` 트리에서는
+  `VictoryFairy_Infra/` 가 보이지 않는다. 인프라 파일을 봐야 하면 `main` 기준으로 볼 것.
+  Terraform 규약은 `.claude/skills/terraform-infra`.
+  상태는 S3 백엔드(`victoryfairy-tfstate`, key `dev/terraform.tfstate`).
 - **EKS**: 클러스터 `victoryfairy-dev`, k8s **1.30**(⚠ EKS 표준 지원 종료 → 연장 지원 과금 구간, 버전
   업그레이드 필요). 노드그룹 2개 — `app`(user·quiz 공용 t3.medium On-Demand, HPA+Cluster Autoscaler),
   `batch`(Spot, 평소 0대, CronJob 시각에만 0→N→0). 워커는 프라이빗 서브넷, 파드 권한은 IRSA(OIDC).
 - **DB**: RDS 미사용 — **EC2 자체 호스팅 MySQL+Redis 컨테이너**(`modules/mysql-ec2`), EBS 영속 볼륨,
   SSM 포트포워딩 접근(22/3306 인입 미개방), mysqldump→S3 백업 크론.
 - **레지스트리/CI**: ECR(`user`,`quiz`) + GitHub Actions keyless(OIDC) 배포.
-- **도메인 + HTTPS** (PR #34 → `dev_infra`, **코드만·미apply**): 루트 `victoryfairy.com` 을
-  Route53(신규 존)+ACM(DNS 검증) 인증서로 ALB 에 연결. AWS Load Balancer Controller(Ingress
-  `k8s/22-ingress.yaml`, host=victoryfairy.com, TLS 종료) + ExternalDNS(`k8s/23-external-dns.yaml`,
-  apex A→ALB 자동 레코드). 모듈: `VictoryFairy_Infra/modules/{dns,alb}`, eks 모듈 `oidc_provider_url`
-  출력 참조. 적용 순서 runbook: `VictoryFairy_Infra/docs/domain-https-setup.md`.
-  - ⚠ apply 전: 도메인 레지스트라 NS 를 Route53 존 NS(4개)로 등록 + Mailjet SPF/DKIM(TXT)을 Route53 로 이관.
-  - ⚠ ALB 헬스체크(`/healthz`)에 200 반환 앱 엔드포인트가 없으면 타깃 Unhealthy → 503(본문 "배포
-    파이프라인 알려진 갭"의 health 미구현 이슈와 동일 — EKS 에서도 선결).
+- **도메인 + HTTPS** (**적용 완료 2026-07-27**): 루트 `victoryfairy.com` 이 Route53(신규 존)+ACM
+  (DNS 검증, ISSUED) 인증서로 ALB 에 연결돼 HTTPS 로 서비스 중. AWS Load Balancer Controller +
+  ExternalDNS(`k8s/23-external-dns.yaml`, apex A(ALIAS)→ALB 자동 레코드).
+  모듈: `VictoryFairy_Infra/modules/{dns,alb}`, eks 모듈 `oidc_provider_url` 출력 참조.
+  runbook: `VictoryFairy_Infra/docs/domain-https-setup.md`.
+  - **Ingress 는 2개다**(`k8s/22-ingress.yaml`): `victoryfairy-user`(`/api/member`) /
+    `victoryfairy-quiz`(`/api/game`). `group.name: victoryfairy` 를 같게 줘서 **ALB 는 하나**로 묶인다.
+    쪼갠 이유는 헬스체크 경로가 앱마다 다르기 때문 — `healthcheck-path` 는 Ingress 단위 어노테이션이라
+    하나로는 두 값을 담을 수 없다.
+  - ALB 헬스체크: `/api/member/actuator/health/readiness`, `/api/game/actuator/health/readiness`.
+    ⚠ `/actuator/health` 전체가 아니라 **readiness 그룹**이다(전체는 db·redis 인디케이터를 합산해
+    DOWN 을 내므로 MySQL EC2 가 흔들리면 멀쩡한 파드까지 타깃에서 빠진다).
+  - ⚠ 레지스트라 NS: 도메인 재등록·이전 시 가비아 네임서버가 기본값으로 초기화된다. Route53 존 NS 4개로
+    다시 등록해야 하며, 그동안 도메인 전체가 SERVFAIL 이 된다(2026-07-27 실제 발생).
+  - ⚠ ALB 는 forward 시 경로 rewrite 를 못 한다(redirect 만 가능). Ingress path 와 앱의
+    `server.servlet.context-path` 가 문자 그대로 일치해야 한다.
 
 ---
 
@@ -80,7 +94,17 @@
 ---
 
 ## 배포 파이프라인 알려진 갭
-- **헬스체크 부재(redis 포함)**: `docker-compose.prod.yml`에 healthcheck가 없다. nginx의 `/healthz`는 nginx 자신이 200을 반환할 뿐 백엔드를 보지 않는다. user/quiz의 SecurityConfig에는 `GET /health` permit 규칙만 있고 이를 처리하는 컨트롤러/actuator가 **아예 없어** 실제 호출 시 404 — nginx 라우팅 노출 여부와 무관하게 **운영 앱이 실제로 살아있는지 확인할 수단 자체가 없다.** 선결 과제는 nginx 노출이 아니라 health 엔드포인트 구현. `redis` 서비스(이메일 인증 상태 저장, `user`가 의존)도 prod에서는 healthcheck·조건부 `depends_on`이 없어 같은 갭을 그대로 물려받았다(로컬 `docker-compose.yml`은 `healthcheck` + `depends_on: redis: condition: service_healthy`로 구성돼 있어 prod와 다름).
+- **앱 health 엔드포인트** — *해소됨(2026-07-27)*. user/quiz 양쪽에 `spring-boot-starter-actuator` 를
+  넣고 health 만 노출한다(`management.endpoints.web.exposure.include: health`,
+  `management.endpoint.health.probes.enabled: true`). context-path 아래로 들어가므로 외부 경로는
+  앱마다 갈린다 — `/api/member/actuator/health/readiness`, `/api/game/actuator/health/readiness`.
+  SecurityConfig 의 죽은 `GET /health` permit 규칙(핸들러가 없어 항상 404였다)도 `/actuator/health/**` 로 교체했다.
+  경위: 이 404 때문에 ALB 타깃 2개가 모두 `Target.ResponseCodeMismatch` 로 Unhealthy → 전면 503 이었다.
+- **compose healthcheck 부재(redis 포함)** — *EC2+compose 경로에 한해 여전히 갭*. 앱에 health
+  엔드포인트가 생겼으므로 이제 붙일 수 있게 됐지만, `docker-compose.prod.yml` 에는 아직 healthcheck 가
+  없다. nginx 의 `/healthz` 는 nginx 자신이 200 을 반환할 뿐 백엔드를 보지 않는다. `redis` 서비스(이메일
+  인증 상태 저장, `user` 가 의존)도 prod 에서는 healthcheck·조건부 `depends_on` 이 없다(로컬
+  `docker-compose.yml` 은 `healthcheck` + `depends_on: redis: condition: service_healthy` 구성이라 prod 와 다름).
 - **롤백 전략 없음**: CI가 `:latest`와 `:${{ github.sha }}` 둘 다 push하지만 EC2 배포 스크립트는 `IMAGE_TAG=latest` 고정이라 sha 태그를 쓸 방법이 없고, 배포 스크립트의 `docker image prune -f`가 EC2에 남은 이전 이미지를 지워버려 롤백용 이미지도 안 남는다.
 
 ## redis 서비스 (이메일 인증 상태 저장, user 전용)
@@ -151,6 +175,8 @@ sudo docker ps && curl localhost
 - [x] 클러스터 방식: **EKS 채택** (managed control plane, `victoryfairy-dev`)
 - [x] 도메인 보유: **`victoryfairy.com` 보유 확정** (Route53+ACM 으로 HTTPS 진행 — 위 "인프라 방향")
 - [ ] EKS k8s **1.30 → 상위 버전 업그레이드** (연장 지원 과금 중 — 도메인/HTTPS 작업과 별개 선결 과제)
-- [ ] EC2+compose → EKS **컷오버 상태 확정** (실서빙 경로가 아직 EC2 인지, EKS 인지)
-- [ ] 앱 헬스 엔드포인트 구현 (EKS ALB 헬스체크·운영 가시성 선결)
+- [x] EC2+compose → EKS **컷오버 상태 확정**: 도메인(`https://victoryfairy.com`)은 **EKS 서빙**(2026-07-27 종단 확인)
+- [ ] EC2+compose 파이프라인(`deploy.yml`) 정리 여부 — main push 마다 EKS 배포와 **함께** 돌고 있다
+- [x] 앱 헬스 엔드포인트 구현 — **actuator readiness 도입 완료(2026-07-27)**, ALB 타깃 healthy 확인
+- [ ] compose(EC2 경로) healthcheck 배선 — 앱 엔드포인트는 생겼으나 `docker-compose.prod.yml` 미반영
 - [ ] 앱 개수 / 예상 트래픽 (스케일 상한 재산정)
