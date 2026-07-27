@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
-# db-tunnel.sh — 데이터 EC2(MySQL/Redis)·EKS 노드로의 SSM 포트포워딩 터널을 백그라운드로 관리한다.
+# db-tunnel.sh — 개발 접속 통로 일괄 관리: 데이터 EC2(MySQL/Redis)·EKS 노드로의
+# SSM 포트포워딩 + Kubernetes Dashboard port-forward 를 백그라운드로 띄운다.
 #
 # 사용법:
-#   ./scripts/db-tunnel.sh start    # mysql(3306)·redis(6379)·ssh(2222)·node-ssh(2223) 터널 시작
-#   ./scripts/db-tunnel.sh stop     # 터널 종료
-#   ./scripts/db-tunnel.sh status   # 터널 상태 확인
+#   ./scripts/db-tunnel.sh start    # mysql(3306)·redis(6379)·ssh(2222)·node-ssh(2223)·dashboard(8443) 시작
+#   ./scripts/db-tunnel.sh stop     # 전부 종료
+#   ./scripts/db-tunnel.sh status   # 상태 확인
+#   ./scripts/db-tunnel.sh token    # 대시보드 로그인 토큰을 클립보드에 복사
 #
 # 이후 HeidiSQL 등은 127.0.0.1:3306 / 127.0.0.1:6379 로 접속하면 된다.
+# 대시보드는 https://localhost:8443 (start 시 토큰이 클립보드에 복사됨).
 # 창을 계속 켜둘 필요가 없다(nohup 백그라운드). 로그: /tmp/vf-tunnel-*.log
 #
 # ⚠ SSM 세션은 일정 시간 미사용 시(기본 20분) AWS가 자동 종료할 수 있다.
@@ -59,12 +62,36 @@ if [[ "$INSTANCE_ID" != i-* ]]; then
   exit 1
 fi
 
-# 포트 매핑: "원격포트:로컬포트:이름:대상"  (대상: db=MySQL EC2, node=EKS app 노드)
+# 포트 매핑: "원격포트:로컬포트:이름:대상"
+#   대상 db   = MySQL EC2 (SSM),  node = EKS app 노드 (SSM),  k8s = kubectl port-forward
 # ssh(22→2222): Termius/MobaXterm 등 SSH 클라이언트용 — 사전에 공개키가
 #   ec2-user 의 authorized_keys 에 등록되어 있어야 한다(README 참고).
 # node-ssh(22→2223): EKS app 노드 SSH — 키페어 VictoryFairy(pem)로 접속.
 #   SG 는 22번을 외부에 열지 않으며, SSM 터널은 SG 를 경유하지 않으므로 무관.
-TUNNELS=("3306:3306:mysql:db" "6379:6379:redis:db" "22:2222:ssh:db" "22:2223:node-ssh:node")
+# dashboard(443→8443): Kubernetes Dashboard(k8s/90-*.yaml) — https://localhost:8443
+TUNNELS=("3306:3306:mysql:db" "6379:6379:redis:db" "22:2222:ssh:db" "22:2223:node-ssh:node" "443:8443:dashboard:k8s")
+
+# 대시보드 로그인 토큰(장기 토큰, 값 불변)을 클립보드에 복사. 클립보드 도구가
+# 없는 환경에서는 화면에 출력한다. (91-dashboard-admin-user.yaml 의 admin-user-token)
+print_token() {
+  local jwt
+  jwt=$(kubectl -n kubernetes-dashboard get secret admin-user-token \
+    -o jsonpath='{.data.token}' 2>/dev/null | base64 -d 2>/dev/null)
+  if [[ -z "$jwt" ]]; then
+    echo "⚠ 대시보드 토큰 조회 실패 — kubectl 컨텍스트와 k8s/91-dashboard-admin-user.yaml 적용 여부를 확인하세요."
+    return 1
+  fi
+  if command -v clip.exe >/dev/null 2>&1; then          # Windows (Git Bash)
+    printf '%s' "$jwt" | clip.exe
+    echo "🔑 대시보드 토큰을 클립보드에 복사했습니다 → https://localhost:8443 (Token 로그인, Ctrl+V)"
+  elif command -v pbcopy >/dev/null 2>&1; then          # macOS
+    printf '%s' "$jwt" | pbcopy
+    echo "🔑 대시보드 토큰을 클립보드에 복사했습니다 → https://localhost:8443 (Token 로그인, Cmd+V)"
+  else
+    echo "🔑 대시보드 토큰 (아래 전체를 복사 → https://localhost:8443):"
+    echo "$jwt"
+  fi
+}
 
 is_running() { # $1=이름 → 살아있으면 0
   local pid_file="$PID_DIR/$1.pid"
@@ -88,23 +115,39 @@ case "${1:-}" in
         echo "[$name] 이미 실행 중 (127.0.0.1:$local)"
         continue
       fi
-      # 터널별 대상 인스턴스 결정
-      target_id="$INSTANCE_ID"
-      if [[ "$target" == "node" ]]; then
-        if [[ -z "$NODE_INSTANCE_ID" ]]; then
-          NODE_INSTANCE_ID=$(resolve_node_instance_id)
-        fi
-        if [[ "$NODE_INSTANCE_ID" != i-* ]]; then
-          echo "[$name] ⚠ EKS app 노드를 찾지 못해 건너뜀 (VF_NODE_INSTANCE_ID=i-xxxx 로 직접 지정 가능)"
+      # 이 스크립트 밖에서 이미 포트를 점유 중이면(수동 port-forward 등) 이중 기동하지 않는다.
+      if port_listening "$local"; then
+        echo "[$name] 이미 열려 있음(외부 프로세스) → 127.0.0.1:$local"
+        continue
+      fi
+      if [[ "$target" == "k8s" ]]; then
+        # kubectl port-forward (EKS API 경유 — SSM 아님)
+        if ! command -v kubectl >/dev/null 2>&1; then
+          echo "[$name] ⚠ kubectl 없음 — 건너뜀"
           continue
         fi
-        target_id="$NODE_INSTANCE_ID"
+        nohup kubectl -n kubernetes-dashboard port-forward \
+          svc/kubernetes-dashboard "$local:$remote" \
+          > "/tmp/vf-tunnel-$name.log" 2>&1 &
+      else
+        # SSM 포트포워딩 — 터널별 대상 인스턴스 결정
+        target_id="$INSTANCE_ID"
+        if [[ "$target" == "node" ]]; then
+          if [[ -z "$NODE_INSTANCE_ID" ]]; then
+            NODE_INSTANCE_ID=$(resolve_node_instance_id)
+          fi
+          if [[ "$NODE_INSTANCE_ID" != i-* ]]; then
+            echo "[$name] ⚠ EKS app 노드를 찾지 못해 건너뜀 (VF_NODE_INSTANCE_ID=i-xxxx 로 직접 지정 가능)"
+            continue
+          fi
+          target_id="$NODE_INSTANCE_ID"
+        fi
+        nohup aws ssm start-session --region "$REGION" \
+          --target "$target_id" \
+          --document-name AWS-StartPortForwardingSession \
+          --parameters "{\"portNumber\":[\"$remote\"],\"localPortNumber\":[\"$local\"]}" \
+          > "/tmp/vf-tunnel-$name.log" 2>&1 &
       fi
-      nohup aws ssm start-session --region "$REGION" \
-        --target "$target_id" \
-        --document-name AWS-StartPortForwardingSession \
-        --parameters "{\"portNumber\":[\"$remote\"],\"localPortNumber\":[\"$local\"]}" \
-        > "/tmp/vf-tunnel-$name.log" 2>&1 &
       echo $! > "$PID_DIR/$name.pid"
       # 리스닝 대기(최대 10초)
       for _ in $(seq 1 10); do
@@ -117,6 +160,10 @@ case "${1:-}" in
         echo "[$name] ⚠ 터널 실패 — 로그 확인: /tmp/vf-tunnel-$name.log"
       fi
     done
+    # 대시보드 통로가 열려 있으면 로그인 토큰까지 클립보드에 준비해 준다.
+    if port_listening 8443; then
+      print_token || true
+    fi
     ;;
   stop)
     for t in "${TUNNELS[@]}"; do
@@ -134,15 +181,22 @@ case "${1:-}" in
   status)
     for t in "${TUNNELS[@]}"; do
       IFS=: read -r _ local name _ <<< "$t"
-      if is_running "$name" && port_listening "$local"; then
-        echo "[$name] ✅ 열림 (127.0.0.1:$local)"
+      if port_listening "$local"; then
+        if is_running "$name"; then
+          echo "[$name] ✅ 열림 (127.0.0.1:$local)"
+        else
+          echo "[$name] ✅ 열림 — 외부 프로세스 (127.0.0.1:$local)"
+        fi
       else
         echo "[$name] ❌ 닫힘"
       fi
     done
     ;;
+  token)
+    print_token
+    ;;
   *)
-    echo "사용법: $0 {start|stop|status}"
+    echo "사용법: $0 {start|stop|status|token}"
     exit 1
     ;;
 esac

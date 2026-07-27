@@ -28,11 +28,16 @@ REDIS_MAXMEMORY="${redis_maxmemory}"
 RESTORE_CRON="${restore_cron}"
 
 # ---------------------------------------------------------------------------
-# 1) 패키지: docker, awscli
+# 1) 패키지: docker, awscli, cronie
+#    ⚠ AL2023 은 cronie 를 기본 포함하지 않는다. 설치하지 않으면 /etc/cron.d 디렉토리가
+#      없어 6) 의 크론 등록이 "No such file or directory" 로 실패하고, set -e 때문에
+#      cloud-init 이 그 지점에서 중단된다 — 7) 의 최초 1회 즉시 복원까지 통째로 건너뛴다.
 # ---------------------------------------------------------------------------
 dnf update -y
-dnf install -y docker awscli
+dnf install -y docker awscli cronie
 systemctl enable --now docker
+systemctl enable --now crond
+mkdir -p /etc/cron.d
 
 # ---------------------------------------------------------------------------
 # 2) EBS 데이터 볼륨 탐지 + 마운트 (프로덕션과 동일 패턴)
