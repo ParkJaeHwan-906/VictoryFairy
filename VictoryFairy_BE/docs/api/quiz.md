@@ -1,7 +1,7 @@
 # quiz API 명세
 
-> 코드 기준 자동 작성. 포트 **8081**(`quiz/src/main/resources/application.yaml`의 `server.port: 8081`), `server.servlet.context-path` 미설정이므로 base URL은 `http://localhost:8081`.
-> 최종 갱신: 2026-07-20 (구단별 채팅 API 신규 문서화)
+> 코드 기준 자동 작성. 포트 **8081**(`quiz/src/main/resources/application.yaml`의 `server.port: 8081`), `server.servlet.context-path`는 `/api/game`이므로 base URL은 `http://localhost:8081/api/game`.
+> 최종 갱신: 2026-07-27 (메시지 `id` 노출 · Redis pub/sub fan-out · 커밋 이후 발행 · 로컬 자동 시드)
 > 대상 컨트롤러: `quiz/src/main/java/com/skhynix/quiz/chat/controller/ChatController.java` (`@RequestMapping("/api/game/chat")`) — 현재 quiz 모듈의 유일한 컨트롤러.
 > 인증: JWT Bearer (`Authorization: Bearer <accessToken>`). `SecurityConfig`가 `/`, `/error`, `GET /health`만 permitAll이고 그 외 `anyRequest().authenticated()`이므로 **`/api/game/chat/**` 6개 엔드포인트 전부 인증 필수**다. 인증 방식·401 형식은 `docs/api/user.md`의 "인증 방식" 절과 동일(`RestAuthenticationEntryPoint`가 필터 단계에서 401 `ApiResponse` JSON을 직렬화). `@AuthenticationPrincipal Long userAccountId`는 `JwtAuthenticationFilter`가 토큰 `sub`(uid)를 활성 계정의 내부 PK로 변환해 주입한 값이다.
 
@@ -18,8 +18,13 @@
 
 ### 외부 식별자
 - 채팅방은 `roomUid`(`Chatroom.uid`, UUID)로만 노출된다. 응답 어디에도 순차 PK가 나타나지 않는다.
-- 메시지는 **외부 식별자가 없다**. `MessageResponse`/`MessageEvent`(SSE payload)에는 메시지 PK가 실리지 않는다. 신고(`POST .../messages/{messageId}/report`)의 `{messageId}`는 내부 PK를 **room-스코프 경로**로만 노출한 것으로, SSE·히스토리 응답에서 이 값을 얻을 방법은 없다(신고 UI는 별도 컨텍스트로 메시지를 식별해야 함 — 코드상 제약, 클라이언트 설계는 이 문서 범위 밖).
+- 메시지 식별자는 `id`(=`Chat` 내부 PK)이며 `MessageResponse`(전송 응답·히스토리)와 `MessageEvent`(SSE payload) 양쪽에 같은 값이 실린다. 신고(`POST .../messages/{messageId}/report`)의 `{messageId}`가 이 값이다. 클라이언트는 이 `id`로 (1) SSE로 이미 그린 메시지를 히스토리 재조회 때 중복 렌더하지 않도록 걸러내고 (2) 신고를 호출한다. 순차 PK가 노출되므로 **방 식별자는 계속 uid(UUID)** 를 쓴다(열거 방지는 방 단위에서 유지).
 - 발신자/작성자 계정 PK(`user_account_id`)도 응답에 노출되지 않는다. `senderNickname`(`UserAccount.nickname`)만 노출된다.
+
+### 로컬에서 띄우기
+`docker compose up -d mysql` 로 DB만 올린 뒤 `./gradlew :quiz:bootRun` 한 번이면 끝난다 — dev 프로파일이 `ddl-auto: update`로 스키마를 만들고, 이어서 `spring.sql.init`이 `infra/sql/teams-init.sql` → `chat-init.sql`을 실행해 **구단 10개 · SYSTEM 계정 · 구단별 채팅방 10개**를 채운다. 시드는 `INSERT ... WHERE NOT EXISTS`라 재기동해도 중복이 생기지 않는다. Redis는 dev에서 쓰지 않으므로 띄우지 않아도 된다(실시간 전달은 `InMemoryPublisher`).
+
+⚠ `user` 앱도 같은 로컬 DB를 본다. dev `ddl-auto`가 `create`였을 때는 user를 띄우는 순간 이 시드가 전부 사라졌다 — 현재는 둘 다 `update`라 안전하다.
 
 ### 관리자 기능은 범위 밖
 blind 해제(unblind), 메시지/방 삭제를 수행하는 엔드포인트는 코드에 없다(`Chat.unblind()`/`Chat.delete()`/`Chatroom.delete()`는 엔티티에 구현돼 있으나 어떤 컨트롤러에서도 호출되지 않는다). 이 문서는 그런 엔드포인트를 다루지 않는다.
@@ -98,7 +103,7 @@ curl -i http://localhost:8081/api/game/chat/rooms/3f9c2e10-... \
 
 | 이벤트 | `event:` | `data:` | 설명 |
 |---|---|---|---|
-| 메시지 | `message` | JSON `{content, senderNickname, createdAt, roomUid}`(`MessageEvent`) | 같은 방에 새 메시지가 저장될 때 전달. **메시지 식별자 필드 없음.** `id:` 필드도 없다(Last-Event-ID 미지원 — 재연결 시 놓친 메시지는 `GET .../messages`로 복구할 것) |
+| 메시지 | `message` | JSON `{id, content, senderNickname, createdAt, roomUid}`(`MessageEvent`) | 같은 방에 **커밋된** 새 메시지가 저장될 때 전달(커밋 이후 발행이라 전달된 메시지는 반드시 DB에 있다). SSE 프레임의 `id:` 필드는 여전히 없다(Last-Event-ID 미지원 — 재연결 시 놓친 메시지는 `GET .../messages`로 복구하고, payload 의 `id` 로 중복을 걸러낼 것) |
 | 하트비트 | 없음 | 없음(SSE 주석 `:ping`) | `SseEmitterRegistry.heartbeat()`가 **15초 주기**로 전송. 서버는 전송 실패를 감지하면 그 연결을 죽은 것으로 간주해 즉시 회수하고 `participants`를 보정한다 |
 
 **발신자 에코 없음**: 메시지를 보낸 사용자 본인의 emitter는 fan-out에서 제외된다(서버가 emitter를 `userAccountId`로 식별해 발신자 구독에는 전달하지 않음). 발신자는 `POST .../messages`의 201 응답으로만 자기 메시지를 렌더해야 한다. 발신자의 다른 탭(멀티탭)은 실시간으로 받지 못하며 재접속/히스토리 조회로 보정해야 한다(알려진 한계).
@@ -144,11 +149,12 @@ curl -i -N http://localhost:8081/api/game/chat/rooms/3f9c2e10-.../subscribe \
 
 | 필드 | 타입 | 설명 |
 |---|---|---|
+| id | Long | 메시지 식별자(`Chat` PK). 신고 경로의 `{messageId}`이자 SSE payload `id`와 같은 값 |
 | content | String | 저장된 메시지 내용 |
 | senderNickname | String | 발신자 `UserAccount.nickname` |
 | createdAt | LocalDateTime | 생성 시각 |
 
-저장 시 `Chat.blind=false`, `deletedAt=null`로 저장된다. 메시지 식별자는 응답에 없다.
+저장 시 `Chat.blind=false`, `deletedAt=null`로 저장된다.
 
 **실패**
 
@@ -198,7 +204,7 @@ curl -i -X POST http://localhost:8081/api/game/chat/rooms/3f9c2e10-.../messages 
 
 | 필드 | 타입 | 설명 |
 |---|---|---|
-| content | List\<MessageResponse\> | 현재 페이지 항목(`content`/`senderNickname`/`createdAt`) |
+| content | List\<MessageResponse\> | 현재 페이지 항목(`id`/`content`/`senderNickname`/`createdAt`) |
 | page | int | 현재 페이지 번호(0-base) |
 | size | int | 페이지 크기(30) |
 | totalElements | long | 조건을 만족하는 전체 메시지 수 |
@@ -231,7 +237,7 @@ curl -i "http://localhost:8081/api/game/chat/rooms/3f9c2e10-.../messages?page=0"
 | 변수 | 타입 | 설명 |
 |---|---|---|
 | roomUid | String | 방 외부 식별자 |
-| messageId | Long | 신고 대상 메시지의 내부 PK. **room-스코프 경로로만 지목**하는 구조(`chatRepository.findByIdAndChatroom(messageId, room)`)이며 SSE·히스토리 응답에서는 이 값을 얻을 수 없다 |
+| messageId | Long | 신고 대상 메시지의 내부 PK. **room-스코프 경로로만 지목**하는 구조(`chatRepository.findByIdAndChatroom(messageId, room)`). 값은 SSE payload·히스토리 응답의 `id` 필드에서 얻는다 |
 
 **요청**: 본문 없음.
 
@@ -266,7 +272,16 @@ curl -i -X POST http://localhost:8081/api/game/chat/rooms/3f9c2e10-.../messages/
 `participants`는 DB 컬럼이 아니라 `SseEmitterRegistry`(인메모리)의 현재 SSE 구독 수로 매 요청 서빙된다(`GET /rooms`, `GET /rooms/{roomUid}` 둘 다). connect/disconnect마다 DB write를 피하기 위한 best-effort 방식이며, 앱을 여러 인스턴스로 띄우면 인스턴스별로 다른 값이 나올 수 있다(전역 집계는 이번 범위에 없음). `Chatroom.participants` 컬럼과 `join()`/`leave()` 메서드는 엔티티에 남아 있으나 이 6개 엔드포인트 중 어디서도 쓰이지 않는다.
 
 ## 다중 인스턴스 fan-out은 아직 미구현
-`RealtimeEventPublisher` 포트 구현체는 `quiz/src/main/java/com/skhynix/quiz/realtime/` 안에 **`InMemoryPublisher` 하나뿐**이다(같은 프로세스의 `SseEmitterRegistry`로 직접 전달). `docs/requirements/quiz/chat.md`가 언급하는 `RedisPubSubPublisher`(다중 인스턴스 운영용)는 **코드에 존재하지 않는다** — `RealtimeEventPublisher.java`의 Javadoc에도 `TODO(다중 인스턴스)`로 명시돼 있다. 즉 현재 API는 **단일 인스턴스 배포에서만** "인스턴스 A로 구독한 클라이언트가 인스턴스 B로 온 전송을 받는다"는 요구사항(QUIZ-CHAT-16)을 충족하며, 다중 인스턴스로 스케일아웃하면 다른 인스턴스로 들어온 메시지는 SSE로 전달되지 않는다(저장·히스토리 조회에는 영향 없음).
+`RealtimeEventPublisher` 포트 구현체는 프로파일로 갈린다(`quiz/src/main/java/com/skhynix/quiz/realtime/`).
+
+| 프로파일 | 구현 | 전달 범위 |
+|---|---|---|
+| `prod` | `RedisPubSubPublisher` + `RealtimeEventSubscriber`(`RealtimeRedisConfig`가 등록한 리스너 컨테이너) | Redis 채널 `realtime:events` 로 발행 → **모든 파드**의 구독자. QUIZ-CHAT-16 충족 |
+| `!prod`(dev/test) | `InMemoryPublisher` | 같은 프로세스의 `SseEmitterRegistry`만. 로컬 개발에 Redis 불필요 |
+
+발행 파드도 자기 구독으로 되받으므로 `RedisPubSubPublisher`는 로컬 레지스트리로 직접 전달하지 않는다(하면 같은 파드 구독자에게 이중 전달).
+
+**여전한 한계 — participants**: `SseEmitterRegistry.count()`는 **그 파드의 구독 수**라, 파드가 2개 이상이면 방 목록/상세의 `participants`가 실제보다 작게 나온다(전역 집계는 후속 과제). 메시지 전달 자체는 위 pub/sub으로 전 파드에 닿으므로 영향 없다.
 
 ## 확인 필요 / 코드 미확인
 - `@NotBlank`/`@Size` 위반 시 실제 필드 검증 메시지 문구는 Hibernate Validator 기본 로케일 메시지를 그대로 쓰며(커스텀 `message` 속성 미부착), 이 문서의 예시 문구(`"공백일 수 없습니다"`)는 기본값 추정이다 — 실행 환경(로케일 설정)에 따라 문구가 달라질 수 있어 실측 확인 필요.

@@ -57,8 +57,8 @@ class ChatControllerHistoryTest {
     @DisplayName("[AC-CHAT-18-1] 히스토리 첫 페이지를 요청하면 200과 서비스가 만든 페이지(최신순)를 그대로 반환한다")
     void getHistory_firstPage_returns200WithServicePage() throws Exception {
         List<MessageResponse> messages = List.of(
-                new MessageResponse("최신", "닉1", LocalDateTime.of(2026, 7, 20, 12, 0)),
-                new MessageResponse("이전", "닉2", LocalDateTime.of(2026, 7, 20, 11, 0)));
+                new MessageResponse(2L, "최신", "닉1", LocalDateTime.of(2026, 7, 20, 12, 0)),
+                new MessageResponse(1L, "이전", "닉2", LocalDateTime.of(2026, 7, 20, 11, 0)));
         PageResponse<MessageResponse> page = new PageResponse<>(messages, 0, 30, 50L, 2, true);
         given(chatService.getHistory(eq(ROOM_UID), eq(0))).willReturn(page);
 
@@ -91,7 +91,7 @@ class ChatControllerHistoryTest {
     void getHistory_exactly30Messages_returnsAllWithNoNextPage() throws Exception {
         List<MessageResponse> messages = new ArrayList<>();
         for (int i = 0; i < 30; i++) {
-            messages.add(new MessageResponse("메시지" + i, "닉", LocalDateTime.now()));
+            messages.add(new MessageResponse((long) i, "메시지" + i, "닉", LocalDateTime.now()));
         }
         PageResponse<MessageResponse> page = new PageResponse<>(messages, 0, 30, 30L, 1, false);
         given(chatService.getHistory(eq(ROOM_UID), eq(0))).willReturn(page);

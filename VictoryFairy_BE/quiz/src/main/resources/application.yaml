@@ -9,6 +9,13 @@ spring:
       - optional:file:../.env[.properties]
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:dev}
+  data:
+    # 실시간 fan-out pub/sub 용(prod 전용 — RedisPubSubPublisher/RealtimeRedisConfig).
+    # 운영 값은 k8s configmap app-config 가 주입한다. prod 이외 프로파일은 연결을 맺는 빈이
+    # 아예 등록되지 않으므로(=InMemoryPublisher 사용) 이 값이 쓰이지 않는다.
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
   jpa:
     # REST/SSE 전용 앱이라 OSIV 불필요. 모든 LAZY 접근(Chat.userAccount.nickname,
     # Chatroom.team.name)은 @Transactional 서비스 메서드 안에서 끝나고 컨트롤러 경계는

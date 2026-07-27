@@ -59,7 +59,7 @@ KBO 구단(team)별 실시간 채팅을 제공한다. 아키텍처는 사용자�
 
 | ID | 유형 | 요구사항 | 인수 기준 |
 |---|---|---|---|
-| QUIZ-CHAT-10 | 이벤트 | WHEN 인증 사용자가 유효한 content로 메시지 전송을 요청하면, THE 시스템 SHALL `Chat`을 `blind=false`·`deletedAt=null`로 저장하고 저장된 메시지를 201로 반환한다 | `POST /api/game/chat/rooms/{roomUid}/messages` `{"content":"안녕"}` → 201, 응답에 `content`·`senderNickname`(발신자 `UserAccount.nickname`)·`createdAt`, `chats`에 1행 증가 |
+| QUIZ-CHAT-10 | 이벤트 | WHEN 인증 사용자가 유효한 content로 메시지 전송을 요청하면, THE 시스템 SHALL `Chat`을 `blind=false`·`deletedAt=null`로 저장하고 저장된 메시지를 201로 반환한다 | `POST /api/game/chat/rooms/{roomUid}/messages` `{"content":"안녕"}` → 201, 응답에 `id`·`content`·`senderNickname`(발신자 `UserAccount.nickname`)·`createdAt`, `chats`에 1행 증가 |
 | QUIZ-CHAT-11 | 이벤트 | WHEN 메시지가 저장되면, THE 시스템 SHALL 그 메시지를 발신자를 제외한 같은 방 구독자에게 SSE 이벤트로 전달한다 | 같은 방 구독 중인 다른 사용자 B가 메시지를 SSE로 수신한다. **발신자 A 자신은 SSE로 받지 않고**(emitter를 `userAccountId`로 식별해 제외) POST 응답으로만 렌더한다 |
 | QUIZ-CHAT-12 | 예외 | IF content가 `null`·빈 문자열·공백만이면, THEN THE 시스템 SHALL 400을 반환하고 메시지를 저장하지 않는다 | `{"content":"   "}` → 400, `chats` 행 증가 없음(4xx가 `ApiResponse` 형태로 나가려면 제약 절 1 충족) |
 | QUIZ-CHAT-13 | 예외 | IF content가 최대 길이 500자를 초과하면, THEN THE 시스템 SHALL 400을 반환하고 저장하지 않는다 | 501자 content → 400. 경계: 500자 통과, 501자 거부. 길이는 `String.length()` UTF-16 code unit 기준(닉네임 정책과 동일 컨벤션 — 이모지 surrogate pair는 2로 계수) |
@@ -69,7 +69,7 @@ KBO 구단(team)별 실시간 채팅을 제공한다. 아키텍처는 사용자�
 
 | ID | 유형 | 요구사항 | 인수 기준 |
 |---|---|---|---|
-| QUIZ-CHAT-15 | 유비쿼터스 | THE 시스템 SHALL SSE 메시지 이벤트를 `event: message`, `data:` = JSON `{content, senderNickname, createdAt, roomUid}`로 전달한다 | 전달 이벤트의 `event:`가 `message`이고 `data:`가 해당 4필드 JSON. **메시지 id 필드 없음**(전제 6·7 일관). `senderNickname`은 발신자 `UserAccount.nickname`. 하트비트는 별도 `:ping` 주석 프레임 |
+| QUIZ-CHAT-15 | 유비쿼터스 | THE 시스템 SHALL SSE 메시지 이벤트를 `event: message`, `data:` = JSON `{id, content, senderNickname, createdAt, roomUid}`로 전달한다 | 전달 이벤트의 `event:`가 `message`이고 `data:`가 해당 5필드 JSON. `id`는 `Chat` 내부 PK(히스토리 응답의 `id`와 동일 값). `senderNickname`은 발신자 `UserAccount.nickname`. 하트비트는 별도 `:ping` 주석 프레임 |
 | QUIZ-CHAT-16 | 선택 | WHERE 앱 인스턴스가 다중화된 환경이면, THE 시스템 SHALL 어느 인스턴스로 들어온 전송이든 모든 인스턴스의 해당 방 구독자(발신자 제외)에게 전달한다 | 인스턴스 A에 구독한 클라이언트가, 인스턴스 B로 POST된 메시지를 수신한다(Redis pub/sub fan-out). 로컬/테스트에선 `InMemoryPublisher`로 단일 인스턴스 내 전달 |
 | QUIZ-CHAT-17 | 유비쿼터스 | THE 시스템 SHALL 실시간 fan-out을 fire-and-forget으로 처리해, 전달 실패가 저장·전송 응답의 성공을 되돌리지 않게 한다 | pub/sub 발행이 실패해도 `POST .../messages`는 201이고 메시지는 `chats`에 저장되어 히스토리로 조회된다 |
 
@@ -128,7 +128,8 @@ KBO 구단(team)별 실시간 채팅을 제공한다. 아키텍처는 사용자�
 6. **Q6 Last-Event-ID**: 미지원. SSE에 `id:` 없음, 재연결은 히스토리로 보정(QUIZ-CHAT-25).
 7. **Q7 SSE 인증**: fetch 기반 EventSource 폴리필로 `Authorization: Bearer` 헤더 유지. 서버·시큐리티 변경 없음, 쿼리파라미터·쿠키 미채택(전제 2).
 8. **Q8 발신자 에코**: 발신자에게 SSE 미전달. 본인 메시지는 POST 응답으로 렌더, emitter를 `userAccountId`로 식별해 fan-out에서 제외. 멀티탭은 히스토리로 보정(알려진 한계)(전제 7, QUIZ-CHAT-11).
-9. **Q9 SSE 포맷**: `event: message`, `data:` = `{content, senderNickname, createdAt, roomUid}`, 메시지 id 없음, `senderNickname`=발신자 `UserAccount.nickname`, 하트비트 `:ping`(QUIZ-CHAT-15).
+9. **Q9 SSE 포맷**: `event: message`, `data:` = `{id, content, senderNickname, createdAt, roomUid}`, `senderNickname`=발신자 `UserAccount.nickname`, 하트비트 `:ping`(QUIZ-CHAT-15).
+   - **개정(2026-07-27, 사용자 확정)**: 최초 결정은 "메시지 id 없음"이었으나 `id`(=`Chat` PK)를 payload와 히스토리 응답 양쪽에 싣도록 바꿨다. 근거: 실시간 전달이 at-most-once라 클라이언트는 히스토리 재조회로 수렴하는데, 식별자가 없으면 (1) SSE로 이미 그린 메시지를 중복 렌더하고 (2) 신고 경로 `POST .../messages/{messageId}/report`에 넣을 값을 얻을 수 없어 신고 기능이 사실상 호출 불가였다. 계정 PK는 여전히 노출하지 않는다(닉네임만).
 10. **Q10 신고 규칙**: 신고 1건=즉시 blind, 멱등(이미 blind면 no-op), 자기 메시지 신고 금지(403), 삭제 메시지 신고 404, 신고 이력 엔티티 없음(임계치·집계·추적 미지원, 후속 과제)(QUIZ-CHAT-20/27/28/29).
 11. **Q11 방 생성**: 팀 시드와 함께 10개 구단 방 미리 생성(team↔room 1:1), 방 생성 API·온디맨드 없음. **방 owner는 시스템 계정**으로 두어 일반 사용자가 삭제할 수 없게 한다(승인 후 확정). chatrooms 시드가 배포 선행 조건이며 시스템 계정 시드가 그에 선행한다(QUIZ-CHAT-1/31, 제약 절 5).
 
