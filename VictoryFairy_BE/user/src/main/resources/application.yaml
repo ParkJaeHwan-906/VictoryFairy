@@ -20,6 +20,16 @@ spring:
 
 server:
   port: 8080
+  servlet:
+    # 이 앱의 모든 경로에 붙는 외부 접두사. 컨트롤러는 자기 자원 이름만 갖는다
+    # (@RequestMapping("/auth") → 외부 /api/member/auth/**).
+    #
+    # ⚠ 서블릿 컨테이너가 필터 체인 '이전에' 이 접두사를 떼므로:
+    #   - SecurityConfig 의 requestMatchers 는 접두사를 뺀 경로(/auth/**)를 쓴다.
+    #   - MockMvc 는 context-path 를 적용하지 않으므로 슬라이스 테스트도 /auth/** 로 요청한다.
+    # ⚠ ALB 는 forward 시 경로 rewrite 를 못 하므로 k8s/22-ingress.yaml 의 path 와
+    #   이 값이 문자 그대로 일치해야 한다.
+    context-path: /api/member
 
 # 인증번호 메일 발신자 주소. 실제 SMTP 발송은 prod 프로파일에서만 일어난다(dev/test는 mock 로그).
 app:

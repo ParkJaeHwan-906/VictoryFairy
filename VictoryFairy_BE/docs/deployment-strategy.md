@@ -63,7 +63,7 @@
 - nginx 를 **compose 서비스**로 운영(`docker-compose.prod.yml` 의 `nginx`). 외부엔 80(추후 443)만 노출.
 - 설정은 `nginx.conf`(repo) → deploy 단계에서 `~/app/nginx.conf` 로 scp → 컨테이너에 마운트.
 - 같은 도커 네트워크라 앱을 **서비스명**으로 프록시: `/api/member`→`user:8080`, `/api/game`→`quiz:8081`.
-  (모듈 접두사 단위 라우팅이라 컨트롤러가 늘어도 nginx 는 그대로다 — `ApiPathPrefixConfig` 참고)
+  (모듈 접두사 단위 라우팅이라 컨트롤러가 늘어도 nginx 는 그대로다 — `server.servlet.context-path` 참고)
   (호스트 `127.0.0.1` 바인딩이 아닌 도커 DNS 사용 → k8s Service 개념과 유사, 전환 시 Ingress 규칙으로 이전)
 - 앱 컨테이너 포트는 `127.0.0.1:` 로 한정(디버그용), 외부 직접 접근 차단.
 - AWS 보안 그룹: 80/443/22 만 개방, 8080~8081·3306 은 닫음.

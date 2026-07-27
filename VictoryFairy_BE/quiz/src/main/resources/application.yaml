@@ -27,6 +27,16 @@ spring:
 
 server:
   port: 8081
+  servlet:
+    # 이 앱의 모든 경로에 붙는 외부 접두사. 컨트롤러는 자기 자원 이름만 갖는다
+    # (@RequestMapping("/chat") → 외부 /api/game/chat/**).
+    #
+    # ⚠ 서블릿 컨테이너가 필터 체인 '이전에' 이 접두사를 떼므로:
+    #   - SecurityConfig 의 requestMatchers 는 접두사를 뺀 경로를 쓴다.
+    #   - MockMvc 는 context-path 를 적용하지 않으므로 슬라이스 테스트도 /chat/** 로 요청한다.
+    # ⚠ ALB 는 forward 시 경로 rewrite 를 못 하므로 k8s/22-ingress.yaml 의 path 와
+    #   이 값이 문자 그대로 일치해야 한다.
+    context-path: /api/game
 
 jwt:
   # 토큰 검증만 수행. user와 반드시 동일한 secret이어야 검증됨 (.env의 JWT_SECRET 공유)

@@ -11,7 +11,6 @@ import com.skhynix.user.auth.dto.PasswordValidationRequest;
 import com.skhynix.user.auth.dto.SignupRequest;
 import com.skhynix.user.auth.service.AuthService;
 import com.skhynix.user.auth.service.EmailVerificationService;
-import com.skhynix.user.global.config.ApiPathPrefixConfig;
 import com.skhynix.user.global.config.SecurityConfig;
 import com.skhynix.websupport.error.GlobalExceptionHandler;
 import com.skhynix.websupport.jwt.JwtTokenProvider;
@@ -31,7 +30,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * {@code POST /api/member/auth/password/validate}가 계약대로 동작하는지 확인한다: 정책 위반이어도 항상
+ * {@code POST /auth/password/validate}가 계약대로 동작하는지 확인한다: 정책 위반이어도 항상
  * HTTP 200을 반환하고({@code valid:false} + 메시지 1개), DB를 건드리지 않으며(AuthService 미호출),
  * {@code SignupRequest}의 Bean Validation 결과와 판정이 어긋나지 않는지까지 검증한다.
  *
@@ -42,7 +41,7 @@ import tools.jackson.databind.ObjectMapper;
  */
 @WebMvcTest(AuthController.class)
 @ContextConfiguration(classes = AuthController.class)
-@Import({ApiPathPrefixConfig.class, SecurityConfig.class, GlobalExceptionHandler.class})
+@Import({SecurityConfig.class, GlobalExceptionHandler.class})
 class AuthControllerPasswordValidateTest {
 
     private static final String LENGTH_MESSAGE = "비밀번호는 8~12자여야 합니다.";
@@ -82,7 +81,7 @@ class AuthControllerPasswordValidateTest {
         String json = validatePasswordJson("abc123!@");
 
         // when & then
-        mockMvc.perform(post("/api/member/auth/password/validate")
+        mockMvc.perform(post("/auth/password/validate")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isOk())
@@ -115,7 +114,7 @@ class AuthControllerPasswordValidateTest {
         String json = validatePasswordJson(password);
 
         // when & then
-        mockMvc.perform(post("/api/member/auth/password/validate")
+        mockMvc.perform(post("/auth/password/validate")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isOk())
@@ -133,7 +132,7 @@ class AuthControllerPasswordValidateTest {
         String json = validatePasswordJson(null);
 
         // when & then
-        mockMvc.perform(post("/api/member/auth/password/validate")
+        mockMvc.perform(post("/auth/password/validate")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isOk())
@@ -151,7 +150,7 @@ class AuthControllerPasswordValidateTest {
         String json = validatePasswordJson("");
 
         // when & then
-        mockMvc.perform(post("/api/member/auth/password/validate")
+        mockMvc.perform(post("/auth/password/validate")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isOk())
@@ -164,7 +163,7 @@ class AuthControllerPasswordValidateTest {
 
     /**
      * {@code PasswordPolicy}는 {@code SignupRequest}(Bean Validation)와
-     * {@code POST /api/member/auth/password/validate}가 공유하는 단일 출처다. 같은 비밀번호 문자열에 대해
+     * {@code POST /auth/password/validate}가 공유하는 단일 출처다. 같은 비밀번호 문자열에 대해
      * 두 경로의 판정이 갈라지면 "가입 화면에선 통과인데 실제 가입은 실패"하는 사고로 이어지므로,
      * 두 엔드포인트의 결과(및 메시지)가 항상 일치하는지 교차 검증한다.
      *
@@ -180,7 +179,7 @@ class AuthControllerPasswordValidateTest {
             String description, String password, boolean expectedValid, String expectedMessage) throws Exception {
         // when: validate 호출
         String validateJson = validatePasswordJson(password);
-        var validateResult = mockMvc.perform(post("/api/member/auth/password/validate")
+        var validateResult = mockMvc.perform(post("/auth/password/validate")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(validateJson))
                 .andExpect(status().isOk())
@@ -189,7 +188,7 @@ class AuthControllerPasswordValidateTest {
 
         // when: signup 호출(동일 비밀번호)
         String signupJson = objectMapper.writeValueAsString(signupRequestWithPassword(password));
-        var signupResultActions = mockMvc.perform(post("/api/member/auth/signup")
+        var signupResultActions = mockMvc.perform(post("/auth/signup")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(signupJson));
 

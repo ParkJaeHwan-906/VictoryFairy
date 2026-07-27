@@ -28,7 +28,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  */
 @RestController
 @RequiredArgsConstructor
-// 접두사 /api/game 은 ApiPathPrefixConfig 가 전역으로 붙인다 → 실제 노출 경로는 /api/game/chat/**
+// 접두사 /api/game 은 server.servlet.context-path 가 붙인다 → 실제 노출 경로는 /api/game/chat/**
 @RequestMapping("/chat")
 public class ChatController {
 

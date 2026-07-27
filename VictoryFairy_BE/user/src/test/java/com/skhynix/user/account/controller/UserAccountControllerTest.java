@@ -13,7 +13,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.skhynix.domain.user.repository.UserAccountRepository;
 import com.skhynix.user.account.service.UserAccountService;
-import com.skhynix.user.global.config.ApiPathPrefixConfig;
 import com.skhynix.user.global.config.SecurityConfig;
 import com.skhynix.websupport.error.GlobalExceptionHandler;
 import com.skhynix.websupport.jwt.JwtTokenProvider;
@@ -29,7 +28,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
- * {@code DELETE /api/member/users/me}(회원 탈퇴)를 검증한다. 요구사항: {@code docs/requirements/user/withdraw.md}.
+ * {@code DELETE /users/me}(회원 탈퇴)를 검증한다. 요구사항: {@code docs/requirements/user/withdraw.md}.
  *
  * <p>슬라이스 구성은 기존 {@code AuthController*Test}와 동일한 패턴을 따른다: {@code @WebMvcTest} +
  * {@code @ContextConfiguration(classes = UserAccountController.class)}로 {@code UserApplication}의
@@ -42,7 +41,7 @@ import org.springframework.test.web.servlet.MockMvc;
  */
 @WebMvcTest(UserAccountController.class)
 @ContextConfiguration(classes = UserAccountController.class)
-@Import({ApiPathPrefixConfig.class, SecurityConfig.class, GlobalExceptionHandler.class})
+@Import({SecurityConfig.class, GlobalExceptionHandler.class})
 class UserAccountControllerTest {
 
     private static final String UNAUTHENTICATED_MESSAGE = "인증이 필요합니다.";
@@ -68,7 +67,7 @@ class UserAccountControllerTest {
     }
 
     @Test
-    @DisplayName("[USER-WD-1, USER-WD-2] 유효한 access 토큰으로 DELETE /api/member/users/me를 호출하면 "
+    @DisplayName("[USER-WD-1, USER-WD-2] 유효한 access 토큰으로 DELETE /users/me를 호출하면 "
             + "본문 없이 204를 반환하고 토큰 subject가 해석된 내부 id로 서비스가 호출된다")
     void withdraw_validAccessToken_returns204NoBodyAndDelegatesToServiceWithResolvedId() throws Exception {
         // given
@@ -78,7 +77,7 @@ class UserAccountControllerTest {
         given(userAccountRepository.findActiveIdByUid(uid)).willReturn(Optional.of(accountId));
 
         // when & then
-        mockMvc.perform(delete("/api/member/users/me").header("Authorization", "Bearer " + token))
+        mockMvc.perform(delete("/users/me").header("Authorization", "Bearer " + token))
                 .andExpect(status().isNoContent())
                 .andExpect(content().string(""));
 
@@ -86,11 +85,11 @@ class UserAccountControllerTest {
     }
 
     @Test
-    @DisplayName("[USER-WD-5] Authorization 헤더 없이 DELETE /api/member/users/me를 호출하면 401과 "
+    @DisplayName("[USER-WD-5] Authorization 헤더 없이 DELETE /users/me를 호출하면 401과 "
             + "\"인증이 필요합니다.\" 바디를 반환하고 서비스는 호출되지 않는다")
     void withdraw_noAuthorizationHeader_returns401AndDoesNotCallService() throws Exception {
         // when & then
-        mockMvc.perform(delete("/api/member/users/me"))
+        mockMvc.perform(delete("/users/me"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.data").doesNotExist())
@@ -101,7 +100,7 @@ class UserAccountControllerTest {
 
     @Test
     @DisplayName("[USER-WD-6] 탈퇴 전에 발급받은 access 토큰(uid가 더 이상 활성 계정을 가리키지 않음)으로 "
-            + "DELETE /api/member/users/me를 호출하면 401을 반환하고 서비스는 호출되지 않는다")
+            + "DELETE /users/me를 호출하면 401을 반환하고 서비스는 호출되지 않는다")
     void withdraw_accessTokenIssuedBeforeWithdrawal_isRejectedWith401() throws Exception {
         // given: 토큰 자체는 유효하지만(만료 전) findActiveIdByUid가 빈 값을 반환한다 —
         // JwtAuthenticationFilter가 findIdByUid에서 findActiveIdByUid로 대체되며 탈퇴 계정을
@@ -111,7 +110,7 @@ class UserAccountControllerTest {
         given(userAccountRepository.findActiveIdByUid(uid)).willReturn(Optional.empty());
 
         // when & then
-        mockMvc.perform(delete("/api/member/users/me").header("Authorization", "Bearer " + token))
+        mockMvc.perform(delete("/users/me").header("Authorization", "Bearer " + token))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.message").value(UNAUTHENTICATED_MESSAGE));
@@ -120,7 +119,7 @@ class UserAccountControllerTest {
     }
 
     @Test
-    @DisplayName("[USER-WD-9] 같은 access 토큰으로 DELETE /api/member/users/me를 연속 2회 호출하면 "
+    @DisplayName("[USER-WD-9] 같은 access 토큰으로 DELETE /users/me를 연속 2회 호출하면 "
             + "1회차는 204, (탈퇴로 uid가 더 이상 활성 계정을 가리키지 않게 된) 2회차는 401이다")
     void withdraw_sameAccessTokenTwice_firstSucceedsSecondIsRejected() throws Exception {
         // given
@@ -132,11 +131,11 @@ class UserAccountControllerTest {
                 .willReturn(Optional.of(accountId), Optional.empty());
 
         // when & then: 1회차 204
-        mockMvc.perform(delete("/api/member/users/me").header("Authorization", "Bearer " + token))
+        mockMvc.perform(delete("/users/me").header("Authorization", "Bearer " + token))
                 .andExpect(status().isNoContent());
 
         // when & then: 2회차 401, exit_at은 서비스가 다시 호출되지 않으므로 갱신될 여지가 없다
-        mockMvc.perform(delete("/api/member/users/me").header("Authorization", "Bearer " + token))
+        mockMvc.perform(delete("/users/me").header("Authorization", "Bearer " + token))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.message").value(UNAUTHENTICATED_MESSAGE));
 
@@ -144,7 +143,7 @@ class UserAccountControllerTest {
     }
 
     @Test
-    @DisplayName("refresh 토큰으로 DELETE /api/member/users/me를 호출하면 인증되지 않아 401을 반환한다"
+    @DisplayName("refresh 토큰으로 DELETE /users/me를 호출하면 인증되지 않아 401을 반환한다"
             + "(요구사항 ID 없음 — 필터가 refresh 토큰을 인증에 쓰지 않는다는 기존 규칙의 엔드포인트 차원 확인)")
     void withdraw_refreshToken_isRejectedWith401() throws Exception {
         // given
@@ -153,7 +152,7 @@ class UserAccountControllerTest {
         given(jwtTokenProvider.isRefreshToken(token)).willReturn(true);
 
         // when & then
-        mockMvc.perform(delete("/api/member/users/me").header("Authorization", "Bearer " + token))
+        mockMvc.perform(delete("/users/me").header("Authorization", "Bearer " + token))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.message").value(UNAUTHENTICATED_MESSAGE));
 

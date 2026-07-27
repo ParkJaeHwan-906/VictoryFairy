@@ -13,7 +13,6 @@ import com.skhynix.user.auth.dto.LoginRequest;
 import com.skhynix.user.auth.dto.PasswordValidationRequest;
 import com.skhynix.user.auth.service.AuthService;
 import com.skhynix.user.auth.service.EmailVerificationService;
-import com.skhynix.user.global.config.ApiPathPrefixConfig;
 import com.skhynix.user.global.config.SecurityConfig;
 import com.skhynix.websupport.error.GlobalExceptionHandler;
 import com.skhynix.websupport.error.RestAuthenticationEntryPoint;
@@ -31,7 +30,7 @@ import tools.jackson.databind.ObjectMapper;
 
 /**
  * 미인증 요청이 403이 아니라 401 + {@code ApiResponse} 바디로 응답하는지, 그리고 이 401이
- * {@code /api/member/auth/login} 자격 실패의 401(둘 다 {@link GlobalExceptionHandler}가 아닌 서로 다른 경로에서
+ * {@code /auth/login} 자격 실패의 401(둘 다 {@link GlobalExceptionHandler}가 아닌 서로 다른 경로에서
  * 나온다)과 메시지로 구분되는지를 검증한다.
  *
  * <p><b>배경</b>: {@code SecurityConfig}가 {@code formLogin}/{@code httpBasic}을 모두 disable하는데
@@ -56,7 +55,7 @@ import tools.jackson.databind.ObjectMapper;
  */
 @WebMvcTest(AuthController.class)
 @ContextConfiguration(classes = AuthController.class)
-@Import({ApiPathPrefixConfig.class, SecurityConfig.class, GlobalExceptionHandler.class})
+@Import({SecurityConfig.class, GlobalExceptionHandler.class})
 class AuthControllerAuthenticationEntryPointTest {
 
     private static final String UNAUTHENTICATED_MESSAGE = "인증이 필요합니다.";
@@ -84,7 +83,7 @@ class AuthControllerAuthenticationEntryPointTest {
     @DisplayName("토큰 없이 인증이 필요한 경로에 접근하면 403이 아니라 401과 ApiResponse 바디(success:false, "
             + "message:\"인증이 필요합니다.\")를 반환한다")
     void unauthenticatedRequest_toProtectedPath_returns401WithApiResponseBody() throws Exception {
-        // AuthController가 매핑하는 경로는 전부 permitAll(/api/member/auth/**)이라, 슬라이스 안에서
+        // AuthController가 매핑하는 경로는 전부 permitAll(/auth/**)이라, 슬라이스 안에서
         // anyRequest().authenticated() 규칙을 태우려면 컨트롤러가 없는 경로를 찔러야 한다.
         // AuthorizationFilter가 DispatcherServlet 핸들러 매핑보다 먼저 요청을 가로막으므로
         // 매핑되지 않은 경로라도 404가 아니라 엔트리포인트의 401이 그대로 응답된다.
@@ -106,11 +105,11 @@ class AuthControllerAuthenticationEntryPointTest {
     }
 
     @Test
-    @DisplayName("permitAll 경로(POST /api/member/auth/password/validate)는 토큰이 없어도 401로 새지 않는다")
+    @DisplayName("permitAll 경로(POST /auth/password/validate)는 토큰이 없어도 401로 새지 않는다")
     void permitAllPath_withoutToken_doesNotLeakInto401() throws Exception {
         String json = objectMapper.writeValueAsString(new PasswordValidationRequest("abc123!@"));
 
-        mockMvc.perform(post("/api/member/auth/password/validate")
+        mockMvc.perform(post("/auth/password/validate")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isOk())
@@ -126,7 +125,7 @@ class AuthControllerAuthenticationEntryPointTest {
         String json = objectMapper.writeValueAsString(new LoginRequest("test@example.com", "wrongPassword1!"));
 
         // when & then: 상태 코드는 위 미인증 케이스와 같은 401이지만 메시지가 다르다
-        mockMvc.perform(post("/api/member/auth/login")
+        mockMvc.perform(post("/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isUnauthorized())

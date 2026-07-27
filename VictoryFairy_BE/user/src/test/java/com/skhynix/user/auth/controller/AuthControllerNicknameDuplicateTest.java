@@ -14,7 +14,6 @@ import com.skhynix.user.auth.dto.NicknameValidationResponse;
 import com.skhynix.user.auth.policy.NicknamePolicy;
 import com.skhynix.user.auth.service.AuthService;
 import com.skhynix.user.auth.service.EmailVerificationService;
-import com.skhynix.user.global.config.ApiPathPrefixConfig;
 import com.skhynix.user.global.config.SecurityConfig;
 import com.skhynix.websupport.error.GlobalExceptionHandler;
 import com.skhynix.websupport.jwt.JwtTokenProvider;
@@ -30,7 +29,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * {@code POST /api/member/auth/nickname/duplicate}가 계약대로 동작하는지 확인한다: 인증 없이 접근 가능하고
+ * {@code POST /auth/nickname/duplicate}가 계약대로 동작하는지 확인한다: 인증 없이 접근 가능하고
  * (permitAll), 중복·미중복 어느 경우든 항상 HTTP 200을 반환한다({@code @Valid} 미적용).
  *
  * <p>슬라이스 구성은 {@code AuthControllerNicknameValidateTest}와 동일한 패턴을 따른다. 이 컨트롤러는
@@ -40,7 +39,7 @@ import tools.jackson.databind.ObjectMapper;
  */
 @WebMvcTest(AuthController.class)
 @ContextConfiguration(classes = AuthController.class)
-@Import({ApiPathPrefixConfig.class, SecurityConfig.class, GlobalExceptionHandler.class})
+@Import({SecurityConfig.class, GlobalExceptionHandler.class})
 class AuthControllerNicknameDuplicateTest {
 
     @Autowired
@@ -73,7 +72,7 @@ class AuthControllerNicknameDuplicateTest {
         String json = duplicateCheckJson("길동gil9");
 
         // when & then
-        mockMvc.perform(post("/api/member/auth/nickname/duplicate")
+        mockMvc.perform(post("/auth/nickname/duplicate")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isOk())
@@ -93,7 +92,7 @@ class AuthControllerNicknameDuplicateTest {
         String json = duplicateCheckJson("이미있음");
 
         // when & then
-        mockMvc.perform(post("/api/member/auth/nickname/duplicate")
+        mockMvc.perform(post("/auth/nickname/duplicate")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isOk())
@@ -112,7 +111,7 @@ class AuthControllerNicknameDuplicateTest {
         String json = duplicateCheckJson("길동gil9");
 
         // when & then: Authorization 헤더를 일부러 붙이지 않는다.
-        mockMvc.perform(post("/api/member/auth/nickname/duplicate")
+        mockMvc.perform(post("/auth/nickname/duplicate")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isOk());
