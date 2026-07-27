@@ -21,8 +21,10 @@ EC2 는 RDS 와 같은 VPC 라 터널 없이 접속된다.
    # 구 수집기 스키마가 있는지 먼저 확인: 아래가 team_code PK 면 구 스키마
    mysql -h 127.0.0.1 -u vf -p victoryfairy -e 'SHOW CREATE TABLE teams\G'
    mysql -h 127.0.0.1 -u vf -p victoryfairy < ../sql/migrate-legacy-collector.sql
-   mysql -h 127.0.0.1 -u vf -p victoryfairy < ../sql/schema.sql
    ```
+   이후 서비스 스키마 테이블(teams/players/stadiums/game_statuses/games/game_lineups)은
+   **domain 모듈 JPA 엔티티 기준으로 생성**한다 — DDL 관리는 dev_be 소관
+   (`sotaeho/be/feat-lineup-schema` #24). py-collector 는 DDL 사본을 갖지 않는다.
 2. **collector.env 생성** — EC2 에서:
    ```bash
    mkdir -p ~/app/collector

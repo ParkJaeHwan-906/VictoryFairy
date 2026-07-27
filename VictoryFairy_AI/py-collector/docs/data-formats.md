@@ -13,7 +13,7 @@
 | 정형 | **record** (박스스코어) | 네이버 스포츠 API | 파싱 → **MySQL** | 네이버 응답을 정규화 적재 |
 | 비정형 | **RawPost** (커뮤니티 글) | FMKorea / DCInside HTML | 우리가 만든 JSON 스키마 | HTML을 파싱해 구성 |
 
-> **record만 예외**: schedule/result/relay/RawPost는 S3에 저장하지만, **record는 파싱해서 운영 MySQL**(`games`/`game_lineups`, 선수는 `players`에 해소)에 넣습니다. 아래 5절은 "네이버가 record 엔드포인트에서 내려주는 원본 구조"를 정리한 것이고, 테이블 DDL은 `deploy/sql/schema.sql` 참고.
+> **record만 예외**: schedule/result/relay/RawPost는 S3에 저장하지만, **record는 파싱해서 운영 MySQL**(`games`/`game_lineups`, 선수는 `players`에 해소)에 넣습니다. 아래 5절은 "네이버가 record 엔드포인트에서 내려주는 원본 구조"를 정리한 것이고, 테이블 구조는 domain 모듈 JPA 엔티티 참고.
 
 **핵심 원칙 2가지**
 - **정형(네이버)**: 응답을 **가공 없이 byte-for-byte** 저장합니다. 아래 구조는 "우리가 정한 것"이 아니라 **네이버가 내려주는 모양**입니다.

@@ -9,7 +9,7 @@
 -- 데이터는 백업하지 않고 버린다: 전부 원천(KBO 사이트·네이버 API)에서
 --   백필로 재적재 가능하다 (records --from ... --to ... / registrations).
 --
--- 실행 후 schema.sql 을 이어서 실행해 새 테이블·시드를 만든다.
+-- 실행 후 서비스 스키마 테이블은 domain 모듈 JPA 엔티티 기준으로 생성한다(dev_be 소관).
 
 -- FK 역순으로 제거
 DROP TABLE IF EXISTS game_batting;

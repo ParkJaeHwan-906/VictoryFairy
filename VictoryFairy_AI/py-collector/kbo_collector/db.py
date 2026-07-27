@@ -1,7 +1,8 @@
 """운영 서비스 스키마(MySQL) 적재 싱크.
 
-테이블 구조의 원천은 domain 모듈 JPA 엔티티(teams/players/stadiums/game_statuses/
-games/game_lineups — deploy/sql/schema.sql 이 같은 구조의 DDL). 수집기는 소스
+테이블 구조의 유일한 원천은 domain 모듈 JPA 엔티티다(teams/players/stadiums/
+game_statuses/games/game_lineups — VitoryFairy_BE/domain 참고. 이 리포에는 DDL
+사본을 두지 않으며 스키마 변경·생성은 dev_be 소관). 수집기는 소스
 자연키(teams.code, players.kbo_player_id/naver_pcode, games.naver_game_id)로
 upsert 해 재실행에도 멱등이다. PK 는 전부 서비스 소유의 AUTO_INCREMENT id.
 """

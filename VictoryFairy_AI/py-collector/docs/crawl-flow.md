@@ -100,7 +100,7 @@ flowchart TD
 
 ## 4. 로스터·라인업 — 운영 MySQL 적재 (registrations / records)
 
-운영 서비스 스키마(domain JPA 엔티티 = `deploy/sql/schema.sql`)에 직접 쓴다.
+운영 서비스 스키마(원천: domain 모듈 JPA 엔티티)에 직접 쓴다.
 PK 는 서비스 소유 AUTO_INCREMENT id, 수집기는 **소스 자연키**(teams.code /
 players.kbo_player_id·naver_pcode / games.naver_game_id)로 upsert 한다.
 

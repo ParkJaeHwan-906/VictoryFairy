@@ -43,7 +43,8 @@ Lambda·로컬 스크립트가 이를 얇게 호출합니다.
 - **DB 잡은 운영 서비스 스키마에 씁니다.** `records`·`registrations`·`teams`·`export`가 쓰는
   teams/players/games/game_lineups 는 **domain 모듈 JPA 엔티티가 구조의 원천**(수집기는 소스
   자연키 — teams.code, players.kbo_player_id/naver_pcode, games.naver_game_id — 로 upsert).
-  스키마를 바꾸려면 엔티티 + `deploy/sql/schema.sql` 을 함께 고치세요. 운영 실행은 **EC2 크론**
+  **도메인 관련 코드는 domain 모듈 엔티티 파일만 참고해 작성하고, 이 리포에 DDL
+  사본(schema.sql류)을 만들지 마세요** — 스키마 변경·생성은 dev_be 소관. 운영 실행은 **EC2 크론**
   (`deploy/ec2/`), 로컬 개발은 SSH 터널(`127.0.0.1:3306` = 원격 DB, 로컬 도커 아님).
   **Lambda는 MySQL에 접근하지 않습니다**(S3 전용).
 - **코드 파일 수정은 신중히.** `kbo_collector/`·`deploy/`·`tests/`는 실행 코드입니다. 문서만 고칠 때는
