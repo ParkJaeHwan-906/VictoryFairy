@@ -15,7 +15,6 @@ COPY domain domain
 COPY web-support web-support
 COPY user user
 COPY quiz quiz
-COPY web-support web-support
 
 ARG MODULE=user
 RUN ./gradlew clean :${MODULE}:bootJar --no-daemon
