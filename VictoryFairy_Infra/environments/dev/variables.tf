@@ -43,6 +43,17 @@ variable "dev_db_use_eip" {
   default     = false
 }
 
+variable "mysql_public_access_cidrs" {
+  description = <<-EOT
+    운영 MySQL EC2 에 개발자 PC 가 '직접' 접속(3306)하도록 허용할 CIDR 목록
+    (예: ["1.2.3.4/32"]). 비우면([]) 퍼블릭 경로(보조 ENI·EIP·SG)를 만들지 않고
+    종전처럼 SSM 포트포워딩만 남는다.
+    ⚠ 운영 데이터 호스트를 인터넷에 노출하는 선택이다. /32 로 좁게 유지할 것.
+  EOT
+  type        = list(string)
+  default     = []
+}
+
 variable "domain_name" {
   description = "서비스 루트 도메인. Route53 호스팅영역 + ACM 인증서 기준. (dns 모듈)"
   type        = string

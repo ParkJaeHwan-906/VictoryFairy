@@ -25,6 +25,16 @@ output "private_ip" {
   value       = aws_instance.this.private_ip
 }
 
+output "public_access_ports" {
+  description = "퍼블릭 경로에서 열린 TCP 포트 목록. 퍼블릭 경로 미사용 시 빈 목록."
+  value       = local.public_access_enabled ? var.public_access_ports : []
+}
+
+output "public_ip" {
+  description = "개발자 직접 접속용 고정 퍼블릭 IP(EIP). 퍼블릭 접속 미사용 시 null."
+  value       = local.public_access_enabled ? aws_eip.this[0].public_ip : null
+}
+
 output "security_group_id" {
   description = "MySQL/Redis 보안그룹 ID (인입은 EKS 노드 SG로부터만)"
   value       = aws_security_group.this.id

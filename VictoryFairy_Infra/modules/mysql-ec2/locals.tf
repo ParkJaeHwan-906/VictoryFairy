@@ -9,4 +9,17 @@ locals {
 
   # 백업 버킷/prefix 하위 객체 ARN (s3:PutObject 를 이 범위로만 제한).
   backup_object_arn = "arn:aws:s3:::${var.backup_s3_bucket}/${var.backup_s3_prefix}*"
+
+  # 개발자 직접 접속용 퍼블릭 경로를 만들지 여부. CIDR 이 하나도 없으면 만들지 않는다.
+  public_access_enabled = length(var.public_access_cidrs) > 0
+
+  # 포트 × CIDR 조합 → 인그레스 규칙 맵(SKILL §8: 반복은 for_each).
+  # 두 값 모두 tfvars 의 정적 값이라 for_each '키'로 쓸 수 있다.
+  public_access_rules = local.public_access_enabled ? {
+    for pair in setproduct(var.public_access_ports, var.public_access_cidrs) :
+    "${pair[0]}-${pair[1]}" => {
+      port = pair[0]
+      cidr = pair[1]
+    }
+  } : {}
 }

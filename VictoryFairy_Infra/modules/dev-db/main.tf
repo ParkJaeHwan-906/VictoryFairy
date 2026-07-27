@@ -217,7 +217,12 @@ resource "aws_instance" "this" {
 
   lifecycle {
     # AMI most_recent 부동으로 인한 재생성 방지. 의도적 OS 교체는 이 줄을 임시 제거.
-    ignore_changes = [ami]
+    #
+    # user_data 도 무시한다: cloud-init 은 최초 부팅에만 돌아 템플릿 수정이 실행 중
+    # 인스턴스에 반영되지 않는데, aws_instance 의 user_data 변경은 in-place 갱신을 위해
+    # stop→start 를 유발한다(효과 0 + 다운타임). 실행 중 호스트는 SSM 으로 패치하고,
+    # 템플릿 변경을 실제로 적용해야 하면 인스턴스를 명시적으로 교체할 것.
+    ignore_changes = [ami, user_data]
   }
 }
 
