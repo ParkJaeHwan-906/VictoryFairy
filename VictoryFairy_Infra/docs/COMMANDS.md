@@ -22,6 +22,65 @@
 aws ssm start-session --region ap-northeast-2 --target $(terraform -chdir=environments/dev output -raw mysql_instance_id)
 ```
 
+### 데이터 EC2 직접 접속 (터널 없이, 2026-07-27~ 임시)
+
+배포 안정화 기간 동안만 데이터 EC2 를 **퍼블릭 서브넷 + EIP** 에 두고, `terraform.tfvars` 의
+`mysql_public_access_cidrs` 에 적힌 IP(/32)에서만 3306·6379 를 연다.
+
+```bash
+terraform -chdir=environments/dev output -raw mysql_public_ip   # 접속용 고정 IP(EIP)
+```
+
+| 도구 | 접속 정보 |
+|---|---|
+| HeidiSQL / DBeaver | `<mysql_public_ip>:3306` (터널 불필요) |
+| RedisInsight / redis-cli | `<mysql_public_ip>:6379` (비밀번호 없음) |
+
+접속이 안 되면 공인 IP 가 바뀐 것이 가장 흔한 원인이다:
+
+```bash
+curl -s https://checkip.amazonaws.com   # 현재 IP 확인 → tfvars 의 CIDR 갱신 후 apply
+```
+
+> ⚠ SSH(22)는 열지 않는다. 셸은 위의 SSM 세션을 쓴다.
+> ⚠ Redis 는 비밀번호가 없다. 허용 CIDR 을 /32 보다 넓히지 말 것.
+
+### 안정화 후 프라이빗으로 되돌리기 (권장 종료 상태)
+
+`mysql_public_access_cidrs` 를 비우면 퍼블릭 IP·EIP·인입 규칙이 사라지고 프라이빗 서브넷 +
+SSM 전용으로 복귀한다. **인스턴스가 재생성되고 프라이빗 IP 가 바뀌므로** 아래 순서를 지킨다.
+
+```bash
+# 1) 안전망: 데이터 볼륨 스냅샷
+aws ec2 create-snapshot --region ap-northeast-2 \
+  --volume-id $(terraform -chdir=environments/dev output -raw mysql_data_volume_id) \
+  --description "pre-private-revert $(date +%F)"
+
+# 2) tfvars 에서 mysql_public_access_cidrs = [] (또는 줄 삭제) 후 plan 리뷰
+#    기대: 인스턴스 replace + EIP destroy, aws_ebs_volume.data 는 destroy 목록에 없어야 한다
+terraform -chdir=environments/dev plan -out=revert.tfplan
+terraform -chdir=environments/dev apply revert.tfplan
+
+# 3) 새 프라이빗 IP 로 k8s Endpoints 갱신 (3곳) 후 반영
+terraform -chdir=environments/dev output -raw mysql_private_ip
+#    → k8s/30-external-data.yaml 의 ip 값 교체
+kubectl apply -f k8s/30-external-data.yaml
+kubectl get endpoints -n victoryfairy mysql redis
+kubectl get endpoints -n victoryfairy-batch mysql
+
+# 4) 부트스트랩 완료·데이터 보존 확인
+aws ssm start-session --region ap-northeast-2 --target $(terraform -chdir=environments/dev output -raw mysql_instance_id)
+#    cloud-init status --wait / df -h /mnt/mysql-data / docker ps
+```
+
+> ⚠ 데이터는 별도 EBS(`prevent_destroy`)에 있고 user_data 의 `blkid` 가드가 재포맷을 막으므로
+> 인스턴스 재생성으로 유실되지 않는다. 다만 재부트스트랩 중 수 분간 DB 가 내려간다.
+>
+> ⚠ **보조 ENI 방식은 쓰지 말 것.** 프라이빗 인스턴스에 퍼블릭 서브넷의 보조 ENI + EIP 를
+> 붙이는 무중단 방식을 시도했으나, SG·NACL·라우트·OS 라우팅이 모두 정상이고 아웃바운드는
+> EIP 로 나가는데도 인바운드 SYN 이 NIC 에 도달하지 않았다(stop/start 로도 회복 안 됨).
+> EIP 는 '주 ENI' 에 있어야 한다 — 그래서 인스턴스 자체를 퍼블릭에 배치한다.
+
 ## 배포
 
 ```bash
