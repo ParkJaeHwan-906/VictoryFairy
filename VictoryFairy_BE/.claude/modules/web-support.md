@@ -1,6 +1,6 @@
 # web-support 모듈
 
-> web-support 작업 시에만 로드되는 슬림 컨텍스트. (공통: `com.skhynix` 독립 앱 생태계, `:common`=ApiResponse/BusinessException/ErrorCode, `:domain`=엔티티/리포지토리, MySQL+spring-dotenv, prod `ddl-auto=none`)
+> web-support 작업 시에만 로드되는 슬림 컨텍스트. (공통: `com.skhynix` 독립 앱 생태계, `:common`=ApiResponse/BusinessException/ErrorCode, `:domain`=엔티티/리포지토리, MySQL+spring-dotenv, prod `ddl-auto`는 앱마다 다름 — user=`update`, quiz=`none`)
 
 ## 책임
 `user`·`quiz` 두 배포 앱이 공유하는 web/security 인프라를 담는 `java-library` 모듈. **자체 실행 앱이 아니라 포트 없음, 컨테이너로 안 뜸.** JWT 발급/검증 부품 + 전역 예외 어드바이스 + 401 인증 엔트리포인트. 배포 앱은 여전히 `user`(8080)·`quiz`(8081) 2개뿐.
