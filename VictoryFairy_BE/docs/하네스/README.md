@@ -24,8 +24,7 @@
                            코드   (새 기능이면) requirements-writer ⇄ 사용자 협의 → 승인
                                             → spring-dev → test-writer → module-verifier
                                             → (API면) api-documenter → context-keeper
-                           인프라 dockerfile-manager / compose-manager
-                                  / nginx-proxy / github-actions
+                           인프라 dockerfile-manager / compose-manager / github-actions
                                             → docker-runner(검증) → context-keeper
 ```
 
@@ -37,7 +36,7 @@
 
 | 위치 | 대상 | 에이전트 |
 |---|---|---|
-| `VictoryFairy_BE/.claude/` | Spring 멀티모듈 BE | 아래 16개 (코드 9 · 인프라 5 · 공통 2) |
+| `VictoryFairy_BE/.claude/` | Spring 멀티모듈 BE | 아래 15개 (코드 9 · 인프라 4 · 공통 2) |
 | 저장소 루트 `.claude/` | Terraform·EKS 인프라 | `terraform-writer` · `terraform-validator` · `k8s-manifest` · `context-keeper` · `commit-writer` + `terraform-infra` 스킬 |
 
 BE 쪽 `infra` 모듈(`.claude/modules/infra.md`)은 **EC2+compose·배포 파이프라인** 관점의 컨텍스트다. Terraform·k8s 매니페스트 자체를 고치는 작업은 루트 하네스 소관이고, 코드는 `VictoryFairy_Infra/`에 있다(`dev_*` 브랜치는 분리된 트리라 `dev_be`에서는 안 보인다 — `main` 기준으로 볼 것).
@@ -64,11 +63,14 @@ BE 쪽 `infra` 모듈(`.claude/modules/infra.md`)은 **EC2+compose·배포 파�
 
 | 에이전트 | 역할 | 수정 범위 | model |
 |---|---|:---:|---|
-| `dockerfile-manager` | `Dockerfile` — 멀티스테이지·레이어 캐시·이미지 크기 | 코드 | sonnet |
-| `compose-manager` | `docker-compose.yml` / `.prod.yml` — 서비스·볼륨·`mem_limit` | 코드 | sonnet |
-| `nginx-proxy` | `nginx.conf` — 경로 라우팅·프록시 헤더 | 코드 | sonnet |
-| `github-actions` | `.github/workflows/` — `deploy.yml`(EC2) · `deploy-eks.yml`(EKS) CI/CD 전략 | 코드 | inherit |
-| `docker-runner` | 실제 빌드·기동·health·라우팅 검증 후 정리 | ❌ 읽기전용 | sonnet |
+| `dockerfile-manager` | `Dockerfile` — 멀티스테이지·레이어 캐시·이미지 크기. ⚠ EKS CI 도 이 파일로 빌드한다 | 코드 | sonnet |
+| `compose-manager` | `docker-compose.yml` — **로컬 개발용**(mysql·redis) | 코드 | sonnet |
+| `github-actions` | `.github/workflows/deploy-eks.yml` — CI/CD 전략 | 코드 | inherit |
+| `docker-runner` | 실제 빌드·기동·health 검증 후 정리 | ❌ 읽기전용 | sonnet |
+
+> **EC2+docker-compose 배포 경로는 2026-07-27 폐기됐다.** 대상 인스턴스가 이미 사라져 워크플로가 실패만 하고
+> 있었다. `deploy.yml`·`docker-compose.prod.yml`·`nginx.conf`를 삭제하고 `nginx-proxy` 에이전트도 제거했다
+> (라우팅 규칙을 담을 파일이 없어졌다). 서빙은 EKS다 — 매니페스트·Terraform은 **저장소 루트 하네스** 소관.
 
 ### 공통
 
@@ -90,9 +92,8 @@ BE 쪽 `infra` 모듈(`.claude/modules/infra.md`)은 **EC2+compose·배포 파�
 - **`spring-optimizer` ↔ `jpa-query-tuner`** — 최적화를 둘로 나눈 기준은 "쿼리인가 아닌가"다. N+1·fetch join·인덱스·페이징은 전부 `jpa-query-tuner`, 트랜잭션 경계·open-in-view·풀·설정은 `spring-optimizer`. 서로의 영역을 발견하면 고치지 말고 **위임을 권고**한다.
 - **`test-writer` ↔ `test-data` ↔ `module-verifier`** — 각각 테스트 *로직* / 테스트 *데이터* / *런타임* 검증.
 - **Docker 3분할** — **"무엇을 빌드하나(`dockerfile-manager`) / 어떻게 함께 뜨나(`compose-manager`) / 실제로 되나(`docker-runner`)"**로 나눴다. 앞의 둘은 *쓰고*, 마지막은 *돌린다*. 빌드가 느려 검증이 오래 걸리므로, 작성자가 직접 풀 빌드를 돌리지 않고 `docker-runner`에 넘기는 구조다.
-- **`compose-manager` ↔ `nginx-proxy`** — `nginx.conf`의 **내용**(라우팅 규칙)은 `nginx-proxy`, compose에서 그걸 **마운트하는 방식**은 `compose-manager`.
-- **`dockerfile-manager` ↔ `github-actions`** — 이미지를 **어떻게 만드나**는 전자, CI에서 **언제·무엇을 빌드하나**(트리거·매트릭스·캐시 scope·태그)는 후자. 둘은 `ARG MODULE` 계약으로 연결되어 있어, 그걸 깨면 양쪽을 함께 고쳐야 한다.
-- **BE 하네스 ↔ 루트(인프라) 하네스** — `nginx-proxy`·`compose-manager`는 **EC2+compose 경로**를 다루고, EKS 매니페스트·Terraform 은 루트의 `k8s-manifest`·`terraform-writer` 소관이다. 같은 "인프라"라는 말을 쓰지만 대상 파일이 겹치지 않는다.
+- **`dockerfile-manager` ↔ `github-actions`** — 이미지를 **어떻게 만드나**는 전자, CI에서 **언제·무엇을 빌드하나**(트리거·매트릭스·태그)는 후자. 둘은 `ARG MODULE` 계약으로 연결되어 있어, 그걸 깨면 양쪽을 함께 고쳐야 한다.
+- **BE 하네스 ↔ 루트(인프라) 하네스** — BE 쪽 인프라 에이전트는 **이미지 빌드와 로컬 개발 스택**까지만 다룬다. EKS 매니페스트·Terraform 은 루트의 `k8s-manifest`·`terraform-writer` 소관이다. 같은 "인프라"라는 말을 쓰지만 대상 파일이 겹치지 않는다.
 - **내장 커맨드와의 경계** — 범용 리팩터링은 `/simplify`, 버그 탐지는 `/code-review`가 이미 한다. `spring-optimizer`는 Spring 고유 문제만 다뤄 중복을 피한다. **계획(plan) 모드와 `requirements-writer`도 다르다** — 계획은 *어떻게 만들 것인가*(순서·파일·전략, 사용자가 검수해도 코드를 봐야 안다), 요구사항은 *무엇이 참이어야 하는가*(코드를 몰라도 검수할 수 있는 계약). 요구사항 문서에 구현 순서가 적히고 있으면 선을 넘은 것이다.
 - **동시 실행 주의** — 같은 파일을 고치는 에이전트를 병렬로 띄우면 충돌한다. 파일이 겹치면 순차로.
 
@@ -107,7 +108,7 @@ BE 쪽 `infra` 모듈(`.claude/modules/infra.md`)은 **EC2+compose·배포 파�
 | `modules/<module>.md` | **모듈 사실** — 포트·엔드포인트·정책·엔티티 위치 | `context-keeper` (자동) |
 | `agents/<agent>.md` | **역할 지침** — 어떻게 일하는가 | 사람 (드물게) |
 
-14개 에이전트가 "작업 전 `.claude/modules/<module>.md`를 먼저 Read하라"는 지시를 갖는다. 공통 에이전트 2개가 예외다 — `context-keeper`는 모듈 파일이 작업 *대상*이라 절차 안에서 읽고, `commit-writer`는 git 히스토리를 다룰 뿐 모듈 사실이 필요 없다(커밋 컨벤션의 출처는 모듈 파일이 아니라 `git log`다). 메인 에이전트는 프롬프트에 **"어느 모듈 + 무엇을/왜"만** 주면 되고, 모듈 사실을 길게 복사하지 않는다.
+13개 에이전트가 "작업 전 `.claude/modules/<module>.md`를 먼저 Read하라"는 지시를 갖는다. 공통 에이전트 2개가 예외다 — `context-keeper`는 모듈 파일이 작업 *대상*이라 절차 안에서 읽고, `commit-writer`는 git 히스토리를 다룰 뿐 모듈 사실이 필요 없다(커밋 컨벤션의 출처는 모듈 파일이 아니라 `git log`다). 메인 에이전트는 프롬프트에 **"어느 모듈 + 무엇을/왜"만** 주면 되고, 모듈 사실을 길게 복사하지 않는다.
 
 역할에 따라 컨텍스트를 쓰는 방식이 다르다:
 - `code-commenter` — 모듈 컨텍스트의 "주의/컨벤션"이 곧 **주석 소재**
@@ -166,11 +167,11 @@ BE 쪽 `infra` 모듈(`.claude/modules/infra.md`)은 **EC2+compose·배포 파�
 작업을 마치면 **증거 기반**으로 확인한다. 검증자는 둘 다 코드를 수정하지 않는다.
 
 - **코드 → `module-verifier`**: 컴파일 → (테스트) → 엔드포인트 정적 확인 → 가능하면 `bootRun` 후 컨트롤러 호출로 상태코드·응답값 검증
-- **인프라 → `docker-runner`**: compose 문법(`config`) → 이미지 빌드 → 로컬 스택 기동 → health·라우팅을 `curl`로 확인 → **정리(down)**
+- **인프라 → `docker-runner`**: compose 문법(`config`) → 이미지 빌드 → 로컬 스택 기동 → health를 `curl`로 확인 → **정리(down)**
 
 호출 방식: 작업 완료 시 메인 에이전트가 자동 호출(SessionStart 지침), 또는 사용자가 `/verify [모듈]`로 수동 호출.
 
-**운영 스택은 로컬에서 그대로 뜨지 않는다.** `docker-compose.prod.yml`은 GHCR 이미지를 pull하므로 `config` 문법 검증까지만 하고, 실제 기동은 `docker-compose.yml`(로컬 mysql 포함)로 한다.
+**로컬 검증은 운영과 다르다.** 로컬은 `docker-compose.yml`(mysql·redis) 기준이고, 운영은 EKS다 — 로컬에서 통과했다고 운영 라우팅까지 검증된 게 아니다. 운영 확인은 `kubectl`·`gh run`으로 직접 한다(둘 다 설치돼 있다).
 
 ### 컨텍스트 유지 (context-keeper)
 
@@ -195,7 +196,7 @@ BE 쪽 `infra` 모듈(`.claude/modules/infra.md`)은 **EC2+compose·배포 파�
 | `.claude/modules/domain.md` | domain 모듈(공유 JPA 엔티티/리포지토리) 슬림 컨텍스트 |
 | `.claude/modules/web-support.md` | web-support 모듈(user·quiz 공유 JWT 발급/검증·예외 핸들러·401 엔트리포인트 라이브러리) 슬림 컨텍스트 |
 | `.claude/modules/infra.md` | 배포·인프라 컨텍스트 (EC2+compose 경로 + EKS 현황) |
-| `.claude/agents/*.md` | 역할별 서브에이전트 16개 — 코드 9 · 인프라 5 · 공통 2 (위 표) |
+| `.claude/agents/*.md` | 역할별 서브에이전트 15개 — 코드 9 · 인프라 4 · 공통 2 (위 표) |
 | `.claude/commands/verify.md` | 검증을 수동 호출하는 `/verify` 슬래시 커맨드 |
 | `.claude/commands/requirements.md` | 요구사항 단계를 수동 호출하는 `/requirements` 슬래시 커맨드 |
 | `docs/requirements/<module>/<feature>.md` | 기능별 EARS 요구사항 (구현 전 계약). `requirements-writer`가 쓰고 **사용자가 승인** |
@@ -243,8 +244,8 @@ BE 쪽 `infra` 모듈(`.claude/modules/infra.md`)은 **EC2+compose·배포 파�
 
 ## 알려진 갭
 
-- **compose healthcheck 미배선** — 앱에 actuator readiness 엔드포인트는 생겼으나(`/api/member/actuator/health/readiness`, `/api/game/actuator/health/readiness`) `docker-compose.prod.yml`에는 아직 healthcheck가 없다. nginx의 `/healthz`는 nginx 자신이 200을 반환할 뿐 백엔드를 보지 않는다.
-- **EC2 배포 경로에 롤백 전략 없음** — CI가 `:latest`와 `:<sha>`를 둘 다 push하지만 EC2 배포 스크립트는 `IMAGE_TAG=latest` 고정이고, `docker image prune -f`가 이전 이미지를 지워 롤백용 이미지가 안 남는다. (EKS 경로는 `deploy-eks.yml`이 sha 태그로 배포하고 실패 시 `rollout undo`를 한다.)
+- **CI에 테스트 단계가 없다** — `deploy-eks.yml`은 빌드만 하고 배포한다. 테스트가 32개 있으므로 넣을 명분이 있다.
+- **로컬 compose에 앱 healthcheck가 없다** — actuator readiness 엔드포인트가 생겼으니 붙일 수 있다. 경로가 `context-path` 아래라 `/health`·`/healthz`로 걸면 영구 unhealthy가 되니 주의(`compose-manager` 정의 참고).
 - **DB 통합 테스트 전략 미정** — H2·Testcontainers가 없어 DB를 타는 테스트가 없다. `test-writer`는 단위·슬라이스 테스트까지만 커버하도록 지시되어 있다.
 - **요구사항과 구현의 어긋남을 잡는 건 규칙뿐** — ID 누락을 도구 수준에서 강제하는 장치는 없고, `test-writer`·`module-verifier`의 "미커버 ID 보고"에 의존한다.
 
