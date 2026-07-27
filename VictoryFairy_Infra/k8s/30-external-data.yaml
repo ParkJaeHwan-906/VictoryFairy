@@ -8,6 +8,10 @@
 #   - Endpoints는 EndpointSlice로 대체 가능하나, 정적 단일 백엔드라 가독성 위해 Endpoints 사용.
 #
 # ⚠ 인프라 커플링: 아래 IP는 terraform mysql-ec2 모듈의 private_ip 출력값이다(placeholder).
+#   데이터 EC2 의 서브넷이 바뀌면(예: 개발자 직접 접속을 위한 퍼블릭 배치 ↔ 프라이빗 복귀)
+#   인스턴스가 재생성되며 private IP 도 바뀐다. 그때 아래 3곳을 반드시 함께 갱신할 것:
+#     terraform -chdir=environments/dev output -raw mysql_private_ip
+#     kubectl apply -f k8s/30-external-data.yaml
 #   TODO(terraform-writer 보고): mysql-ec2 모듈이 private_ip를 output으로 노출하는지 확인.
 #         출력이 없으면 이 매니페스트가 채울 값이 없다 -> 인프라에서 output 추가 필요.
 #   ⚠ 데이터 EC2 SG 인입 규칙과도 맞물림: 3306<-user/quiz/batch, 6379<-user/quiz (ARCHITECTURE §3).
@@ -33,7 +37,7 @@ metadata:
   namespace: victoryfairy
 subsets:
   - addresses:
-      - ip: "10.0.10.135"  # = terraform output mysql_private_ip (2026-07 apply)
+      - ip: "10.0.0.14"  # = terraform output mysql_private_ip (2026-07-27 퍼블릭 서브넷 이전 후)
     ports:
       - name: mysql
         port: 3306
@@ -59,7 +63,7 @@ metadata:
   namespace: victoryfairy
 subsets:
   - addresses:
-      - ip: "10.0.10.135"  # 서비스 Redis는 동일 데이터 EC2에 상주 (mysql과 같은 IP)
+      - ip: "10.0.0.14"  # 서비스 Redis는 동일 데이터 EC2에 상주 (mysql과 같은 IP)
     ports:
       - name: redis
         port: 6379
@@ -88,7 +92,7 @@ metadata:
   namespace: victoryfairy-batch
 subsets:
   - addresses:
-      - ip: "10.0.10.135"  # = terraform output mysql_private_ip (2026-07 apply)
+      - ip: "10.0.0.14"  # = terraform output mysql_private_ip (2026-07-27 퍼블릭 서브넷 이전 후)
     ports:
       - name: mysql
         port: 3306
