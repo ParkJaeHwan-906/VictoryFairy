@@ -36,6 +36,24 @@ app:
   mail:
     from: ${MAIL_FROM:no-reply@victoryfairy.com}
 
+# ALB 타깃 그룹 헬스체크용. health 만 노출한다(그 외 액추에이터 엔드포인트는 닫힘).
+#
+# ⚠ ALB 는 /actuator/health 가 아니라 '/actuator/health/readiness' 를 본다
+#   (k8s/22-ingress.yaml 의 healthcheck-path = /api/member/actuator/health/readiness).
+#   전체 health 는 db·redis·mail 인디케이터를 모두 합산해 DOWN 을 내므로, MySQL EC2 가 잠깐
+#   흔들리면 살아있는 파드까지 타깃에서 빠져 전면 503 이 된다. readiness 그룹은 기본적으로
+#   readinessState 만 보므로 그런 연쇄를 만들지 않는다.
+# ⚠ context-path(/api/member) 아래로 들어가므로 외부 경로에는 접두사가 붙는다.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true # liveness/readiness 그룹 활성화
+
 jwt:
   # 기본값 절대 사용 X -> .env의 JWT_SECRET으로 덮어쓸 것 (32바이트 이상)
   secret: ${JWT_SECRET:local-dev-secret-please-change-this-to-a-32byte-plus-random-value}
