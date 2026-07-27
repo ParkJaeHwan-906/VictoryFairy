@@ -1,6 +1,6 @@
 # quiz 모듈
 
-> quiz 작업 시에만 로드되는 슬림 컨텍스트. (공통: `com.skhynix` 독립 앱, `:common`=ApiResponse/BusinessException/ErrorCode, `:domain`=엔티티/리포지토리, MySQL+spring-dotenv, prod `ddl-auto=none`)
+> quiz 작업 시에만 로드되는 슬림 컨텍스트. (공통: `com.skhynix` 독립 앱, `:common`=ApiResponse/BusinessException/ErrorCode, `:domain`=엔티티/리포지토리, MySQL+spring-dotenv, prod `ddl-auto`는 앱마다 다름 — user=`update`, quiz=`none`)
 
 ## 책임
 Quiz 도메인 REST API 서버. **구단별 채팅 기능 구현 완료**: `chat`(방 목록/상세·전송·히스토리·신고 REST) + `realtime`(SSE 실시간 전달). **포트 8081.**
