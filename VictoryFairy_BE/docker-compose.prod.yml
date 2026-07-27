@@ -17,9 +17,15 @@ services:
     container_name: victoryfairy-nginx
     restart: unless-stopped
     mem_limit: 128m
+    # 앱이 '실제로 응답할 때까지' 기다렸다 뜬다. 종전엔 기동 순서만 보장해(depends_on 단문법)
+    # 앱이 부팅 중이어도 nginx 가 떠서 502 를 뿌렸다.
+    # ⚠ 배포 동작 변화: 앱이 끝내 healthy 가 안 되면 `docker compose up -d` 가 실패한다.
+    #   deploy.yml 이 set -e 라 배포 스텝이 거기서 멈춘다 — 조용히 깨진 채 배포되던 것보다 낫다.
     depends_on:
-      - user
-      - quiz
+      user:
+        condition: service_healthy
+      quiz:
+        condition: service_healthy
     ports:
       - "80:80"
     volumes:
@@ -32,6 +38,11 @@ services:
     container_name: victoryfairy-redis
     restart: unless-stopped
     mem_limit: 64m
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   user:
     image: ${IMAGE_PREFIX}/victoryfairy-user:${IMAGE_TAG:-latest}
@@ -39,7 +50,18 @@ services:
     restart: unless-stopped
     mem_limit: 500m
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
+    # ⚠ 경로에 context-path(/api/member)가 붙는다. `/health`·`/healthz` 로 걸면 404 라 영구 unhealthy 가 된다.
+    # ⚠ /actuator/health 전체가 아니라 readiness 그룹이다. 전체는 db·redis 인디케이터를 합산해 DOWN 을 내므로
+    #    DB 가 잠깐 흔들리면 앱 컨테이너까지 unhealthy 로 뒤집히고 nginx 가 502 를 낸다.
+    # 런타임 이미지(eclipse-temurin:21-jre, Ubuntu)에 curl 이 포함돼 있어 추가 설치가 필요 없다.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "--max-time", "3", "http://localhost:8080/api/member/actuator/health/readiness"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 90s # t3.small 에서 Spring 부팅이 느리다. 이 구간의 실패는 재시도로 세지 않는다.
     environment:
       JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=70.0"
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE}
@@ -68,6 +90,13 @@ services:
     container_name: victoryfairy-quiz
     restart: unless-stopped
     mem_limit: 500m
+    # user 와 동일한 주의사항 — context-path 는 /api/game, readiness 그룹을 쓴다.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "--max-time", "3", "http://localhost:8081/api/game/actuator/health/readiness"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
     environment:
       JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=70.0"
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE}
