@@ -65,6 +65,12 @@ metadata:
   name: victoryfairy-quiz
   namespace: victoryfairy
   annotations:
+    # ExternalDNS 는 이 Ingress 를 무시한다(dns-controller 가 아닌 값이면 스킵).
+    #   두 Ingress 가 같은 host(victoryfairy.com)를 갖는 탓에 ExternalDNS 가 같은 이름의 desired
+    #   endpoint 를 둘 만들어, 바꿀 게 없는데도 1분마다 UPSERT 를 반복했다(로그 노이즈 + Route53 API 낭비).
+    #   같은 ALB(group.name)를 공유하므로 A(ALIAS) 레코드는 하나면 충분하다 → user Ingress 하나만 소유하게 둔다.
+    #   ⚠ user Ingress 를 지우면 이 도메인의 DNS 소유자가 사라진다. 그때는 이 어노테이션을 걷어낼 것.
+    external-dns.alpha.kubernetes.io/controller: none
     alb.ingress.kubernetes.io/group.name: victoryfairy
     alb.ingress.kubernetes.io/group.order: "20"
     alb.ingress.kubernetes.io/scheme: internet-facing
