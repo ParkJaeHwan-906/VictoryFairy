@@ -42,7 +42,10 @@ model: sonnet
 
 ## 알려진 개선 여지
 1. **prod에 healthcheck가 없다.** nginx의 `depends_on`은 **기동 순서만** 보장하고 앱의 준비 상태는 모른다 → 앱이 뜨기 전에 nginx가 요청을 받아 502가 날 수 있다. 로컬 mysql처럼 앱에도 healthcheck + `condition: service_healthy` 검토.
-   - ⚠️ **하지만 지금은 붙일 수가 없다.** 이 프로젝트에는 **health 엔드포인트가 아예 없다** — SecurityConfig에 `/health` permit 규칙만 있고 핸들러도 actuator도 없어 **404가 돌아온다.** healthcheck를 `/health`로 걸면 컨테이너가 영구 unhealthy가 된다.
+   - ✅ **이제 붙일 수 있다**(2026-07-27 actuator 도입). 단 경로에 주의 — `/health`·`/healthz`는 여전히 핸들러가 없어 **404**이고, 그걸로 healthcheck를 걸면 컨테이너가 영구 unhealthy가 된다. 앱이 `server.servlet.context-path`를 쓰므로 실제 경로는 모듈마다 다르다:
+     - user → `/api/member/actuator/health/readiness` (컨테이너 내부 `localhost:8080`)
+     - quiz → `/api/game/actuator/health/readiness` (컨테이너 내부 `localhost:8081`)
+   - ⚠️ `/actuator/health` **전체**가 아니라 **readiness 그룹**을 쓸 것. 전체 health는 db·redis 인디케이터를 합산해 DOWN을 내므로 DB가 잠깐 흔들리면 앱 컨테이너까지 unhealthy로 뒤집힌다.
    - → **선결 과제는 health 엔드포인트 구현**(spring-dev 또는 actuator 도입)이다. 순서를 뒤집지 말 것.
 2. **로컬에서 앱이 `profiles: ["prod"]`에 묶여 있는 게 혼란스럽다.** 로컬 개발 프로파일과 이름이 겹친다.
 
