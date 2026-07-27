@@ -133,9 +133,18 @@ module "security" {
 module "mysql_ec2" {
   source = "../../modules/mysql-ec2"
 
-  environment   = var.environment
-  vpc_id        = module.network.vpc_id
-  subnet_id     = module.network.private_subnet_ids_by_az[var.azs[0]] # 2a(운영 AZ)
+  environment = var.environment
+  vpc_id      = module.network.vpc_id
+
+  # 서브넷 배치는 '개발자 직접 접속을 쓰는지'에 따라 갈린다(둘 다 운영 AZ = 2a).
+  #   - mysql_public_access_cidrs 가 비어있음(기본·권장) → 프라이빗 서브넷 + SSM 전용.
+  #   - 값이 있음 → 퍼블릭 서브넷 + EIP. 보조 ENI 방식으로는 인바운드가 오지 않아
+  #     (modules/mysql-ec2/main.tf 주석 참조) 인스턴스 자체를 퍼블릭에 둬야 한다.
+  #
+  # ⚠ 이 분기를 뒤집으면 인스턴스가 '재생성'된다. 배포 안정화 후 프라이빗으로 되돌릴 때의
+  #   절차(데이터 보존 확인 + k8s Endpoints IP 갱신)는 docs/COMMANDS.md 를 따를 것.
+  subnet_id = length(var.mysql_public_access_cidrs) > 0 ? module.network.public_subnet_ids_by_az[var.azs[0]] : module.network.private_subnet_ids_by_az[var.azs[0]]
+
   instance_type = "t3.small"
 
   # 3306 ← user·quiz·batch, 6379 ← user·quiz 만. 현재 eks 는 공용 노드 SG 하나라
@@ -145,6 +154,16 @@ module "mysql_ec2" {
   redis_ingress_sg_ids = { eks_nodes = module.eks.node_security_group_id }
 
   backup_s3_bucket = var.backup_s3_bucket # 일 단위 mysqldump S3 백업
+
+  # 개발자 PC 직접 접속(옵션): 허용 CIDR 에서만 아래 포트를 연다.
+  # 비우면 퍼블릭 인입 규칙·EIP·퍼블릭 IP 가 사라지고 프라이빗 + SSM 전용으로 돌아간다.
+  public_access_cidrs = var.mysql_public_access_cidrs
+
+  # dev_db(22/3306/6379)와 동일하게 Redis 도 함께 연다(사용자 결정 2026-07-27).
+  # ⚠ 이 호스트의 Redis 는 requirepass 없이 뜬다(user_data §5) → 허용 CIDR 안에서는
+  #   인증 없이 서비스 브로커/이메일 TTL 키에 접근된다. CIDR 을 /32 보다 넓히지 말 것.
+  #   22(SSH)는 열지 않는다 — 이 인스턴스는 키페어가 없고 셸은 SSM 으로 붙는다.
+  public_access_ports = [3306, 6379]
 
   # 현재 계정(ISB 샌드박스)은 조직 SCP가 dlm:TagResource 를 명시적 거부하여
   # DLM 스냅샷 정책 생성이 불가. 백업은 mysqldump→S3 크론으로만 수행한다.

@@ -70,6 +70,11 @@ output "mysql_security_group_id" {
   value       = module.mysql_ec2.security_group_id
 }
 
+output "mysql_public_ip" {
+  description = "운영 MySQL EC2 개발자 직접 접속용 고정 퍼블릭 IP(EIP). 퍼블릭 접속 미사용 시 null."
+  value       = module.mysql_ec2.public_ip
+}
+
 output "mysql_data_volume_id" {
   description = "MySQL 데이터 EBS 볼륨 ID (prevent_destroy — 스냅샷/복원 참조용)"
   value       = module.mysql_ec2.data_volume_id
