@@ -35,6 +35,12 @@ public class SecurityConfig {
                         // context-path(/api/member)는 컨테이너가 필터 체인 이전에 떼므로
                         // 여기서는 접두사를 뺀 경로를 쓴다. 외부 노출 경로는 /api/member/auth/**.
                         .requestMatchers("/auth/**").permitAll()
+                        // 구단 목록은 회원가입 등 로그인 이전 화면에서 필요해 인증 없이 연다.
+                        // GET 으로 좁힌 이유: 읽기 전용 의도를 보안 설정에 드러내고, 이후 같은 경로에
+                        // 쓰기 엔드포인트가 인증 없이 열린 채 추가되는 사고를 구조적으로 막는다
+                        // (비-GET 은 405 가 아니라 401 로 떨어진다 — 의도된 결과).
+                        // 위와 같은 이유로 context-path(/api/member) 접두사는 붙이지 않는다.
+                        .requestMatchers(HttpMethod.GET, "/teams").permitAll()
                         .anyRequest().authenticated()
                 )
                 // formLogin/httpBasic을 모두 disable하면 엔트리포인트를 등록하는 주체가 없어
