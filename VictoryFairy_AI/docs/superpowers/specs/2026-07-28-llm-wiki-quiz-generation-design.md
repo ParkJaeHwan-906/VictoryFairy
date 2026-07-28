@@ -63,7 +63,7 @@ routine에는 최소 권한 IAM 자격증명만 부여: `question-source/` 읽�
   ---
   ## 프로필 요약
   ## 별명·밈
-  ## 사건사고
+  ## 사건사고        ← 기록만, 퀴즈 출제 금지 (4.2 안전 규칙)
   ## 커리어 이력
   ## 최근 여론
   ```
@@ -87,20 +87,28 @@ routine에는 최소 권한 IAM 자격증명만 부여: `question-source/` 읽�
   - 축적 층: `wiki/stats/` 시즌 요약, 출전 선수 위키 문서, `wiki/graph.json`
   - 그 외: 최근 7일 출제 이력(`quiz-candidates/` 목록), 질문 템플릿 카탈로그
 - **질문 템플릿 카탈로그** (`config/question-templates.yaml`, repo 관리): 문제 다양성의 원천.
-  템플릿마다 정의 — `id`, `kind`(지식/예측), 필요 입력(어느 층의 어떤 데이터), 문제 의도 서술
-  (문구는 LLM이 자유 작성), 예상 난이도, 태그. 예:
+  템플릿마다 정의 — `id`, `kind`(지식/예측), `format`(출제 형식), 필요 입력(어느 층의 어떤
+  데이터), 문제 의도 서술(문구는 LLM이 자유 작성), 예상 난이도, 태그. 예:
   ```yaml
   - id: H2H_SEASON_RECORD
     kind: KNOWLEDGE
+    format: BINARY          # OX | BINARY(2지선다) | MULTI4(4지선다)
     needs: [stats.head_to_head]
     intent: "올해 두 팀의 상대전적 우위를 묻는다. 오늘 매치업 팀 우선"
     difficulty: MEDIUM
   - id: MEME_ORIGIN
     kind: KNOWLEDGE
+    format: MULTI4
     needs: [wiki.별명·밈]
     intent: "선수 별명/밈의 유래를 4지선다로 묻는다"
     difficulty: EASY
   ```
+- **출제 형식 규칙**: 모든 문제는 **O/X, 2지선다, 4지선다 중 하나** — 주관식 없음. 쇼츠처럼
+  탭 한 번으로 즉답하고 넘기는 UX가 전제이므로 질문은 짧게, 보기는 즉시 판단 가능하게.
+  사실 확인형은 가능하면 O/X 변형 우선(예: "김도영의 등번호는 5번이다 — O/X")
+- **안전 규칙 (출제 금지 주제)**: 위키 `사건사고` 섹션과 graph의 `사건연루` 엣지는 **퀴즈
+  소스로 사용 금지** — 기록은 유지하되(선수 맥락 이해용) 문제화하지 않는다. 법적 사건·논란·
+  사생활·건강 문제를 소재로 한 문제는 명예훼손·2차 가해 리스크로 생성 단계에서 원천 배제
   초기 시드 20~30개는 브레인스토밍으로 작성. 이후 LLM에게 데이터 스키마·위키 샘플을 주고 신규
   템플릿을 제안시켜 사람 검수 후 카탈로그에 추가(카탈로그 성장 경로)
 - **생성 (3단계)**: ① 템플릿 선택 — 오늘 매치업·트렌딩 토픽·graph.json 2-hop 관계·출제 이력을
@@ -110,8 +118,10 @@ routine에는 최소 권한 IAM 자격증명만 부여: `question-source/` 읽�
 - **검증 (같은 잡 내 2차 패스)**:
   1. 지식 퀴즈는 `evidence`에 위키 원문 인용 또는 봉투/stats 필드값 필수 — 근거 없으면 폐기
   2. 최근 7일 출제 이력과 중복 검사 (명세서 비즈니스 규칙) + 템플릿 편중 검사
-  3. 비하·편향 표현 필터
-  4. 난이도·포인트 산정 (명세서 QUIZ-002 기준표: EASY 30P ~ EXPERT 120P, 일일 비율 30/40/20/10)
+  3. 안전 필터: 비하·편향 표현, 그리고 사건사고·법적 논란·사생활·건강을 언급하는 문제는 폐기
+     (안전 규칙의 2차 방어선)
+  4. 형식 검사: 보기 2개(O/X 포함) 또는 4개, 주관식 형태면 폐기
+  5. 난이도·포인트 산정 (명세서 QUIZ-002 기준표: EASY 30P ~ EXPERT 120P, 일일 비율 30/40/20/10)
 - **출력**: `quiz-candidates/{date}/{quizId}.json`
 
 ### 4.3 quiz-candidates JSON 계약 (v1)
@@ -125,6 +135,7 @@ routine에는 최소 권한 IAM 자격증명만 부여: `question-source/` 읽�
   "kind": "KNOWLEDGE | PREDICTION",
   "type": "WIN_LOSE | SCORE_RANGE | PLAYER_PERF | MEME | HISTORY | ...",
   "templateId": "H2H_SEASON_RECORD",
+  "format": "OX | BINARY | MULTI4",
   "question": "...",
   "options": [{ "id": "A", "text": "..." }],
   "answer": "A",
@@ -137,6 +148,7 @@ routine에는 최소 권한 IAM 자격증명만 부여: `question-source/` 읽�
 }
 ```
 
+- `options`는 항상 2개(O/X·2지선다) 또는 4개(4지선다) — 주관식 없음
 - `answer`/`evidence`는 지식 퀴즈 필수, 예측 퀴즈는 `null`
 - `settlement`은 예측 퀴즈 필수(경기 종료 후 BE가 RDB로 정답 판정할 키), 지식 퀴즈는 `null`
 - `templateId`: 출제 템플릿 식별자. 지금은 기록만 하고, 추후 BE가 템플릿별 유저 반응(정답률·
@@ -166,6 +178,10 @@ routine에는 최소 권한 IAM 자격증명만 부여: `question-source/` 읽�
 - **전년 데이터 부재 (확인 필요)**: "작년 대비" 류 템플릿은 2025 시즌 game_result가 S3/DB에
   있어야 성립. 백필 여부를 확인하고, 없으면 py-collector 백필(`records --from ... --to`) 선행.
   백필 전까지 해당 템플릿은 카탈로그에서 비활성 처리
+- **선수 퍼포먼스 예측은 정산 불가**: 운영 스키마에 이닝·안타 등 상세 기록이 없음(games 스코어 +
+  game_lineups decision뿐). 명세서의 "6이닝 이상 투구할까?" 류는 BE가 정답 판정을 못 하므로
+  1차 제외 — 예측 템플릿은 스코어/승패/투수 decision으로 판정 가능한 것만. 상세 스탯 예측을
+  원하면 수집기·스키마 확장(dev_be 협의)이 별도 선행 과제
 
 ## 7. 테스트 전략
 
