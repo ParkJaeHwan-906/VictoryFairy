@@ -41,6 +41,8 @@ public class SecurityConfig {
                         // (비-GET 은 405 가 아니라 401 로 떨어진다 — 의도된 결과).
                         // 위와 같은 이유로 context-path(/api/member) 접두사는 붙이지 않는다.
                         .requestMatchers(HttpMethod.GET, "/teams").permitAll()
+                        // 선수 목록도 구단 목록과 같은 성격의 참조 데이터라 같은 이유·같은 방식(GET 한정)으로 연다.
+                        .requestMatchers(HttpMethod.GET, "/players").permitAll()
                         .anyRequest().authenticated()
                 )
                 // formLogin/httpBasic을 모두 disable하면 엔트리포인트를 등록하는 주체가 없어
