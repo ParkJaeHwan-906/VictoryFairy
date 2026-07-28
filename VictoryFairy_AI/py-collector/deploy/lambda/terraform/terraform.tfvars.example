@@ -21,3 +21,19 @@ architecture     = "arm64" # arm64 (cheaper) or x86_64
 
 # community_schedule = "rate(10 minutes)"
 # game_schedule      = "cron(0 18 * * ? *)"   # 03:00 KST
+
+# --- DB 적재 잡 (records/registrations, prod 전용) ---
+# db_subnet_ids 를 채우면 VPC 안에 kbo-collector-db 함수 + 스케줄이 함께 생긴다.
+# 아래 4개 id/값은 VictoryFairy_Infra(environments/dev) 스택에서 가져온다:
+#   서브넷/VPC : terraform output (프라이빗 서브넷, VPC)
+#   SG         : mysql-ec2 모듈의 SG (데이터 EC2 콘솔에서도 확인 가능)
+#   db_host    : 데이터 EC2 프라이빗 IP (재생성 시 여기와 k8s Endpoints 둘 다 갱신)
+# db_subnet_ids    = ["subnet-xxxxxxxx"]      # 프라이빗 서브넷(2a 권장 — NAT 와 동일 AZ)
+# db_vpc_id        = "vpc-xxxxxxxx"
+# db_ingress_sg_id = "sg-xxxxxxxx"            # 데이터 EC2(MySQL) SG
+# db_host          = "10.0.x.x"
+# db_name          = "victoryfairy"
+# db_user          = "vf"
+# db_password      = ""                       # 절대 커밋 금지 (이 파일은 example)
+# records_schedule       = "cron(30 18 * * ? *)"  # 03:30 KST
+# registrations_schedule = "cron(0 2 * * ? *)"    # 11:00 KST

@@ -1,5 +1,5 @@
 {
-  "Comment": "DEPLOYER permissions to run `terraform apply` for the Lambda stack (ECR, Lambda, EventBridge, exec role). Replace 111122223333 with your account id. Managed-policy shortcut: AmazonEC2ContainerRegistryFullAccess + AWSLambda_FullAccess + AmazonEventBridgeFullAccess + IAMFullAccess.",
+  "Comment": "DEPLOYER permissions to run `terraform apply` for the Lambda stack (ECR, Lambda, EventBridge, exec role; + EC2 SG/VPC for the DB-job function). Replace 111122223333 with your account id. Managed-policy shortcut: AmazonEC2ContainerRegistryFullAccess + AWSLambda_FullAccess + AmazonEventBridgeFullAccess + IAMFullAccess + AmazonEC2FullAccess.",
   "Version": "2012-10-17",
   "Statement": [
     {
@@ -26,7 +26,20 @@
         "lambda:PutFunctionEventInvokeConfig", "lambda:GetFunctionEventInvokeConfig",
         "lambda:DeleteFunctionEventInvokeConfig", "lambda:InvokeFunction"
       ],
-      "Resource": "arn:aws:lambda:*:111122223333:function:kbo-collector"
+      "Resource": "arn:aws:lambda:*:111122223333:function:kbo-collector*"
+    },
+    {
+      "Sid": "Ec2ForDbLambda",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:CreateSecurityGroup", "ec2:DeleteSecurityGroup",
+        "ec2:DescribeSecurityGroups", "ec2:DescribeSecurityGroupRules",
+        "ec2:AuthorizeSecurityGroupIngress", "ec2:RevokeSecurityGroupIngress",
+        "ec2:AuthorizeSecurityGroupEgress", "ec2:RevokeSecurityGroupEgress",
+        "ec2:DescribeSubnets", "ec2:DescribeVpcs",
+        "ec2:DescribeNetworkInterfaces", "ec2:CreateTags", "ec2:DeleteTags"
+      ],
+      "Resource": "*"
     },
     {
       "Sid": "EventBridge",
