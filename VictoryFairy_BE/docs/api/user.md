@@ -1,9 +1,9 @@
 # user API 명세
 
 > 코드 기준 자동 작성. 포트 **8080**(`user/src/main/resources/application.yaml`의 `server.port: 8080`). `server.servlet.context-path: /api/member`가 설정돼 있어(같은 파일) 컨트롤러의 `@RequestMapping`은 접두사 없는 자원 경로만 갖고, 실제 외부 경로에는 `/api/member`가 항상 붙는다. base URL 자체(`http://localhost:8080`)는 context-path와 무관.
-> 최종 갱신: 2026-07-28 (`GET /api/member/teams` 추가)
-> 대상 컨트롤러: `user/src/main/java/com/skhynix/user/auth/controller/AuthController.java` (`@RequestMapping("/auth")`), `user/src/main/java/com/skhynix/user/account/controller/UserAccountController.java` (`@RequestMapping("/users")`), `user/src/main/java/com/skhynix/user/team/controller/TeamController.java` (`@RequestMapping("/teams")`) — user 모듈의 컨트롤러 3개.
-> 인증: JWT Bearer (`Authorization: Bearer <accessToken>`). `SecurityConfig`에서 `/api/member/auth/**` 전체가 `permitAll()`이라 `AuthController`의 9개 엔드포인트는 인증 불필요. **`/api/member/users/me`(회원탈퇴)는 `anyRequest().authenticated()`에 걸리는 이 모듈의 첫 인증 필요 엔드포인트다** — 과거 이 문서에 "user 모듈에 실제로 인증이 걸리는 엔드포인트는 없다"고 적혀 있었다면 그건 이 엔드포인트가 생기기 전 사실이었다. 미인증 시 **401**(`RestAuthenticationEntryPoint`) — 자세한 내용은 아래 "인증 방식" 절 참고. **`GET /api/member/teams`는 `/api/member/auth/**` 밖에서 처음으로 `permitAll`이 된 경로**이며 GET으로만 좁혀 열려 있다(비-GET은 401 — 아래 해당 절 참고).
+> 최종 갱신: 2026-07-28 (`GET /api/member/players` 추가)
+> 대상 컨트롤러: `user/src/main/java/com/skhynix/user/auth/controller/AuthController.java` (`@RequestMapping("/auth")`), `user/src/main/java/com/skhynix/user/account/controller/UserAccountController.java` (`@RequestMapping("/users")`), `user/src/main/java/com/skhynix/user/team/controller/TeamController.java` (`@RequestMapping("/teams")`), `user/src/main/java/com/skhynix/user/player/controller/PlayerController.java` (`@RequestMapping("/players")`) — user 모듈의 컨트롤러 4개.
+> 인증: JWT Bearer (`Authorization: Bearer <accessToken>`). `SecurityConfig`에서 `/api/member/auth/**` 전체가 `permitAll()`이라 `AuthController`의 9개 엔드포인트는 인증 불필요. **`/api/member/users/me`(회원탈퇴)는 `anyRequest().authenticated()`에 걸리는 이 모듈의 첫 인증 필요 엔드포인트다** — 과거 이 문서에 "user 모듈에 실제로 인증이 걸리는 엔드포인트는 없다"고 적혀 있었다면 그건 이 엔드포인트가 생기기 전 사실이었다. 미인증 시 **401**(`RestAuthenticationEntryPoint`) — 자세한 내용은 아래 "인증 방식" 절 참고. **`GET /api/member/teams`는 `/api/member/auth/**` 밖에서 처음으로 `permitAll`이 된 경로**이며 GET으로만 좁혀 열려 있다(비-GET은 401 — 아래 해당 절 참고). **`GET /api/member/players`도 같은 성격의 참조 데이터라 같은 방식(GET 한정 `permitAll`)으로 열려 있다.**
 
 ## 공통 사항
 
@@ -619,6 +619,58 @@ curl -i -X POST http://localhost:8080/api/member/teams
 ```
 ```json
 {"success":false,"data":null,"message":"인증이 필요합니다."}
+```
+
+---
+
+## GET /api/member/players
+KBO 선수 목록 조회. 대상 컨트롤러는 `PlayerController`(`@RequestMapping("/players")`, `com.skhynix.user.player.controller.PlayerController`) → `PlayerService.getPlayers(Long)` → `PlayerRepository.findAllByOrderByNameAsc()` 또는 `findAllByTeam_IdOrderByNameAsc(teamId)`.
+
+**인증 불필요.** `GET /api/member/teams`와 같은 성격의 참조 데이터라 `SecurityConfig`가 같은 방식으로 열었다(`.requestMatchers(HttpMethod.GET, "/players").permitAll()`). **`permitAll`은 `HttpMethod.GET`으로 좁혀져 있어** `POST /api/member/players`는 405가 아니라 **401**이다.
+
+**요청**: 쿼리 파라미터 `teamId` 1개(선택).
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| teamId | Long | 아니오 | 구단 PK(`GET /api/member/teams`의 `data[].id`). 주면 해당 구단 소속 선수만, 생략하면 전체 선수를 반환한다 |
+
+`?page=`/`?size=` 등은 서버가 해석하지 않으며 **페이징이 없다** — 항상 단일 배열로 반환한다.
+
+**응답 200 OK** `ApiResponse<List<PlayerResponse>>`
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| success | boolean | 항상 `true` |
+| data | array | 선수 배열 |
+| data[].id | Long | 선수 PK |
+| data[].name | String | 선수 이름 |
+| message | null | 사용되지 않음 |
+
+**`average`/`naverPcode`/`kboPlayerId`/`team`/`createdAt`/`updatedAt`는 의도적으로 응답에 없다.** `naverPcode`(네이버 record API의 pcode)와 `kboPlayerId`(KBO 공식 playerId)는 py-collector가 upsert 키로 소유하는 소스 자연키라 `TeamResponse`가 `Team.code`를 감추는 것과 같은 이유로 제외한다. `team`을 담지 않는 것은 N+1 방지 목적도 겸한다(`Player.team`이 LAZY라 응답 변환에서 초기화되지 않는다).
+
+**정렬: `name` 오름차순, DB(`ORDER BY name ASC`)가 단독 수행하며 애플리케이션에서 재정렬하지 않는다.** `teamId` 유무와 무관하게 같은 정렬이다. 구단 목록과 마찬가지로 한국어 로케일이 아닌 MySQL 콜레이션 기준이다.
+
+**존재하지 않는 `teamId`는 404가 아니라 200 + 빈 배열**이다. 구단 존재 여부를 따로 조회하지 않으며, `GET /api/member/teams`가 유효한 id의 출처라고 전제한다. `players` 테이블에 행이 없을 때도 동일하다:
+```json
+{"success":true,"data":[],"message":null}
+```
+
+**실패**
+
+| 상태 | 코드 | 조건 |
+|---|---|---|
+| 400 | (래퍼 없음) | `teamId`가 숫자가 아님(예: `?teamId=abc`). 컨트롤러 진입 전 타입 변환 실패라 `GlobalExceptionHandler`가 아니라 Spring 기본 `DefaultHandlerExceptionResolver`가 처리한다 — **이 응답만 `ApiResponse` 래퍼가 아니다** |
+| 401 | UNAUTHENTICATED | `GET` 이외의 메서드로 이 경로 요청(`permitAll`이 GET으로만 좁혀져 있음 — 405 아님) |
+
+Authorization 헤더가 있어도(만료·무효 토큰이어도) 이 경로는 `permitAll`이라 그대로 200을 반환한다.
+
+**예시**
+```bash
+curl -i -X GET http://localhost:8080/api/member/players
+curl -i -X GET "http://localhost:8080/api/member/players?teamId=6"
+```
+```json
+{"success":true,"data":[{"id":2,"name":"김도영"}],"message":null}
 ```
 
 ---
