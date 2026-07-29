@@ -13,7 +13,7 @@
 | 네트워크 | VPC `10.0.0.0/16`, **2a 운영 / 2c 예비** | — |
 | 앱 컴퓨트 | EKS 1.30, 노드그룹 **app**(user+quiz 공용) **· batch**(분리) | 둘 다 오토스케일 |
 | 데이터 | **단일 고정 EC2**(비 EKS)에 MySQL + 서비스 Redis | 스케일 없음(수직만) |
-| 정제 | **서버리스** — Lambda + S3 이벤트 + SQS + DynamoDB (§4) | 이벤트 구동 |
+| 정제 | **서버리스** — Lambda + S3 이벤트 + SQS + DynamoDB (§4). 이미지 배포는 **CI 소유** | 이벤트 구동 |
 | batch 노드그룹 | Spot xlarge 0→N→0. **정제에는 미사용 — 문제 생성 단계용 보류** | 일시적 |
 | 접근 | SSM Session Manager only (DB·EKS 노드 SSH 모두 터널 경유, 22/3306 인입 없음) | — |
 
@@ -110,6 +110,25 @@ kbo-collector (Lambda)  ──▶ S3 community/{source}/{date}/{postId}.json
   입력 prefix 는 읽기전용이며 원본을 이동하지 않는다. Lambda 재시도·SQS 재전달에도 안전하다.
 - **`BATCH_DATE`** 는 이벤트에서 S3 키의 `{date}` 를 파싱해 얻는다. EKS 안에서 필요했던
   "컨트롤러가 주입" 배선이 사라진다.
+
+### 이미지 배포 — CI 가 소유한다 (2026-07-29)
+
+`pattern`·`bedrock` 두 함수는 **`victoryfairy-pipeline` 이미지 하나를 공유**하고
+`image_config.command` 로 핸들러만 갈린다. 이 이미지는 `.github/workflows/deploy-ai.yml`
+이 빌드·push 하고 `update-function-code` 로 반영한다(상세는 [DEPLOYMENT.md §6](DEPLOYMENT.md)).
+
+- **왜 CI 로 옮겼나**: 컨테이너 Lambda 는 태그를 생성 시점에 **digest 로 고정**한다.
+  ECR push 만으로는 절대 반영되지 않아, 종전에는 사람이 빌드·push 하고 `refine_image_tag`
+  를 고쳐 `apply` 하는 3단계를 밟아야 했다.
+- **대가**: `image_uri` 에 `ignore_changes` 를 걸어 **Terraform 이 이미지의 소유권을 포기**했다.
+  `var.refine_image_tag` 는 이제 **최초 생성용 부트스트랩 값**일 뿐이며, 실제 배포된 코드는
+  코드가 아니라 런타임(`aws lambda get-function`)에 물어봐야 안다. 인프라 코드만 읽고
+  "지금 무슨 이미지가 도는지" 알 수 없게 된 것이 이 결정의 비용이다.
+- **CI 역할 권한**: `modules/security` 가 두 함수 ARN 에 한정해 `UpdateFunctionCode` +
+  `GetFunction*` 을 부여한다(목록이 비면 statement 자체를 만들지 않는다).
+- **py-collector 는 이 경로 밖**이다. 자체 스택의 `null_resource` 가 소스 해시로 재빌드하며
+  VPC/SG 등 함수 설정과 한 몸이라 `apply` 경유를 유지한다 — 한 파이프라인이 두 관리 체계에
+  걸치는 상태가 여기서도 이어진다(아래 한계 참고).
 
 ### 한계 — 알고 들어간다
 

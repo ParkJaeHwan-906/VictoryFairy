@@ -15,6 +15,9 @@
 | 클러스터/네임스페이스 | `victoryfairy-dev` / `victoryfairy` |
 | 배포 단위 | Deployment `user-app`(8080), `quiz-app`(8081) + HPA(user 1~2, quiz 1~4) |
 
+> 이 문서의 §1~§5는 **BE(EKS) 배포**를 다룹니다. AI 정제 파이프라인은 EKS가 아니라
+> Lambda 컨테이너로 돌고 배포 경로가 완전히 다릅니다 → [§6](#6-ai-정제-파이프라인-이미지-배포-lambda)
+
 ## 2. 배포 방법 2가지
 
 ### A. 자동 배포 — GitHub Actions (기본)
@@ -111,13 +114,73 @@ kubectl -n victoryfairy rollout undo deploy/user-app --to-revision=2
 - [ ] 새 환경변수를 추가했다면: `app-config`(ConfigMap)/`app-secret`(Secret)에 먼저 반영
 - [ ] 배포 후: `kubectl -n victoryfairy get pods` 로 Running 확인, 로그에 에러 없는지 확인
 
-## 6. 관련 리소스 위치
+## 6. AI 정제 파이프라인 이미지 배포 (Lambda)
+
+BE(EKS)와는 **별개 경로**입니다 — `.github/workflows/deploy-ai.yml`.
+
+```
+[AI 코드 수정] → [arm64 빌드] → [ECR victoryfairy-pipeline push (커밋 SHA)]
+  → [Lambda update-function-code ×2] → [실패 시 직전 이미지로 자동 롤백]
+```
+
+`main` push 시 아래 경로가 바뀌면 자동 실행됩니다.
+
+| 감지 경로 | 이유 |
+|---|---|
+| `VictoryFairy_AI/pipeline/**` | 핸들러·러너 코드 |
+| `VictoryFairy_AI/validation/**` | **검열 사전**(`core/data/*.json`)이 이미지에 함께 구워진다 |
+| `VictoryFairy_AI/bedrock/**` | 전용 이미지가 없어 여기 함께 실린다 |
+
+`refine-pattern`·`refine-bedrock` 두 함수가 **이미지 하나를 공유**하고
+`image_config.command`로 핸들러만 갈리므로, 한 번 빌드해 두 함수를 함께 갱신합니다.
+
+### 왜 push만으로는 반영되지 않나
+
+컨테이너 Lambda는 이미지 태그를 **생성 시점에 digest로 고정**합니다. ECR에 새 이미지를
+올려도 함수는 옛 digest를 계속 씁니다. 그래서 워크플로가 `update-function-code`를
+명시적으로 호출합니다. Terraform은 `image_uri`에 `lifecycle { ignore_changes }`를
+걸어 두었으므로(`modules/refine-pipeline`) 다음 `apply`가 배포를 되감지 않습니다.
+→ **`var.refine_image_tag`는 최초 생성용 부트스트랩 값**이며, 이후 실제 배포된 코드는
+`aws lambda get-function --function-name victoryfairy-dev-refine-pattern --query Code.ImageUri`
+로 확인합니다.
+
+### 빌드 시 반드시 지켜야 하는 두 가지
+
+- **arm64 고정** — `pipeline/Dockerfile`이 `FROM --platform=linux/arm64`이고 Terraform도
+  `architectures = ["arm64"]`입니다. 한쪽만 달라지면 함수가 뜨지 않습니다.
+  워크플로는 `ubuntu-24.04-arm` 네이티브 러너를 씁니다(퍼블릭 레포라 무료).
+- **`--provenance=false --sbom=false`** — 빠지면 매니페스트가 OCI image index가 되어
+  Lambda가 거부합니다. 워크플로에 `imageManifestMediaType` 검증 단계를 두었습니다.
+
+### 수동 배포
+
+```bash
+cd VictoryFairy_AI
+TAG=$(git rev-parse --short=7 HEAD)
+ECR=555209622409.dkr.ecr.ap-northeast-2.amazonaws.com/victoryfairy-pipeline
+docker buildx build --platform linux/arm64 --provenance=false --sbom=false \
+  -f pipeline/Dockerfile -t "$ECR:$TAG" --push .
+for FN in victoryfairy-dev-refine-pattern victoryfairy-dev-refine-bedrock; do
+  aws lambda update-function-code --function-name "$FN" --image-uri "$ECR:$TAG"
+done
+```
+
+### 범위 밖 — py-collector
+
+py-collector의 Lambda 이미지는 **이 워크플로가 다루지 않습니다.** 별도 스택
+(`VictoryFairy_AI/py-collector/deploy/lambda/terraform`)의 `null_resource`가
+`kbo_collector/**`·`config/**` 해시를 트리거로 빌드·push하며, VPC/SG 등 함수 설정과
+한 몸이라 `terraform apply` 경유를 유지합니다.
+
+## 7. 관련 리소스 위치
 
 | 무엇 | 어디 |
 |---|---|
-| CI 워크플로 | `.github/workflows/deploy-eks.yml` (레포 루트) |
+| CI 워크플로 (BE·EKS) | `.github/workflows/deploy-eks.yml` (레포 루트) |
+| CI 워크플로 (AI·Lambda) | `.github/workflows/deploy-ai.yml` (레포 루트) |
 | 수동 배포 스크립트 | `VictoryFairy_Infra/scripts/deploy-app.sh` |
 | k8s 매니페스트 | `VictoryFairy_Infra/k8s/` |
 | CI IAM 역할 (Terraform) | `VictoryFairy_Infra/modules/security/` |
 | ECR (Terraform) | `VictoryFairy_Infra/modules/ecr/` |
+| 정제 파이프라인 (Terraform) | `VictoryFairy_Infra/modules/refine-pipeline/` |
 | 아키텍처 상세 | [ARCHITECTURE.md](ARCHITECTURE.md) |
