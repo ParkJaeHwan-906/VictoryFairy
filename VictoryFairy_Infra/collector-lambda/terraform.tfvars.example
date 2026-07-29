@@ -1,0 +1,46 @@
+# Copy to a per-environment tfvars file and edit.
+#
+# dev/prod are SEPARATE stacks. `name` drives the ECR repo, Lambda function, IAM
+# roles, and EventBridge rule names, so give each environment its own `name` and
+# `data_bucket_name`, and isolate their state with a terraform workspace
+# (see README.md "배포 (dev/prod 별도 스택)").
+#
+#   dev : cp this -> terraform.dev.tfvars  ; terraform apply -var-file=terraform.dev.tfvars
+#   prod: cp this -> terraform.prod.tfvars ; terraform apply -var-file=terraform.prod.tfvars
+
+# --- 소스 경로 ---
+# 이미지 빌드 원천인 py-collector 소스(dev_ai 소유). 기본값은 리포 루트에
+# VictoryFairy_AI 가 나란히 있는 체크아웃(main) 기준 상대경로라, dev_infra 단독
+# 체크아웃에서는 아래처럼 절대경로로 지정해야 한다. ⚠ apply 시점에 이 경로의 코드가
+# 그대로 이미지가 되므로, 최신 코드가 merge 된 체크아웃(main 권장)을 가리킬 것.
+# collector_src = "/Users/you/VictoryFairy/VictoryFairy_AI/py-collector"
+
+# --- dev stack ---
+region           = "ap-northeast-2"
+name             = "kbo-collector-dev"
+data_bucket_name = "victoryfairy-crawl-dev"   # 버킷은 미리 생성돼 있어야 함(terraform이 안 만듦)
+architecture     = "arm64" # arm64 (cheaper) or x86_64
+# pii_salt       = ""      # empty -> random; dev/prod salt는 서로 다르게 두는 걸 권장
+
+# --- prod stack (별도 workspace + 별도 tfvars) ---
+# name             = "kbo-collector"
+# data_bucket_name = "victoryfairy-crawl-prod"
+
+# community_schedule = "rate(10 minutes)"
+# game_schedule      = "cron(0 18 * * ? *)"   # 03:00 KST
+
+# --- DB 적재 잡 (records/registrations, prod 전용) ---
+# db_subnet_ids 를 채우면 VPC 안에 kbo-collector-db 함수 + 스케줄이 함께 생긴다.
+# 아래 4개 id/값은 VictoryFairy_Infra(environments/dev) 스택에서 가져온다:
+#   서브넷/VPC : terraform output (프라이빗 서브넷, VPC)
+#   SG         : mysql-ec2 모듈의 SG (데이터 EC2 콘솔에서도 확인 가능)
+#   db_host    : 데이터 EC2 프라이빗 IP (재생성 시 여기와 k8s Endpoints 둘 다 갱신)
+# db_subnet_ids    = ["subnet-xxxxxxxx"]      # 프라이빗 서브넷(2a 권장 — NAT 와 동일 AZ)
+# db_vpc_id        = "vpc-xxxxxxxx"
+# db_ingress_sg_id = "sg-xxxxxxxx"            # 데이터 EC2(MySQL) SG
+# db_host          = "10.0.x.x"
+# db_name          = "victoryfairy"
+# db_user          = "vf"
+# db_password      = ""                       # 절대 커밋 금지 (이 파일은 example)
+# records_schedule       = "cron(30 18 * * ? *)"  # 03:30 KST
+# registrations_schedule = "cron(0 2 * * ? *)"    # 11:00 KST
