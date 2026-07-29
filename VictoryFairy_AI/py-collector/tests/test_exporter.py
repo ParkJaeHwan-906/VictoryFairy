@@ -26,14 +26,16 @@ class FakeSink:
         return 1
 
 
-GAME_ROW = ("20260328HTSK02026", "2026-03-28", "regular", "문학", "14:00",
-            "HT", "KIA", "SK", "SSG", 6, 7, "home")
+# (games.id, naver_game_id, 날짜, 시각, 구장, away 코드/이름, home 코드/이름,
+#  away/home 점수, 상태명)
+GAME_ROW = (55, "20260328HTSK02026", "2026-03-28", "14:00", "문학",
+            "HT", "KIA", "SK", "SSG", 6, 7, "FINISHED")
 DECISIONS = [("W", "김민"), ("L", "조상우"), ("S", None)]
 
 
 def _db():
     return FakeDb({"FROM games": [GAME_ROW],
-                   "FROM game_pitching": [(d, n) for d, n in DECISIONS if n]})
+                   "FROM game_lineups": [(d, n) for d, n in DECISIONS if n]})
 
 
 def test_read_game_results_renders_content():
@@ -88,8 +90,8 @@ def test_export_delegates_to_source_when_no_reader():
         base.REGISTRY.update(saved)
 
 
-PLAYER_ROW = ("53554", "김민석", "LT", "롯데", "10", "외야수", "우투좌타",
-              "2004-02-01", 1, 123)
+# (kbo_player_id, players.id, 이름, 팀 코드, 팀 이름)
+PLAYER_ROW = ("53554", 123, "김민석", "LT", "롯데")
 
 
 def test_read_player_profiles_renders_content():
@@ -99,18 +101,9 @@ def test_read_player_profiles_renders_content():
     assert e.doc_id == "player_profile:53554"
     assert e.entities["playerUids"] == [123]
     assert e.entities["teamCodes"] == ["LT"]
-    for frag in ("김민석", "롯데", "외야수", "10", "우투좌타"):
+    for frag in ("김민석", "롯데"):
         assert frag in e.content
     assert "프로필" in e.tags
-
-
-def test_read_player_profiles_without_uid():
-    row = PLAYER_ROW[:-1] + (None,)
-    db = FakeDb({"FROM players": [row]})
-    e = list(exporter.read_player_profiles(db))[0]
-    assert e.entities["playerUids"] == []
-    assert e.entities["unresolved"] == [
-        {"kind": "player", "name": "김민석", "reason": "no-game-uid"}]
 
 
 class FakeS3Sink(FakeSink):

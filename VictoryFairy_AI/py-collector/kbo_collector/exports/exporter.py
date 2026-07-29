@@ -47,31 +47,36 @@ def export(doc_type: str, *, settings, db, sink, date=None) -> int:
 
 
 _GAMES_SQL = (
-    "SELECT g.game_id, g.game_date, g.game_type, g.stadium, g.start_time, "
-    " g.away_team_code, ta.name, g.home_team_code, th.name, "
-    " g.away_score, g.home_score, g.winner "
-    "FROM games g JOIN teams ta ON ta.team_code=g.away_team_code "
-    " JOIN teams th ON th.team_code=g.home_team_code "
-    "WHERE (%s IS NULL OR g.game_date=%s)"
+    "SELECT g.id, g.naver_game_id, DATE(g.game_date), "
+    " TIME_FORMAT(g.game_date, '%%H:%%i'), s.name, "
+    " ta.code, ta.name, th.code, th.name, g.away_score, g.home_score, gs.name "
+    "FROM games g JOIN teams ta ON ta.id=g.away_team_id "
+    " JOIN teams th ON th.id=g.home_team_id "
+    " JOIN game_statuses gs ON gs.id=g.game_status_id "
+    " LEFT JOIN stadiums s ON s.id=g.stadium_id "
+    "WHERE g.naver_game_id IS NOT NULL AND (%s IS NULL OR DATE(g.game_date)=%s)"
 )
 _DECISION_SQL = (
-    "SELECT gp.decision, p.name FROM game_pitching gp "
-    "JOIN game_players p ON p.player_uid=gp.player_uid "
-    "WHERE gp.game_id=%s AND gp.decision IS NOT NULL"
+    "SELECT gl.decision, p.name FROM game_lineups gl "
+    "JOIN players p ON p.id=gl.player_id "
+    "WHERE gl.game_id=%s AND gl.decision IS NOT NULL"
 )
 
 
 @reader("game_result")
 def read_game_results(db, date=None, sink=None):
     now = _now()
-    for (gid, gdate, gtype, stadium, gtime, a_code, a_name, h_code, h_name,
-         a_score, h_score, winner) in db.fetch_all(_GAMES_SQL, (date, date)):
-        decisions = dict(db.fetch_all(_DECISION_SQL, (gid,)))
+    for (pk, gid, gdate, gtime, stadium, a_code, a_name, h_code, h_name,
+         a_score, h_score, status) in db.fetch_all(_GAMES_SQL, (date, date)):
+        decisions = dict(db.fetch_all(_DECISION_SQL, (pk,)))
         win_name = decisions.get("W")
         lose_name = decisions.get("L")
-        if winner == "draw":
+        draw = status == "DRAW" or a_score == h_score
+        if draw:
+            winner = "draw"
             outcome = "무승부로 끝났다"
         else:
+            winner = "home" if (h_score or 0) > (a_score or 0) else "away"
             winner_name = h_name if winner == "home" else a_name
             outcome = f"{winner_name}의 승리로 끝났다"
         parts = [f"{gdate} {stadium}에서 열린 {a_name} 대 {h_name} 경기는 "
@@ -86,9 +91,7 @@ def read_game_results(db, date=None, sink=None):
         entities["gameId"] = gid
         entities["teamCodes"] = [a_code, h_code]
         tags = ["박스스코어", "경기결과"]
-        if gtype == "preseason":
-            tags.append("시범경기")
-        if winner == "draw":
+        if draw:
             tags.append("무승부")
         yield Envelope(
             doc_id=f"game_result:{gid}",
@@ -105,42 +108,34 @@ def read_game_results(db, date=None, sink=None):
         )
 
 
+# 운영 players 는 상세정보(등번호·포지션·투타·생년월일) 없이 이름/팀만 가진다.
+# 상세가 다시 필요해지면 players 테이블 확장이 선행돼야 한다.
 _PLAYERS_SQL = (
-    "SELECT p.player_id, p.name, p.team_code, t.name, p.back_number, "
-    " p.position, p.throw_bat, p.birth_date, p.is_first_team, gp.player_uid "
-    "FROM players p JOIN teams t ON t.team_code=p.team_code "
-    "LEFT JOIN game_players gp ON gp.kbo_player_id=p.player_id"
+    "SELECT p.kbo_player_id, p.id, p.name, t.code, t.name "
+    "FROM players p JOIN teams t ON t.id=p.team_id "
+    "WHERE p.kbo_player_id IS NOT NULL"
 )
 
 
 @reader("player_profile")
 def read_player_profiles(db, date=None, sink=None):
     now = _now()
-    for (pid, name, team_code, team_name, back_no, position, throw_bat,
-         birth, is_first, uid) in db.fetch_all(_PLAYERS_SQL):
+    for (pid, uid, name, team_code, team_name) in db.fetch_all(_PLAYERS_SQL):
         entities = empty_entities()
         entities["teamCodes"] = [team_code]
-        if uid is not None:
-            entities["playerUids"] = [uid]
-        else:
-            entities["unresolved"] = [
-                {"kind": "player", "name": name, "reason": "no-game-uid"}]
-        first = "1군 등록" if is_first else "1군 미등록"
-        content = (f"{team_name} {name}은(는) {position}로, 등번호 {back_no}번, "
-                   f"{throw_bat}이다. 생년월일 {birth}. 현재 {first} 상태다.")
+        entities["playerUids"] = [uid]
+        content = f"{name}은(는) {team_name} 소속 선수다."
         yield Envelope(
             doc_id=f"player_profile:{pid}",
             doc_type="player_profile",
             source="kbo_official",
-            source_ref=f"mysql://players/{pid}",
+            source_ref=f"mysql://players/{uid}",
             collected_at=now,
             title=f"{team_name} {name} 프로필",
             content=content,
             tags=["프로필", "선수"],
             entities=entities,
-            payload={"playerId": pid, "backNumber": back_no,
-                     "position": position, "throwBat": throw_bat,
-                     "isFirstTeam": bool(is_first)},
+            payload={"playerId": pid},
         )
 
 

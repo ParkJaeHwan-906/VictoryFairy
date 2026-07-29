@@ -125,7 +125,7 @@ py-collector/
 |---|---|
 | **lambda/** | 서버리스 크롤(호출당 과금). `handler.py`(코어 호출 어댑터), `Dockerfile`+`requirements.txt`(lxml 네이티브 → 컨테이너 이미지), `terraform/`(ECR·Lambda·EventBridge 스케줄·IAM), `README.md`. **community 10분 + game 매일 03:00 KST**. MySQL엔 안 씀 |
 | **local/** | 주거 IP에서 도는 스크립트. `crawl_fmkorea.sh`(일일 인기글), `backfill_fmkorea.sh`(구간 백필), `README.md` |
-| **sql/** | `schema.sql`(MySQL 테이블 DDL — teams/players/player_registrations/games/game_*), `seed-dump.sql`(시드) |
+| **sql/** | `migrate-legacy-collector.sql`(구 수집기 스키마 제거 — 1회성). 서비스 스키마 DDL 사본은 두지 않는다(원천: domain JPA 엔티티, dev_be 소관) |
 
 ## `tests/` · `docs/` · `notebooks/` · 루트
 
@@ -144,7 +144,7 @@ py-collector/
 | 커뮤니티 크롤 대상(갤러리) 추가/변경 | `config/targets*.yaml` (코드 수정 없음) |
 | S3 키 레이아웃 변경 | `keys.py`(원본 3종·커뮤니티·dead-letter·manifest) / `exports/envelope.py`(question-source) |
 | 재시도·UA·rate-limit 정책 | `fetch.py` (+ `config.py`의 `retry_*`·`rate_limit_cooldown_s`) |
-| MySQL 적재 규칙(upsert) | `db.py` (+ 스키마는 `deploy/sql/schema.sql`) |
+| MySQL 적재 규칙(upsert) | `db.py` (스키마 원천: domain JPA 엔티티) |
 | 커뮤니티 파싱 셀렉터 | `community.py` |
 | envelope 필드/템플릿 문구 | `exports/envelope.py`(스키마) / `exports/exporter.py`(reader 문장) / `sources/meme_dict.py`(밈 문장) |
 | Lambda 스케줄/환경변수 | `deploy/lambda/terraform/` |

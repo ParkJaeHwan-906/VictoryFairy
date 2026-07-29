@@ -2,7 +2,9 @@ name: Deploy to EC2
 
 # main 브랜치에 push(= PR merge)되면 자동 배포. UI에서 수동 실행도 가능.
 # 변경이 감지된 모듈(+ 그에 의존하는 모듈)만 빌드한다.
-# 주의: 저장소 루트는 VictoryFairy/ 이고 프로젝트는 VitoryFairy_BE/ 하위에 있다.
+# 주의: 저장소 루트는 VictoryFairy/ 이고 Spring 프로젝트는 VitoryFairy_BE/ 하위.
+# py-collector(VictoryFairy_AI/)는 이 워크플로 대상이 아니다 — Lambda 컨테이너로 돌며
+# terraform apply 가 이미지 빌드·푸시까지 수행한다(py-collector/deploy/lambda/README.md).
 on:
   push:
     branches: [main]

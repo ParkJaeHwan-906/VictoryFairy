@@ -13,7 +13,7 @@
 | 정형 | **record** (박스스코어) | 네이버 스포츠 API | 파싱 → **MySQL** | 네이버 응답을 정규화 적재 |
 | 비정형 | **RawPost** (커뮤니티 글) | FMKorea / DCInside HTML | 우리가 만든 JSON 스키마 | HTML을 파싱해 구성 |
 
-> **record만 예외**: schedule/result/relay/RawPost는 S3에 저장하지만, **record는 파싱해서 MySQL**(`games`/`game_pitching`/`game_batting`/`game_innings`/`game_players`)에 넣습니다. 아래 5절은 "네이버가 record 엔드포인트에서 내려주는 원본 구조"를 정리한 것이고, MySQL 테이블 스키마는 `current-crawl-overview.md` 5-2절 참고.
+> **record만 예외**: schedule/result/relay/RawPost는 S3에 저장하지만, **record는 파싱해서 운영 MySQL**(`games`/`game_lineups`, 선수는 `players`에 해소)에 넣습니다. 아래 5절은 "네이버가 record 엔드포인트에서 내려주는 원본 구조"를 정리한 것이고, 테이블 구조는 domain 모듈 JPA 엔티티 참고.
 
 **핵심 원칙 2가지**
 - **정형(네이버)**: 응답을 **가공 없이 byte-for-byte** 저장합니다. 아래 구조는 "우리가 정한 것"이 아니라 **네이버가 내려주는 모양**입니다.
@@ -254,7 +254,7 @@ schedule의 상태 필드(`gameId`, `statusCode`, `cancel`, `suspended`, 점수 
 | `sb`,`kk`,`hra` | `0`,`1`,`0.200` | 도루·삼진·시즌타율 |
 | `inn1`~`inn25` | `"삼진"`,`"1땅"`,`"좌비"` … | 타석별 결과 서술(연장 대비 25칸) |
 
-> **선수코드 주의**: 노드마다 키 이름이 다릅니다 — `pcode`(투수) / `playerCode`(타자) / `pCode`(pitchingResult) / `aPCode`·`hPCode`(gameInfo 선발). 파서에서 모두 정규화합니다. 이 `pcode`는 KBO 공식 `playerId`와 **다른 체계**라, 우리 쪽에선 자체 `player_uid`로 매핑합니다.
+> **선수코드 주의**: 노드마다 키 이름이 다릅니다 — `pcode`(투수) / `playerCode`(타자) / `pCode`(pitchingResult) / `aPCode`·`hPCode`(gameInfo 선발). 파서에서 모두 정규화합니다. 이 `pcode`는 KBO 공식 `playerId`와 **다른 체계**라, 운영 `players` 테이블에 `naver_pcode`/`kbo_player_id` 두 컬럼으로 각각 매핑합니다(해소 순서: pcode → 이름+팀 유일매칭 → 신규 행).
 
 ---
 

@@ -10,7 +10,7 @@
 DCInside·FMKorea)을 크롤·호출해서
 
 1. 경기 원본 JSON·커뮤니티 글을 **S3 브론즈**에 멱등 적재하고,
-2. 로스터·박스스코어를 **MySQL**에 정규화 적재하며,
+2. 로스터·라인업을 **운영 MySQL**(서비스 스키마: teams/players/games/game_lineups)에 적재하며,
 3. 이것들을 소스 무관 **question-source envelope(v1)** 로 재포장해 S3 `question-source/`에 올려
    질문생성 AI에 인계합니다.
 
@@ -40,9 +40,14 @@ Lambda·로컬 스크립트가 이를 얇게 호출합니다.
 - **소스 추가 = `sources/`에 모듈 1개(`@register`) + `sources/__init__.py` import 1줄.** `run.py`·소비자는
   건드리지 않습니다(소스 계약·이유는 `envelope-format.md`·`directory-structure.md`). 필요 시 `config.py`에
   설정 1줄.
-- **DB 잡은 SSH 터널 MySQL로만.** `records`·`registrations`·`teams`·`export`는 MySQL에 씁니다. `127.0.0.1:3306`은
-  로컬 도커가 아니라 **SSH 터널 너머 원격 DB**입니다. **Lambda는 MySQL에 접근하지 않습니다**(S3 전용) —
-  DB 잡은 DB 접근 가능한 호스트의 CLI/크론에서 실행하세요.
+- **DB 잡은 운영 서비스 스키마에 씁니다.** `records`·`registrations`·`teams`·`export`가 쓰는
+  teams/players/games/game_lineups 는 **domain 모듈 JPA 엔티티가 구조의 원천**(수집기는 소스
+  자연키 — teams.code, players.kbo_player_id/naver_pcode, games.naver_game_id — 로 upsert).
+  **도메인 관련 코드는 domain 모듈 엔티티 파일만 참고해 작성하고, 이 리포에 DDL
+  사본(schema.sql류)을 만들지 마세요** — 스키마 변경·생성은 dev_be 소관. 운영 실행은 **VPC 안
+  Lambda**(`kbo-collector-db`, `deploy/lambda/terraform/lambda_db.tf` — records 03:30 KST ·
+  registrations 11:00 KST), 로컬 개발은 SSH 터널(`127.0.0.1:3306` = 원격 DB, 로컬 도커 아님).
+  S3 잡 함수(`kbo-collector`)는 MySQL에 접근하지 않습니다 — DB 자격증명은 -db 함수에만 있습니다.
 - **코드 파일 수정은 신중히.** `kbo_collector/`·`deploy/`·`tests/`는 실행 코드입니다. 문서만 고칠 때는
   `docs/`·`README.md`·이 파일만 만지세요.
 
