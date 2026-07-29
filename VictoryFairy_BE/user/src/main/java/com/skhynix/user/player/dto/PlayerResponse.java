@@ -5,7 +5,7 @@ import com.skhynix.domain.player.entity.Player;
 /**
  * 선수 응답. 노출 필드는 {@code id}·{@code name} 뿐이다.
  *
- * <p>{@code Player.naverPcode}/{@code kboPlayerId} 는 py-collector 가 upsert 키로 소유하는 소스 자연키라
+ * <p>{@code Player.kboPlayerId} 는 py-collector 가 upsert 키로 소유하는 소스 자연키라
  * 외부 계약이 되면 안 되므로, 엔티티를 그대로 직렬화하지 않고 이 DTO 로 변환해 반환한다.
  * {@code average}·{@code createdAt}/{@code updatedAt} 도 아직 계약에 없어 제외한다.
  *
