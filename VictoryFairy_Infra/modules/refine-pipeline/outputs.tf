@@ -8,6 +8,11 @@ output "bedrock_dlq_url" {
   value       = aws_sqs_queue.bedrock_dlq.url
 }
 
+output "bedrock_function_arn" {
+  description = "Bedrock 2차 검열 Lambda 함수 ARN (CI 배포 역할의 UpdateFunctionCode 스코프)"
+  value       = aws_lambda_function.bedrock.arn
+}
+
 output "bedrock_function_name" {
   description = "Bedrock 2차 검열 Lambda 함수 이름 (로그 조회·수동 호출용)"
   value       = aws_lambda_function.bedrock.function_name
@@ -16,6 +21,11 @@ output "bedrock_function_name" {
 output "bedrock_queue_url" {
   description = "패턴 통과분이 들어가는 SQS 큐 URL. 패턴 Lambda 가 여기에 SendMessage 한다"
   value       = aws_sqs_queue.bedrock.url
+}
+
+output "pattern_function_arn" {
+  description = "패턴 검열 Lambda 함수 ARN (CI 배포 역할의 UpdateFunctionCode 스코프)"
+  value       = aws_lambda_function.pattern.arn
 }
 
 output "pattern_function_name" {

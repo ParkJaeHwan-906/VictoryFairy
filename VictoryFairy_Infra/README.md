@@ -14,6 +14,9 @@ Terraform 으로 관리하는 VictoryFairy 의 AWS 인프라 코드입니다.
 - **정제**: **서버리스**. 크롤(Lambda, 상시) → S3 이벤트 → 패턴 검열(Lambda) → SQS → LLM 검열(Lambda, AWS Bedrock).
   트리거가 인프라 부품이라 **폴링 컨트롤러가 없다**. 산출물은 **S3 에서 끝난다** — MySQL 을 쓰지 않는다 → ARCHITECTURE.md §4
 - **batch 노드그룹**(Spot·min0): **정제에는 쓰이지 않는다.** 문제 생성 단계용으로 보류
+- **배포**: BE 는 `deploy-eks.yml`(ECR → EKS 블루-그린), AI 정제 이미지는 `deploy-ai.yml`
+  (ECR → Lambda `update-function-code`). 컨테이너 Lambda 는 태그를 digest 로 고정해서
+  **push 만으로는 반영되지 않는다** → [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)
 - **외부 접근**: DB·EKS 노드 SSH는 SSM Session Manager 포트포워딩(인바운드 22/3306 개방 없음), EKS API는 퍼블릭 엔드포인트+IAM 인증(`kubectl`) — 절차는 [`scripts/README.md`](scripts/README.md)
 
 ## 디렉토리 구조

@@ -87,6 +87,11 @@ module "refine_pipeline" {
 
   pipeline_repository_url = module.ecr.repository_urls["pipeline"]
   image_tag               = var.refine_image_tag
+
+  # SQS batch_size 와 Lambda 의 BEDROCK_BATCH_POST_SIZE 를 함께 움직인다(같은 값이어야 한다).
+  # ⚠ 두 값은 짝이다 — 배치를 키우면 출력 상한도 함께 키워야 판정이 잘리지 않는다.
+  bedrock_batch_post_size   = var.bedrock_batch_post_size
+  bedrock_max_output_tokens = var.bedrock_max_output_tokens
 }
 
 # AWS Load Balancer Controller 용 IRSA. 컨트롤러 파드는 Helm 설치(runbook)하고,
@@ -128,6 +133,13 @@ module "security" {
 
   ecr_repository_arns = values(module.ecr.repository_arns)
   deploy_namespaces   = ["victoryfairy"]
+
+  # 정제 파이프라인 Lambda 2개는 같은 pipeline 이미지를 공유한다 — CI 가 이미지를
+  # push 한 뒤 두 함수를 함께 갱신한다(.github/workflows/deploy-ai.yml).
+  lambda_function_arns = [
+    module.refine_pipeline.pattern_function_arn,
+    module.refine_pipeline.bedrock_function_arn,
+  ]
 }
 
 module "mysql_ec2" {

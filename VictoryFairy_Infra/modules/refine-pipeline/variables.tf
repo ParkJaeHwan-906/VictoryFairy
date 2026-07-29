@@ -11,6 +11,20 @@ variable "bedrock_batch_post_size" {
   }
 }
 
+variable "bedrock_max_output_tokens" {
+  description = "모델 응답의 출력 토큰 상한(BEDROCK_MAX_TOKENS). 한 호출의 판정 결과 전부가 이 안에 들어가야 한다"
+  type        = number
+  default     = 2048 # 앱 기본값(bedrock/core/config.py)과 동일 — 환경이 명시하지 않으면 동작이 안 바뀐다
+
+  validation {
+    # 상한 4096: bedrock/core/client.py 는 Converse API 를 베타 헤더 없이 부른다.
+    # claude-3-5-sonnet-20240620 의 8192 출력은 anthropic-beta 헤더가 있어야 하므로
+    # 그 값을 넣으면 ValidationException 으로 전 호출이 죽는다.
+    condition     = var.bedrock_max_output_tokens >= 512 && var.bedrock_max_output_tokens <= 4096
+    error_message = "bedrock_max_output_tokens 는 512~4096 이어야 합니다(8192 는 베타 헤더가 필요한데 클라이언트가 보내지 않습니다)."
+  }
+}
+
 variable "bedrock_model_id" {
   description = "Bedrock 베어 모델 ID. 조직 SCP 가 서울 외 리전 InvokeModel 을 거부하므로 추론 프로파일(apac.*)은 쓸 수 없다"
   type        = string

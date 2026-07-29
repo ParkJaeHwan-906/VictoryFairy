@@ -13,7 +13,7 @@
 | 네트워크 | VPC `10.0.0.0/16`, **2a 운영 / 2c 예비** | — |
 | 앱 컴퓨트 | EKS 1.30, 노드그룹 **app**(user+quiz 공용) **· batch**(분리) | 둘 다 오토스케일 |
 | 데이터 | **단일 고정 EC2**(비 EKS)에 MySQL + 서비스 Redis | 스케일 없음(수직만) |
-| 정제 | **서버리스** — Lambda + S3 이벤트 + SQS + DynamoDB (§4) | 이벤트 구동 |
+| 정제 | **서버리스** — Lambda + S3 이벤트 + SQS + DynamoDB (§4). 이미지 배포는 **CI 소유** | 이벤트 구동 |
 | batch 노드그룹 | Spot xlarge 0→N→0. **정제에는 미사용 — 문제 생성 단계용 보류** | 일시적 |
 | 접근 | SSM Session Manager only (DB·EKS 노드 SSH 모두 터널 경유, 22/3306 인입 없음) | — |
 
@@ -90,9 +90,9 @@ kbo-collector (Lambda)  ──▶ S3 community/{source}/{date}/{postId}.json
                                  │  통과분만 메시지 발행
                                  ▼
                              SQS 큐 (+ DLQ)
-                                 │  이벤트 소스 매핑 batch_size = 5
+                                 │  이벤트 소스 매핑 batch_size = 10
                                  ▼
-                     bedrock (Lambda)   5건 묶어 1회 호출 · 예약 동시성 1
+                     bedrock (Lambda)   10건 묶어 1회 호출 · 예약 동시성 1
                                  │
                                  ▼
                         S3 validation/bedrock/{success,failed}/…
@@ -103,6 +103,24 @@ kbo-collector (Lambda)  ──▶ S3 community/{source}/{date}/{postId}.json
 - **SQS 는 선택이 아니라 필수다.** S3 이벤트를 Bedrock Lambda 에 직결해 게시글 1건씩 부르면
   시스템 프롬프트 2,470토큰이 호출마다 붙어 **하루 $44.8 로 상한 $30 을 넘긴다.**
   5건 묶으면 $8.97 이다. `batch_size` 가 비용을 좌우한다.
+- **`batch_size` 는 5 → 10 으로 올렸다 (2026-07-29).** 예약 동시성이 1이라 **처리량을 늘리는
+  합법적 레버는 이 값뿐**이다(동시성을 올리면 예산 상한의 두 번째 겹이 무너진다). 비용은
+  사실상 전부 시스템 프롬프트라 대략 `$44.8/N` 으로 움직인다 — 10 이면 하루 $4.5 다.
+  - ⚠ **진짜 상한은 비용이 아니라 출력 토큰이다.** `lambda_bedrock.handler` 는 배치를
+    쪼개지 않고 **전건을 한 번의 `judge_batch()` 로 부르며**, 게시글 1건은 `1 + 댓글 수`
+    개의 판정 단위로 펼쳐진다(댓글 수에 상한이 없다). 그 판정 전부가
+    `BEDROCK_MAX_TOKENS = 2048`(AI 저장소 `bedrock/core/config.py`)을 나눠 쓴다.
+  - **초과했을 때가 진짜 위험이다.** 응답이 잘리면 "항목 수 불일치"가 되고, 2회 재시도 후
+    **배치 전건이 폴백 통과 처리된다**(BRK-LLM-15). 실패로 떨어져 DLQ 로 가는 게 아니라
+    **미검열 콘텐츠가 조용히 통과한다** — 검열 파이프라인이 뚫리는 경로다.
+    호출 비용은 재시도까지 3번 다 나간다.
+  - 판정 1건은 `{"index":1,"is_valid":true,"axis":null,"message":""}` 형태로 약 25토큰,
+    폐기 판정은 한국어 사유가 붙어 40~50토큰이다. 2048 토큰은 대략 **50~70 판정 단위**가
+    한계다. 게시글당 댓글이 5개면 N=10 이 이미 60단위로 경계에 닿는다.
+  - 그래서 상한선인 20 이 아니라 10 에서 멈췄다. **20 으로 가려면 `BEDROCK_MAX_TOKENS` 를
+    먼저 올려야 한다** — `BedrockSettings` 가 pydantic `BaseSettings` 라 Lambda 환경변수로
+    덮을 수 있고(앱 코드 수정 불필요), 출력 토큰은 실제 생성분만 과금되므로 상한 인상
+    자체의 비용은 거의 없다. 함께 게시글당 평균 댓글 수를 실측할 것.
 - **예산 상한은 DynamoDB 원자적 카운터**로 옮긴다(구 Redis `INCRBYFLOAT`). 함께
   **Bedrock Lambda 의 예약 동시성을 1로 묶는다** — 여러 개가 동시에 뜨면 상한을 넘겨 놓고
   뒤늦게 안다. 카운터 접근 실패는 **하드 스톱**이다(카운터를 잃으면 상한이 조용히 사라진다).
@@ -110,6 +128,25 @@ kbo-collector (Lambda)  ──▶ S3 community/{source}/{date}/{postId}.json
   입력 prefix 는 읽기전용이며 원본을 이동하지 않는다. Lambda 재시도·SQS 재전달에도 안전하다.
 - **`BATCH_DATE`** 는 이벤트에서 S3 키의 `{date}` 를 파싱해 얻는다. EKS 안에서 필요했던
   "컨트롤러가 주입" 배선이 사라진다.
+
+### 이미지 배포 — CI 가 소유한다 (2026-07-29)
+
+`pattern`·`bedrock` 두 함수는 **`victoryfairy-pipeline` 이미지 하나를 공유**하고
+`image_config.command` 로 핸들러만 갈린다. 이 이미지는 `.github/workflows/deploy-ai.yml`
+이 빌드·push 하고 `update-function-code` 로 반영한다(상세는 [DEPLOYMENT.md §6](DEPLOYMENT.md)).
+
+- **왜 CI 로 옮겼나**: 컨테이너 Lambda 는 태그를 생성 시점에 **digest 로 고정**한다.
+  ECR push 만으로는 절대 반영되지 않아, 종전에는 사람이 빌드·push 하고 `refine_image_tag`
+  를 고쳐 `apply` 하는 3단계를 밟아야 했다.
+- **대가**: `image_uri` 에 `ignore_changes` 를 걸어 **Terraform 이 이미지의 소유권을 포기**했다.
+  `var.refine_image_tag` 는 이제 **최초 생성용 부트스트랩 값**일 뿐이며, 실제 배포된 코드는
+  코드가 아니라 런타임(`aws lambda get-function`)에 물어봐야 안다. 인프라 코드만 읽고
+  "지금 무슨 이미지가 도는지" 알 수 없게 된 것이 이 결정의 비용이다.
+- **CI 역할 권한**: `modules/security` 가 두 함수 ARN 에 한정해 `UpdateFunctionCode` +
+  `GetFunction*` 을 부여한다(목록이 비면 statement 자체를 만들지 않는다).
+- **py-collector 는 이 경로 밖**이다. 자체 스택의 `null_resource` 가 소스 해시로 재빌드하며
+  VPC/SG 등 함수 설정과 한 몸이라 `apply` 경유를 유지한다 — 한 파이프라인이 두 관리 체계에
+  걸치는 상태가 여기서도 이어진다(아래 한계 참고).
 
 ### 한계 — 알고 들어간다
 
