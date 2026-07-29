@@ -35,6 +35,12 @@ variable "github_repository" {
   }
 }
 
+variable "lambda_function_arns" {
+  description = "CI 가 이미지를 교체(UpdateFunctionCode)할 수 있는 Lambda 함수 ARN 목록. 비우면 Lambda 권한을 아예 부여하지 않는다"
+  type        = list(string)
+  default     = []
+}
+
 variable "name_prefix" {
   description = "IAM 리소스 이름 접두사 (예: victoryfairy-dev)"
   type        = string

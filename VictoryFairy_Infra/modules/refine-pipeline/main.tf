@@ -227,8 +227,9 @@ resource "aws_cloudwatch_log_group" "bedrock" {
 # ─────────────────────────────────────────────────────────────────────────────
 # Lambda 함수 2개 — 같은 이미지, CMD 로 핸들러만 갈린다
 # ─────────────────────────────────────────────────────────────────────────────
-# ⚠ image_uri 가 가리키는 태그가 ECR 에 push 되기 전에는 apply 가 실패한다(plan 은 통과).
-#   이미지는 VictoryFairy_AI 의 pipeline/Dockerfile 로 빌드한다(274MB).
+# ⚠ image_uri 가 가리키는 태그가 ECR 에 push 되기 전에는 **최초 생성** apply 가
+#   실패한다(plan 은 통과). 이미지는 VictoryFairy_AI 의 pipeline/Dockerfile 로 빌드한다.
+#   생성 이후의 이미지 갱신은 CI 가 맡는다(각 함수의 lifecycle 주석 참고).
 resource "aws_lambda_function" "pattern" {
   function_name = local.pattern_function_name
   role          = aws_iam_role.pattern.arn
@@ -254,6 +255,15 @@ resource "aws_lambda_function" "pattern" {
       BEDROCK_QUEUE_URL = aws_sqs_queue.bedrock.url
       LOG_LEVEL         = "INFO"
     }
+  }
+
+  # ⚠ 최초 생성 이후 **이미지 소유권은 CI 로 넘어간다.**
+  #   .github/workflows/deploy-ai.yml 이 커밋 SHA 태그를 push 하고
+  #   update-function-code 로 교체한다. 이 블록이 없으면 다음 apply 가
+  #   var.image_tag 기준으로 image_uri 를 되돌려 배포를 되감는다.
+  #   따라서 var.image_tag 는 **부트스트랩(최초 생성) 값**으로만 의미가 있다.
+  lifecycle {
+    ignore_changes = [image_uri]
   }
 
   depends_on = [aws_cloudwatch_log_group.pattern]
@@ -289,12 +299,22 @@ resource "aws_lambda_function" "bedrock" {
       BEDROCK_MODEL_ID        = var.bedrock_model_id
       BEDROCK_REGION          = data.aws_region.current.name
       BEDROCK_BATCH_POST_SIZE = tostring(var.bedrock_batch_post_size)
+      # 앱의 BedrockSettings 는 pydantic BaseSettings 이고 env_prefix 가 없어서
+      # 필드명 그대로가 환경변수명이 된다(BEDROCK_MODEL_ID 와 같은 경로).
+      # ⚠ 한 호출의 판정 결과 전부가 이 상한을 나눠 쓴다 — 넘치면 응답이 잘려
+      #   항목 수 불일치가 되고, 2회 재시도 후 배치 전건이 폴백 통과한다(BRK-LLM-15).
+      BEDROCK_MAX_TOKENS      = tostring(var.bedrock_max_output_tokens)
       BEDROCK_SPEND_LIMIT_USD = tostring(var.bedrock_spend_limit_usd)
       BUDGET_TABLE_NAME       = aws_dynamodb_table.budget.name
       # 현행 모델은 프롬프트 캐싱 미지원 — 켜면 전 호출이 AccessDeniedException 으로 죽는다.
       BEDROCK_PROMPT_CACHE = "false"
       LOG_LEVEL            = "INFO"
     }
+  }
+
+  # 패턴 함수와 동일 — 생성 후 image_uri 는 CI 소관이다(위 주석 참고).
+  lifecycle {
+    ignore_changes = [image_uri]
   }
 
   depends_on = [aws_cloudwatch_log_group.bedrock]
