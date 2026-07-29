@@ -5,3 +5,4 @@ beautifulsoup4
 lxml
 pydantic-settings
 PyYAML
+PyMySQL

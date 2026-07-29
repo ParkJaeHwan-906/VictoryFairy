@@ -144,6 +144,13 @@ def test_batch_image_excludes_analysis_stack():
         "함수가 뜨자마자 죽는다"
     )
 
+    # ⚠️ buildx 기본값(provenance attestation)이 붙으면 매니페스트가 OCI image index 가 되고
+    # Lambda 가 거부한다. 플래그를 코드로 강제할 수 없으니 최소한 문서로 남았는지 확인한다.
+    assert "--provenance=false" in dockerfile and "--sbom=false" in dockerfile, (
+        "빌드 명령에 --provenance=false --sbom=false 가 명시돼 있지 않다 — 빠뜨리면 매니페스트가 "
+        "OCI image index 가 되어 Lambda 함수 생성이 거부된다"
+    )
+
     # NER 모델 프리캐시·torch 설치는 analysis 전용이다.
     # ⚠️ 주석이 아니라 **실행되는 명령**만 본다 — 위 boto3 테스트가 주석 문자열에
     # 의존하다 깨졌던 것과 같은 실수를 반복하지 않기 위해서다(이 주석 자체에도

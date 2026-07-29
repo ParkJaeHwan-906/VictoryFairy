@@ -75,6 +75,49 @@ def test_preseason_flag():
     assert gr.parse_record("g", rec).game_type == "preseason"
 
 
+def test_build_lineups_marks_starters_and_pitchers():
+    g = gr.parse_record("g", RECORD)
+    rows = {r.pcode: r for r in gr.build_lineups(g)}
+    # 타자: 각 (팀, 타순) 첫 행이 선발
+    assert rows["65653"].is_starter and rows["65653"].bat_order == 1
+    assert rows["55855"].is_starter and rows["55855"].position == "포"
+    # 투수: gameInfo 선발 pcode 와 일치해야 선발, 아니면 구원
+    assert rows["54640"].is_starter and rows["54640"].position == "투"
+    assert rows["54640"].bat_order is None
+    assert not rows["68043"].is_starter
+    assert rows["68043"].decision == "W"
+
+
+def test_build_lineups_substitute_same_order_not_starter():
+    rec = {**RECORD, "battersBoxscore": {
+        "away": [
+            {"playerCode": "65653", "name": "김호령", "pos": "중", "batOrder": 1},
+            {"playerCode": "70001", "name": "대타왕", "pos": "타", "batOrder": 1},
+        ],
+        "home": [],
+    }}
+    g = gr.parse_record("g", rec)
+    rows = {r.pcode: r for r in gr.build_lineups(g)}
+    assert rows["65653"].is_starter          # 타순 1 첫 등장
+    assert not rows["70001"].is_starter      # 같은 타순 두 번째 = 교체
+    assert rows["70001"].position == "타"
+
+
+def test_build_lineups_merges_batting_and_pitching_same_player():
+    # 홈 선발투수(55855)가 타자 명단에도 있으면 한 행으로 병합된다
+    g = gr.parse_record("g", RECORD)
+    rec_pit = {**RECORD, "pitchersBoxscore": {
+        "away": RECORD["pitchersBoxscore"]["away"],
+        "home": [{"pcode": "55855", "name": "선발포수", "inn": "1"}],
+    }}
+    g = gr.parse_record("g", {**rec_pit,
+                              "gameInfo": {**RECORD["gameInfo"], "hPCode": "55855"}})
+    rows = [r for r in gr.build_lineups(g) if r.pcode == "55855"]
+    assert len(rows) == 1
+    assert rows[0].bat_order == 1 and rows[0].position == "포"  # 타자 정보 유지
+    assert rows[0].is_starter
+
+
 def test_list_finished_games_filters():
     js = {"result": {"games": [
         {"categoryId": "kbo", "statusCode": "RESULT", "cancel": False,

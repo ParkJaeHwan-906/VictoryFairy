@@ -58,6 +58,18 @@ class BattingRow:
 
 
 @dataclass
+class LineupRow:
+    """경기별 출전 1행 (game_lineups 테이블과 1:1). 타자·투수 겸출은 한 행으로 병합."""
+    pcode: str
+    team_code: str
+    is_home: bool
+    bat_order: int | None       # 타순 1~9, 타석 없는 투수는 None
+    position: str | None        # 포지션 표기(중/포/지/투 …), 대타=타/대주자=주
+    is_starter: bool
+    decision: str | None        # 투수 한정 W/L/S/H
+
+
+@dataclass
 class GameRow:
     game_id: str
     game_date: str          # 'YYYY-MM-DD'
@@ -233,3 +245,43 @@ def parse_record(game_id: str, record: dict) -> GameRow:
         inn_scores=sb.get("inn") or {},
         pitching=pit, batting=bat, players=list(seen.values()),
     )
+
+
+def build_lineups(game: GameRow) -> list[LineupRow]:
+    """GameRow -> 출전 명단(교체 포함).
+
+    선발 판정:
+    - 타자: 박스스코어는 타순별로 선발 → 교체 순서로 나열되므로, (홈/원정, 타순)별
+      첫 등장 행이 선발. 타순 없는 행(집계 꼬리 등)은 선발 아님.
+    - 투수: gameInfo 의 선발투수 pcode(aPCode/hPCode)와 일치하면 선발,
+      메타가 없으면 등판 순서 0(seq==0)으로 대체 판정. 포지션은 '투'.
+    같은 선수가 타자·투수 양쪽에 있으면(지명타자 해제 등) 한 행으로 병합한다.
+    """
+    rows: dict[str, LineupRow] = {}
+    seen_order: set[tuple[bool, int]] = set()
+    for b in game.batting:
+        starter = b.bat_order is not None and (b.is_home, b.bat_order) not in seen_order
+        if starter:
+            seen_order.add((b.is_home, b.bat_order))
+        rows[b.pcode] = LineupRow(
+            pcode=b.pcode, team_code=b.team_code, is_home=b.is_home,
+            bat_order=b.bat_order, position=b.position,
+            is_starter=starter, decision=None,
+        )
+    for p in game.pitching:
+        meta = game.home_starter_pcode if p.is_home else game.away_starter_pcode
+        starter = p.pcode == meta if meta else p.seq == 0
+        prev = rows.get(p.pcode)
+        if prev:
+            rows[p.pcode] = LineupRow(
+                pcode=p.pcode, team_code=p.team_code, is_home=p.is_home,
+                bat_order=prev.bat_order, position=prev.position,
+                is_starter=prev.is_starter or starter, decision=p.decision,
+            )
+        else:
+            rows[p.pcode] = LineupRow(
+                pcode=p.pcode, team_code=p.team_code, is_home=p.is_home,
+                bat_order=None, position="투",
+                is_starter=starter, decision=p.decision,
+            )
+    return list(rows.values())
