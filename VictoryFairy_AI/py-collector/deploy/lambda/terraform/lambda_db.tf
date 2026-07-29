@@ -81,6 +81,11 @@ resource "aws_lambda_function" "db" {
       COLLECTOR_DB_PASSWORD  = var.db_password
       COLLECTOR_TARGETS_FILE = "/var/task/config/targets.yaml"
       JOURNAL_DIR            = "/tmp/journal" # Lambda's only writable path
+      # DB 잡은 S3/마스킹을 안 쓰지만 Settings 가 필수값으로 요구한다(설정 로딩용).
+      # 이 함수의 IAM 롤에는 S3 권한이 없어 실수로 써도 접근 불가.
+      COLLECTOR_S3_BUCKET = var.data_bucket_name
+      COLLECTOR_S3_REGION = var.region
+      COLLECTOR_PII_SALT  = local.pii_salt
     }
   }
 
