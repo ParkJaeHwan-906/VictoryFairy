@@ -128,6 +128,13 @@ module "security" {
 
   ecr_repository_arns = values(module.ecr.repository_arns)
   deploy_namespaces   = ["victoryfairy"]
+
+  # 정제 파이프라인 Lambda 2개는 같은 pipeline 이미지를 공유한다 — CI 가 이미지를
+  # push 한 뒤 두 함수를 함께 갱신한다(.github/workflows/deploy-ai.yml).
+  lambda_function_arns = [
+    module.refine_pipeline.pattern_function_arn,
+    module.refine_pipeline.bedrock_function_arn,
+  ]
 }
 
 module "mysql_ec2" {

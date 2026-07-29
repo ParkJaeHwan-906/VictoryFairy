@@ -91,6 +91,26 @@ data "aws_iam_policy_document" "github_actions" {
     actions   = ["eks:DescribeCluster"]
     resources = ["arn:aws:eks:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:cluster/${var.cluster_name}"]
   }
+
+  # 정제 파이프라인 Lambda 배포: CI 가 새 이미지를 push 한 뒤 함수 코드를 교체한다.
+  # 컨테이너 Lambda 는 태그를 생성 시점에 digest 로 고정하므로 push 만으로는 반영되지
+  # 않는다 — UpdateFunctionCode 호출이 반드시 필요하다.
+  # Get* 는 롤백용 직전 image_uri 조회와 `aws lambda wait function-updated-v2` 에 쓰인다.
+  # 지정 함수 ARN 으로만 제한하며, 목록이 비면 statement 자체를 만들지 않는다
+  # (빈 resources 는 IAM 정책 생성이 거부된다).
+  dynamic "statement" {
+    for_each = length(var.lambda_function_arns) > 0 ? [1] : []
+
+    content {
+      sid = "LambdaDeploy"
+      actions = [
+        "lambda:GetFunction",
+        "lambda:GetFunctionConfiguration",
+        "lambda:UpdateFunctionCode",
+      ]
+      resources = var.lambda_function_arns
+    }
+  }
 }
 
 resource "aws_iam_role_policy" "github_actions" {
