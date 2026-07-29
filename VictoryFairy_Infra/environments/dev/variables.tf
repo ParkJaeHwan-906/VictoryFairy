@@ -80,9 +80,15 @@ variable "bedrock_batch_post_size" {
   #   judge_batch() 로 부른다.** 게다가 게시글 1건은 `1 + 댓글 수` 개의 판정 단위로
   #   펼쳐진다(`results[start : start + 1 + len(comments)]`). 그 판정 전부가
   #   bedrock/core/config.py 의 BEDROCK_MAX_TOKENS = 2048 을 나눠 쓴다.
-  #   초과하면 응답이 잘려 배치 전체가 실패하고, 3회 재시도 뒤 DLQ 로 간다 —
-  #   그동안 모델 호출 비용은 매번 나간다.
-  #   20 까지 올리려면 AI 저장소에서 BEDROCK_MAX_TOKENS 를 먼저 키워야 한다.
+  #
+  #   초과했을 때가 문제다 — 응답이 잘리면 "항목 수 불일치"가 되고, 2회 재시도 후
+  #   **배치 전건이 폴백 통과 처리된다**(BRK-LLM-15). 실패로 떨어지는 게 아니라
+  #   미검열 콘텐츠가 조용히 통과한다. 호출 비용은 재시도까지 3번 다 나간다.
+  #
+  #   더 올리려면 BEDROCK_MAX_TOKENS 를 먼저 키울 것. BedrockSettings 는
+  #   pydantic BaseSettings 라 아래 Lambda environment 로 덮어쓸 수 있다
+  #   (앱 코드 수정 불필요). 출력 토큰은 실제 생성분만 과금되므로 상한을 올리는
+  #   것 자체는 비용이 거의 없다.
 }
 
 variable "refine_image_tag" {
