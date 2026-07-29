@@ -87,6 +87,9 @@ module "refine_pipeline" {
 
   pipeline_repository_url = module.ecr.repository_urls["pipeline"]
   image_tag               = var.refine_image_tag
+
+  # SQS batch_size 와 Lambda 의 BEDROCK_BATCH_POST_SIZE 를 함께 움직인다(같은 값이어야 한다).
+  bedrock_batch_post_size = var.bedrock_batch_post_size
 }
 
 # AWS Load Balancer Controller 용 IRSA. 컨트롤러 파드는 Helm 설치(runbook)하고,

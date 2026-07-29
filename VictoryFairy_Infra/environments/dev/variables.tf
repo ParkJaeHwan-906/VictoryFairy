@@ -66,6 +66,25 @@ variable "crawl_bucket_name" {
   default     = "victoryfairy-crawl-dev"
 }
 
+variable "bedrock_batch_post_size" {
+  description = "Bedrock Lambda 가 한 번의 모델 호출에 묶는 게시글 수(= SQS batch_size). 처리량 부족은 이 값으로 푼다 — 예약 동시성은 올리지 않는다"
+  type        = number
+  default     = 10
+
+  # 5 → 10 (2026-07-29). 예약 동시성이 1이라 처리량을 늘리는 합법적 레버는 이 값뿐이다.
+  # 비용은 부수 효과로 함께 내려간다 — 비용이 사실상 전부 시스템 프롬프트(2,470토큰)라
+  # 하루 소비액이 대략 $44.8/N 로 움직인다(N=5 → $8.97, N=10 → $4.5, 상한 $30).
+  #
+  # ⚠ **더 올리기 전에 반드시 확인할 것 — 출력 토큰이 진짜 상한이다.**
+  #   pipeline/lambda_bedrock.py 의 handler 는 배치를 쪼개지 않고 **전건을 한 번의
+  #   judge_batch() 로 부른다.** 게다가 게시글 1건은 `1 + 댓글 수` 개의 판정 단위로
+  #   펼쳐진다(`results[start : start + 1 + len(comments)]`). 그 판정 전부가
+  #   bedrock/core/config.py 의 BEDROCK_MAX_TOKENS = 2048 을 나눠 쓴다.
+  #   초과하면 응답이 잘려 배치 전체가 실패하고, 3회 재시도 뒤 DLQ 로 간다 —
+  #   그동안 모델 호출 비용은 매번 나간다.
+  #   20 까지 올리려면 AI 저장소에서 BEDROCK_MAX_TOKENS 를 먼저 키워야 한다.
+}
+
 variable "refine_image_tag" {
   description = "정제 러너 Lambda 컨테이너 이미지 태그. VictoryFairy_AI 의 커밋 SHA 를 쓴다(불변 태그)"
   type        = string

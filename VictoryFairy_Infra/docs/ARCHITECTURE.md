@@ -90,9 +90,9 @@ kbo-collector (Lambda)  ──▶ S3 community/{source}/{date}/{postId}.json
                                  │  통과분만 메시지 발행
                                  ▼
                              SQS 큐 (+ DLQ)
-                                 │  이벤트 소스 매핑 batch_size = 5
+                                 │  이벤트 소스 매핑 batch_size = 10
                                  ▼
-                     bedrock (Lambda)   5건 묶어 1회 호출 · 예약 동시성 1
+                     bedrock (Lambda)   10건 묶어 1회 호출 · 예약 동시성 1
                                  │
                                  ▼
                         S3 validation/bedrock/{success,failed}/…
@@ -103,6 +103,16 @@ kbo-collector (Lambda)  ──▶ S3 community/{source}/{date}/{postId}.json
 - **SQS 는 선택이 아니라 필수다.** S3 이벤트를 Bedrock Lambda 에 직결해 게시글 1건씩 부르면
   시스템 프롬프트 2,470토큰이 호출마다 붙어 **하루 $44.8 로 상한 $30 을 넘긴다.**
   5건 묶으면 $8.97 이다. `batch_size` 가 비용을 좌우한다.
+- **`batch_size` 는 5 → 10 으로 올렸다 (2026-07-29).** 예약 동시성이 1이라 **처리량을 늘리는
+  합법적 레버는 이 값뿐**이다(동시성을 올리면 예산 상한의 두 번째 겹이 무너진다). 비용은
+  사실상 전부 시스템 프롬프트라 대략 `$44.8/N` 으로 움직인다 — 10 이면 하루 $4.5 다.
+  - ⚠ **진짜 상한은 비용이 아니라 출력 토큰이다.** `lambda_bedrock.handler` 는 배치를
+    쪼개지 않고 **전건을 한 번의 `judge_batch()` 로 부르며**, 게시글 1건은 `1 + 댓글 수`
+    개의 판정 단위로 펼쳐진다. 그 판정 전부가 `BEDROCK_MAX_TOKENS = 2048`(AI 저장소
+    `bedrock/core/config.py`)을 나눠 쓴다. 넘치면 응답이 잘려 **배치 전체가 실패**하고
+    3회 재시도 뒤 DLQ 로 가는데, 모델 호출 비용은 매번 나간다.
+  - 그래서 상한선인 20 이 아니라 10 에서 멈췄다. 더 올리려면 `BEDROCK_MAX_TOKENS` 를
+    먼저 키우고, 게시글당 평균 댓글 수로 판정 단위 수를 실측해야 한다.
 - **예산 상한은 DynamoDB 원자적 카운터**로 옮긴다(구 Redis `INCRBYFLOAT`). 함께
   **Bedrock Lambda 의 예약 동시성을 1로 묶는다** — 여러 개가 동시에 뜨면 상한을 넘겨 놓고
   뒤늦게 안다. 카운터 접근 실패는 **하드 스톱**이다(카운터를 잃으면 상한이 조용히 사라진다).
