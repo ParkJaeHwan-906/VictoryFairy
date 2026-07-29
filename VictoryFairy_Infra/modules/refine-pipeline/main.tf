@@ -299,6 +299,11 @@ resource "aws_lambda_function" "bedrock" {
       BEDROCK_MODEL_ID        = var.bedrock_model_id
       BEDROCK_REGION          = data.aws_region.current.name
       BEDROCK_BATCH_POST_SIZE = tostring(var.bedrock_batch_post_size)
+      # 앱의 BedrockSettings 는 pydantic BaseSettings 이고 env_prefix 가 없어서
+      # 필드명 그대로가 환경변수명이 된다(BEDROCK_MODEL_ID 와 같은 경로).
+      # ⚠ 한 호출의 판정 결과 전부가 이 상한을 나눠 쓴다 — 넘치면 응답이 잘려
+      #   항목 수 불일치가 되고, 2회 재시도 후 배치 전건이 폴백 통과한다(BRK-LLM-15).
+      BEDROCK_MAX_TOKENS      = tostring(var.bedrock_max_output_tokens)
       BEDROCK_SPEND_LIMIT_USD = tostring(var.bedrock_spend_limit_usd)
       BUDGET_TABLE_NAME       = aws_dynamodb_table.budget.name
       # 현행 모델은 프롬프트 캐싱 미지원 — 켜면 전 호출이 AccessDeniedException 으로 죽는다.
