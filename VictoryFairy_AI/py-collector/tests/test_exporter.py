@@ -194,6 +194,11 @@ def test_read_game_schedules_emits_before_games_only():
     assert len(e.entities["teamCodes"]) == 2
     assert "예정" in e.content
     assert set(e.payload) == {"gameId", "startTime", "stadium", "awayStarter", "homeStarter"}
+    # 실측 불변식 고정: 픽스처(운영 schedule 잡 필드셋)에는 stadium/선발투수
+    # 필드가 없다 — 매핑 로직이 잘못된 기본값을 채워도 조용히 통과하지 않도록
+    # None/'' 값 자체를 단언한다.
+    assert e.payload["awayStarter"] is None and e.payload["homeStarter"] is None
+    assert e.payload["stadium"] == ""
 
 
 def test_read_game_schedules_requires_date():

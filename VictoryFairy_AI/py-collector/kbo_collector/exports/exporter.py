@@ -176,8 +176,10 @@ def read_game_schedules(db, date=None, sink=None):
     """raw-json/schedule/{date} → 예정(BEFORE) 경기 envelope. date 필수, db 미사용.
 
     선발 라인업(타자)은 경기 전 데이터 소스가 없어 v1은 일정+선발투수만 담는다.
-    네이버 스케줄 API(fields=basic,statusNum,statusInfo) 응답에는 선발투수
-    필드가 없어 실제로는 항상 None — Task 10에서 PRED_SP_WIN 템플릿 비활성화로 대응.
+    네이버 스케줄 API(fields=basic,statusNum,statusInfo, 운영 schedule 잡이
+    실제 쓰는 필드셋) 응답에는 선발투수 필드가 없어 실제로는 항상 None —
+    Task 10에서 PRED_SP_WIN 템플릿 비활성화로 대응. 같은 이유로 stadium도
+    이 응답에 없어 payload의 stadium은 실제로는 항상 빈 문자열("")이다.
     """
     if not date:
         raise ValueError("game_schedule export requires --date")
