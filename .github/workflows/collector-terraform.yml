@@ -10,10 +10,14 @@ name: collector-terraform
 on:
   pull_request:
     branches: [dev_infra]
-    paths: ['VictoryFairy_Infra/collector-lambda/**']
+    paths:
+      - 'VictoryFairy_Infra/collector-lambda/**'
+      - '.github/workflows/collector-terraform.yml'
   push:
     branches: [dev_infra]
-    paths: ['VictoryFairy_Infra/collector-lambda/**']
+    paths:
+      - 'VictoryFairy_Infra/collector-lambda/**'
+      - '.github/workflows/collector-terraform.yml'
   workflow_dispatch:
 
 permissions:
