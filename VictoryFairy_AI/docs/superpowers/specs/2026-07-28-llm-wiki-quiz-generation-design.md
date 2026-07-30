@@ -1,7 +1,8 @@
 # LLM 위키 + 퀴즈 생성 파이프라인 설계
 
 > 작성일: 2026-07-28 · 상태: 사용자 승인 대기
-> 범위: VictoryFairy_AI 신규 서브시스템(위키 빌더·퀴즈 생성기) + py-collector export 1종 추가
+> 범위: VictoryFairy_AI 신규 서브시스템(위키 빌더·퀴즈 생성기) + py-collector 변경 2건
+> (game_schedule export · kbo_records 수집)
 
 ## 1. 목표
 
@@ -18,7 +19,7 @@ S3에 적재한다 (기능명세서 QUIZ-001/002 대응).
 | 저장소 | S3 (`wiki/players/`) | 운영 잡(EC2 크론·Lambda)과 동일 인프라. Bedrock KB는 고정비·규모 면에서 과함 |
 | 그래프 | **그래프-라이트** (파생 인덱스 `wiki/graph.json`) | 관계 기반 문제(사건 연루·라이벌·밈 공유)는 확보하되 그래프 DB·동기화·자격증명 부담 제거. 커지면 graph.json이 그대로 Neo4j 임포트 소스 |
 | 질문 다양성 | **질문 템플릿 카탈로그 × 데이터 바인딩** | 흥미로운 문제 수만 개를 직접 기획할 수 없음. 템플릿("올해 {팀A} vs {팀B} 상대전적 우위는?") 수십 개를 엔티티 조합·시점으로 곱해 문제 공간을 만든다. 어떤 템플릿이 잘 먹히는지는 유저 반응으로 선별(피드백 루프 자체는 2차, 계약에 `templateId`만 선반영) |
-| 통계 데이터 접근 | 2층 구조: 시의성 층(최근 7일 봉투) + **축적 층(`wiki/stats/` 시즌 요약)** | "작년 대비", "시즌 초 대비" 비교는 시즌 전체 집계가 필요한데, 생성기가 매번 수백 개 봉투를 읽는 건 낭비. 위키 빌더가 game_result 봉투를 결정적으로 집계(LLM 미사용)해 요약 문서로 유지 |
+| 통계 데이터 접근 | 2층 구조: 시의성 층(최근 7일 봉투) + **축적 층(`wiki/stats/` 시즌 요약)** | "작년 대비", "시즌 초 대비" 비교는 시즌 전체 집계가 필요한데, 생성기가 매번 수백 개 봉투를 읽는 건 낭비. 퀴즈 생성기의 전처리 단계(결정적 스크립트, LLM 미사용)가 **매일** 집계해 요약 문서로 유지 — "오늘 기준 순위" 문제의 신선도 보장 |
 | 실행 환경 | Claude Code 클라우드 스케줄 잡(routine) 2개 | 맥북 무관하게 동작. LLM 호출 = Claude Code 자체 |
 | 데이터 접근 | **S3 전용** (routine은 DB 미접근) | RDB 데이터는 py-collector export가 envelope로 공급. 클라우드에 DB 자격증명을 열지 않음 |
 | 위키 소스 | 커뮤니티 글(LLM 추출) + memes.yaml 시드. 나무위키는 1차 제외 | 나무위키는 CC BY-NC-SA(비영리 한정) + 봇 차단 → 사람이 검수해 시드에 수동 추가하는 보조 경로로만 |
@@ -27,28 +28,29 @@ S3에 적재한다 (기능명세서 QUIZ-001/002 대응).
 ## 3. 아키텍처
 
 ```
-[py-collector EC2 크론]                    [Claude Code 클라우드 routine]
- RDB·커뮤니티 → S3 question-source/  ──▶  ① 위키 빌더 (주 1~2회)
-   (game_result / game_schedule*        │    S3 wiki/players/{playerId}.md 갱신
-    / player_profile / community_post   │    S3 wiki/stats/ 시즌 요약 재집계 (결정적)
-    / player_meme)   *신규              │    S3 wiki/graph.json 재컴파일
-                                        ▼
+[py-collector (Lambda·크론)]               [Claude Code 클라우드 routine]
+ RDB·커뮤니티 → S3 question-source/  ──▶  ① 위키 빌더 (주 1~2회, LLM)
+   (game_result / game_schedule*        │    S3 wiki/players/{playerId}.md 병합 갱신
+    / player_profile / community_post   │    S3 wiki/graph.json 재컴파일
+    / player_meme)   *신규              │    S3 wiki/stats/trending.md·all-time-records.md
+ KBO 기록실 → S3 kbo-records/ 스냅샷     ▼
                                         ② 퀴즈 생성기 (매일 아침, 경기 2h 전 마감)
-                                        │    질문 템플릿 선택 → 데이터 바인딩
-                                        │    (봉투·wiki/stats·위키 문서·graph.json)
-                                        │    → 지식/예측 퀴즈 생성 + 검증
+                                        │    0) wiki/stats/ 시즌 요약 재집계 (결정적 스크립트)
+                                        │    1) 템플릿 선택 → 2) 데이터 바인딩
+                                        │    3) 문구 생성(LLM) → 검증 패스
                                         ▼
                                         S3 quiz-candidates/{date}/*.json ──▶ BE 소비 → Quiz DB
 ```
 
-routine에는 최소 권한 IAM 자격증명만 부여: `question-source/` 읽기, `wiki/`·`quiz-candidates/` 읽기+쓰기.
+routine에는 최소 권한 IAM 자격증명만 부여: `question-source/`·`kbo-records/` 읽기,
+`wiki/`·`quiz-candidates/` 읽기+쓰기.
 
 ## 4. 컴포넌트
 
 ### 4.1 위키 빌더 (routine ①)
 
 - **입력**: S3 `question-source/community_post/`(무필터 원문), `player_meme/`(시드), 기존 위키 문서,
-  `config/all-time-records.yaml`(역대 기록 시드 — 아래)
+  `question-gen/config/all-time-records.yaml`(역대 기록 시드 — 아래)
 - **처리**: 선수별로 관련 글 그룹핑 → 기존 문서 로드 → LLM이 신규 사실만 병합. 갱신 대상은
   마지막 실행 이후 수집분(파티션 날짜 기준 증분)
 - **문서 구조** (고정 섹션):
@@ -73,14 +75,10 @@ routine에는 최소 권한 IAM 자격증명만 부여: `question-source/` 읽�
 - **그래프 컴파일**: 갱신 마지막 단계에서 전체 문서 front-matter(`relations` + 팀 소속)를 긁어
   `wiki/graph.json`(nodes: 선수·팀·사건·밈, edges: typed) 하나로 재생성. 문서가 진실의 원천,
   graph.json은 언제든 재컴파일 가능한 파생물
-- **통계 요약 재집계 (축적 층)**: 두 원천을 **결정적으로 집계**(LLM 미사용 — 스크립트)해
-  `wiki/stats/`에 유지 — ① `question-source/game_result/` 봉투(상대전적·홈원정·연승연패·월별
-  추이·전년 대비), ② **KBO 공식 기록실 스냅샷**(`kbo-records/` — 아래 4.4): 일별 팀 순위,
-  시즌 개인 스탯 순위(타율·홈런·ERA 등 — 자체 계산 불가 데이터), 기록 달성 예상(마일스톤 임박).
-  원천이 S3에 남으므로 언제든 재계산 가능. 기록 정정(RecordCorrect) 공지가 있으면 해당 스탯 갱신
 - **화제 토픽 추출**: 최근 여론 갱신 시 화제성 높은 주제(급증 키워드·논쟁 이슈)를
-  `wiki/stats/trending.md`로 요약 — 생성기가 시의성 템플릿 우선순위에 사용
-- **역대 기록 (시드 기반)**: `config/all-time-records.yaml` — KBO 기록실 History 페이지
+  `wiki/stats/trending.md`로 요약 — 생성기가 시의성 템플릿 우선순위에 사용. 논란·사건 관련
+  토픽은 트렌딩에서 제외(안전 규칙)
+- **역대 기록 (시드 기반)**: `question-gen/config/all-time-records.yaml` — KBO 기록실 History 페이지
   크롤 스냅샷에서 **반자동 생성 + 사람 검수**(통산 순위 top N·마일스톤·단일 경기 진기록,
   항목마다 기준일·출처 명시).
   위키 빌더가 `wiki/stats/all-time-records.md`로 렌더. **나무위키 원문 복사 금지**(CC BY-NC-SA
@@ -95,9 +93,12 @@ routine에는 최소 권한 IAM 자격증명만 부여: `question-source/` 읽�
     `wiki/stats/trending.md`(화제 토픽)
   - 축적 층: `wiki/stats/` 시즌 요약, 출전 선수 위키 문서, `wiki/graph.json`
   - 그 외: 최근 7일 출제 이력(`quiz-candidates/` 목록), 질문 템플릿 카탈로그
-- **질문 템플릿 카탈로그** (`config/question-templates.yaml`, repo 관리): 문제 다양성의 원천.
-  템플릿마다 정의 — `id`, `kind`(지식/예측), `format`(출제 형식), 필요 입력(어느 층의 어떤
-  데이터), 문제 의도 서술(문구는 LLM이 자유 작성), 예상 난이도, 태그. 예:
+- **질문 템플릿 카탈로그** (`question-gen/config/question-templates.yaml`, repo 관리): 문제
+  다양성의 원천. 초기 시드 34종은 v0로 작성 완료. 이후 LLM에게 데이터 스키마·위키 샘플·트렌딩
+  토픽을 주고 신규 템플릿을 제안시켜 **사람 검수 후** 카탈로그에 추가(성장 경로 — 카탈로그가
+  안전·정산 정책의 통제면이므로 무검수 자동 추가는 하지 않는다). 템플릿마다 정의 — `id`,
+  `kind`(지식/예측), `format`(출제 형식), 필요 입력(`needs`), 문제 의도 서술(문구는 LLM이
+  자유 작성), 오답 전략(`distractor`), 예상 난이도. 예:
   ```yaml
   - id: H2H_SEASON_RECORD
     kind: KNOWLEDGE
@@ -118,12 +119,13 @@ routine에는 최소 권한 IAM 자격증명만 부여: `question-source/` 읽�
 - **안전 규칙 (출제 금지 주제)**: 위키 `사건사고` 섹션과 graph의 `사건연루` 엣지는 **퀴즈
   소스로 사용 금지** — 기록은 유지하되(선수 맥락 이해용) 문제화하지 않는다. 법적 사건·논란·
   사생활·건강 문제를 소재로 한 문제는 명예훼손·2차 가해 리스크로 생성 단계에서 원천 배제
-  초기 시드 20~30개는 브레인스토밍으로 작성. 이후 LLM에게 데이터 스키마·위키 샘플을 주고 신규
-  템플릿을 제안시켜 사람 검수 후 카탈로그에 추가(카탈로그 성장 경로)
-- **생성 (3단계)**: ① 템플릿 선택 — 오늘 매치업·트렌딩 토픽·graph.json 2-hop 관계·출제 이력을
-  보고 오늘 쓸 템플릿과 대상 엔티티 결정(같은 템플릿 연속 출제 방지) → ② 데이터 바인딩 — 템플릿의
-  `needs`에 해당하는 데이터만 로드 → ③ 문구 생성 — LLM이 문제·선택지 작성. 예측 퀴즈에서 위키의
-  밈·여론은 문구 양념으로만 사용(정답 근거 아님)
+- **생성 (0+3단계)**: ⓪ 통계 재집계(전처리, 결정적 스크립트·LLM 미사용) — `question-source/
+  game_result/` 봉투(상대전적·홈원정·연승연패·월별 추이·전년 대비)와 `kbo-records/` 스냅샷
+  (일별 팀 순위·시즌 스탯 순위·마일스톤 임박)을 집계해 `wiki/stats/`를 **매일** 갱신, 기록
+  정정(RecordCorrect) 공지 반영 → ① 템플릿 선택 — 오늘 매치업·트렌딩 토픽·graph.json 2-hop
+  관계·출제 이력을 보고 오늘 쓸 템플릿과 대상 엔티티 결정(같은 템플릿 연속 출제 방지) →
+  ② 데이터 바인딩 — 템플릿의 `needs`에 해당하는 데이터만 로드 → ③ 문구 생성 — LLM이 문제·
+  선택지 작성. 예측 퀴즈에서 위키의 밈·여론은 문구 양념으로만 사용(정답 근거 아님)
 - **검증 (같은 잡 내 2차 패스)**:
   1. 지식 퀴즈는 `evidence`에 위키 원문 인용 또는 봉투/stats 필드값 필수 — 근거 없으면 폐기
   2. 최근 7일 출제 이력과 중복 검사 (명세서 비즈니스 규칙) + 템플릿 편중 검사
