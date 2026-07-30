@@ -13,9 +13,14 @@ routine 2개는 같은 S3 버킷의 서로 겹치는 prefix만 쓰므로 IAM 사
 `wiki/*`·`quiz-candidates/*`, 조건부 `ListBucket`).
 
 실버킷명은 여기에 하드코딩하지 않는다 — `py-collector/.env`의
-`COLLECTOR_S3_BUCKET` 값을 그대로 쓴다(현재 dev 버킷은
-`victoryfairy-crawl-dev`, `py-collector/.env`는 `.gitignore` 처리됨 — 직접
-확인할 것).
+`COLLECTOR_S3_BUCKET` 값을 그대로 쓴다. 현재 값은 이 문서에 적지 않는다
+(dev→prod 전환 시 문서에 박힌 옛 값이 정답처럼 오인될 수 있다) — 아래 조회
+명령으로 매번 직접 확인한다(`py-collector/.env`는 `.gitignore` 처리돼 있어
+`grep`으로만 확인 가능):
+
+```bash
+grep '^COLLECTOR_S3_BUCKET=' py-collector/.env
+```
 
 ```bash
 # 0) 버킷명 확인 (하드코딩하지 않는다)
@@ -42,7 +47,11 @@ aws iam create-access-key --user-name victoryfairy-routine
 
 ## 2. routine 등록 (Claude Code cloud schedule)
 
-두 routine 모두 아래 공통 env를 쓴다:
+두 routine 모두 아래 공통 env를 쓴다. ROUTINE.md 두 문서는 `S3_BUCKET` 1개만
+전제(자격증명은 "이미 환경에 주입돼 있다"고만 가정)하지만, 그 자격증명을
+실제로 주입하려면 `aws` CLI가 요구하는 3종(`AWS_ACCESS_KEY_ID`·
+`AWS_SECRET_ACCESS_KEY`·`AWS_DEFAULT_REGION`)이 함께 필요하므로 여기서
+4종으로 명시한다:
 
 | env | 값 |
 |---|---|
@@ -207,12 +216,15 @@ routine을 실제 운영에 올리기 전에 알아둬야 할 갭 목록이다.
    렌더링될 수 있다.
 4. **`kbo-records/`의 `top5`·`record-correct`는 상시 미생성** — 원본 KBO
    기록 게시판의 마크업이 두 카테고리와 비호환이라(Task 2 확인) 크롤러가
-   이 두 카테고리 스냅샷을 만들지 못한다. `expectation-week`는 스냅샷은
-   생성되지만 내용이 게시판 목록(다가오는 이벤트 목록)이라 마일스톤 데이터
-   형태가 아니어서 `MILESTONE_WATCH` 같은 템플릿이 실사용할 수 없다(Task
-   10 확인). 두 갭 모두 크롤러 재작업 없이는 해소되지 않으므로, 이 세
-   카테고리에 의존하는 템플릿은 당분간 후보에서 자연 제외된다고 가정하고
-   운영해야 한다.
+   이 두 카테고리 스냅샷을 만들지 못한다. 크롤러 재작업 없이는 해소되지
+   않으므로, 이 두 카테고리에 의존하는 템플릿은 당분간 후보에서 자연
+   제외된다고 가정하고 운영해야 한다.
+5. **`kbo-records/`의 `expectation-week`는 milestone 데이터로 실사용
+   불가** — 스냅샷 자체는 정상 생성되지만(위 4번과 원인이 다르다), 내용이
+   게시판 목록(다가오는 이벤트 목록)이라 `MILESTONE_WATCH` 같은 템플릿이
+   기대하는 마일스톤 데이터 형태가 아니다(Task 10 확인). 스냅샷 포맷을
+   다시 설계하지 않는 한 이 소스에 의존하는 템플릿도 후보에서 자연
+   제외된다고 가정한다.
 
 ---
 
