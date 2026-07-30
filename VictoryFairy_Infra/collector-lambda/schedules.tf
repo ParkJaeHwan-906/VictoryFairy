@@ -41,3 +41,50 @@ resource "aws_lambda_permission" "game" {
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.game.arn
 }
+
+# --- KBO 기록실 스냅샷: 매일 07:00 KST ---
+resource "aws_cloudwatch_event_rule" "kbo_records" {
+  name                = "${var.name}-kbo-records"
+  description         = "KBO 기록실 스냅샷 -> S3 (07:00 KST)"
+  schedule_expression = var.kbo_records_schedule
+  tags                = var.tags
+}
+
+resource "aws_cloudwatch_event_target" "kbo_records" {
+  rule  = aws_cloudwatch_event_rule.kbo_records.name
+  arn   = aws_lambda_function.this.arn
+  input = jsonencode({ job = "kbo_records" })
+}
+
+resource "aws_lambda_permission" "kbo_records" {
+  statement_id  = "AllowEventBridgeKboRecords"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.this.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.kbo_records.arn
+}
+
+# --- 당일(KST) 예정경기 export: 매일 08:30 KST ---
+# 위 "game" 잡(schedule/result/relay, 완료 경기 대상)과는 별개 잡 — 이 잡은 그날 예정된
+# (아직 시작 전) 경기를 내다본다. var.game_schedule(기존, "game" 잡의 cron)과 이름이
+# 헷갈리지 않도록 이 잡의 cron 변수는 game_schedule_export_schedule.
+resource "aws_cloudwatch_event_rule" "game_schedule" {
+  name                = "${var.name}-game-schedule"
+  description         = "당일(KST) 예정경기 -> S3 export (08:30 KST)"
+  schedule_expression = var.game_schedule_export_schedule
+  tags                = var.tags
+}
+
+resource "aws_cloudwatch_event_target" "game_schedule" {
+  rule  = aws_cloudwatch_event_rule.game_schedule.name
+  arn   = aws_lambda_function.this.arn
+  input = jsonencode({ job = "game_schedule" })
+}
+
+resource "aws_lambda_permission" "game_schedule" {
+  statement_id  = "AllowEventBridgeGameSchedule"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.this.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.game_schedule.arn
+}

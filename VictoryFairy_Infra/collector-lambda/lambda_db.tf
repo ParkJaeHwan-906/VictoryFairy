@@ -157,3 +157,33 @@ resource "aws_lambda_permission" "registrations" {
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.registrations[0].arn
 }
+
+# --- export(game_result): games/game_lineups -> S3 envelope (매일 04:00 KST, records 03:30 이후) ---
+# 이 함수(aws_lambda_function.db)는 위에서 aws_iam_role.lambda(S3 잡 함수와 공유하는 롤)를
+# 쓴다(62번째 줄) — 그 롤에는 iam.tf의 aws_iam_role_policy.s3 가 이미 붙어 있고
+# (Resource = data_arn, "${data_arn}/*" — 버킷 전체, question-source/* 포함) s3:PutObject
+# 도 포함되어 있어(iam.tf 25-38번째 줄) export 잡이 S3에 쓰는 데 추가 IAM 정책이
+# 필요 없다. env 도 위 76-88번째 줄에 COLLECTOR_S3_BUCKET/REGION 이 이미 있다.
+resource "aws_cloudwatch_event_rule" "export_game_result" {
+  count               = local.db_enabled ? 1 : 0
+  name                = "${var.name}-export-game-result"
+  description         = "game_result envelope export -> S3 (04:00 KST)"
+  schedule_expression = var.export_game_result_schedule
+  tags                = var.tags
+}
+
+resource "aws_cloudwatch_event_target" "export_game_result" {
+  count = local.db_enabled ? 1 : 0
+  rule  = aws_cloudwatch_event_rule.export_game_result[0].name
+  arn   = aws_lambda_function.db[0].arn
+  input = jsonencode({ job = "export", target = "game_result" })
+}
+
+resource "aws_lambda_permission" "export_game_result" {
+  count         = local.db_enabled ? 1 : 0
+  statement_id  = "AllowEventBridgeExportGameResult"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.db[0].function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.export_game_result[0].arn
+}

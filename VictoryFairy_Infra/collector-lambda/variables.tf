@@ -83,6 +83,20 @@ variable "game_schedule" {
   default     = "cron(0 18 * * ? *)"
 }
 
+variable "kbo_records_schedule" {
+  description = "KBO 기록실 스냅샷 (07:00 KST)"
+  type        = string
+  default     = "cron(0 22 * * ? *)"
+}
+
+# 이름에 "_export_"를 넣어 위 game_schedule(= "game" 잡의 schedule/result/relay cron)과
+# 구분한다 — 이 변수는 "game_schedule" 잡(당일 예정경기 export)의 cron이다.
+variable "game_schedule_export_schedule" {
+  description = "당일 예정경기 export (08:30 KST)"
+  type        = string
+  default     = "cron(30 23 * * ? *)"
+}
+
 # --- DB 적재 잡 (records/registrations) — lambda_db.tf ---
 # db_subnet_ids 가 비어 있으면(기본) DB 잡 리소스는 아무것도 만들지 않는다.
 # 값들은 VictoryFairy_Infra(environments/dev) 스택에서 가져온다 — 프라이빗 서브넷 id,
@@ -143,6 +157,12 @@ variable "registrations_schedule" {
   description = "KBO 1군 등록명단 DB 적재 스케줄. 기본 11:00 KST = 02:00 UTC (당일 등록 변동 반영 후)."
   type        = string
   default     = "cron(0 2 * * ? *)"
+}
+
+variable "export_game_result_schedule" {
+  description = "game_result envelope export (04:00 KST, records 03:30 이후)"
+  type        = string
+  default     = "cron(0 19 * * ? *)"
 }
 
 variable "pii_salt" {
