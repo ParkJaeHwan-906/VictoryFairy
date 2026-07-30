@@ -3,7 +3,7 @@
  *
  * 이 API 모듈은 "성공은 비대칭, 실패는 항상 ApiResponse" 구조다.
  * - 성공 raw(ApiResponse 미래핑): signup(boolean, 201), login/refresh(TokenResponse, 200),
- *   logout(204 무본문), DELETE /api/users/me(204 무본문)
+ *   logout(204 무본문), DELETE /users/me(204 무본문)
  * - 성공 래핑: password/nickname validate·duplicate(ApiResponse<...ValidationResponse>),
  *   email send-code/verify(ApiResponse<void> = data:null)
  * - 실패: BusinessException·Bean Validation 모두 ApiResponse

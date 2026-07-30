@@ -7,28 +7,28 @@ export type Gender = 'MALE' | 'FEMALE';
  * 요청 DTO
  * ------------------------------------------------------------------ */
 
-/** POST /api/auth/password/validate */
+/** POST /auth/password/validate */
 export interface PasswordValidationRequest {
   password: string;
 }
 
-/** POST /api/auth/nickname/validate 와 /api/auth/nickname/duplicate 가 공유하는 DTO */
+/** POST /auth/nickname/validate 와 /auth/nickname/duplicate 가 공유하는 DTO */
 export interface NicknameValidationRequest {
   nickname: string;
 }
 
-/** POST /api/auth/email/send-code */
+/** POST /auth/email/send-code */
 export interface EmailSendCodeRequest {
   email: string;
 }
 
-/** POST /api/auth/email/verify — code는 6자리 숫자 문자열 */
+/** POST /auth/email/verify — code는 6자리 숫자 문자열 */
 export interface EmailVerifyRequest {
   email: string;
   code: string;
 }
 
-/** POST /api/auth/signup */
+/** POST /auth/signup */
 export interface SignupRequest {
   name: string;
   /** 숫자만 10~11자리 */
@@ -40,14 +40,14 @@ export interface SignupRequest {
   password: string;
 }
 
-/** POST /api/auth/login */
+/** POST /auth/login */
 export interface LoginRequest {
   email: string;
   password: string;
 }
 
 /**
- * POST /api/auth/refresh 와 /api/auth/logout 가 공유하는 DTO.
+ * POST /auth/refresh 와 /auth/logout 가 공유하는 DTO.
  * 주의: refresh 토큰을 Authorization 헤더가 아니라 요청 본문에 싣는다.
  */
 export interface TokenRequest {

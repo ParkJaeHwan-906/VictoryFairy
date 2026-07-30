@@ -6,7 +6,7 @@ import { isUnauthenticated, normalizeError } from './errors';
 /**
  * axios 요청 설정 확장.
  * - requiresAuth: 요청 인터셉터가 Authorization: Bearer <accessToken>를 주입할지 여부.
- *   현재 인증 필요 요청은 DELETE /api/users/me 하나뿐이지만, 향후 인증 엔드포인트
+ *   현재 인증 필요 요청은 DELETE /users/me 하나뿐이지만, 향후 인증 엔드포인트
  *   확장을 고려해 플래그 기반으로 일반화한다.
  * - _retry: refresh 회전 재시도 1회 제한용 내부 플래그(무한루프 방지).
  */
@@ -58,7 +58,7 @@ function rotateTokens(): Promise<TokenResponse> {
   // httpClient가 아닌 bare axios로 호출해 인터셉터 재귀를 피한다.
   // refresh는 rotate이므로 새 refreshToken까지 반드시 저장해야 한다.
   const promise = axios
-    .post<TokenResponse>(`${BASE_URL}/api/auth/refresh`, { refreshToken })
+    .post<TokenResponse>(`${BASE_URL}/auth/refresh`, { refreshToken })
     .then((res) => {
       storage.setTokens(res.data);
       return res.data;
