@@ -67,3 +67,29 @@ def test_collect_page_failure_is_isolated():
         client=FailingClient(), sink=sink, date="2026-07-30")
     res = src.collect(ctx)
     assert res.loaded == len(PAGES) - 1 and len(res.failed) == 1
+
+
+def test_collect_page_with_no_tables_is_isolated_as_no_tables_parsed():
+    """실측(라이브 스모크)에서 나온 실제 실패 모드: 응답은 200이지만 페이지가
+    <table>이 아닌 마크업(예: top5의 div 리스트)이라 parse_tables가 []를 반환하는
+    경우. 이때도 그 페이지만 "no tables parsed" 사유로 failed에 들어가고 나머지
+    페이지는 정상 적재돼야 한다 — client.get이 예외를 던지는 경로만 다루던 기존
+    격리 테스트로는 이 경로가 전혀 커버되지 않았다."""
+    no_table_html = "<html><body><div class=\"list\">표 없음</div></body></html>"
+
+    class MixedClient:
+        def get(self, url, headers=None):
+            if PAGES["top5"] in url:
+                return SimpleNamespace(text=no_table_html)
+            return SimpleNamespace(text=FIXTURE)
+
+    src = source_base.get_source("kbo_records")
+    sink = FakeSink()
+    ctx = source_base.CollectContext(
+        settings=SimpleNamespace(kbo_base_url="https://www.koreabaseball.com"),
+        client=MixedClient(), sink=sink, date="2026-07-30")
+    res = src.collect(ctx)
+    assert res.loaded == len(PAGES) - 1
+    assert res.failed == ["top5: no tables parsed"]
+    keys_written = {k for k, _ in sink.puts}
+    assert "kbo-records/top5/2026-07-30.json" not in keys_written
