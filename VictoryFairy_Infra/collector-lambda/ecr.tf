@@ -9,56 +9,16 @@ resource "aws_ecr_repository" "this" {
   }
 }
 
-# 이미지 빌드 원천 = py-collector 소스(dev_ai 소유, 이 리포 dev_infra 브랜치에는 없음).
-# 기본 경로는 VictoryFairy_AI 가 나란히 있는 체크아웃(main 등) 기준 상대경로 —
-# dev_infra 단독 체크아웃에서는 collector_src 변수로 절대경로를 지정해야 plan 이 된다.
-locals {
-  collector_src = var.collector_src != "" ? var.collector_src : "${path.module}/../../VictoryFairy_AI/py-collector"
-  lambda_src    = "${local.collector_src}/deploy/lambda"
-}
-
-# Build the container image and push it to ECR. Re-runs when the handler,
-# Dockerfile, requirements, or the kbo_collector package changes.
-resource "null_resource" "image" {
-  triggers = {
-    handler      = filemd5("${local.lambda_src}/handler.py")
-    dockerfile   = filemd5("${local.lambda_src}/Dockerfile")
-    requirements = filemd5("${local.lambda_src}/requirements.txt")
-    build_script = filemd5("${local.lambda_src}/build_and_push.sh")
-    core = sha1(join(",", [
-      for f in fileset("${local.collector_src}/kbo_collector", "**/*.py") :
-      filemd5("${local.collector_src}/kbo_collector/${f}")
-    ]))
-    # The Dockerfile also bakes in config/ (targets.yaml etc.), so a config change
-    # must rebuild too — otherwise the image keeps stale targets (e.g. FMKorea left
-    # in the Lambda crawl list even after it was moved out of targets.yaml).
-    config = sha1(join(",", [
-      for f in fileset("${local.collector_src}/config", "**") :
-      filemd5("${local.collector_src}/config/${f}")
-    ]))
-  }
-
-  provisioner "local-exec" {
-    command = "${local.lambda_src}/build_and_push.sh"
-    environment = {
-      ECR_URL  = aws_ecr_repository.this.repository_url
-      REGION   = var.region
-      TAG      = var.image_tag
-      PLATFORM = var.architecture == "arm64" ? "linux/arm64" : "linux/amd64"
-    }
-  }
-
-  depends_on = [aws_ecr_repository.this]
-}
-
-# Resolve the digest of the freshly-pushed image so the Lambda pins to an
-# immutable digest rather than the mutable :latest tag. `depends_on` defers this
-# read until after null_resource.image pushes, so a code change (new digest)
-# flows into image_uri and `terraform apply` updates the function in the SAME
-# run. Pinning to :latest never works: the string doesn't change, so Terraform
-# sees no diff and leaves the old image running.
+# 이미지는 이 스택이 만들지 않는다 — dev_ai 의 collector-image.yml CI 가 py-collector
+# 소스를 빌드해 :latest 로 푸시하고 Lambda 코드까지 갱신한다(크롤러 코드 소유 = dev_ai).
+# 여기서는 그 시점의 :latest 다이제스트를 읽어 함수 정의에 핀할 뿐이라, 이 스택의
+# plan/apply 에 py-collector 소스가 필요 없다(dev_infra 단독 체크아웃에서 동작).
+#
+# - infra apply 는 그 시점 latest 로 함수를 맞춘다. CI 가 이미 최신으로 유지하므로
+#   보통 no-op 이고, CI 의 코드 갱신이 중간에 실패했어도 apply 가 수렴시켜 준다.
+# - 새 환경 부트스트랩: ECR 리포만 먼저 만들고(targeted apply) 이미지 CI 를 1회
+#   돌린 뒤 전체 apply — 이미지가 하나도 없으면 이 data 조회가 실패한다.
 data "aws_ecr_image" "deployed" {
   repository_name = aws_ecr_repository.this.name
   image_tag       = var.image_tag
-  depends_on      = [null_resource.image]
 }

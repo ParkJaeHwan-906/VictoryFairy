@@ -9,10 +9,15 @@ variable "name" {
   default     = "kbo-collector"
 }
 
-variable "collector_src" {
-  description = "py-collector 소스 루트 경로(이미지 빌드 원천). 비우면 이 모듈 기준 ../../VictoryFairy_AI/py-collector — VictoryFairy_AI 가 나란히 있는 체크아웃(main)에서만 유효. 이미지는 apply 시점에 이 경로의 코드로 빌드되므로, 배포하려는 최신 코드가 있는 체크아웃을 가리켜야 한다(오래된 브랜치를 가리키면 옛 코드가 배포됨)."
+variable "github_repo" {
+  description = "GitHub Actions OIDC 를 신뢰할 리포 (owner/name) — CI 배포 롤의 trust 조건"
   type        = string
-  default     = ""
+  default     = "ParkJaeHwan-906/VictoryFairy"
+
+  validation {
+    condition     = can(regex("^[^/]+/[^/]+$", var.github_repo))
+    error_message = "github_repo 는 owner/name 형식이어야 합니다."
+  }
 }
 
 variable "data_bucket_name" {
@@ -25,6 +30,11 @@ variable "architecture" {
   description = "x86_64 or arm64 (arm64 is cheaper; native on Apple Silicon)"
   type        = string
   default     = "arm64"
+
+  validation {
+    condition     = contains(["x86_64", "arm64"], var.architecture)
+    error_message = "architecture 는 x86_64 또는 arm64 여야 합니다."
+  }
 }
 
 variable "memory_mb" {

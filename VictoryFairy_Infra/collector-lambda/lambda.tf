@@ -34,7 +34,7 @@ resource "aws_lambda_function" "this" {
     }
   }
 
-  depends_on = [null_resource.image, aws_iam_role_policy.s3]
+  depends_on = [aws_iam_role_policy.s3]
 }
 
 # EventBridge invokes async; cap retries (a failed run just retries next tick,

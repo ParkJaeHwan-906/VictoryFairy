@@ -97,7 +97,6 @@ resource "aws_lambda_function" "db" {
   }
 
   depends_on = [
-    null_resource.image,
     aws_iam_role_policy_attachment.vpc,
   ]
 }
