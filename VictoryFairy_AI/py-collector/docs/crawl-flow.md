@@ -130,7 +130,7 @@ flowchart TD
 - `records`는 종료 경기의 games + **game_lineups**(교체 포함 출전 명단, `is_starter=TRUE` 가 선발 라인업). 과거 시즌 백필 가능.
 - 선발 판정: 타자는 (팀, 타순)별 첫 등장 행, 투수는 gameInfo 의 선발 pcode(aPCode/hPCode).
 - 스케줄 조회는 날짜에 **대시 필수**(`fromDate=2026-03-28`).
-- 운영 실행: **VPC 안 Lambda** `kbo-collector-db`(records 03:30 KST, registrations 11:00 KST — 테라폼 정의는 dev_infra 의 `VictoryFairy_Infra/collector-lambda/lambda_db.tf`). S3 잡 함수와 같은 이미지, DB 자격증명은 이 함수에만.
+- 운영 실행: **VPC 안 Lambda** `kbo-collector-db`(`deploy/lambda/terraform/lambda_db.tf` — records 03:30 KST, registrations 11:00 KST). S3 잡 함수와 같은 이미지, DB 자격증명은 이 함수에만.
 
 ---
 
