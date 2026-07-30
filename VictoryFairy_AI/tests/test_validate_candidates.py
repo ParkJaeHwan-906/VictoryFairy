@@ -70,3 +70,18 @@ def test_real_catalog_loads():
     path = Path(__file__).resolve().parents[1] / "question-gen/config/question-templates.yaml"
     cat = vc.load_catalog(str(path))
     assert "H2H_SEASON_RECORD" in cat and cat["YOY_TEAM"]["enabled"] is False
+
+
+def test_pitch_velocity_passes_but_arrest_warrant_is_banned():
+    # 회귀 테스트: '구속'(투구 속도) 오탐 수정 확인.
+    # 실제 banned-topics.txt는 '구속' 단독 항목을 '구속영장'/'구속기소'로 대체했다 —
+    # 야구 스탯 용어 '구속'은 통과해야 하고, 법적 맥락 '구속영장'은 여전히 걸려야 한다.
+    from pathlib import Path
+    path = Path(__file__).resolve().parents[1] / "question-gen/config/banned-topics.txt"
+    banned = vc.load_banned(str(path))
+
+    ok = ok_knowledge(); ok["question"] = "최고 구속 155km/h를 던지는 투수는?"
+    assert vc.validate_candidate(ok, CATALOG, banned) == []
+
+    bad = ok_knowledge(); bad["question"] = "구속영장이 청구된 사건의 당사자는?"
+    assert vc.validate_candidate(bad, CATALOG, banned)
