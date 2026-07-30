@@ -19,6 +19,9 @@
   /* Color — Primary (orange-red) */
   --color-primary-400: #ff7443;
 
+  /* Color — Red (검증 실패 / 에러) */
+  --color-red-500: #e5342b;
+
   /* Color — Line */
   --color-line-light: #f1f1f5;
 
@@ -39,6 +42,8 @@
   --color-label-assistive: var(--color-gray-300);
   --color-label-disable: var(--color-gray-200);
   --color-action-disabled: var(--color-gray-300);
+  /* Figma Style: Error/Strong — 입력 검증 실패 테두리·문구 */
+  --color-error-strong: var(--color-red-500);
 
   /* ---------------------------------------------------------------- *
    * Radius

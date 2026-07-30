@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
+import { ApiError, getTokenStorage, login } from '../api';
 import googleIcon from '../assets/google.svg';
 import kakaoIcon from '../assets/kakao.svg';
 import naverIcon from '../assets/naver.svg';
@@ -16,25 +17,78 @@ const SOCIAL_PROVIDERS = [
   { id: 'google', label: '구글로 로그인하기', icon: googleIcon },
 ] as const;
 
+/** 입력창별 에러 문구. 해당 키가 있으면 그 입력 아래에 메시지를 노출한다. */
+type FieldMessages = {
+  email?: string;
+  password?: string;
+};
+
+/**
+ * 로그인 실패 응답을 입력창별 문구로 옮긴다.
+ *
+ * - 400 Bean Validation: 실패 본문의 `data` 가 "필드명 → 메시지" 맵이므로 각 입력에 그대로 붙인다.
+ * - 401 INVALID_CREDENTIALS / 네트워크 오류: 서버가 어느 쪽이 틀렸는지 알려주지 않으므로
+ *   디자인([Login] Main-PW error, node 404:742)대로 비밀번호 아래에 서버 메시지를 노출한다.
+ */
+function toFieldMessages(error: unknown): FieldMessages {
+  if (error instanceof ApiError) {
+    const fieldErrors = error.fieldErrors;
+
+    if (fieldErrors && (fieldErrors.email || fieldErrors.password)) {
+      return { email: fieldErrors.email, password: fieldErrors.password };
+    }
+
+    return { password: error.message };
+  }
+
+  return { password: '로그인에 실패했습니다. 잠시 후 다시 시도해 주세요.' };
+}
+
 /**
  * LoginPage — 로그인 메인 화면.
- * Figma: SWM / [Login] Main (node 289:36)
+ * Figma: SWM / [Login] Main (node 289:36), 실패 상태는 [Login] Main-PW error (node 404:742)
  *
- * 화면 구조와 입력 상태만 담당하는 프레젠테이션 컴포넌트다.
- * 실제 인증(POST /api/auth/login)과 토큰 저장·라우팅 연결은
- * api-agent(`src/api/authApi.ts`)·store-agent 쪽 결정이 필요해 아직 붙이지 않았다.
+ * 이메일 로그인(POST /auth/login)을 연결한다. 실패 시 서버가 준 message 를
+ * 해당 입력창 아래에 그대로 노출한다(문구를 프론트에서 새로 만들지 않는다).
  */
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [messages, setMessages] = useState<FieldMessages>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   /** 디자인의 CTA 기본값은 Disable 상태 — 두 입력이 모두 채워져야 활성화한다. */
-  const canSubmit = email.trim().length > 0 && password.length > 0;
+  const canSubmit = email.trim().length > 0 && password.length > 0 && !isSubmitting;
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  /** 다시 입력하기 시작하면 직전 실패 문구를 걷어낸다. */
+  const clearMessage = (field: keyof FieldMessages) => {
+    setMessages((prev) => (prev[field] ? { ...prev, [field]: undefined } : prev));
+  };
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    // TODO: api-agent - authApi.login({ email, password }) 연결,
-    //       토큰 저장/리다이렉트는 store-agent 와 협의 후 처리
+
+    if (!canSubmit) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    setMessages({});
+
+    try {
+      const tokens = await login({ email: email.trim(), password });
+
+      // ── store-agent hand-off ──────────────────────────────────────────
+      // 토큰 영속화는 store-agent 소관이므로 API 계층이 노출한 TokenStorage 시임에만 의존한다.
+      // zustand persist 구현이 `setTokenStorage()` 로 주입되면 이 호출이 그대로 그쪽에 꽂힌다.
+      getTokenStorage().setTokens(tokens);
+      // TODO: store-agent - 로그인 성공 후 이동할 라우트가 아직 없다(ROUTES 에 login/signup 만 존재).
+      //       홈 라우트가 생기면 여기서 navigate 로 연결한다.
+    } catch (error) {
+      setMessages(toFieldMessages(error));
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -54,31 +108,67 @@ export default function LoginPage() {
           <br />더 재미있게!
         </h1>
 
-        <form className="login-page__form" onSubmit={handleSubmit} noValidate>
+        <form
+          className={`login-page__form${messages.password ? ' login-page__form--pw-error' : ''}`}
+          onSubmit={handleSubmit}
+          noValidate
+        >
           <div className="login-page__fields">
-            <input
-              className="login-page__field"
-              type="email"
-              name="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              placeholder="이메일"
-              aria-label="이메일"
-              autoComplete="email"
-            />
-            <input
-              className="login-page__field"
-              type="password"
-              name="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder="비밀번호"
-              aria-label="비밀번호"
-              autoComplete="current-password"
-            />
+            <div className="login-page__field-group">
+              <input
+                className={`login-page__field${messages.email ? ' login-page__field--error' : ''}`}
+                type="email"
+                name="email"
+                value={email}
+                onChange={(event) => {
+                  setEmail(event.target.value);
+                  clearMessage('email');
+                }}
+                placeholder="이메일"
+                aria-label="이메일"
+                autoComplete="email"
+                aria-invalid={messages.email ? true : undefined}
+                aria-describedby={messages.email ? 'login-email-error' : undefined}
+              />
+              {messages.email && (
+                <p className="login-page__field-error" id="login-email-error" role="alert">
+                  <span className="login-page__field-error-icon" aria-hidden="true" />
+                  {messages.email}
+                </p>
+              )}
+            </div>
+
+            <div className="login-page__field-group">
+              <input
+                className={`login-page__field${messages.password ? ' login-page__field--error' : ''}`}
+                type="password"
+                name="password"
+                value={password}
+                onChange={(event) => {
+                  setPassword(event.target.value);
+                  clearMessage('password');
+                }}
+                placeholder="비밀번호"
+                aria-label="비밀번호"
+                autoComplete="current-password"
+                aria-invalid={messages.password ? true : undefined}
+                aria-describedby={messages.password ? 'login-password-error' : undefined}
+              />
+              {messages.password && (
+                <p className="login-page__field-error" id="login-password-error" role="alert">
+                  <span className="login-page__field-error-icon" aria-hidden="true" />
+                  {messages.password}
+                </p>
+              )}
+            </div>
           </div>
 
-          <button className="login-page__cta" type="submit" disabled={!canSubmit}>
+          <button
+            className="login-page__cta"
+            type="submit"
+            disabled={!canSubmit}
+            aria-busy={isSubmitting}
+          >
             이메일로 로그인하기
           </button>
         </form>
