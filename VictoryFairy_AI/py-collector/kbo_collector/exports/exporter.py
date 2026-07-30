@@ -11,6 +11,11 @@ from .envelope import Envelope, empty_entities, s3_key
 
 READERS: dict = {}
 
+# DB 없이 export 가능한 docType (reader가 db 인자를 무시하거나, collect가 곧
+# export인 소스가 needs_db=False 인 경우). run.py/handler.py 가 이 집합을 보고
+# DbSink 생성을 건너뛴다.
+DB_FREE = {"game_schedule", "community_post"}
+
 
 def reader(doc_type: str):
     def deco(fn):

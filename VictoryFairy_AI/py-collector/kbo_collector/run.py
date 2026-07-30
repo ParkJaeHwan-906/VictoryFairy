@@ -557,15 +557,18 @@ def main(argv=None) -> int:
         return 0
 
     if args.job == "export":
-        from .db import DbSink
         from .exports import exporter
-        db = DbSink(settings)
+        db = None
+        if (args.target or "") not in exporter.DB_FREE:
+            from .db import DbSink
+            db = DbSink(settings)
         try:
             n = exporter.export(args.target or "", settings=settings, db=db,
                                 sink=S3RawSink(settings), date=args.date)
             logging.getLogger("export").info("%s: exported=%d", args.target, n)
         finally:
-            db.close()
+            if db is not None:
+                db.close()
         return 0
 
     if args.job in ("teams", "registrations", "records"):

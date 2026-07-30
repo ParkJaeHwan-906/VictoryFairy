@@ -11,10 +11,15 @@ Events:
   {"job": "records"}                        -> finished games -> prod MySQL (03:30 KST)
   {"job": "records", "from": .., "to": ..}  -> date-range backfill
   {"job": "registrations"}                  -> KBO 1-gun roster -> prod MySQL (11:00 KST)
+  {"job": "kbo_records"}                    -> KBO 기록실 스냅샷 -> S3 (07:00 KST)
+  {"job": "game_schedule"}                  -> 당일(KST) 예정경기 -> S3 export (08:30 KST)
+  {"job": "game_schedule", "date": ..}      -> 특정 날짜 백필
+  {"job": "export", "target": "game_result"} -> docType envelope export -> S3 (04:00 KST)
 
-records/registrations write to the prod DB, so they run on the VPC-attached
-"-db" function (COLLECTOR_DB_* env; see terraform/lambda_db.tf) — the S3 jobs'
-function stays outside the VPC. Both functions share this handler and image.
+records/registrations/export write to (or read from) the prod DB, so they run on
+the VPC-attached "-db" function (COLLECTOR_DB_* env; see dev_infra's
+VictoryFairy_Infra/collector-lambda/lambda_db.tf) — the S3-only jobs' function
+stays outside the VPC. Both functions share this handler and image.
 
 Env (set by Terraform): COLLECTOR_S3_BUCKET, COLLECTOR_S3_REGION,
 COLLECTOR_PII_SALT (from Secrets Manager), COLLECTOR_TARGETS_FILE,
@@ -47,13 +52,18 @@ def handler(event, context):
     event = event or {}
     job = event.get("job", "community")
     is_community = job in ("community", "all")
-    date = event.get("date") or (_kst_today() if is_community else _today())
+    # game_schedule 은 "당일 예정경기"를 내다보는 잡이라 KST-오늘 기준이어야 한다 —
+    # 03:00 KST game 잡의 UTC-오늘(=KST-어제 완료 경기용) 기준과는 반대.
+    kst_anchored = is_community or job == "game_schedule"
+    date = event.get("date") or (_kst_today() if kst_anchored else _today())
     run_id = (getattr(context, "aws_request_id", None) or uuid.uuid4().hex)[:16]
 
     summary: dict = {"job": job, "date": date}
 
-    # DB 적재 잡: S3 를 안 쓰므로 sink 없이 DbSink 로 바로 처리하고 끝낸다.
-    if job in ("records", "registrations"):
+    # DB 잡: -db 함수(VPC 안)에서만 도달한다. export 는 docType에 따라 DB 를 읽거나
+    # (game_result 등) S3 만 쓰기도 하지만(exporter.DB_FREE), 어느 쪽이든 이 함수가
+    # 맡는다 — S3 전용 함수엔 COLLECTOR_DB_* 자격증명이 없다.
+    if job in ("records", "registrations", "export"):
         db = DbSink(settings)
         try:
             with fetch.build_client(settings) as client:
@@ -61,6 +71,11 @@ def handler(event, context):
                     # date 미지정(None)이면 KBO 사이트가 알려주는 최신 등록일 스냅샷.
                     summary["registrations"] = run.land_registrations(
                         event.get("date"), settings=settings, db=db, client=client)
+                elif job == "export":
+                    from kbo_collector.exports import exporter
+                    summary["exported"] = exporter.export(
+                        event["target"], settings=settings, db=db,
+                        sink=S3RawSink(settings), date=event.get("date"))
                 else:
                     start = event.get("from") or date
                     end = event.get("to") or start
@@ -98,5 +113,20 @@ def handler(event, context):
                 date, settings=settings, sink=sink, client=client,
                 journal=Journal("community", date, run_id, settings.journal_dir),
                 incremental=event.get("incremental", False))
+        if job == "kbo_records":
+            import kbo_collector.sources  # noqa: F401 — REGISTRY 등록
+            from kbo_collector.sources import base as source_base
+            src = source_base.get_source("kbo_records")
+            res = src.collect(source_base.CollectContext(
+                settings=settings, client=client, sink=sink, date=event.get("date")))
+            summary["kboRecords"] = {"loaded": res.loaded, "failed": res.failed}
+        if job == "game_schedule":
+            # `date` 는 위에서 이미 KST-오늘로 앵커링됨(kst_anchored) — land_schedule 후
+            # 같은 날짜로 export.
+            run.land_schedule(date, settings=settings, sink=sink, client=client,
+                              journal=Journal("schedule", date, run_id, settings.journal_dir))
+            from kbo_collector.exports import exporter
+            summary["gameSchedule"] = exporter.export(
+                "game_schedule", settings=settings, db=None, sink=sink, date=date)
 
     return summary

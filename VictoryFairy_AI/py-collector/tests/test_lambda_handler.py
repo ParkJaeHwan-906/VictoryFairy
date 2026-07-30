@@ -1,6 +1,7 @@
 import contextlib
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 # handler.py lives under deploy/lambda/ (baked into the Lambda image root at runtime)
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "deploy" / "lambda"))
@@ -155,4 +156,81 @@ def test_handler_db_job_closes_connection_on_error(monkeypatch, settings):
         raise AssertionError("should propagate")
     except RuntimeError:
         pass
+    assert db.closed
+
+
+# --- S3-only jobs (kbo_records / game_schedule) — kbo-collector (non-VPC) 함수 경로 ---
+
+def test_handler_kbo_records_job(monkeypatch, settings):
+    _isolate(monkeypatch, settings)
+    monkeypatch.setattr(handler.run, "land_schedule", _boom("land_schedule"))
+    monkeypatch.setattr(handler.run, "land_community", _boom("land_community"))
+    called = {}
+
+    class FakeSrc:
+        needs_db = False
+
+        def collect(self, ctx):
+            called["date"] = ctx.date
+            return SimpleNamespace(loaded=10, failed=[])
+
+    monkeypatch.setattr("kbo_collector.sources.base.get_source", lambda sid: FakeSrc())
+    out = handler.handler({"job": "kbo_records"}, None)
+    assert out["kboRecords"] == {"loaded": 10, "failed": []}
+    assert called["date"] is None  # date 미지정 -> 소스가 자체 오늘 날짜로 처리
+
+
+def test_handler_game_schedule_job(monkeypatch, settings):
+    _isolate(monkeypatch, settings)
+    seq = []
+    monkeypatch.setattr(handler.run, "land_schedule",
+                        lambda date, **kw: seq.append(("land", date)) or [])
+    monkeypatch.setattr("kbo_collector.exports.exporter.export",
+                        lambda t, **kw: seq.append(("export", t, kw["date"])) or 3)
+    out = handler.handler({"job": "game_schedule", "date": "2026-07-31"}, None)
+    assert seq == [("land", "2026-07-31"), ("export", "game_schedule", "2026-07-31")]
+    assert out["gameSchedule"] == 3
+
+
+def test_handler_game_schedule_defaults_to_kst_today_not_utc(monkeypatch, settings):
+    # 03:00 KST game 잡은 UTC-오늘=KST-어제 기준이라 _today() 를 쓴다. game_schedule 은
+    # 반대로 "당일 예정경기"를 내다보는 잡이라 KST-오늘이어야 한다 — _today() (UTC) 로
+    # 잘못 배선되면 이 테스트가 실패한다.
+    _isolate(monkeypatch, settings)
+    monkeypatch.setattr(handler, "_kst_today", lambda: "2026-08-01")
+    monkeypatch.setattr(handler, "_today", _boom("_today"))
+    seq = []
+    monkeypatch.setattr(handler.run, "land_schedule",
+                        lambda date, **kw: seq.append(("land", date)) or [])
+    monkeypatch.setattr("kbo_collector.exports.exporter.export",
+                        lambda t, **kw: seq.append(("export", t, kw["date"])) or 0)
+    handler.handler({"job": "game_schedule"}, None)
+    assert seq == [("land", "2026-08-01"), ("export", "game_schedule", "2026-08-01")]
+
+
+# --- export job (docType 기반 S3 적재) — kbo-collector-db 함수 경로 ---
+
+def test_handler_export_job_uses_db_function(monkeypatch, settings):
+    # export는 DB reader(예: game_result)를 쓸 수 있으므로 DB 잡과 같은 -db 함수 분기로
+    # 가야 한다(S3 함수로 잘못 가면 DbSink 없이 실행돼 DB 기반 docType이 깨진다).
+    _isolate(monkeypatch, settings)  # S3RawSink 는 여기선 정상 경로(export 내부 sink)
+    db = _DummyDb()
+    monkeypatch.setattr(handler, "DbSink", lambda s: db)
+    monkeypatch.setattr(handler.run, "land_schedule", _boom("land_schedule"))
+    monkeypatch.setattr(handler.run, "land_community", _boom("land_community"))
+    captured = {}
+
+    def fake_export(target, **kw):
+        captured["target"] = target
+        captured["db"] = kw.get("db")
+        captured["sink"] = kw.get("sink")
+        captured["date"] = kw.get("date")
+        return 5
+
+    monkeypatch.setattr("kbo_collector.exports.exporter.export", fake_export)
+    out = handler.handler({"job": "export", "target": "game_result"}, None)
+    assert out["exported"] == 5
+    assert captured["target"] == "game_result"
+    assert captured["db"] is db
+    assert captured["sink"] is not None
     assert db.closed
