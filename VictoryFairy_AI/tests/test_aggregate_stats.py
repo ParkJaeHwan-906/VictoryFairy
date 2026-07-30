@@ -137,6 +137,29 @@ def test_yoy_excludes_teams_from_only_one_season():
     assert result["XX"] == {"prev": 0.0, "cur": 1.0, "delta": 1.0}
 
 
+def test_load_envelopes_dir_dedupes_by_doc_id_keeping_latest_collected_at(tmp_path):
+    """리뷰 C1-2: game_result는 매일 전체 재export되므로(exporter.py, date 미지정 시
+    시즌 전체를 그날 파티션에 통째로 적재) 최근 7일 파티션을 그대로 sync하면 같은
+    경기(docId) envelope가 최대 7배 중복 로드될 수 있다. docId 기준으로 dedupe하고,
+    중복 시 collectedAt이 더 최신인 사본을 채택해야 시즌 통계가 부풀지 않는다."""
+    import json
+
+    old_dir = tmp_path / "2026-07-01"; old_dir.mkdir()
+    new_dir = tmp_path / "2026-07-05"; new_dir.mkdir()
+
+    old = env("20260501LGOB02026", "LG", "OB", 3, 5, "home")
+    old["collectedAt"] = "2026-07-01T00:00:00Z"
+    new = env("20260501LGOB02026", "LG", "OB", 9, 9, "draw")  # 값이 달라도 최신을 채택
+    new["collectedAt"] = "2026-07-05T00:00:00Z"
+
+    (old_dir / "a.json").write_text(json.dumps(old), encoding="utf-8")
+    (new_dir / "b.json").write_text(json.dumps(new), encoding="utf-8")
+
+    loaded = agg.load_envelopes_dir(tmp_path)
+    assert len(loaded) == 1
+    assert loaded[0]["payload"]["awayScore"] == 9   # collectedAt이 더 최신인 사본
+
+
 # ── Task 5: 스냅샷 추출·렌더·CLI ──────────────────────────────────
 
 def test_extract_kbo_official():

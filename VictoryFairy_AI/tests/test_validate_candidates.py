@@ -14,6 +14,10 @@ BANNED = ["음주", "폭행"]
 
 
 def ok_knowledge():
+    # deadlineAt은 gameId 없는 KNOWLEDGE 문항 기준이라 값 자체는 임의였지만,
+    # PREDICTION 테스트들이 이 fixture를 c.update()로 재사용하며 gameId만 덧붙이므로
+    # (아래 test_prediction_*) deadlineAt도 gameId(20260730...) 날짜의 KST 유효 범위
+    # 안에 들도록 맞춰둔다 — 아니면 새 deadlineAt sanity 검사(check 8)에 걸린다.
     return {"quizId": "QZ-20260730-001", "gameId": None, "kind": "KNOWLEDGE",
             "type": "HISTORY", "templateId": "H2H_SEASON_RECORD", "format": "BINARY",
             "question": "올 시즌 잠실 라이벌전 우위 팀은?",
@@ -22,7 +26,7 @@ def ok_knowledge():
             "evidence": {"source": "wiki/stats/season.md#상대전적", "quote": "LG 7-4 두산"},
             "settlement": None, "difficulty": "MEDIUM", "pointReward": 50,
             "status": "PENDING", "createdAt": "2026-07-30T00:00:00Z",
-            "deadlineAt": "2026-07-30T16:00:00Z", "createdBy": "AI_ENGINE"}
+            "deadlineAt": "2026-07-30T07:30:00Z", "createdBy": "AI_ENGINE"}
 
 
 def test_valid_knowledge_passes():
@@ -50,6 +54,30 @@ def test_prediction_requires_settlement_metric():
     assert vc.validate_candidate(c, CATALOG, BANNED) == []
     c["settlement"]["metric"] = "INNINGS_PITCHED"   # 정산 불가 지표
     assert vc.validate_candidate(c, CATALOG, BANNED)
+
+
+def test_prediction_gameid_mismatch_rejected():
+    # I4: top-level gameId와 settlement.gameId는 같은 경기를 가리켜야 한다.
+    c = ok_knowledge()
+    c.update(kind="PREDICTION", templateId="PRED_WIN_LOSE", answer=None, evidence=None,
+             settlement={"gameId": "20260730LGOB02026", "metric": "WIN_TEAM"},
+             gameId="20260731LGOB02026",   # settlement.gameId와 불일치
+             deadlineAt="2026-07-30T07:30:00Z")
+    violations = vc.validate_candidate(c, CATALOG, BANNED)
+    assert any("gameId" in v and "불일치" in v for v in violations)
+
+
+def test_prediction_deadline_outside_gameid_date_rejected():
+    # I4: deadlineAt이 gameId 날짜(KST)와 전혀 무관한 값이면 보수적 sanity 검사로 거부한다.
+    # (정확한 경기 시작시각 대조는 candidate에 시작시각 필드가 없어 LLM 검증 패스 몫 —
+    # 여기서는 KST 날짜 경계만 결정적으로 검사한다.)
+    c = ok_knowledge()
+    c.update(kind="PREDICTION", templateId="PRED_WIN_LOSE", answer=None, evidence=None,
+             settlement={"gameId": "20260730LGOB02026", "metric": "WIN_TEAM"},
+             gameId="20260730LGOB02026",
+             deadlineAt="2026-08-15T00:00:00Z")   # gameId 날짜와 무관한 마감
+    violations = vc.validate_candidate(c, CATALOG, BANNED)
+    assert any("deadlineAt" in v for v in violations)
 
 
 def test_disabled_or_unknown_template_rejected():

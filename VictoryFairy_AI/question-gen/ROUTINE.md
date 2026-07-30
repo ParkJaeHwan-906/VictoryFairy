@@ -40,23 +40,48 @@ Claude Code 클라우드 스케줄 잡(routine)이 실행마다 그대로 따르
 
 ### 1. 동기화
 
-소스마다 필요한 범위가 다르다 — `question-source/game_result/`·`quiz-candidates/`는
-**최근 7일**(중복 검사·통계 재집계에 창이 필요), `question-source/game_schedule/`는
-**오늘 파티션 하나만**(예측 퀴즈는 오늘 경기만 대상), `question-source/player_profile/`는
-**가장 최신 파티션 하나만**(명단은 스냅샷 성격, 날짜 창이 필요 없음), `wiki/`는
-**전체**(위키 빌더 산출물 — 문서·그래프·통계 축적 층)를 `.work/`로 내려받는다.
+소스마다 필요한 범위가 다르다 — `question-source/game_result/`는 **가장 최신 파티션
+하나만**(리뷰 C1: 이 docType은 date 없이 호출되면 그 실행일 파티션 하나에 시즌
+전체 경기를 통째로 재export한다 — `py-collector/kbo_collector/exports/exporter.py`의
+`read_game_results`/`export()` 계약 참고. 파티션 1개가 이미 시즌 전체 스냅샷이므로
+7일치를 순회 동기화하면 같은 경기 envelope를 최대 7배 중복으로 받는 것과 같다.
+`aggregate_stats.py`의 docId dedupe가 방어선으로 남아 있긴 하지만, 애초에 최신
+파티션 하나만 받는 편이 더 정확하고 가볍다 — "어제 경기"·"최근 7일" 같은 세분화는
+그 안의 개별 게임이 자기 `gameId`에 담긴 날짜로 필터링되므로 파티션을 여러 개
+동기화할 필요가 없다), `quiz-candidates/`는 **최근 7일**(이건 매일 독립적으로
+새로 쌓이는 파티션이라 중복 검사·통계 재집계에 실제로 날짜 창이 필요하다),
+`question-source/game_schedule/`는 **오늘(KST) 파티션 하나만**(예측 퀴즈는 오늘
+경기만 대상 — `game_schedule` export는 KST-오늘 날짜로 호출되고 C1 수정 이후 그
+날짜가 그대로 파티션 키가 되므로 `$TODAY`를 KST로 잡기만 하면 항상 일치한다),
+`question-source/player_profile/`는 **가장 최신 파티션 하나만**(명단은 스냅샷
+성격, 날짜 창이 필요 없음), `wiki/`는 **전체**(위키 빌더 산출물 — 문서·그래프·통계
+축적 층)를 `.work/`로 내려받는다.
 
 ```bash
 : "${S3_BUCKET:?S3_BUCKET 환경변수를 설정하라}"
 mkdir -p .work/game_result .work/game_schedule .work/player_profile \
   .work/kbo-records .work/wiki .work/quiz-candidates .work/stats
 
-TODAY=$(date -u +%Y-%m-%d)
+# 이 routine의 "오늘"은 KST다(리뷰 I1) — game_schedule 오늘 파티션, quiz-candidates
+# 업로드 경로, casebook/템플릿 제안 파일명 등 아래 모든 $TODAY 파생 경로가 KST
+# 기준이어야 정합이 맞는다. UTC로 잡으면 08:50 KST 실행 시각이 UTC로는 전날 23:50
+# 이라 game_schedule 오늘(KST) 파티션과 하루 어긋난다.
+TODAY=$(TZ=Asia/Seoul date +%Y-%m-%d)
 
+# game_result: 최신 파티션 1개만(위 설명 참고 — 파티션 자체가 이미 시즌 전체 스냅샷).
+LATEST_GAME_RESULT_DATE=$(aws s3 ls "s3://$S3_BUCKET/question-source/game_result/" \
+  2>/dev/null | awk '{print $2}' | tr -d '/' | sort | tail -1)
+if [ -n "$LATEST_GAME_RESULT_DATE" ]; then
+  aws s3 sync "s3://$S3_BUCKET/question-source/game_result/$LATEST_GAME_RESULT_DATE/" \
+    ".work/game_result/$LATEST_GAME_RESULT_DATE/" --exclude "*" --include "*.json"
+fi
+
+# quiz-candidates만 최근 7일 파티션을 순회한다(중복·편중 검사에 실제로 날짜 창이
+# 필요). $TODAY(KST)를 기준으로 역산한다 — 시스템 UTC "오늘"에서 역산하면 KST와
+# 최대 하루 어긋난다.
 for i in 0 1 2 3 4 5 6; do
-  D=$(date -u -d "-$i days" +%Y-%m-%d 2>/dev/null || date -u -v-"${i}"d +%Y-%m-%d)
-  aws s3 sync "s3://$S3_BUCKET/question-source/game_result/$D/" \
-    ".work/game_result/$D/" --exclude "*" --include "*.json" 2>/dev/null
+  D=$(date -d "$TODAY -$i days" +%Y-%m-%d 2>/dev/null \
+      || date -j -v-"${i}"d -f "%Y-%m-%d" "$TODAY" +%Y-%m-%d)
   aws s3 sync "s3://$S3_BUCKET/quiz-candidates/$D/" \
     ".work/quiz-candidates/$D/" --exclude "*" --include "*.json" 2>/dev/null
 done

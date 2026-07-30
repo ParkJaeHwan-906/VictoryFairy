@@ -13,8 +13,12 @@
 # 안전 규칙(스펙 4.2): 사건사고·법적 논란·사생활·건강 소재 금지.
 # graph 관계는 밈공유·커리어 교차 등 안전한 엣지만 사용, 사건연루 엣지 사용 금지.
 #
-# needs 어휘 → 데이터 위치 (Task 10 실측 반영)
-#   envelope.game_result.*  → question-source/game_result/ (최근 7일 파티션)
+# needs 어휘 → 데이터 위치 (Task 10 실측 반영, 리뷰 C1 반영)
+#   envelope.game_result.*  → question-source/game_result/ (최신 파티션 1개 — date
+#                             미지정 export가 시즌 전체를 그 파티션 하나에 통째로
+#                             적재하므로 이거 하나로 어제 경기·최근 7일 모두 커버된다.
+#                             yesterday/recent7d 세분화는 개별 envelope의 gameId
+#                             날짜로 필터링해서 만든다)
 #   envelope.player_profile → question-source/player_profile/ (최신 파티션 — 실측: 이름·팀뿐,
 #                             등번호·투타·생년월일 없음. 운영 S3에도 아직 파티션 없음)
 #   schedule.today          → question-source/game_schedule/{오늘}/ (payload.stadium은
@@ -267,6 +271,7 @@
   intent: "기록 달성이 임박한 선수를 맞힌다 (KBO 기록달성예상 기준). 달성 여부 예측은 금지(정산 불가)"
   distractor: "임박하지 않은 동급 선수"
   difficulty: MEDIUM
+  enabled: false  # expectation-week 스냅샷이 게시판 제목 목록뿐 — 크롤 포맷 재설계 후 활성화
 
 # ── 예측 (경기 전 · settlement = 스코어/승패/투수 decision) ────
 

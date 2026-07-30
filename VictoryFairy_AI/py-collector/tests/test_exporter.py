@@ -65,6 +65,19 @@ def test_export_writes_envelopes_to_s3():
     assert obj["envelopeVersion"] == 1 and obj["content"]
 
 
+def test_export_partition_key_uses_specified_date_not_execution_date():
+    # 리뷰 C1-1: 이전엔 date 인자와 무관하게 항상 실행일(UTC)을 파티션 키로 썼다 —
+    # game_result처럼 date를 명시해 특정 날짜로 호출하는 잡도 오늘 파티션에 쌓여
+    # 매일 실행마다 같은 데이터가 새 날짜 밑에 중복 적재됐다(시즌 통계 오염 원인).
+    # date 인자가 있으면 그 날짜가 파티션 키가 되어야 한다.
+    sink = FakeSink()
+    n = exporter.export("game_result", settings=SimpleNamespace(), db=_db(),
+                        sink=sink, date="2026-03-28")
+    assert n == 1
+    key, _ = sink.puts[0]
+    assert key.startswith("question-source/game_result/2026-03-28/")
+
+
 def test_export_unknown_doc_type_raises():
     with pytest.raises(KeyError, match="game_result"):
         exporter.export("no_such_doc", settings=None, db=None, sink=None)

@@ -19,8 +19,8 @@
   "options": [{ "id": "A", "text": "LG 우위" }, { "id": "B", "text": "KIA 우위" }],
   "answer": "A",
   "evidence": {
-    "source": "wiki/stats/season.json#headToHead.LG|HT",
-    "quote": "LG 4승 HT 2승 · 1무"
+    "source": "wiki/stats/season.md#상대전적",
+    "quote": "- **HT vs LG**: HT 2승 LG 4승 · 1무 (최근 2026-07-15 3:5, 홈팀 승)"
   },
   "settlement": null,
   "difficulty": "MEDIUM",
@@ -32,9 +32,12 @@
 }
 ```
 
-**좋은 이유**: `evidence.quote`가 `season.json`의 `headToHead` 값 형식("A승 B승 ·
-무")을 원문 그대로 인용했고, 오늘 매치업 팀(LG vs HT) 조합을 우선한 것이 카탈로그
-intent와 정확히 맞는다.
+**좋은 이유**: `season.json`은 dict일 뿐 자연어 문장이 아니므로(`generation-rules.md`
+§2) `evidence.source`가 렌더 짝인 `.md` 경로(`wiki/stats/season.md#상대전적`)를
+가리키고, `evidence.quote`도 `aggregate_stats.py`의 `_render_head_to_head_section`이
+실제로 만드는 렌더 줄 형식(`- **A vs B**: ...`, 키는 팀코드 사전순 — `HT` < `LG`)을
+글자 그대로 인용했다. 오늘 매치업 팀(LG vs HT) 조합을 우선한 것도 카탈로그 intent와
+정확히 맞는다.
 
 ## 2. MEME_ORIGIN (지식 · 밈 유래)
 
@@ -89,12 +92,18 @@ intent와 정확히 맞는다.
   "difficulty": "MEDIUM",
   "pointReward": 50,
   "status": "PENDING",
-  "createdAt": "2026-07-30T23:50:10Z",
-  "deadlineAt": "2026-07-30T18:29:59Z",
+  "createdAt": "2026-07-29T23:50:10Z",
+  "deadlineAt": "2026-07-30T07:30:00Z",
   "createdBy": "AI_ENGINE"
 }
 ```
 
 **좋은 이유**: 예측 퀴즈답게 `answer`/`evidence`가 `null`이고 `settlement.metric`이
 템플릿 정의(`WIN_TEAM`)를 그대로 썼으며, 위키의 여론·밈은 문구에 등장시키지 않고
-순수 승부 예측으로만 남겨 정산 가능성을 지켰다.
+순수 승부 예측으로만 남겨 정산 가능성을 지켰다. 날짜도 서로 앞뒤가 맞는다 —
+routine은 매일 08:50 KST에 도는데 그 시각은 UTC로 전날 23:50이라
+`createdAt`(`2026-07-29T23:50:10Z`)이 `quizId`/`gameId`의 날짜(`20260730`)보다
+하루 이른 UTC 타임스탬프인 게 맞고, `deadlineAt`은 `generation-rules.md`의
+"PREDICTION = 경기 시작(KST) 2시간 전" 규칙대로 이 경기의 18:30 KST 시작 기준
+16:30 KST(= `07:30:00Z`)로 계산됐다 — `createdAt`(생성 시점)보다 미래이면서
+경기 당일(KST) 안에 들어온다.

@@ -291,19 +291,32 @@ def load_envelopes_dir(path) -> list:
     """디렉토리를 재귀로 훑어 `*.json` envelope를 읽고 `docType=="game_result"`
     인 것만 리스트로 반환한다. 디렉토리가 없으면 빈 리스트, 개별 파일이 JSON이
     아니면 그 파일만 건너뛴다(수집 파이프라인의 부분 실패를 여기서 다시 죽이지
-    않는다는 원칙 — 스펙 §5와 동일한 태도)."""
+    않는다는 원칙 — 스펙 §5와 동일한 태도).
+
+    game_result는 date 없이 호출되면 시즌 전체를 그날 파티션에 통째로 재export한다
+    (exporter.py) — 이 때문에 여러 날짜 파티션을 함께 동기화하면 같은 경기(docId)
+    envelope가 파티션 수만큼 중복 등장할 수 있다(리뷰 C1-2). docId 기준으로
+    dedupe하고, 중복이면 `collectedAt`이 더 최신인 사본을 채택한다 — 나중 export가
+    더 정확한 스냅샷일 수 있어서다(경기 상태 정정 등). 반환 순서는 docId 오름차순
+    으로 고정해 결정성을 유지한다."""
     root = Path(path)
     if not root.exists():
         return []
-    out = []
+    by_doc_id: dict = {}
     for p in sorted(root.rglob("*.json")):
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
-        if isinstance(data, dict) and data.get("docType") == "game_result":
-            out.append(data)
-    return out
+        if not (isinstance(data, dict) and data.get("docType") == "game_result"):
+            continue
+        doc_id = data.get("docId")
+        if doc_id is None:
+            continue
+        existing = by_doc_id.get(doc_id)
+        if existing is None or (data.get("collectedAt") or "") >= (existing.get("collectedAt") or ""):
+            by_doc_id[doc_id] = data
+    return [by_doc_id[k] for k in sorted(by_doc_id)]
 
 
 def load_snapshots_dir(path) -> dict:

@@ -104,9 +104,11 @@ pyyaml`로 최소 의존성(PyYAML)만 준비한다.
   ```
 - **퀴즈 생성기 적재 확인**: 오늘자 `quiz-candidates/{date}/`에 파일이
   쌓였는지 확인한다(파이프라인 목표는 일일 10문항 — 며칠 연속 0건이면 조사
-  필요).
+  필요). **`quiz-candidates/{date}`의 `{date}`는 출제일(KST) 기준**이다
+  (`question-gen/ROUTINE.md`가 `TZ=Asia/Seoul date +%Y-%m-%d`로 파티션을 정한다)
+  — 조회 날짜도 UTC가 아니라 KST로 잡아야 오늘자 파티션을 정확히 가리킨다.
   ```bash
-  TODAY=$(date -u +%Y-%m-%d)
+  TODAY=$(TZ=Asia/Seoul date +%Y-%m-%d)
   aws s3 ls "s3://$BUCKET/quiz-candidates/$TODAY/" --recursive | wc -l
   ```
 - **casebook·템플릿 제안**: 퀴즈 생성기가 매 실행 `wiki/_meta/casebook/`·

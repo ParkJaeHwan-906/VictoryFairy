@@ -23,11 +23,11 @@ routine 자신이 "LLM 병합 엔진"이므로, 3단계(LLM 병합)·4단계(tre
   주입돼 있다고 가정한다
 - `aws` CLI (자격증명 확인: `aws sts get-caller-identity`)
 - Python 실행기: `py-collector/.venv/bin/python` (PyYAML·boto3 기설치 — 이
-  venv를 그대로 쓴다. **주의**: 초안 브리프는 `pip install -r
-  question-gen/requirements.txt`를 전제했으나 그 파일은 리포에 존재하지 않는다.
-  `wiki-builder/scripts/compile_graph.py`가 요구하는 의존성은 PyYAML뿐이고
-  `py-collector/.venv`에 이미 설치돼 있으므로 별도 설치 단계 없이 이 venv를
-  재사용한다)
+  venv를 그대로 쓴다. `question-gen/requirements.txt`는 PyYAML만 요구하므로
+  `pip install -r question-gen/requirements.txt`로 새 venv를 구성해도 되지만,
+  `wiki-builder/scripts/compile_graph.py`가 요구하는 의존성도 PyYAML뿐이고
+  `py-collector/.venv`에 이미 설치돼 있으므로 이 routine은 별도 설치 단계 없이
+  그 venv를 그대로 재사용한다)
 - 작업 디렉토리: `VictoryFairy_AI/`. 아래 모든 명령은 이 디렉토리를 cwd로 실행한다.
   임시 작업물은 `.work/`에 모으고(로컬 클론된 routine 워크스페이스, git 추적 대상
   아님), 실행 끝에 `.work/wiki/`만 S3로 올린다.
@@ -120,6 +120,10 @@ for p in (work / "player_profile").glob("*.json"):
     env = json.loads(p.read_text(encoding="utf-8"))
     # title 형식: "{team_name} {name} 프로필" -> 마지막 공백 이전까지가 팀명,
     # 마지막 토큰이 선수명이 아니라 "{name} 프로필"의 name 부분이므로 " 프로필"을 뗀다.
+    # 이 파싱은 팀 단축명이 공백 없는 단일 토큰이라는 전제(현재 KBO 10개 구단
+    # 전부 성립 — "LG"/"두산"/"롯데" 등)에 의존한다. 구단이 늘거나 팀명 표기가
+    # 다중 토큰으로 바뀌면(예: "SSG 랜더스"처럼 팀명 자체에 공백) split(" ", 1)이
+    # 팀명 뒷부분을 선수명에 잘못 붙일 수 있어 이 로직을 다시 봐야 한다.
     title = env.get("title", "")
     name = title.rsplit(" ", 1)[0].split(" ", 1)[-1] if title.endswith("프로필") else None
     kbo_id = (env.get("payload") or {}).get("playerId")
@@ -216,6 +220,13 @@ cat question-gen/config/banned-topics.txt   # 제외 목록 확인(이 세션이
 (Task 9 완료 전) 이 단계 전체를 스킵하고 다음 단계로 넘어간다** — 실패로
 취급하지 않는다.
 
+아래 컬럼(순위/이름/값)과 최상단 asOf·source, 카테고리별 rankBasis 표기는
+실제 YAML 스키마(`{asOf, source, categories: [{id, title, sourcePage, rankBasis,
+entries: [{rank, name, value}]}]}`)를 그대로 반영한다(리뷰 I2 — 이전 버전은 존재하지
+않는 `category`/`rows`/`player` 키를 가정해 실행 즉시 `AttributeError`였다). `value`는
+참고용 — 퀴즈 정답으로 쓰지 않는다(`generation-rules.md` §6). `rankBasis`는 그대로
+노출해 병합 LLM·사람 모두가 "최초달성"과 "역대 1위"를 혼동하지 않게 한다.
+
 ```bash
 py-collector/.venv/bin/python - <<'PY'
 import sys
@@ -227,20 +238,31 @@ if not src.exists():
     print("all-time-records.yaml 없음 — Task 9 완료 전까지 이 단계 스킵", file=sys.stderr)
     sys.exit(0)
 
-records = yaml.safe_load(src.read_text(encoding="utf-8")) or []
-# 아래 컬럼(rank/player/value/asOf/source)은 Task 9가 확정할 실제 YAML 스키마에
-# 맞춰 조정한다 — 지금은 스펙 4.1의 "항목마다 기준일·출처 명시"를 반영한 잠정안이다.
-lines = ["# 역대 기록 (All-Time Records)", ""]
-for category in records:
-    lines.append(f"## {category.get('category', '')}")
+seed = yaml.safe_load(src.read_text(encoding="utf-8")) or {}
+as_of = seed.get("asOf", "미상")
+source = seed.get("source", "미상")
+categories = seed.get("categories") or []
+
+RANK_BASIS_LABEL = {
+    "chronological": "최초 달성 순(연대순) — 최초 달성자 맞히기 전용",
+    "true-rank": "역대 통산 순위 — 역대 1위 맞히기 전용",
+}
+
+lines = ["# 역대 기록 (All-Time Records)", "",
+         f"- 기준일(asOf): {as_of}", f"- 출처(source): {source}", ""]
+for category in categories:
+    title = category.get("title", category.get("id", ""))
+    rank_basis = category.get("rankBasis", "")
+    basis_label = RANK_BASIS_LABEL.get(rank_basis, rank_basis or "미상")
+    lines.append(f"## {title}")
     lines.append("")
-    lines.append("| 순위 | 선수 | 값 | 기준일 | 출처 |")
-    lines.append("|---|---|---|---|---|")
-    for row in category.get("rows", []):
-        lines.append(
-            f"| {row.get('rank', '')} | {row.get('player', '')} | "
-            f"{row.get('value', '')} | {row.get('asOf', '')} | {row.get('source', '')} |"
-        )
+    lines.append(f"- sourcePage: {category.get('sourcePage', '')}")
+    lines.append(f"- rankBasis: {rank_basis} ({basis_label})")
+    lines.append("")
+    lines.append("| 순위 | 이름 | 값(참고용) |")
+    lines.append("|---|---|---|")
+    for entry in category.get("entries", []):
+        lines.append(f"| {entry.get('rank', '')} | {entry.get('name', '')} | {entry.get('value', '')} |")
     lines.append("")
 
 out = Path(".work/wiki/stats/all-time-records.md")
@@ -249,6 +271,12 @@ out.write_text("\n".join(lines), encoding="utf-8")
 print(f"렌더 완료: {out}")
 PY
 ```
+
+**실행 검증 결과(2026-07-31, 실물 `question-gen/config/all-time-records.yaml` 3개
+카테고리로 스니펫 자체 실행)**: exit 0, `all-time-records.md` 정상 생성 — 최상단에
+`기준일(asOf): 2026-07-30`·`출처(source): KBO 공식 기록실`, 카테고리 3개
+(`통산 타자 — 타수`/`통산 투수 — 승`/`역대 TOP — 기록`) 각각 `sourcePage`·`rankBasis`
+표기 + `순위 | 이름 | 값(참고용)` 3열 표(카테고리당 10행)로 렌더됨을 확인했다.
 
 ### 6. 그래프 컴파일
 

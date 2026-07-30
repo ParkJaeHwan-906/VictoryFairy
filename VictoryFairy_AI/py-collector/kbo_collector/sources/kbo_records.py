@@ -65,6 +65,11 @@ class KboRecords:
     needs_db = False    # run.py collect 잡이 DbSink 생성을 건너뛴다
 
     def collect(self, ctx) -> CollectResult:
+        # date 미지정 시 실행일(UTC)을 스냅샷 파일명으로 쓴다 — 07:00 KST 스케줄
+        # 실행분은 UTC로는 전날(22:00 UTC)이라 파일명이 실제 KST 실행일보다 하루
+        # 이른 날짜로 찍힌다. 소비자(aggregate_stats.load_snapshots_dir)는 페이지별
+        # "가장 최신 날짜" 파일만 읽으므로 이 하루 어긋남은 무해하다 — 굳이 KST로
+        # 바꾸지 않는다(동작 변경 없음, 리뷰 Minor).
         date = ctx.date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
         fetched_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         loaded, failed = 0, []

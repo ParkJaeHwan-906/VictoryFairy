@@ -11,12 +11,13 @@
 논란·사생활·건강 소재 금지)의 결정적 부분(키워드 부분 문자열 매칭)을 검사한다.
 
 파일 구성: 상수(POINTS/METRICS/그 외) → 로더 2개(load_catalog/load_banned) →
-validate_candidate(검사 7항목) → CLI(main). stdlib + PyYAML만 사용(boto3 금지).
+validate_candidate(검사 8항목) → CLI(main). stdlib + PyYAML만 사용(boto3 금지).
 """
 
 import argparse
 import json
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import yaml
@@ -75,9 +76,24 @@ def load_banned(path) -> list:
 
 # ── 검사 ────────────────────────────────────────────────
 
+def _kst_date_deadline_bounds(yyyymmdd: str):
+    """gameId 앞 8자리 날짜(YYYYMMDD, KST 기준 경기일)의 00:00~23:59:59 KST를
+    UTC ISO(`YYYY-MM-DDTHH:MM:SSZ`) 문자열 경계 (lo, hi)로 변환한다(양끝 포함).
+
+    이 경계는 "그 날짜에 열리는 경기의 마감이 상식적으로 그 날 안에 있는가"만
+    보는 보수적 sanity 검사용이다 — candidate JSON에는 경기 실제 시작시각이 없어
+    (game_schedule payload.startTime과 대조하려면 별도 파일이 필요) 정확한 "시작
+    2시간 전" 대조는 여기서 하지 않는다(generation-rules.md의 deadlineAt 산정
+    규칙과 LLM 검증 패스가 그 정밀 검증을 맡는다)."""
+    d = datetime.strptime(yyyymmdd, "%Y%m%d").replace(tzinfo=timezone.utc)
+    lo = d - timedelta(hours=9)                             # 그날 00:00 KST → UTC
+    hi = d + timedelta(hours=14, minutes=59, seconds=59)     # 그날 23:59:59 KST → UTC
+    return lo.strftime("%Y-%m-%dT%H:%M:%SZ"), hi.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def validate_candidate(c: dict, catalog: dict, banned: list) -> list:
     """quiz-candidates 항목 하나를 검사해 위반 메시지 리스트를 반환한다.
-    빈 리스트면 통과. 검사 7항목:
+    빈 리스트면 통과. 검사 8항목:
 
     1. 필수 필드 존재
     2. format이 OX/BINARY/MULTI4 중 하나 + options 개수·id·text 규칙
@@ -86,6 +102,10 @@ def validate_candidate(c: dict, catalog: dict, banned: list) -> list:
     5. templateId가 카탈로그에 존재 + enabled + kind/format이 카탈로그와 일치
     6. pointReward가 POINTS[difficulty]와 일치
     7. question·모든 option text에 banned 키워드가 없음
+    8. PREDICTION → (a) top-level gameId가 settlement.gameId와 일치
+                    (b) deadlineAt이 gameId 날짜(KST)의 유효 범위(그날 00:00~23:59:59
+                        KST) 안에 있는지 보수적 sanity 검사(정확한 경기 시작시각
+                        대조는 LLM 검증 패스 몫 — _kst_date_deadline_bounds 참고)
 
     각 필드가 아예 없거나 타입이 다른 경우에도 예외를 던지지 않고 위반으로
     기록한 뒤 나머지 검사를 계속한다(부분 실패로 전체 검사가 죽지 않도록)."""
@@ -143,6 +163,30 @@ def validate_candidate(c: dict, catalog: dict, banned: list) -> list:
             violations.append(f"PREDICTION 문항의 정산 지표가 허용 목록에 없음: {metric}")
         if c.get("answer") is not None or c.get("evidence") is not None:
             violations.append("PREDICTION 문항은 answer·evidence가 모두 None이어야 함")
+
+        # 8(a). top-level gameId와 settlement.gameId 일치
+        top_game_id = c.get("gameId")
+        if isinstance(game_id, str) and game_id.strip() and top_game_id != game_id:
+            violations.append(
+                f"PREDICTION 문항의 gameId가 settlement.gameId와 불일치: "
+                f"gameId={top_game_id!r}, settlement.gameId={game_id!r}")
+
+        # 8(b). deadlineAt 보수적 sanity 검사 — gameId 날짜(KST)의 하루 범위 안인지만
+        # 본다. 정확한 "경기 시작 2시간 전" 대조는 candidate에 시작시각이 없어
+        # 여기서 하지 않는다(LLM 검증 패스 몫, _kst_date_deadline_bounds 독스트링 참고).
+        deadline_at = c.get("deadlineAt")
+        if (isinstance(game_id, str) and len(game_id) >= 8
+                and isinstance(deadline_at, str) and deadline_at):
+            gid_date = game_id[:8]
+            try:
+                lo, hi = _kst_date_deadline_bounds(gid_date)
+            except ValueError:
+                violations.append(f"settlement.gameId의 날짜 형식이 올바르지 않음: {game_id}")
+            else:
+                if not (lo <= deadline_at <= hi):
+                    violations.append(
+                        f"PREDICTION 문항의 deadlineAt이 gameId 날짜({gid_date})의 KST "
+                        f"유효 범위를 벗어남: deadlineAt={deadline_at}, 허용 범위 [{lo}, {hi}]")
     else:
         # 필수 필드 검사(check 1)로 kind 누락은 잡히지만, 잘못된 값(오탈자 등)
         # 은 3/4 어느 분기에도 안 걸려 조용히 통과할 수 있어 안전장치로 추가.

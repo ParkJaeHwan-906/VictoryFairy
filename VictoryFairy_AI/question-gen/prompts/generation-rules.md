@@ -140,3 +140,21 @@ format·needs·intent·distractor·settlement·difficulty)을 정하고, 이 문
   올리지 않은 상태(`wiki/players/`·`wiki/graph.json`·`wiki/stats/trending.md` 부재)라면
   ① 템플릿 선택 단계에서 해당 needs를 쓰는 템플릿을 오늘 후보에서 제외한다(데이터
   없이 문구를 지어내지 않는다).
+
+## 10. deadlineAt 산정
+
+`deadlineAt`은 항상 UTC ISO 8601(`...Z`, `createdAt`과 같은 포맷)로 기록한다. kind별
+계산 방법이 다르다:
+
+- **PREDICTION**: `question-source/game_schedule/{오늘}/` envelope의
+  `payload.startTime`(KST, `"HH:MM"`)을 기준으로 **경기 시작 2시간 전**을 마감으로
+  잡는다 — `deadlineAt` = (오늘 날짜 + `startTime`, KST) − 2시간을 UTC로 변환한 값.
+  예: `startTime` "18:30"(KST, 오늘 2026-07-30) → 마감 16:30 KST = `2026-07-30T07:30:00Z`.
+  `settlement.gameId`가 가리키는 경기와 `startTime`을 읽은 경기가 반드시 같은 경기여야
+  한다(데이터 바인딩 단계에서 매치업별로 묶어 쓸 것).
+- **KNOWLEDGE**: 정답이 이미 확정된 사실 퀴즈라 마감을 넉넉히 둔다 — `deadlineAt` =
+  출제일 23:59 KST를 UTC로 변환한 값. 예: 출제일 2026-07-30 → `2026-07-30T14:59:00Z`.
+- `validate_candidates.py`가 PREDICTION에 한해 `deadlineAt`이 `settlement.gameId`
+  날짜(KST)의 유효 범위 안에 있는지 보수적 sanity 검사를 한다(정확한 "시작 2시간 전"
+  대조는 이 결정적 스크립트가 아니라 `verification-pass.md`의 LLM 검증 패스 몫) —
+  위 계산을 벗어나면 그 게이트에서 걸린다.

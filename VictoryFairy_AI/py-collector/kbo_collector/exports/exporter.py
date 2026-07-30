@@ -29,14 +29,20 @@ def _now() -> str:
 
 
 def export(doc_type: str, *, settings, db, sink, date=None) -> int:
-    """docType의 envelope들을 S3에 적재하고 건수 반환."""
+    """docType의 envelope들을 S3에 적재하고 건수 반환.
+
+    파티션 키(S3 경로의 날짜)는 date 인자가 있으면 그 날짜를, 없으면 실행일(UTC)을
+    쓴다. 이전엔 date 인자와 무관하게 항상 실행일을 썼는데, date를 명시해 호출하는
+    잡(예: game_schedule)까지 실행일 파티션에 쌓이면서 매일 재실행마다 같은 데이터가
+    새 날짜 밑에 중복 적재되는 문제가 있었다(리뷰 C1-1 — 시즌 통계 오염 원인 중 하나).
+    """
     if doc_type in READERS:
-        today = _now()[:10]
+        partition_date = date or _now()[:10]
         count = 0
         for env in READERS[doc_type](db, date=date, sink=sink):
             try:
                 env.validate()
-                sink.put_json(s3_key(env.doc_type, today, env.doc_id), env.to_dict())
+                sink.put_json(s3_key(env.doc_type, partition_date, env.doc_id), env.to_dict())
             except Exception as exc:
                 logging.getLogger("export").warning("skip %s: %s", env.doc_id, exc)
                 continue
