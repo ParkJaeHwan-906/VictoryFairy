@@ -12,6 +12,29 @@
 #
 # 안전 규칙(스펙 4.2): 사건사고·법적 논란·사생활·건강 소재 금지.
 # graph 관계는 밈공유·커리어 교차 등 안전한 엣지만 사용, 사건연루 엣지 사용 금지.
+#
+# needs 어휘 → 데이터 위치 (Task 10 실측 반영)
+#   envelope.game_result.*  → question-source/game_result/ (최근 7일 파티션)
+#   envelope.player_profile → question-source/player_profile/ (최신 파티션 — 실측: 이름·팀뿐,
+#                             등번호·투타·생년월일 없음. 운영 S3에도 아직 파티션 없음)
+#   schedule.today          → question-source/game_schedule/{오늘}/ (payload.stadium은
+#                             실측상 항상 빈 문자열 — 문구에 구장명 쓰지 말 것)
+#   schedule.starters       → 위 envelope payload.awayStarter/homeStarter — 실측: 네이버
+#                             스케줄 API에 선발투수 필드 자체가 없어 항상 None
+#                             (소스 확보 시 PRED_SP_WIN 활성화)
+#   schedule.lineup         → (미지원 — 경기 전 타자 라인업 소스 없음)
+#   stats.head_to_head|standings|streaks|home_away|monthly|standings_trend|recent_scoring|yoy
+#                           → wiki/stats/season.json (camelCase 키: headToHead/standings/
+#                             streaks/homeAway/monthly/standingsTrend/recentScoring/yoy)
+#   stats.season_leaders|milestone_watch|team_history → wiki/stats/kbo-official.json
+#                             (seasonLeaders.top5·recordCorrect는 상시 None — 페이지 파싱 불가)
+#   stats.all_time_records  → question-gen/config/all-time-records.yaml (⚠️ v0 초안, 사람
+#                             검수 전 — rankBasis: "chronological"=MILESTONE_FIRST(최초달성)용,
+#                             "true-rank"=ALL_TIME_LEADER(역대 순위)용, 혼용 금지)
+#   stats.trending          → wiki/stats/trending.md (위키 빌더 미등록 — 아직 S3에 없음)
+#   wiki.*                  → wiki/players/{kboPlayerId}.md 해당 섹션 (위키 빌더 미등록 —
+#                             아직 S3에 없음)
+#   graph                   → wiki/graph.json (위키 빌더 미등록 — 아직 S3에 없음)
 
 # ── 지식 · 최근 경기 (시의성 층) ──────────────────────────────
 
@@ -117,6 +140,7 @@
   needs: [envelope.player_profile]
   intent: "선수 등번호 사실 확인 (예: '김도영의 등번호는 5번이다'). O/X 절반씩 섞을 것"
   difficulty: EASY
+  enabled: false   # players 테이블에 상세정보 없음 — 스키마 확장(dev_be 협의) 후 활성화
 
 - id: THROW_BAT
   kind: KNOWLEDGE
@@ -124,6 +148,7 @@
   needs: [envelope.player_profile]
   intent: "선수의 투타(우투좌타 등) 사실 확인. 오늘 선발 출전 선수 우선"
   difficulty: MEDIUM
+  enabled: false   # players 테이블에 상세정보 없음 — 스키마 확장(dev_be 협의) 후 활성화
 
 - id: TODAY_CLEANUP
   kind: KNOWLEDGE
@@ -132,6 +157,7 @@
   intent: "오늘 특정 팀 선발 라인업의 특정 타순(4번 등) 타자를 맞힌다"
   distractor: "같은 팀 라인업의 다른 타자"
   difficulty: MEDIUM
+  enabled: false   # 경기 전 타자 라인업 소스 없음 — game_schedule은 선발투수까지만
 
 - id: POSITION_WHO
   kind: KNOWLEDGE
@@ -140,6 +166,7 @@
   intent: "오늘 특정 팀 선발 라인업에서 특정 포지션을 맡는 선수를 맞힌다"
   distractor: "같은 팀의 다른 포지션 선수"
   difficulty: MEDIUM
+  enabled: false   # 경기 전 타자 라인업 소스 없음 — game_schedule은 선발투수까지만
 
 - id: BIRTHDAY_TODAY
   kind: KNOWLEDGE
@@ -148,6 +175,7 @@
   intent: "오늘(또는 이번 주) 생일인 선수를 맞힌다. 가벼운 재미용"
   distractor: "생일이 다른 달인 유명 선수"
   difficulty: EASY
+  enabled: false   # players 테이블에 상세정보 없음 — 스키마 확장(dev_be 협의) 후 활성화
 
 - id: CAREER_PATH
   kind: KNOWLEDGE
@@ -269,10 +297,11 @@
 - id: PRED_SP_WIN
   kind: PREDICTION
   format: BINARY
-  needs: [schedule.lineup]
+  needs: [schedule.starters]
   intent: "오늘 선발투수가 승리투수가 될지 예측하게 한다"
   settlement: PITCHER_DECISION
   difficulty: HARD
+  enabled: false   # 선발투수 데이터 없음(네이버 스케줄 API 미제공) — 소스 확보 시 활성화
 
 - id: PRED_UNDERDOG
   kind: PREDICTION
