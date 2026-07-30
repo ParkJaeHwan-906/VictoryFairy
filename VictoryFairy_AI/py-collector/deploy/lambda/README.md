@@ -21,9 +21,10 @@
 
 ## 배포 = 머지 (CI 자동)
 
-- **크롤러 코드 배포**: py-collector 변경이 **dev_ai 에 머지되면**
-  `.github/workflows/collector-image.yml` 이 이미지 빌드(arm64) → ECR `:latest` 푸시 →
-  두 함수 코드 갱신까지 자동으로 합니다. 손댈 것 없음. (docs/·*.md 변경은 빌드 안 함)
+- **크롤러 코드 배포**: py-collector 변경이 **main 에 도달하면**(dev_ai→main 머지)
+  `collector-image.yml` 이 이미지 빌드(arm64) → ECR `:latest` 푸시 → 두 함수 코드
+  갱신까지 자동으로 합니다. 손댈 것 없음. (docs/·*.md 변경은 빌드 안 함.
+  워크플로 파일은 dev_infra 소유 — dev_ai 브랜치에는 워크플로가 없습니다)
 - **인프라 변경**(스케줄·환경변수·메모리·SG 등): dev_infra 브랜치의
   [`VictoryFairy_Infra/collector-lambda/`](../../../VictoryFairy_Infra/collector-lambda/)
   스택에서 — 그쪽도 dev_infra 머지 시 CI 가 terraform apply 합니다. ECR 이미지가 두
