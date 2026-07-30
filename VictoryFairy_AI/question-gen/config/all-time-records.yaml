@@ -1,0 +1,110 @@
+# ⚠️ 초안 v0 — 사람 검수 전(검수 완료 시 이 줄 제거). routine 등록 전 검수 필수.
+# KBO 역대 기록 시드 — gen_all_time_seed.py 초안 + 사람 검수 완료본.
+# ⚠️ 규칙(스펙 4.1): 수치(value)는 참고용 — 퀴즈 정답으로 사용 금지(순위·최초달성형만).
+#    논란성 항목(약물 등)은 검수 시 삭제. 나무위키 복사 금지 — 원천은 KBO 공식 기록실.
+# 갱신: 시즌 종료 후 1회 + 마일스톤 이벤트 시 수동.
+asOf: '2026-07-30'
+source: KBO 공식 기록실
+categories:
+- id: history-player-hitter
+  title: 통산 타자 — 타수
+  sourcePage: history-player-hitter
+  entries:
+  - rank: 1
+    name: 백인천
+    value: '250'
+  - rank: 2
+    name: 장효조
+    value: '317'
+  - rank: 3
+    name: 이만수
+    value: '300'
+  - rank: 4
+    name: 장효조
+    value: '346'
+  - rank: 5
+    name: 장효조
+    value: '304'
+  - rank: 6
+    name: 장효조
+    value: '284'
+  - rank: 7
+    name: 김상훈
+    value: '305'
+  - rank: 8
+    name: 고원부
+    value: '342'
+  - rank: 9
+    name: 한대화
+    value: '418'
+  - rank: 10
+    name: 이정훈
+    value: '379'
+- id: history-player-pitcher
+  title: 통산 투수 — 승
+  sourcePage: history-player-pitcher
+  entries:
+  - rank: 1
+    name: 박철순
+    value: '24'
+  - rank: 2
+    name: 장명부
+    value: '30'
+  - rank: 3
+    name: 최동원
+    value: '27'
+  - rank: 4
+    name: 김시진
+    value: '25'
+  - rank: 5
+    name: 김일융
+    value: '25'
+  - rank: 6
+    name: 선동열
+    value: '24'
+  - rank: 7
+    name: 김시진
+    value: '23'
+  - rank: 8
+    name: 윤학길
+    value: '18'
+  - rank: 9
+    name: 선동열
+    value: '21'
+  - rank: 10
+    name: 선동열
+    value: '22'
+- id: history-top-hitter
+  title: 역대 TOP — 기록
+  sourcePage: history-top-hitter
+  entries:
+  - rank: 1
+    name: 백인천
+    value: '0.412'
+  - rank: 2
+    name: 이종범
+    value: '0.393'
+  - rank: 3
+    name: 장효조
+    value: '0.387'
+  - rank: 4
+    name: 테임즈
+    value: '0.381'
+  - rank: 5
+    name: 최형우
+    value: '0.376'
+  - rank: 6
+    name: 마해영
+    value: '0.372'
+  - rank: 7
+    name: 박용택
+    value: '0.372'
+  - rank: 8
+    name: 홍성흔
+    value: '0.371'
+  - rank: 9
+    name: 서건창
+    value: '0.370'
+  - rank: 10
+    name: 장효조
+    value: '0.370'
