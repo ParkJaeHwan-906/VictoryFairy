@@ -40,9 +40,11 @@ Claude Code 클라우드 스케줄 잡(routine)이 실행마다 그대로 따르
 
 ### 1. 동기화
 
-`question-source/{game_result,game_schedule,player_profile}/` 최근 7일 + `wiki/`
-전체(위키 빌더 산출물 — 문서·그래프·통계 축적 층) + `quiz-candidates/` 최근 7일을
-`.work/`로 내려받는다.
+소스마다 필요한 범위가 다르다 — `question-source/game_result/`·`quiz-candidates/`는
+**최근 7일**(중복 검사·통계 재집계에 창이 필요), `question-source/game_schedule/`는
+**오늘 파티션 하나만**(예측 퀴즈는 오늘 경기만 대상), `question-source/player_profile/`는
+**가장 최신 파티션 하나만**(명단은 스냅샷 성격, 날짜 창이 필요 없음), `wiki/`는
+**전체**(위키 빌더 산출물 — 문서·그래프·통계 축적 층)를 `.work/`로 내려받는다.
 
 ```bash
 : "${S3_BUCKET:?S3_BUCKET 환경변수를 설정하라}"
@@ -117,19 +119,29 @@ trending.md`(있으면), 최근 7일 `.work/quiz-candidates/`의 `templateId`·�
 `question-gen/prompts/generation-rules.md` 규칙 + `question-gen/casebook/good.md`·
 `bad.md`(few-shot)를 적용해, 4단계에서 바인딩한 데이터로 문구를 작성한다. 일일
 목표 10문항, **넉넉히 15개 생성**(검증에서 추릴 폐기율을 흡수). 각 후보를
-`.work/raw-candidates/$TODAY/{quizId}.json`에 스펙 4.3 계약 형태로 임시 기록한다
-(quizId는 `generation-rules.md` §7의 결정적 규칙으로 이 시점에 이미 확정).
+`.work/raw-candidates/$TODAY/{NN}.json`(NN=생성 순번, 임시 파일명일 뿐 최종
+`quizId`가 아니다)에 스펙 4.3 계약 형태로 기록한다 — `quizId` 필드에도 이 시점엔
+가제(예: 순번 그대로)를 채워 둔다. **최종 `quizId`는 검증(6단계)에서 어떤 후보가
+채택됐는지 확정된 뒤에** `generation-rules.md` §7 규칙으로 부여한다(폐기될 수도
+있는 후보에 번호를 먼저 박아두면, 재실행 시 같은 최종 채택 목록이라도 그 사이에
+낀 후보 하나가 다르게 생성/폐기되는 것만으로 번호가 흔들릴 수 있기 때문 — 멱등성은
+"이번 실행에서 실제로 살아남은 목록" 기준으로만 보장한다).
 
 ### 6. 검증 (이 세션이 직접 수행 + 결정적 게이트)
 
 `question-gen/prompts/verification-pass.md` 규칙을 `.work/raw-candidates/$TODAY/`의
 모든 후보에 적용해(evidence 원문 대조 → 중복·편중 검사 → 안전 재검 → 재미 채점
-→ 난이도·일일비율 최종 선별), 통과분만 `.work/candidates/$TODAY/`에 복사한다.
+→ 난이도·일일비율 최종 선별), 통과분만 남긴다. 이렇게 **확정된 최종 채택 목록**을
+`(templateId, 대상 엔티티 식별자)` 사전순으로 정렬해 `generation-rules.md` §7
+규칙대로 `quizId`(`QZ-{date}-001`, `002`, ...)를 이때 처음으로 확정 부여하고,
+그 `quizId`로 `.work/candidates/$TODAY/{quizId}.json`에 기록한다(5단계의 임시
+파일명·가제 quizId는 버린다).
 
 ```bash
 VALIDATE_DIR=".work/candidates/$TODAY"
 mkdir -p "$VALIDATE_DIR"
-# (통과분을 $VALIDATE_DIR로 복사하는 것은 이 세션이 검증 결과에 따라 직접 수행)
+# (통과분에 quizId를 확정 부여해 $VALIDATE_DIR/{quizId}.json으로 쓰는 것은
+#  이 세션이 검증 결과 + 위 quizId 규칙에 따라 직접 수행)
 
 py-collector/.venv/bin/python question-gen/scripts/validate_candidates.py \
   --dir "$VALIDATE_DIR"

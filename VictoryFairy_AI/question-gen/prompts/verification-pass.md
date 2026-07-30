@@ -8,14 +8,25 @@
 
 ## 1. evidence 원문 대조 (지식 퀴즈)
 
-- `kind: KNOWLEDGE`인 후보마다 `evidence.quote`가 **이번 실행에 실제로 투입된
-  자료**(위키 문서, season.json/kbo-official.json, envelope, all-time-records.yaml)
-  안에 **문자열 그대로** 존재하는지 대조한다.
-- 존재하지 않으면(요약·의역·창작이 섞였거나, 애초에 근거가 없는 경우) **그 후보는
-  폐기**한다 — 수정해서 살리지 않는다(수정하면 evidence가 원문과 달라져 다시
-  대조에 실패하는 순환에 빠진다).
-- `evidence.source`가 가리키는 자료 자체를 열어보지 않고 quote만 보고 통과시키지
-  않는다 — source가 가리키는 파일/섹션을 실제로 펼쳐서 대조한다.
+- **제1원칙**: `evidence.source`가 가리키는 자료 자체를 열어보지 않고 quote만 보고
+  그럴듯하다는 이유로 통과시키지 않는다 — **source가 가리키는 파일을 실제로 펼쳐서**
+  `evidence.quote`가 그 안에 문자열 그대로 존재하는지 대조한다.
+- **대조 대상 파일은 자료 종류에 따라 다르다**(`generation-rules.md` §2와 동일 원칙):
+  - 위키 문서(`wiki/players/*.md`)·envelope(`question-source/*/*.json`의 `content`
+    필드)·`all-time-records.yaml`은 **그 파일 자체**에서 quote를 찾는다.
+  - `stats.*` 계열(season.json/kbo-official.json에서 뽑은 사실, 즉 `evidence.source`가
+    `.json`을 가리키더라도)은 **season.json/kbo-official.json이 아니라, 짝을 이루는
+    렌더 파일 `season.md`/`kbo-official.md`에서** quote를 찾는다 — json은 값 dict일
+    뿐 자연어 문장이 아니라서 quote가 그 형태로는 애초에 json 안에 존재하지 않는다.
+    json은 렌더된 수치·이름이 실제 원본 값과 같은지 **보조 재확인**용으로만 연다
+    (예: quote 속 승수·평균자책점 숫자가 json 값과 일치하는지).
+  - 어느 파일에서 찾아야 하는지 헷갈리면(`evidence.source`가 `.json`인데 quote가
+    자연어 문장인 경우 등) json이 아니라 그 짝 `.md`부터 연다 — `.json`에서 못
+    찾았다고 바로 폐기하지 않는다(대조 대상을 잘못 짚은 것과 evidence가 진짜 없는
+    것을 구분한다).
+- 그렇게 찾아도 존재하지 않으면(요약·의역·창작이 섞였거나, 애초에 근거가 없는 경우)
+  **그 후보는 폐기**한다 — 수정해서 살리지 않는다(수정하면 evidence가 원문과 달라져
+  다시 대조에 실패하는 순환에 빠진다).
 
 ## 2. 중복·편중 검사
 
