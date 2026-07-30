@@ -60,31 +60,60 @@ def test_yoy_none_without_prev():
 
 # ── 이연 항목(Task 4 리뷰) — Task 5에서 추가 ──────────────────────
 
-def test_standings_trend_boundary_and_delta_sign():
-    """개막일 2026-04-01 + 27일 = 2026-04-28 경계.
-    AA/BB는 경계 이내 경기가 있어 early에 포함되고, CC는 5월에야 등장해 제외된다.
-    전체 시즌에서 BB가 역전 1위가 되므로 delta는 상승(BB, 양수)/하락(AA, 음수)을 함께 검증한다.
+def test_standings_trend_boundary_inclusion_exclusion():
+    """개막일 2026-04-01 + 27일 = 2026-04-28(경계)만 early에 포함되고 다음날
+    (2026-04-29)은 제외돼야 한다 — 그냥 날짜만 대조하는 게 아니라, 경계일 경기(g3)
+    포함 여부가 AA/BB의 early 순위 그 자체를 바꾸도록 설계했다: g1·g2만으로는
+    AA·BB가 1승1패로 동률(사전순 타이브레이크로 AA가 1위)이고, g3(경계일)가
+    있어야만 BB가 2승1패로 앞서 1위가 된다. 즉 `<=`를 `<`로 바꾸는 뮤테이션이
+    일어나면 g3가 빠지면서 trend["early"]["BB"]/["AA"]의 값 자체가 뒤집힌다
+    (리뷰에서 발견된, 경계일 경기가 있어도 없어도 결과가 같았던 기존 픽스처의
+    결함을 수정한 버전).
+    CC는 경계 다음날(g4)에야 처음 등장하므로 early에서 완전히 빠져야 한다.
     """
     envs = [
-        env("20260401AABB02026", "AA", "BB", 1, 0, "away"),  # 4/1 AA 승
-        env("20260428AABB02026", "AA", "BB", 1, 0, "away"),  # 4/28(경계, early 포함) AA 승
-        env("20260429BBAA02026", "BB", "AA", 2, 1, "away"),  # 4/29(경계 다음날, early 제외) BB 승
-        env("20260501BBCC02026", "BB", "CC", 3, 0, "away"),  # BB 승
-        env("20260502BBCC02026", "BB", "CC", 3, 0, "away"),  # BB 승
-        env("20260503BBAA02026", "BB", "AA", 2, 0, "away"),  # BB 승
-        env("20260504CCAA02026", "CC", "AA", 2, 1, "away"),  # CC 승
+        env("20260401AABB02026", "AA", "BB", 1, 0, "away"),  # 4/1(개막일) AA 승
+        env("20260415BBAA02026", "BB", "AA", 1, 0, "away"),  # 4/15 BB 승 → AA·BB 1승1패 동률
+        env("20260428BBAA02026", "BB", "AA", 1, 0, "away"),  # 4/28(경계, early 포함) BB 승 → BB가 앞서게 하는 결정구
+        env("20260429CCAA02026", "CC", "AA", 1, 0, "away"),  # 4/29(경계 다음날, early 제외) CC의 유일한 초반 경기
     ]
     games = [agg.parse_game(e) for e in envs]
     trend = agg.standings_trend(games)
 
     assert trend["earlyAsOf"] == "2026-04-28"
-    assert set(trend["early"]) == {"AA", "BB"}          # CC는 early에 없음(경계 밖에서야 등장)
-    assert trend["early"]["AA"] == 1 and trend["early"]["BB"] == 2
+    assert set(trend["early"]) == {"AA", "BB"}    # CC는 경계 다음날에야 등장 → early에 없음
+    assert "CC" not in trend["delta"]
+    # 경계일 경기(g3) 포함 시 BB 2승1패(.667) 1위, AA 1승2패(.333) 2위.
+    # g3가 빠지면(뮤테이션 `<`) AA·BB 1승1패 동률 → 사전순 타이브레이크로 AA가 1위가 되어
+    # 아래 두 값이 뒤바뀐다.
+    assert trend["early"]["BB"] == 1
+    assert trend["early"]["AA"] == 2
 
-    assert trend["now"]["BB"] == 1 and trend["now"]["AA"] == 2 and trend["now"]["CC"] == 3
-    assert "CC" not in trend["delta"]                    # early 데이터 없는 팀은 delta에서 제외
-    assert trend["delta"]["BB"] > 0                       # 2위→1위: 상승(양수)
-    assert trend["delta"]["AA"] < 0                       # 1위→2위: 하락(음수)
+
+def test_standings_trend_delta_sign():
+    """early(개막 초반) 대비 delta의 부호를 검증한다: BB는 초반 0승2패 열세에서
+    시즌 중 역전해 최종 1위가 되므로 delta가 양수(상승), AA는 초반 1위에서 밀려나
+    2위가 되므로 음수(하락)여야 한다. CC는 5월에야 처음 등장해 early 자체가 없으므로
+    delta에서 제외된다. (경계일과는 무관하게 여유 있는 날짜로 구성 — 경계 정확성은
+    test_standings_trend_boundary_inclusion_exclusion이 별도로 검증한다.)
+    """
+    envs = [
+        env("20260401AABB02026", "AA", "BB", 1, 0, "away"),   # 4/1 AA 승
+        env("20260402AABB02026", "AA", "BB", 1, 0, "away"),   # 4/2 AA 승 (early: AA 2승0패, BB 0승2패)
+        env("20260501BBAA02026", "BB", "AA", 1, 0, "away"),   # 5/1 BB 승
+        env("20260502BBCC02026", "BB", "CC", 1, 0, "away"),   # 5/2 BB 승
+        env("20260503BBCC02026", "BB", "CC", 1, 0, "away"),   # 5/3 BB 승
+        env("20260504CCAA02026", "CC", "AA", 1, 0, "away"),   # 5/4 CC 승
+    ]
+    games = [agg.parse_game(e) for e in envs]
+    trend = agg.standings_trend(games)
+
+    assert trend["early"] == {"AA": 1, "BB": 2}          # 4월 초 기준 AA 1위, BB 2위
+    assert "CC" not in trend["early"] and "CC" not in trend["delta"]   # 5월에야 등장
+
+    assert trend["now"]["BB"] == 1                        # 시즌 전체에서는 BB가 역전 1위
+    assert trend["delta"]["BB"] > 0                        # 상승 = 양수
+    assert trend["delta"]["AA"] < 0                        # 하락 = 음수
 
 
 def test_yoy_excludes_teams_from_only_one_season():
