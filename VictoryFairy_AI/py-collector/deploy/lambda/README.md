@@ -19,25 +19,17 @@
 핸들러(`handler.py`)는 코어(`kbo_collector.run.land_*`)를 그대로 호출하는 얇은 어댑터입니다.
 `lxml` 네이티브 의존성 때문에 **컨테이너 이미지**(ECR)로 배포합니다.
 
-## 배포 — 테라폼은 dev_infra 에 있습니다
+## 배포 = 머지 (CI 자동)
 
-인프라 정의(ECR·Lambda 2개·EventBridge 스케줄·IAM·SG)는 **dev_infra 브랜치의
-[`VictoryFairy_Infra/collector-lambda/`](../../../VictoryFairy_Infra/collector-lambda/)** 로
-이관됐습니다(크롤러 코드는 dev_ai, 인프라는 dev_infra). 배포·재배포·해체는 전부 그
-스택에서:
-
-```bash
-cd VictoryFairy_Infra/collector-lambda
-terraform apply    # 소스 변경 감지 → 이미지 재빌드·푸시 → Lambda 다이제스트 갱신까지 한 번에
-```
-
-- 이미지는 apply 시점에 **이 디렉토리(py-collector) 소스**를 `build_and_push.sh` 로 docker
-  build 합니다. 어느 체크아웃의 소스를 굽는지는 스택의 `collector_src` 변수가 결정하니,
-  **코드를 바꿨으면 그 코드가 있는 체크아웃을 가리키고 있는지** 스택 README 의 소스 경로
-  주의사항을 먼저 읽으세요.
+- **크롤러 코드 배포**: py-collector 변경이 **dev_ai 에 머지되면**
+  `.github/workflows/collector-image.yml` 이 이미지 빌드(arm64) → ECR `:latest` 푸시 →
+  두 함수 코드 갱신까지 자동으로 합니다. 손댈 것 없음. (docs/·*.md 변경은 빌드 안 함)
+- **인프라 변경**(스케줄·환경변수·메모리·SG 등): dev_infra 브랜치의
+  [`VictoryFairy_Infra/collector-lambda/`](../../../VictoryFairy_Infra/collector-lambda/)
+  스택에서 — 그쪽도 dev_infra 머지 시 CI 가 terraform apply 합니다. ECR 이미지가 두
+  파이프라인의 유일한 접점이라 서로를 몰라도 됩니다.
 - `handler.py`/`Dockerfile`/`requirements.txt`/`build_and_push.sh` 는 여기(dev_ai) 소유 —
-  이미지 내용을 바꾸는 수정은 여기서 하고, 스케줄·환경변수·메모리 등 운영 설정 변경은
-  infra 스택에서 합니다.
+  이미지 내용을 바꾸는 수정은 여기서 합니다.
 
 ## 수동 실행 / 백필
 
