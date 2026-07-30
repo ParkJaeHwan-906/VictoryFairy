@@ -1,3 +1,9 @@
+# 부팅 시 KBO 선수 명단 시딩(PlayerCodeSeeder). 멱등이라 재부팅마다 돌아도 안전.
+# 명단 갱신이 끝나 더 돌릴 필요가 없으면 false 로 끄면 된다.
+app:
+  seed:
+    kbo-players: true
+
 spring:
   datasource:
     url: jdbc:mysql://${DB_HOST}:${DB_PORT}/${DB_NAME}?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
