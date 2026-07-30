@@ -173,25 +173,35 @@
 }
 
 /* ------------------------------------------------------------------ *
- * 닉네임 — 입력 위에 중복확인 버튼이 겹쳐 놓인다
+ * 입력 + 인라인 액션 버튼 — 입력 위에 버튼이 겹쳐 놓인다
+ * (이메일 "인증 요청", 닉네임 "중복확인"이 공유하는 패턴)
+ *
+ * 버튼이 position:absolute 이므로 이 행이 반드시 기준(relative)이 되어야 한다.
+ * 이 래퍼 없이 버튼을 두면 기준을 못 찾아 페이지 우상단으로 빠져나간다.
  * ------------------------------------------------------------------ */
-.signup-page__nickname-row {
+.signup-page__input-row {
+  /* 두 라벨 중 더 긴 "인증 요청" 기준 폭 — 버튼 폭을 맞춰 좌측 끝을 정렬한다 */
+  --input-action-width: 104px;
+  /* 입력(56px) 안에서 버튼(36px)이 수직 중앙에 오는 여백: 10 + 36 + 10 = 56 */
+  --input-action-inset: 10px;
+
   position: relative;
   display: flex;
 }
 
-/* 버튼(약 96px) + 좌우 여백만큼 입력 텍스트가 가려지지 않도록 비운다 */
-.signup-page__input--nickname {
-  padding-right: 112px;
+/* 버튼에 가려지는 만큼 입력 텍스트 영역을 비운다 */
+.signup-page__input--with-action {
+  padding-right: calc(var(--input-action-width) + var(--input-action-inset) + 8px);
 }
 
-.signup-page__duplicate-check {
+.signup-page__input-action {
   position: absolute;
-  top: 10px;
-  right: 10px;
+  top: var(--input-action-inset);
+  right: var(--input-action-inset);
   display: flex;
   align-items: center;
   justify-content: center;
+  min-width: var(--input-action-width);
   height: 36px;
   padding-inline: 16px;
   border-radius: var(--radius-10);
@@ -203,7 +213,7 @@
   white-space: nowrap;
 }
 
-.signup-page__duplicate-check:disabled {
+.signup-page__input-action:disabled {
   background-color: var(--color-action-disabled);
   color: var(--color-label-disable);
   cursor: not-allowed;

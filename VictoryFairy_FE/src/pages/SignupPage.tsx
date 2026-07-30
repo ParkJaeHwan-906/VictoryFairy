@@ -31,7 +31,13 @@ export default function SignupPage() {
     // TODO: api-agent - authApi.signup(...) 연결. 이메일 인증 단계 포함 흐름 확정 필요
   };
 
-  const handleDuplicateCheck = () => {
+  const handleSendEmailCode = () => {
+    // TODO: api-agent - authApi.sendEmailCode({ email }) 연결.
+    //       실패 코드가 409(DUPLICATE_EMAIL) / 429(EMAIL_SEND_COOLDOWN) 로 갈리고,
+    //       성공 후 6자리 코드 입력 UI 가 따라와야 해서 흐름 확정 뒤 붙인다.
+  };
+
+  const handleNicknameDuplicateCheck = () => {
     // TODO: api-agent - authApi.checkNicknameDuplicate({ nickname }) 연결
   };
 
@@ -69,16 +75,26 @@ export default function SignupPage() {
             이메일
           </label>
           <div className="signup-page__field">
-            <input
-              className="signup-page__input"
-              id="signup-email"
-              type="email"
-              name="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              placeholder="victory@fairy.com"
-              autoComplete="email"
-            />
+            <div className="signup-page__input-row">
+              <input
+                className="signup-page__input signup-page__input--with-action"
+                id="signup-email"
+                type="email"
+                name="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="victory@fairy.com"
+                autoComplete="email"
+              />
+              <button
+                className="signup-page__input-action"
+                type="button"
+                onClick={handleSendEmailCode}
+                disabled={email.trim().length === 0}
+              >
+                인증 요청
+              </button>
+            </div>
           </div>
         </div>
 
@@ -123,9 +139,9 @@ export default function SignupPage() {
             닉네임
           </label>
           <div className="signup-page__field">
-            <div className="signup-page__nickname-row">
+            <div className="signup-page__input-row">
               <input
-                className="signup-page__input signup-page__input--nickname"
+                className="signup-page__input signup-page__input--with-action"
                 id="signup-nickname"
                 type="text"
                 name="nickname"
@@ -136,9 +152,9 @@ export default function SignupPage() {
                 aria-describedby="signup-nickname-hint"
               />
               <button
-                className="signup-page__duplicate-check"
+                className="signup-page__input-action"
                 type="button"
-                onClick={handleDuplicateCheck}
+                onClick={handleNicknameDuplicateCheck}
                 disabled={nickname.trim().length === 0}
               >
                 중복확인
