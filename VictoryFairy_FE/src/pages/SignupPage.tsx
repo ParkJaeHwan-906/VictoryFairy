@@ -59,14 +59,14 @@ export default function SignupPage() {
 
       <div className="signup-page__profile">
         <img className="signup-page__avatar" src={profileImage} alt="" />
-        <button
+        {/* <button
           className="signup-page__avatar-edit"
           type="button"
           aria-label="프로필 사진 변경"
-        >
+        > */}
           {/* TODO: react-agent - 이미지 업로드 진입점 연결 */}
-          <span className="signup-page__avatar-edit-icon" aria-hidden="true" />
-        </button>
+          {/* <span className="signup-page__avatar-edit-icon" aria-hidden="true" />
+        </button> */}
       </div>
 
       <form className="signup-page__form" onSubmit={handleSubmit} noValidate>
