@@ -6,26 +6,43 @@
 스냅샷(Task 2가 S3 `kbo-records/{page}/{date}.json`에 적재)이다.
 
 이 스크립트는 반자동이다: `seed_from_snapshots`가 스냅샷 표를
-`{"id","title","sourcePage","entries":[{"rank","name","value"}]}` 카테고리로
-결정적으로 변환하지만, 산출물은 **v0 초안**이며 사람 검수(이름·순위 표본
-확인, 논란성 항목 제거, 파싱 잡음 카테고리 삭제) 전에는 신뢰할 수 없다.
-LLM은 이 파일 어디에서도 호출하지 않는다(stdlib + PyYAML만).
+`{"id","title","sourcePage","rankBasis","entries":[{"rank","name","value"}]}`
+카테고리로 결정적으로 변환하지만, 산출물은 **v0 초안**이며 사람 검수(이름·
+순위 표본 확인, 논란성 항목 제거, 파싱 잡음 카테고리 삭제) 전에는 신뢰할 수
+없다. LLM은 이 파일 어디에서도 호출하지 않는다(stdlib + PyYAML만).
+
+**`rankBasis`(리뷰 반영)**: `rank`의 의미가 카테고리마다 정반대일 수 있다 —
+`"true-rank"`는 원본 표에 실제 "순위" 열이 있어 KBO가 매긴 진짜 순위(예:
+history-top-hitter, rank=1은 "역대 1위"), `"chronological"`은 순위 열이
+없어 표의 행 순서를 rank로 대신 쓴 것(예: history-player-hitter/pitcher,
+rank=1은 "가장 오래된(=최초) 항목"일 뿐 "역대 1위"가 아님). 이 구분이
+YAML/스키마에 없으면 ALL_TIME_LEADER 같은 템플릿이 chronological 카테고리의
+rank=1을 "역대 1위"로 오인해 오답 문제를 만들 수 있다 — Task 10은 반드시
+`rankBasis`로 소비 템플릿을 갈라야 한다(`"chronological"` → MILESTONE_FIRST류,
+`"true-rank"` → ALL_TIME_LEADER류).
 
 테이블 → 카테고리 추출 규칙(실제 KBO 페이지 4종 실측 기반):
 - 헤더에서 "순위"를 포함한 열을 rank 열로, "선수명"/"선수"/"팀명"을 포함한
   열(순위 열 제외, 먼저 매치되는 첫 열)을 name 열로 찾는다.
-- name 열을 못 찾으면 그 표는 스킵한다(예: history-team 페이지의 표는 KBO
-  마크업의 rowspan/th 구조 때문에 팀명이 행이 아니라 헤더 쪽에 밀려 들어가는
-  실측 파싱 버그가 있어 — py-collector kbo_records.py parse_tables가
-  `tr th`를 표 전체에서 긁어오는 탓 — name 열이 존재하지 않는다. 이 표는
-  "파싱 잡음"이므로 애초에 카테고리를 만들지 않는다).
+- name 열을 못 찾으면 그 표는 스킵한다(stderr에 경고 1줄 출력하고 카테고리를
+  만들지 않는다). 예: history-team 페이지의 표는 KBO 마크업의 rowspan/th
+  구조 때문에 팀명이 행이 아니라 헤더 쪽에 밀려 들어가는 실측 파싱 버그가
+  있어 — py-collector kbo_records.py parse_tables가 `tr th`를 표 전체에서
+  긁어오는 탓 — name 열이 존재하지 않는다. 이 표는 "파싱 잡음"이므로 애초에
+  카테고리를 만들지 않는다.
+- value 열을 못 찾아도 마찬가지로 스킵 + stderr 경고.
 - value 열은 rank/name 열과 "연도" 열을 제외한 나머지 중 첫 번째로 숫자로
   보이는 열이다. "연도"를 명시적으로 제외하는 이유: history-player-hitter/
   pitcher 페이지는 연도별 타이틀 홀더 목록이라 "연도"가 rank/name 다음
   첫 숫자열이 되어버려, 제외하지 않으면 "연도"가 통계값으로 잘못 뽑힌다.
-- rank 열이 없는 표(예: history-player-hitter/pitcher — 순위표가 아니라
-  연도순 챔피언 목록)는 표에 나온 행 순서(1부터)를 rank로 대신 쓴다. 두
-  페이지 모두 실제 KBO 데이터가 연도 오름차순(1982년부터)이라 rank=1은
+  주의: "첫 번째로 숫자로 보이는 열"은 그 표의 헤드라인 통계와 다를 수 있다
+  (예: history-player-hitter는 헤더 순서상 "타율"보다 "타수"가 먼저 나와
+  타수가 선택됨) — value는 참고용이라 무해하지만, 사람 검수 시 더 적절한
+  열로 바꾸고 싶다면 수동으로 교체한다.
+- rank 열이 있으면(예: history-top-hitter) `rankBasis="true-rank"`, 없으면
+  (예: history-player-hitter/pitcher — 순위표가 아니라 연도순 챔피언 목록)
+  표에 나온 행 순서(1부터)를 rank로 대신 쓰고 `rankBasis="chronological"`.
+  두 페이지 모두 실제 KBO 데이터가 연도 오름차순(1982년부터)이라 rank=1은
   "최초" 달성자에 대응한다 — MILESTONE_FIRST 템플릿과 자연스럽게 맞는다.
 
 value는 참고용 수치일 뿐이며 퀴즈 정답으로 쓰지 않는다(스펙 4.1) — YAML
@@ -73,6 +90,10 @@ YAML_HEADER = """\
 # KBO 역대 기록 시드 — gen_all_time_seed.py 초안 + 사람 검수 완료본.
 # ⚠️ 규칙(스펙 4.1): 수치(value)는 참고용 — 퀴즈 정답으로 사용 금지(순위·최초달성형만).
 #    논란성 항목(약물 등)은 검수 시 삭제. 나무위키 복사 금지 — 원천은 KBO 공식 기록실.
+# rankBasis="chronological"인 카테고리는 MILESTONE_FIRST(최초 달성)용, "true-rank"는
+#    ALL_TIME_LEADER(역대 1위)용 — 소비 시 반드시 구분할 것(정반대 의미).
+# value 열은 "첫 번째로 숫자로 보이는 열" 규칙으로 자동 선택돼 헤드라인 통계가 아닐 수
+#    있음(예: 통산 타자 — 타수; 타율이 더 적절할 수 있음) — 참고용이라 무해하나 검수 시 확인.
 # 갱신: 시즌 종료 후 1회 + 마일스톤 이벤트 시 수동.
 """
 
@@ -114,9 +135,10 @@ def _find_value_col(headers: list, first_row: list, exclude: set) -> "int | None
 
 
 def _extract_category_body(page: str, table: dict, top_n: int) -> "dict | None":
-    """표 하나에서 카테고리 본문(`{"title","sourcePage","entries"}`)을
+    """표 하나에서 카테고리 본문(`{"title","sourcePage","rankBasis","entries"}`)을
     추출한다. name 열 또는 value 열을 못 찾거나 유효한 행이 하나도 없으면
-    None(그 표는 카테고리로 만들지 않는다 — 파싱 잡음 억제)."""
+    None(그 표는 카테고리로 만들지 않는다 — 파싱 잡음 억제, stderr에 경고
+    1줄을 남기고 스킵한다)."""
     headers = table.get("headers") or []
     rows = table.get("rows") or []
     if not headers or not rows:
@@ -126,12 +148,22 @@ def _extract_category_body(page: str, table: dict, top_n: int) -> "dict | None":
     name_exclude = {rank_idx} if rank_idx is not None else set()
     name_idx = _find_col(headers, _NAME_KEYWORDS, exclude=name_exclude)
     if name_idx is None:
+        print(f"경고: {page} 표에서 이름 열을 찾지 못해 스킵함(headers={headers!r})",
+              file=sys.stderr)
         return None
 
     value_exclude = {i for i in (rank_idx, name_idx) if i is not None}
     value_idx = _find_value_col(headers, rows[0], exclude=value_exclude)
     if value_idx is None:
+        print(f"경고: {page} 표에서 수치 열을 찾지 못해 스킵함(headers={headers!r})",
+              file=sys.stderr)
         return None
+
+    # rankBasis(리뷰 반영): 표에 실제 "순위" 열이 있으면 그 값이 진짜 KBO
+    # 순위("true-rank"). 없으면 행 순서를 rank로 대신 쓴 것이므로
+    # "chronological" — 두 의미는 정반대이며 소비자(Task 10)가 반드시
+    # 구분해야 한다(모듈 docstring 참고).
+    rank_basis = "true-rank" if rank_idx is not None else "chronological"
 
     entries = []
     for pos, row in enumerate(rows[:top_n], start=1):
@@ -149,7 +181,7 @@ def _extract_category_body(page: str, table: dict, top_n: int) -> "dict | None":
         return None
 
     title = f"{PAGE_KO.get(page, page)} — {headers[value_idx]}"
-    return {"title": title, "sourcePage": page, "entries": entries}
+    return {"title": title, "sourcePage": page, "rankBasis": rank_basis, "entries": entries}
 
 
 # ── 공개 API ─────────────────────────────────────────────────
@@ -181,6 +213,7 @@ def seed_from_snapshots(snapshots: dict, top_n: int = 10) -> dict:
                 "id": cat_id,
                 "title": body["title"],
                 "sourcePage": body["sourcePage"],
+                "rankBasis": body["rankBasis"],
                 "entries": body["entries"],
             })
 

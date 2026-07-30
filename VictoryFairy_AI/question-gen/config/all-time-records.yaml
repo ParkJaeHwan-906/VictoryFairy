@@ -2,6 +2,10 @@
 # KBO 역대 기록 시드 — gen_all_time_seed.py 초안 + 사람 검수 완료본.
 # ⚠️ 규칙(스펙 4.1): 수치(value)는 참고용 — 퀴즈 정답으로 사용 금지(순위·최초달성형만).
 #    논란성 항목(약물 등)은 검수 시 삭제. 나무위키 복사 금지 — 원천은 KBO 공식 기록실.
+# rankBasis="chronological"인 카테고리는 MILESTONE_FIRST(최초 달성)용, "true-rank"는
+#    ALL_TIME_LEADER(역대 1위)용 — 소비 시 반드시 구분할 것(정반대 의미).
+# value 열은 "첫 번째로 숫자로 보이는 열" 규칙으로 자동 선택돼 헤드라인 통계가 아닐 수
+#    있음(예: 통산 타자 — 타수; 타율이 더 적절할 수 있음) — 참고용이라 무해하나 검수 시 확인.
 # 갱신: 시즌 종료 후 1회 + 마일스톤 이벤트 시 수동.
 asOf: '2026-07-30'
 source: KBO 공식 기록실
@@ -9,6 +13,7 @@ categories:
 - id: history-player-hitter
   title: 통산 타자 — 타수
   sourcePage: history-player-hitter
+  rankBasis: chronological
   entries:
   - rank: 1
     name: 백인천
@@ -43,6 +48,7 @@ categories:
 - id: history-player-pitcher
   title: 통산 투수 — 승
   sourcePage: history-player-pitcher
+  rankBasis: chronological
   entries:
   - rank: 1
     name: 박철순
@@ -77,6 +83,7 @@ categories:
 - id: history-top-hitter
   title: 역대 TOP — 기록
   sourcePage: history-top-hitter
+  rankBasis: true-rank
   entries:
   - rank: 1
     name: 백인천
