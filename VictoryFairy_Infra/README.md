@@ -30,6 +30,7 @@ VictoryFairy_Infra/
 │   ├── eks/                  # EKS 클러스터, 노드그룹 2개(app/batch), IRSA
 │   ├── mysql-ec2/            # MySQL+Redis EC2 + EBS + SSM + 일 단위 S3 백업
 │   └── security/             # 공용 IAM/보안그룹
+├── collector-lambda/         # KBO 수집기(Lambda+ECR) 독립 스택 — 소스는 dev_ai py-collector
 └── environments/             # 환경별 루트 (여기서 terraform 실행)
     ├── dev/
     └── prod/
