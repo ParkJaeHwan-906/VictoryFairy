@@ -41,7 +41,7 @@ py-collector/
 │   ├── targets.fmkorea.backfill.yaml # 로컬 FMKorea 백필 대상 (date 정렬)
 │   └── memes.yaml          #    선수-밈 사전 (사람이 직접 관리)
 ├── deploy/
-│   ├── lambda/             #    서버리스 배포 (handler + Dockerfile + Terraform)
+│   ├── lambda/             #    서버리스 배포 (handler + Dockerfile — 테라폼은 dev_infra)
 │   ├── local/              #    주거 IP 로컬 실행 스크립트 (FMKorea)
 │   └── sql/                #    MySQL 스키마 + 시드 덤프
 ├── tests/                  # pytest 단위·통합 테스트
@@ -123,7 +123,7 @@ py-collector/
 
 | 경로 | 역할 |
 |---|---|
-| **lambda/** | 서버리스 크롤(호출당 과금). `handler.py`(코어 호출 어댑터), `Dockerfile`+`requirements.txt`(lxml 네이티브 → 컨테이너 이미지), `terraform/`(ECR·Lambda·EventBridge 스케줄·IAM), `README.md`. **community 10분 + game 매일 03:00 KST**. MySQL엔 안 씀 |
+| **lambda/** | 서버리스 크롤(호출당 과금). `handler.py`(코어 호출 어댑터), `Dockerfile`+`requirements.txt`(lxml 네이티브 → 컨테이너 이미지), `build_and_push.sh`, `README.md`. 테라폼(ECR·Lambda·EventBridge·IAM)은 dev_infra `VictoryFairy_Infra/collector-lambda/`. **community 10분 + game 매일 03:00 KST**. MySQL엔 안 씀 |
 | **local/** | 주거 IP에서 도는 스크립트. `crawl_fmkorea.sh`(일일 인기글), `backfill_fmkorea.sh`(구간 백필), `README.md` |
 | **sql/** | `migrate-legacy-collector.sql`(구 수집기 스키마 제거 — 1회성). 서비스 스키마 DDL 사본은 두지 않는다(원천: domain JPA 엔티티, dev_be 소관) |
 
@@ -147,7 +147,7 @@ py-collector/
 | MySQL 적재 규칙(upsert) | `db.py` (스키마 원천: domain JPA 엔티티) |
 | 커뮤니티 파싱 셀렉터 | `community.py` |
 | envelope 필드/템플릿 문구 | `exports/envelope.py`(스키마) / `exports/exporter.py`(reader 문장) / `sources/meme_dict.py`(밈 문장) |
-| Lambda 스케줄/환경변수 | `deploy/lambda/terraform/` |
+| Lambda 스케줄/환경변수 | dev_infra `VictoryFairy_Infra/collector-lambda/` |
 
 > **백필**: 경기/커뮤니티 모두 구간 백필을 지원합니다 — `records --from/--to`(`land_game_records_range`),
 > `community --from/--to`(`land_community_range`, date-ordered 대상 필요). FMKorea 구간 백필의 로컬

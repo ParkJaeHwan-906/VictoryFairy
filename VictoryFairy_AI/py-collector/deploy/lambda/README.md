@@ -19,84 +19,52 @@
 핸들러(`handler.py`)는 코어(`kbo_collector.run.land_*`)를 그대로 호출하는 얇은 어댑터입니다.
 `lxml` 네이티브 의존성 때문에 **컨테이너 이미지**(ECR)로 배포합니다.
 
-## 사전 준비
-- Docker, AWS CLI, Terraform, 그리고 **ECR/Lambda/EventBridge/IAM 생성 권한**이 있는 자격증명
-  (권한 목록: `terraform/deployer-iam-policy.json`).
-- 적재 대상 S3 버킷(`data_bucket_name`)은 이미 존재해야 함.
+## 배포 = 머지 (CI 자동)
 
-## 배포
-```bash
-cd deploy/lambda/terraform
-cp terraform.tfvars.example terraform.tfvars     # data_bucket_name 등 확인
-terraform init
-terraform apply       # ECR 생성 -> 이미지 빌드/푸시(local-exec) -> Lambda + 스케줄
-```
-> `terraform apply`가 `build_and_push.sh`를 자동 실행해 이미지를 빌드·푸시합니다(Docker 필요).
-> Apple Silicon이면 `architecture = "arm64"`(기본)로 네이티브 빌드 + 저렴.
+- **크롤러 코드 배포**: py-collector 변경이 **dev_ai 에 머지되면**
+  `.github/workflows/collector-image.yml` 이 이미지 빌드(arm64) → ECR `:latest` 푸시 →
+  두 함수 코드 갱신까지 자동으로 합니다. 손댈 것 없음. (docs/·*.md 변경은 빌드 안 함)
+- **인프라 변경**(스케줄·환경변수·메모리·SG 등): dev_infra 브랜치의
+  [`VictoryFairy_Infra/collector-lambda/`](../../../VictoryFairy_Infra/collector-lambda/)
+  스택에서 — 그쪽도 dev_infra 머지 시 CI 가 terraform apply 합니다. ECR 이미지가 두
+  파이프라인의 유일한 접점이라 서로를 몰라도 됩니다.
+- `handler.py`/`Dockerfile`/`requirements.txt`/`build_and_push.sh` 는 여기(dev_ai) 소유 —
+  이미지 내용을 바꾸는 수정은 여기서 합니다.
 
-## 즉시 한 번 돌려보기 / 확인
+## 수동 실행 / 백필
+
+배포된 함수는 어디서든 AWS CLI 로 직접 호출할 수 있습니다(테라폼 불필요):
+
 ```bash
-# 수동 1회 실행
-terraform output -raw invoke_community_now | bash
-terraform output -raw invoke_game_now | bash        # 오늘(UTC) 경기; 백필은 payload에 "date" 추가
+# S3 잡
+aws lambda invoke --function-name kbo-collector \
+  --payload '{"job":"community"}' --cli-binary-format raw-in-base64-out /dev/stdout
+aws lambda invoke --function-name kbo-collector \
+  --payload '{"job":"game"}' --cli-binary-format raw-in-base64-out /dev/stdout   # 백필은 "date" 추가
+
+# DB 잡
+aws lambda invoke --function-name kbo-collector-db \
+  --payload '{"job":"registrations"}' --cli-binary-format raw-in-base64-out /dev/stdout
+# 시즌 백필 (구간이 길면 타임아웃 840s — 보름~한 달 단위로 나눠 호출)
+aws lambda invoke --function-name kbo-collector-db \
+  --payload '{"job":"records","from":"2026-03-28","to":"2026-04-15"}' \
+  --cli-binary-format raw-in-base64-out --cli-read-timeout 900 /dev/stdout
 
 # 적재 확인
 aws s3 ls s3://victoryfairy-crawl-local/community/ --recursive | tail
-# 로그
-aws logs tail /aws/lambda/kbo-collector --follow
+aws logs tail /aws/lambda/kbo-collector-db --follow
 ```
-스케줄은 apply 직후부터 동작합니다(community 10분마다, game 매일 03:00 KST).
 
-## DB 잡 (records / registrations) 켜기
+> DB 적재는 자연키 upsert 라 재실행·중복 호출이 무해합니다.
 
-`terraform.tfvars` 에 DB 블록을 채우면 `kbo-collector-db` 함수 + 스케줄 + SG가 같이
-생깁니다(비워두면 아무것도 안 만듦). 값 출처는 `terraform.tfvars.example` 주석 참고 —
-서브넷/VPC/데이터 EC2 SG·프라이빗 IP는 **VictoryFairy_Infra(dev_infra)** 스택 소유라
-infra 팀에서 받습니다. 데이터 EC2 SG에 "Lambda SG → 3306" 인바운드 규칙 하나를 이
-스택이 추가한다는 점도 공유할 것(`lambda_db.tf` 주석).
+## DB 잡 참고사항
 
-**최초 1회 (배포 전):**
-
-1. **레거시 스키마 마이그레이션** — 구 수집기 테이블(teams 가 team_code PK 면 구 스키마)이
-   있으면 운영 MySQL 에 `../sql/migrate-legacy-collector.sql` 을 1회 실행.
-   서비스 테이블(teams/players/games/game_lineups 등) 생성은 **dev_be 소관**
-   (domain JPA 엔티티 + `VictoryFairy_BE/infra/sql/` 선행 SQL) — py-collector 는 DDL 사본을 갖지 않는다.
-2. **KBO 사이트 접근 확인** — registrations 는 KBO 공식 사이트를 긁는다. AWS IP 차단 여부를
-   먼저 확인하고, 차단이면 registrations 스케줄만 끄고 로컬에서 돌린다:
-   ```bash
-   terraform output -raw invoke_registrations_now | bash   # 응답의 registrations 가 [] 이 아니면 OK
-   ```
-
-**수동 실행 / 백필:**
-```bash
-terraform output -raw invoke_records_now | bash          # 오늘(UTC=KST 경기일) 완료 경기
-terraform output -raw invoke_registrations_now | bash    # 현재 등록명단
-# 시즌 백필 (예: 개막일부터)
-aws lambda invoke --function-name kbo-collector-db \
-  --payload '{"job":"records","from":"2026-03-28","to":"2026-07-27"}' \
-  --cli-binary-format raw-in-base64-out --cli-read-timeout 900 /dev/stdout
-# 적재 확인
-mysql ... -e 'SELECT COUNT(*) FROM games; SELECT COUNT(*) FROM game_lineups;'
-```
-> 백필 구간이 길면 Lambda 타임아웃(기본 840s)을 넘을 수 있다 — 한 달 단위 정도로 나눠 호출.
-> 적재는 자연키 upsert 라 재실행·중복 호출이 무해하다.
-
-## 코드 바꾼 뒤 재배포
-```bash
-terraform apply    # 핸들러/코어/의존성 변경 감지 -> 이미지 재빌드·푸시 -> Lambda 갱신
-```
-> `apply` **한 번**으로 끝납니다. `image_uri`를 `:latest` 태그가 아니라 방금 푸시한
-> 이미지의 **다이제스트**(`@sha256:...`, `data.aws_ecr_image`로 조회)에 고정하므로,
-> 코드가 바뀌면 다이제스트가 바뀌어 같은 apply 안에서 Lambda가 새 이미지로 갱신됩니다.
-> (`:latest`로 고정하면 문자열이 안 바뀌어 Terraform이 갱신을 건너뛰고 옛 이미지가
-> 계속 돕니다 — 그래서 다이제스트 핀을 씁니다. 수동 `update-function-code` 불필요.)
-
-## 내리기 (과금 중단)
-```bash
-terraform destroy
-```
-> Lambda/EventBridge는 **호출당 과금**이라 유휴 비용이 거의 없지만, 완전히 정리하려면 destroy.
-> ECR은 `force_delete=true`라 이미지가 있어도 삭제됩니다.
+- 서비스 테이블(teams/players/games/game_lineups 등) 생성은 **dev_be 소관**(domain JPA
+  엔티티가 원천) — py-collector 는 DDL 사본을 갖지 않습니다.
+- registrations 는 KBO 공식 사이트를 긁습니다. AWS IP 차단 없음은 실측 확인됨(2026-07) —
+  응답의 `registrations` 가 `[]` 이 아니면 정상.
+- 구 수집기 스키마가 남아 있는 DB 라면 `../sql/migrate-legacy-collector.sql` 1회 실행
+  (teams 가 team_code PK 면 구 스키마).
 
 ## 참고
 - 크롤링 플로우: [`../../docs/crawl-flow.md`](../../docs/crawl-flow.md)
