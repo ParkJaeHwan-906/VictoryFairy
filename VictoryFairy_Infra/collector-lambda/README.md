@@ -69,3 +69,5 @@ ECR 리포만 targeted apply → 이미지 CI 1회(workflow_dispatch) → 전체
   인바운드 규칙 하나를 단다(`lambda_db.tf` 의 `mysql_from_db_lambda`). environments/dev
   쪽에서 같은 규칙을 중복 선언하지 말 것.
 - **버킷은 안 만든다**: `data_bucket_name` S3 버킷은 선행 존재해야 한다.
+
+> CI 실행 이력은 GitHub Actions 의 `collector-terraform` 워크플로에서 확인한다.
