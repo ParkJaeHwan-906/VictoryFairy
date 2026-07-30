@@ -10,11 +10,8 @@
 # terraform-ci 가 이 파일의 롤들(자기 자신 포함)도 관리한다 — dev_infra 머지 권한이
 # 곧 이 롤 권한 수정 권한이므로, 게이트는 PR 리뷰다.
 
-# url 이 아니라 arn 으로 조회한다 — url 조회는 AWS 에 대응 API 가 없어 provider 가
-# ListOpenIDConnectProviders(계정 전역, 리소스 제한 불가) 로 목록을 훑는다.
-# arn 조회는 GetOpenIDConnectProvider 한 번이라 아래 ReadOidcProvider 권한으로 충분하다.
 data "aws_iam_openid_connect_provider" "github" {
-  arn = "arn:aws:iam::${local.account_id}:oidc-provider/token.actions.githubusercontent.com"
+  url = "https://token.actions.githubusercontent.com"
 }
 
 locals {
@@ -23,16 +20,9 @@ locals {
 }
 
 # GitHub OIDC trust — 지정 브랜치의 Actions 런만 이 롤을 쓸 수 있다.
-#
-# terraform-ci 는 apply 잡이 GitHub environment 를 쓰므로 토큰의 sub 가
-# ref:refs/heads/<branch> 가 아니라 environment:<name> 으로 발급된다. 두 형태를
-# 모두 허용한다 — gh_environment 는 collector-terraform.yml 의 `environment:` 와
-# 같아야 하고, 브랜치 제한은 그 environment 의 deployment branch policy 가 건다.
 locals {
-  gh_environment = "collector-lambda"
-
   gh_trust = {
-    dev_ai = jsonencode({
+    for branch in ["dev_ai", "dev_infra"] : branch => jsonencode({
       Version = "2012-10-17"
       Statement = [{
         Effect    = "Allow"
@@ -41,25 +31,7 @@ locals {
         Condition = {
           StringEquals = {
             "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-            "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo}:ref:refs/heads/dev_ai"
-          }
-        }
-      }]
-    })
-
-    dev_infra = jsonencode({
-      Version = "2012-10-17"
-      Statement = [{
-        Effect    = "Allow"
-        Principal = { Federated = data.aws_iam_openid_connect_provider.github.arn }
-        Action    = "sts:AssumeRoleWithWebIdentity"
-        Condition = {
-          StringEquals = {
-            "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-            "token.actions.githubusercontent.com:sub" = [
-              "repo:${var.github_repo}:ref:refs/heads/dev_infra",
-              "repo:${var.github_repo}:environment:${local.gh_environment}",
-            ]
+            "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo}:ref:refs/heads/${branch}"
           }
         }
       }]
