@@ -1,0 +1,260 @@
+/**
+ * SignupPage(일반 회원가입 - 기본) 스타일.
+ * Figma: SWM / [Sign In] 일반 회원가입-기본 (node 296:1486), 기준 프레임 402 x 874.
+ *
+ * Figma 의 절대 좌표는 흐름(flow) 레이아웃으로 옮겼다.
+ * 단색 아이콘(arrow_l / plus / info)은 에셋 원본이 검정이라 mask 로 찍어
+ * 디자인 토큰 색을 입힌다. (에셋 파일 자체는 수정하지 않는다)
+ */
+
+.signup-page {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--layout-app-width);
+  min-height: 100dvh;
+  margin-inline: auto;
+  padding-bottom: 48px;
+  background-color: var(--color-background-basic);
+}
+
+/* ------------------------------------------------------------------ *
+ * Bar/Top — 뒤로가기 · 타이틀
+ * 오른쪽은 디자인상 opacity 0 인 빈 버튼 → 타이틀 중앙 정렬용 스페이서로 둔다.
+ * ------------------------------------------------------------------ */
+.signup-page__topbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.signup-page__back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 60px;
+  padding: 10px;
+  border-radius: var(--radius-10);
+  overflow: clip;
+}
+
+.signup-page__back-icon {
+  width: 20px;
+  height: 20px;
+  background-color: var(--color-label-assistive);
+  -webkit-mask: url('../assets/arrow_l.svg') center / contain no-repeat;
+  mask: url('../assets/arrow_l.svg') center / contain no-repeat;
+}
+
+.signup-page__topbar-title {
+  margin: 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  text-align: center;
+}
+
+.signup-page__topbar-spacer {
+  width: 60px;
+  height: 60px;
+}
+
+/* ------------------------------------------------------------------ *
+ * Profile — 아바타 + 편집(＋) 배지
+ * ------------------------------------------------------------------ */
+.signup-page__profile {
+  position: relative;
+  flex: 0 0 auto;
+  align-self: center;
+  width: 100px;
+  height: 100px;
+  margin-top: 32px;
+}
+
+/* profile_img.svg 는 배경·몸통·머리가 모두 포함된 100x100 완성본이다 */
+.signup-page__avatar {
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+}
+
+.signup-page__avatar-edit {
+  position: absolute;
+  top: 72px;
+  left: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--color-white);
+  border-radius: var(--radius-15);
+  background-color: var(--color-gray-50);
+  overflow: clip;
+}
+
+.signup-page__avatar-edit-icon {
+  width: 20px;
+  height: 20px;
+  background-color: var(--color-label-alternative);
+  -webkit-mask: url('../assets/plus.svg') center / contain no-repeat;
+  mask: url('../assets/plus.svg') center / contain no-repeat;
+}
+
+/* ------------------------------------------------------------------ *
+ * Form
+ * ------------------------------------------------------------------ */
+.signup-page__form {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+  gap: 20px;
+  margin-top: 32px;
+  padding-inline: var(--layout-gutter);
+}
+
+.signup-page__group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.signup-page__label {
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-label2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+/** 입력 1개 + 하단 안내문 묶음 */
+.signup-page__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.signup-page__input {
+  width: 100%;
+  padding: 16px 12px;
+  border: none;
+  border-radius: var(--radius-12);
+  background-color: var(--color-gray-50);
+  color: var(--color-label-normal);
+  font-size: var(--font-size-body2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body2);
+}
+
+.signup-page__input::placeholder {
+  color: var(--color-label-disable);
+}
+
+.signup-page__hint {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0;
+  color: var(--color-label-assistive);
+  font-size: var(--font-size-label2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+.signup-page__hint-icon {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  background-color: var(--color-label-assistive);
+  -webkit-mask: url('../assets/info.svg') center / contain no-repeat;
+  mask: url('../assets/info.svg') center / contain no-repeat;
+}
+
+/* ------------------------------------------------------------------ *
+ * 입력 + 인라인 액션 버튼 — 입력 위에 버튼이 겹쳐 놓인다
+ * (이메일 "인증 요청", 닉네임 "중복확인"이 공유하는 패턴)
+ *
+ * 버튼이 position:absolute 이므로 이 행이 반드시 기준(relative)이 되어야 한다.
+ * 이 래퍼 없이 버튼을 두면 기준을 못 찾아 페이지 우상단으로 빠져나간다.
+ * ------------------------------------------------------------------ */
+.signup-page__input-row {
+  /* 두 라벨 중 더 긴 "인증 요청" 기준 폭 — 버튼 폭을 맞춰 좌측 끝을 정렬한다 */
+  --input-action-width: 104px;
+  /* 입력(56px) 안에서 버튼(36px)이 수직 중앙에 오는 여백: 10 + 36 + 10 = 56 */
+  --input-action-inset: 10px;
+
+  position: relative;
+  display: flex;
+}
+
+/* 버튼에 가려지는 만큼 입력 텍스트 영역을 비운다 */
+.signup-page__input--with-action {
+  padding-right: calc(var(--input-action-width) + var(--input-action-inset) + 8px);
+}
+
+.signup-page__input-action {
+  position: absolute;
+  top: var(--input-action-inset);
+  right: var(--input-action-inset);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--input-action-width);
+  height: 36px;
+  padding-inline: 16px;
+  border-radius: var(--radius-10);
+  background-color: var(--color-primary-400);
+  color: var(--color-white);
+  font-size: var(--font-size-button2);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  white-space: nowrap;
+}
+
+.signup-page__input-action:disabled {
+  background-color: var(--color-action-disabled);
+  color: var(--color-label-disable);
+  cursor: not-allowed;
+}
+
+/* ------------------------------------------------------------------ *
+ * CTA — 화면 하단에 붙인다
+ * ------------------------------------------------------------------ */
+.signup-page__submit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 60px;
+  margin-top: auto;
+  padding-inline: 16px;
+  border-radius: var(--radius-15);
+  background-color: var(--color-primary-400);
+  color: var(--color-white);
+  font-size: var(--font-size-button2);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  transition: background-color 0.15s ease-in-out;
+}
+
+.signup-page__submit:disabled {
+  background-color: var(--color-action-disabled);
+  color: var(--color-label-disable);
+  cursor: not-allowed;
+}
+
+/* ------------------------------------------------------------------ *
+ * 반응형 — 소형 단말에서 좌우 여백 축소
+ * ------------------------------------------------------------------ */
+@media (max-width: 359px) {
+  .signup-page__form {
+    padding-inline: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .signup-page__submit {
+    transition: none;
+  }
+}
