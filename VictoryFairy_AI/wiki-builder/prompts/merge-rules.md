@@ -18,10 +18,14 @@
      게시글이 정상적으로 섞여 있을 수 있다. bedrock 검열의 spam/offtopic 축에 걸려
      본문 자리 필드만 비워지고, 통과한 `topComments`만 남은 "댓글만 남은 정화
      객체"이거나, 커뮤니티 사이트 특성상 원래 본문 없이 제목/이미지만 있던 게시글일
-     수 있다. 어느 경우든 처리는 같다: **비어 있는 필드를 근거로 쓰지 말고, 비어
-     있지 않은 필드(제목 또는 본문)와 `topComments[].body`만 근거로 검토한다.**
-     `topComments`가 비어 있고 본문 자리 필드도 비어 있으면 그 게시글에서는 아무
-     사실도 추출하지 않는다(제목만으로 확정 사실을 지어내지 않는다 — 규칙 1·8).
+     수 있다. 어느 경우든 **비어 있는 필드를 근거로 쓰지 말고, 비어 있지 않은
+     필드(제목 또는 본문)와 `topComments[].body`만 근거로 검토한다.** `title`과
+     `topComments`가 모두 비어 있으면(즉 게시글에 남은 텍스트가 전혀 없으면) 그
+     게시글에서는 아무 사실도 추출하지 않는다. `title`만 남고 `body`·
+     `topComments`가 비어 있는 경우는 **규칙 1의 예외**를 그대로 적용한다 —
+     그 제목이 애매하지 않은 구체적 사실을 명시하면 제목 단독을 근거로 인정하고,
+     감정·평가·놀림만 담고 있으면 추출하지 않는다(규칙 1 참조. 아래 규칙 1과
+     반대로 말하지 않는다 — 이 bullet은 요약이고 정확한 판단 기준은 규칙 1이다).
 3. **선수 명단** — `question-source/player_profile/` envelope들. `payload.playerId`
    = KBO playerId(front-matter `kboPlayerId`, 문자열), `entities.playerUids[0]` =
    운영DB `players.id`(front-matter `playerUid`), `title`은 `"{팀명} {선수명} 프로필"`

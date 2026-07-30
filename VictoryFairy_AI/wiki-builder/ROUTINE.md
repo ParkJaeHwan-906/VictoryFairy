@@ -2,8 +2,8 @@
 
 Claude Code 클라우드 스케줄 잡(routine)이 실행마다 그대로 따르는 절차다. 이
 routine 자신이 "LLM 병합 엔진"이므로, 3단계(LLM 병합)·4단계(trending 요약)는
-별도 프로세스를 호출하지 않고 이 세션이 직접 `prompts/merge-rules.md`를 규칙으로
-적용해 Read/Write 도구로 수행한다. 그 외 단계는 실제 셸 명령으로 명시한다.
+별도 프로세스를 호출하지 않고 이 세션이 직접 `wiki-builder/prompts/merge-rules.md`를
+규칙으로 적용해 Read/Write 도구로 수행한다. 그 외 단계는 실제 셸 명령으로 명시한다.
 
 ## 개요
 
@@ -153,21 +153,31 @@ PY
 `kboPlayerId`마다 반복한다:
 
 1. `.work/wiki/players/{kboPlayerId}.md`를 Read(없으면
-   `templates/player-doc.md`를 시작점으로 Read)
+   `wiki-builder/templates/player-doc.md`를 시작점으로 Read)
 2. `.work/groups/{kboPlayerId}.txt`에 나열된 게시글 파일을 모두 Read
-3. `prompts/merge-rules.md` 전문을 규칙으로 적용해 병합 — 매칭 확신 없는
-   게시글은 그 선수의 스킵 목록에 사유와 함께 남긴다(규칙 6)
-4. 결과를 `.work/wiki/players/{kboPlayerId}.md`에 Write(덮어쓰기)
+3. `.work/player_meme/`의 밈 시드 envelope 중 이 선수(`entities.playerUids[0]`
+   또는 이름 매칭)에 해당하는 것을 모두 Read(선택 입력 — 스텝 2에서 이미 동기화됨)
+4. `wiki-builder/prompts/merge-rules.md` 전문을 규칙으로 적용해 병합 — 매칭
+   확신 없는 게시글은 그 선수의 스킵 목록에 사유와 함께 남긴다(규칙 6)
+5. 결과를 `.work/wiki/players/{kboPlayerId}.md`에 Write(덮어쓰기)
 
 이 서브루틴을 로컬에서 오프라인으로 재현/검증할 때는(운영 실행에서는 쓰지 않음,
 드라이런 전용) 이 세션 대신 하위 프로세스로 `claude -p`를 호출해 같은 입력을
 준다:
 
 ```bash
-claude -p "$(cat prompts/merge-rules.md)
+MERGE_RULES=$(cat wiki-builder/prompts/merge-rules.md) || {
+  echo "wiki-builder/prompts/merge-rules.md를 열 수 없음 — 중단" >&2; exit 1; }
+EXISTING_DOC=$(cat ".work/wiki/players/$KBO_ID.md" 2>/dev/null) || true
+if [ -z "$EXISTING_DOC" ]; then
+  EXISTING_DOC=$(cat wiki-builder/templates/player-doc.md) || {
+    echo "wiki-builder/templates/player-doc.md를 열 수 없음 — 중단" >&2; exit 1; }
+fi
+
+claude -p "$MERGE_RULES
 
 [기존 문서]
-$(cat ".work/wiki/players/$KBO_ID.md" 2>/dev/null || cat templates/player-doc.md)
+$EXISTING_DOC
 
 [신규 게시글 (JSON, validation/bedrock/success 파티션)]
 $(for f in $(cat ".work/groups/$KBO_ID.txt"); do cat "$f"; echo; done)
@@ -178,6 +188,11 @@ $(cat ".work/player_profile/player_profile:$KBO_ID.json" 2>/dev/null)
 위 규칙을 지켜 이 선수의 위키 문서 전문(front-matter 포함)을 갱신해 출력하라." \
   --model sonnet > ".work/wiki/players/$KBO_ID.md"
 ```
+
+`cat`이 조용히 실패해 규칙 없이(또는 빈 템플릿 없이) 프롬프트가 조립되는 것을
+막기 위해, `merge-rules.md`·`player-doc.md`는 변수로 먼저 읽어 실패 시 즉시
+`exit 1`한다 — 실패한 채로 `claude -p`를 실행해 규칙 누락 상태로 문서를
+덮어쓰는 위험한 실패 모드를 차단한다.
 
 ### 4. trending.md
 
@@ -241,12 +256,26 @@ PY
 `graph.json`을 재컴파일한다(Task 7 산출물, 결정적).
 
 ```bash
-py-collector/.venv/bin/python wiki-builder/scripts/compile_graph.py \
-  --players-dir .work/wiki/players --out .work/wiki/graph.json
+if py-collector/.venv/bin/python wiki-builder/scripts/compile_graph.py \
+     --players-dir .work/wiki/players --out .work/wiki/graph.json.tmp; then
+  mv .work/wiki/graph.json.tmp .work/wiki/graph.json
+  echo "그래프 컴파일 성공 — .work/wiki/graph.json 갱신"
+else
+  COMPILE_EXIT=$?
+  echo "그래프 컴파일 실패(exit=$COMPILE_EXIT) — .work/wiki/graph.json.tmp 폐기, 업로드 대상에서 제외" >&2
+  rm -f .work/wiki/graph.json.tmp
+fi
 ```
 
-컴파일이 실패(예외로 종료)하면 `.work/wiki/graph.json`을 만들지 말고(또는
-만들어졌더라도 업로드 대상에서 제외하고) 7단계에서 이전 버전을 유지한다.
+**exit code를 반드시 확인한다** — `compile_graph.py`가 예외로 죽거나 도중에
+강제 종료되면(타임아웃 등) `.work/wiki/graph.json.tmp`만 불완전한 상태로 남고
+`.work/wiki/graph.json`은 손대지 않는다(동일 파일시스템에서 `mv`는 원자적
+rename이라, 컴파일이 성공해 exit code 0을 반환한 뒤에만 최종 경로로
+옮겨진다). 이 패턴이 없으면 `--out .work/wiki/graph.json`에 직접 쓰다가
+중간에 끊긴 손상된 JSON이 파일로는 "존재"하게 되어, 7단계의 존재 여부 검사만
+통과해 S3의 정상 이전 버전을 덮어쓸 수 있다 — 임시 파일 경유가 그 위험을
+차단하는 핵심 장치다. `compile_graph.py` 자체는 수정하지 않는다(문서 레벨
+가드로 충분).
 
 ### 7. 업로드
 
@@ -255,12 +284,15 @@ py-collector/.venv/bin/python wiki-builder/scripts/compile_graph.py \
 남긴다.
 
 ```bash
-# graph.json이 6단계에서 만들어지지 않았으면 업로드 대상에서 제외해 이전 버전을 보존한다
+# 6단계가 exit code 0으로 mv까지 끝냈을 때만 .work/wiki/graph.json이 존재한다
+# (임시 파일 경유 원자적 쓰기 — 6단계 참고). 없으면 업로드 대상에서 제외해
+# S3의 이전 버전을 보존한다. *.tmp는 정리에 실패한 잔여물이 있어도 절대
+# 업로드하지 않도록 항상 제외한다.
 if [ ! -f .work/wiki/graph.json ]; then
   echo "graph.json 컴파일 실패/스킵 — 이전 버전 유지, 이번 업로드에서 제외" >&2
-  EXCLUDE_GRAPH=(--exclude "graph.json")
+  EXCLUDE_GRAPH=(--exclude "graph.json" --exclude "*.tmp")
 else
-  EXCLUDE_GRAPH=()
+  EXCLUDE_GRAPH=(--exclude "*.tmp")
 fi
 
 aws s3 sync .work/wiki/ "s3://$S3_BUCKET/wiki/" "${EXCLUDE_GRAPH[@]}"
@@ -285,8 +317,10 @@ aws s3 cp ".work/run-log.json" "s3://$S3_BUCKET/wiki/_meta/builder-runs/$RUN_ISO
 - **부분 실패(일부 선수만 갱신 성공)**: 성공한 문서만 업로드하고, 실패/스킵한
   선수는 실행 로그의 `skipped`에 사유와 함께 남긴다. 다음 실행이 증분 기준
   (1단계)에 따라 같은 날짜 구간을 다시 훑으므로 자연히 이어서 처리된다.
-- **그래프 컴파일 실패**: `graph.json` 업로드를 생략하고 S3의 이전 버전을
-  그대로 유지한다(퀴즈 생성기는 stale 그래프로도 동작 가능 — 스펙 §5).
+- **그래프 컴파일 실패**: 6단계의 임시 파일(`.tmp`) + exit code 확인 + `mv`
+  패턴 덕에 실패 시 `.work/wiki/graph.json`이 아예 존재하지 않는다 — 7단계가
+  이를 감지해 업로드를 생략하고 S3의 이전 버전을 그대로 유지한다(퀴즈
+  생성기는 stale 그래프로도 동작 가능 — 스펙 §5).
 - **`player_profile` 파티션 부재**: 2단계에서 감지되면 3~4단계를 건너뛰고
   빈 실행 로그만 남긴 채 종료한다(운영 갭 — Task 11에서 다룰 스케줄링 이슈,
   이 routine의 책임이 아니다).
