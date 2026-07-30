@@ -19,17 +19,20 @@ ECR 리포 하나의 이미지를 Lambda 함수 두 개가 공유한다:
 파이프라인 두 개가 브랜치별로 분리돼 있고, **ECR 이미지가 유일한 접점**이다:
 
 ```
-dev_ai 머지 (py-collector/** 변경)
+py-collector/** 변경이 main 도달 (dev_ai→main 머지)
   └→ collector-image.yml     : docker build(arm64) → ECR :latest 푸시 → 두 함수 코드 갱신
 dev_infra 머지 (collector-lambda/** 변경)
   └→ collector-terraform.yml : terraform plan → apply   (PR 단계는 fmt/validate 만)
 ```
 
+워크플로 파일은 둘 다 dev_infra 소유고, collector-image.yml 은 main 에서 실행된다
+(deploy-ai.yml/deploy-eks.yml 과 같은 관례 — dev_ai 브랜치는 워크플로 없이 코드만 갖는다).
+
 - 이 스택은 이미지를 **빌드하지 않는다.** `data.aws_ecr_image` 로 그 시점 `:latest`
   다이제스트를 읽어 함수에 핀할 뿐이라, py-collector 소스 없이(dev_infra 단독
   체크아웃·CI 러너) plan/apply 가 된다.
 - CI 의 AWS 로그인은 OIDC 롤(`ci.tf`) — 장기 액세스키 없음, 브랜치 단위 신뢰:
-  `kbo-collector-image-ci`(dev_ai) / `kbo-collector-terraform-ci`(dev_infra).
+  `kbo-collector-image-ci`(main) / `kbo-collector-terraform-ci`(dev_infra).
 
 ## 설정·비밀 관리
 

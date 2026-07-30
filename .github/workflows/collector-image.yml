@@ -1,0 +1,68 @@
+# py-collector 이미지 CI — "py-collector 변경이 main 도달 = 크롤러 배포"
+#
+# main 에 py-collector 변경이 머지되면(dev_ai→main): docker build(arm64) → ECR :latest
+# 푸시 → 두 Lambda(kbo-collector, kbo-collector-db)를 방금 푸시한 다이제스트로 갱신.
+# 테라폼은 안 건드린다 — 인프라 정의는 VictoryFairy_Infra/collector-lambda/
+# (그쪽은 dev_infra 머지 시 collector-terraform.yml 이 apply). 접점은 ECR 이미지뿐.
+#
+# 파일 소유는 dev_infra, 실행은 main — deploy-ai.yml/deploy-eks.yml 과 같은 관례.
+# (dev_ai 브랜치는 순수 코드만 유지: 워크플로 없음)
+name: collector-image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'VictoryFairy_AI/py-collector/**'
+      - '!VictoryFairy_AI/py-collector/docs/**'
+      - '!VictoryFairy_AI/py-collector/**/*.md'
+      - '.github/workflows/collector-image.yml'
+  workflow_dispatch:
+
+permissions:
+  id-token: write # OIDC 토큰 발급
+  contents: read
+
+concurrency:
+  group: collector-image
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ap-northeast-2
+  ECR_URL: 555209622409.dkr.ecr.ap-northeast-2.amazonaws.com/kbo-collector
+  PLATFORM: linux/arm64 # Lambda architectures=["arm64"] 와 일치해야 함
+
+jobs:
+  build-push-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::555209622409:role/kbo-collector-image-ci
+          aws-region: ${{ env.AWS_REGION }}
+
+      # x86 러너에서 arm64 이미지를 빌드하기 위한 에뮬레이션
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Build and push image
+        run: ./deploy/lambda/build_and_push.sh
+        working-directory: VictoryFairy_AI/py-collector
+        env:
+          REGION: ${{ env.AWS_REGION }}
+          TAG: latest
+
+      - name: Update Lambda functions to the new digest
+        run: |
+          digest=$(aws ecr describe-images --repository-name kbo-collector \
+            --image-ids imageTag=latest --query 'imageDetails[0].imageDigest' --output text)
+          echo "deploying ${ECR_URL}@${digest}"
+          for fn in kbo-collector kbo-collector-db; do
+            aws lambda update-function-code --function-name "$fn" \
+              --image-uri "${ECR_URL}@${digest}" --query 'LastUpdateStatus' --output text
+            aws lambda wait function-updated-v2 --function-name "$fn"
+            echo "$fn updated"
+          done

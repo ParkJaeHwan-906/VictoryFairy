@@ -1,7 +1,8 @@
 # GitHub Actions OIDC 배포 롤 — "머지 = 배포" 파이프라인의 AWS 로그인.
 #
-# - image-ci     : dev_ai 머지 → 이미지 빌드 → ECR 푸시 → Lambda 코드 갱신
-#                  (.github/workflows/collector-image.yml, dev_ai 브랜치)
+# - image-ci     : py-collector 변경이 main 도달(dev_ai→main 머지) → 이미지 빌드 →
+#                  ECR 푸시 → Lambda 코드 갱신 (.github/workflows/collector-image.yml —
+#                  파일 소유는 dev_infra, 실행은 main. deploy-ai.yml 과 같은 관례)
 # - terraform-ci : dev_infra 머지 → 이 스택 plan/apply
 #                  (.github/workflows/collector-terraform.yml, dev_infra 브랜치)
 #
@@ -32,7 +33,7 @@ locals {
   gh_environment = "collector-lambda"
 
   gh_trust = {
-    dev_ai = jsonencode({
+    main = jsonencode({
       Version = "2012-10-17"
       Statement = [{
         Effect    = "Allow"
@@ -41,7 +42,7 @@ locals {
         Condition = {
           StringEquals = {
             "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-            "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo}:ref:refs/heads/dev_ai"
+            "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo}:ref:refs/heads/main"
           }
         }
       }]
@@ -70,7 +71,7 @@ locals {
 # --- image-ci: ECR 푸시 + 함수 코드 갱신만 (테라폼·IAM 권한 없음) ---
 resource "aws_iam_role" "image_ci" {
   name               = "${var.name}-image-ci"
-  assume_role_policy = local.gh_trust["dev_ai"]
+  assume_role_policy = local.gh_trust["main"]
   tags               = var.tags
 }
 
