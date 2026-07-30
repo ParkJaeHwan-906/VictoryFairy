@@ -1,6 +1,6 @@
 # LLM 위키 + 퀴즈 생성 파이프라인 설계
 
-> 작성일: 2026-07-28 · 상태: 사용자 승인 대기
+> 작성일: 2026-07-28 · 상태: **승인됨 (2026-07-30)** — 다음 단계: 구현 계획(writing-plans)
 > 범위: VictoryFairy_AI 신규 서브시스템(위키 빌더·퀴즈 생성기) + py-collector 변경 2건
 > (game_schedule export · kbo_records 수집)
 
