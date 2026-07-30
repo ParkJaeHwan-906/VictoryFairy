@@ -169,3 +169,50 @@ def read_community_posts(db, date=None, sink=None):
                          "crawledAt": post.get("crawledAt")},
                 pii={"masked": True},
             )
+
+
+@reader("game_schedule")
+def read_game_schedules(db, date=None, sink=None):
+    """raw-json/schedule/{date} → 예정(BEFORE) 경기 envelope. date 필수, db 미사용.
+
+    선발 라인업(타자)은 경기 전 데이터 소스가 없어 v1은 일정+선발투수만 담는다.
+    네이버 스케줄 API(fields=basic,statusNum,statusInfo) 응답에는 선발투수
+    필드가 없어 실제로는 항상 None — Task 10에서 PRED_SP_WIN 템플릿 비활성화로 대응.
+    """
+    if not date:
+        raise ValueError("game_schedule export requires --date")
+    from .. import keys as raw_keys
+    from ..dimensions import TEAM_CODES
+    key = raw_keys.schedule_key(date)
+    if not sink.exists(key):
+        raise ValueError(f"raw schedule 없음: {key} — 'schedule' 잡을 먼저 실행하세요")
+    now = _now()
+    games = ((sink.get_json(key) or {}).get("result") or {}).get("games") or []
+    for g in games:
+        if g.get("categoryId") != "kbo" or g.get("cancel"):
+            continue
+        if g.get("statusCode") != "BEFORE":
+            continue
+        if g.get("awayTeamCode") not in TEAM_CODES or g.get("homeTeamCode") not in TEAM_CODES:
+            continue
+        gid = g["gameId"]
+        a_name = g.get("awayTeamName") or g["awayTeamCode"]
+        h_name = g.get("homeTeamName") or g["homeTeamCode"]
+        gtime = (g.get("gameDateTime") or "")[11:16]   # 'YYYY-MM-DDTHH:MM:SS' -> 'HH:MM'
+        stadium = g.get("stadium") or ""
+        a_sp, h_sp = g.get("awayStarterName"), g.get("homeStarterName")
+        parts = [f"{date} {gtime} {stadium}에서 {a_name} 대 {h_name} 경기가 예정되어 있다."]
+        if a_sp or h_sp:
+            parts.append(f"선발투수는 {a_name} {a_sp or '미정'}, {h_name} {h_sp or '미정'}.")
+        entities = empty_entities()
+        entities["gameId"] = gid
+        entities["teamCodes"] = [g["awayTeamCode"], g["homeTeamCode"]]
+        yield Envelope(
+            doc_id=f"game_schedule:{gid}", doc_type="game_schedule", source="naver",
+            source_ref=key, collected_at=now,
+            title=f"{date} {a_name} vs {h_name} 경기 예정",
+            content=" ".join(parts), tags=["일정", "예정경기"],
+            entities=entities,
+            payload={"gameId": gid, "startTime": gtime, "stadium": stadium,
+                     "awayStarter": a_sp, "homeStarter": h_sp},
+        )

@@ -1,9 +1,13 @@
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 import kbo_collector.sources  # noqa: F401
 from kbo_collector.exports import exporter
+
+FIXTURES = Path(__file__).parent / "fixtures"
 
 
 class FakeDb:
@@ -161,3 +165,52 @@ def test_export_skips_invalid_envelope_and_continues():
         del exporter.READERS["stub_doc"]
     assert n == 1                      # 불량 1건 skip, 정상 1건 적재
     assert [obj["docId"] for _, obj in sink.puts] == ["d:good"]
+
+
+class FakeScheduleSink(FakeSink):
+    def __init__(self, sched, key):
+        super().__init__()
+        self.sched, self.key = sched, key
+
+    def exists(self, key):
+        return key == self.key
+
+    def get_json(self, key):
+        assert key == self.key
+        return self.sched
+
+
+def _sched_sink(date="2026-07-31"):
+    sched = json.loads((FIXTURES / "schedule_before.json").read_text(encoding="utf-8"))
+    return FakeScheduleSink(sched, f"raw-json/schedule/{date}/schedule.json")
+
+
+def test_read_game_schedules_emits_before_games_only():
+    envs = list(exporter.read_game_schedules(None, date="2026-07-31", sink=_sched_sink()))
+    assert envs, "픽스처에 BEFORE 상태 KBO 경기가 최소 1개 필요"
+    e = envs[0]
+    assert e.doc_type == "game_schedule"
+    assert e.doc_id == f"game_schedule:{e.entities['gameId']}"
+    assert len(e.entities["teamCodes"]) == 2
+    assert "예정" in e.content
+    assert set(e.payload) == {"gameId", "startTime", "stadium", "awayStarter", "homeStarter"}
+
+
+def test_read_game_schedules_requires_date():
+    with pytest.raises(ValueError, match="--date"):
+        list(exporter.read_game_schedules(None, date=None, sink=FakeSink()))
+
+
+def test_read_game_schedules_missing_raw_raises():
+    with pytest.raises(ValueError, match="schedule"):
+        list(exporter.read_game_schedules(None, date="1999-01-01", sink=_sched_sink()))
+
+
+def test_export_game_schedule_writes_to_s3():
+    sink = _sched_sink()
+    n = exporter.export("game_schedule", settings=SimpleNamespace(), db=None,
+                        sink=sink, date="2026-07-31")
+    assert n >= 1
+    key, obj = sink.puts[0]
+    assert key.startswith("question-source/game_schedule/")
+    assert obj["envelopeVersion"] == 1
