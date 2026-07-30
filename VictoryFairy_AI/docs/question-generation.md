@@ -41,9 +41,9 @@ LLM이 매번 자유롭게 쓴다. 그래서 같은 템플릿이라도 문제가
 | 경기 결과·일정·라인업 | py-collector가 네이버/KBO에서 수집 → 운영 DB → envelope | S3 `question-source/` |
 | 시즌 통계(순위·상대전적·연승) | 경기 봉투를 스크립트로 결정적 집계 (LLM 미사용) | S3 `wiki/stats/` |
 | 시즌 스탯 순위(타율·ERA 등)·역대 기록·마일스톤 임박 | **KBO 공식 기록실** 페이지를 py-collector가 일 1회 스냅샷 | S3 `kbo-records/` → `wiki/stats/` |
-| 선수 밈·별명·커리어 서사 | 커뮤니티 글(DC·펨코) + memes.yaml 시드를 위키 빌더(LLM)가 병합 | S3 `wiki/players/*.md` |
+| 선수 밈·별명·커리어 서사 | **validation 통과** 커뮤니티 글(욕설 검열 + 야구 무관 이슈 배제) + memes.yaml 시드를 위키 빌더(LLM)가 병합 — 원문 직접 소비 금지 | S3 `wiki/players/*.md` |
 | 선수 간 관계(밈 공유·커리어 교차) | 위키 front-matter를 컴파일한 경량 그래프 | S3 `wiki/graph.json` |
-| 지금 뜨는 화제 | 커뮤니티 글에서 화제 토픽 추출 | S3 `wiki/stats/trending.md` |
+| 지금 뜨는 화제 | **정제 게시글**에서 화제 토픽 추출 (논란·사건 토픽 제외) | S3 `wiki/stats/trending.md` |
 
 핵심 원칙 두 가지:
 - **사실 데이터의 자연어화에 LLM을 쓰지 않는다.** 통계·기록은 스크립트가 집계한다(환각 방지).

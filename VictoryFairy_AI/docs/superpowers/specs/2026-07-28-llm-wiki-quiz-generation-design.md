@@ -22,24 +22,24 @@ S3에 적재한다 (기능명세서 QUIZ-001/002 대응).
 | 통계 데이터 접근 | 2층 구조: 시의성 층(최근 7일 봉투) + **축적 층(`wiki/stats/` 시즌 요약)** | "작년 대비", "시즌 초 대비" 비교는 시즌 전체 집계가 필요한데, 생성기가 매번 수백 개 봉투를 읽는 건 낭비. 퀴즈 생성기의 전처리 단계(결정적 스크립트, LLM 미사용)가 **매일** 집계해 요약 문서로 유지 — "오늘 기준 순위" 문제의 신선도 보장 |
 | 실행 환경 | Claude Code 클라우드 스케줄 잡(routine) 2개 | 맥북 무관하게 동작. LLM 호출 = Claude Code 자체 |
 | 데이터 접근 | **S3 전용** (routine은 DB 미접근) | RDB 데이터는 py-collector export가 envelope로 공급. 클라우드에 DB 자격증명을 열지 않음 |
-| 위키 소스 | 커뮤니티 글(LLM 추출) + memes.yaml 시드. 나무위키는 1차 제외 | 나무위키는 CC BY-NC-SA(비영리 한정) + 봇 차단 → 사람이 검수해 시드에 수동 추가하는 보조 경로로만 |
+| 위키 소스 | **validation 통과 커뮤니티 글**(LLM 추출) + memes.yaml 시드. 나무위키는 1차 제외 | 위키 빌더는 원문을 직접 소비하지 않는다 — 기존 validation 파이프라인(욕설·비속어 검열)을 통과하고 야구 무관 이슈(정치 등)가 걸러진 정제 데이터만 입력. 나무위키는 CC BY-NC-SA(비영리 한정) + 봇 차단 → 사람이 검수해 시드에 수동 추가하는 보조 경로로만 |
 | 퀴즈 인계 | S3 `quiz-candidates/{date}/*.json` 계약 | BE quiz 도메인 엔티티가 아직 없음. 스키마·적재는 dev_be 소관(DDL 사본 금지 규칙) — 우리는 JSON 계약만 정의 |
 
 ## 3. 아키텍처
 
 ```
 [py-collector (Lambda·크론)]               [Claude Code 클라우드 routine]
- RDB·커뮤니티 → S3 question-source/  ──▶  ① 위키 빌더 (주 1~2회, LLM)
-   (game_result / game_schedule*        │    S3 wiki/players/{playerId}.md 병합 갱신
-    / player_profile / community_post   │    S3 wiki/graph.json 재컴파일
-    / player_meme)   *신규              │    S3 wiki/stats/trending.md·all-time-records.md
- KBO 기록실 → S3 kbo-records/ 스냅샷     ▼
-                                        ② 퀴즈 생성기 (매일 아침, 경기 2h 전 마감)
-                                        │    0) wiki/stats/ 시즌 요약 재집계 (결정적 스크립트)
-                                        │    1) 템플릿 선택 → 2) 데이터 바인딩
-                                        │    3) 문구 생성(LLM) → 검증 패스
-                                        ▼
-                                        S3 quiz-candidates/{date}/*.json ──▶ BE 소비 → Quiz DB
+ RDB → S3 question-source/          ──▶  ① 위키 빌더 (주 1~2회, LLM)
+   (game_result / game_schedule*         │    S3 wiki/players/{playerId}.md 병합 갱신
+    / player_profile / player_meme)      │    S3 wiki/graph.json 재컴파일
+ KBO 기록실 → S3 kbo-records/* 스냅샷    │    S3 wiki/stats/trending.md·all-time-records.md
+                                         ▼
+[validation 러너 (기존 AI 파이프라인)]    ② 퀴즈 생성기 (매일 아침, 경기 2h 전 마감)
+ 커뮤니티 원문 → 검열(욕설·비속어)        │    0) wiki/stats/ 시즌 요약 재집계 (결정적 스크립트)
+   + 주제 필터(야구 무관 배제)      ──▶  │    1) 템플릿 선택 → 2) 데이터 바인딩
+   → S3 정제 게시글  (위키 빌더 입력)    │    3) 문구 생성(LLM) → 검증 패스
+   *신규                                 ▼
+                                         S3 quiz-candidates/{date}/*.json ──▶ BE 소비 → Quiz DB
 ```
 
 routine에는 최소 권한 IAM 자격증명만 부여: `question-source/`·`kbo-records/` 읽기,
@@ -49,8 +49,12 @@ routine에는 최소 권한 IAM 자격증명만 부여: `question-source/`·`kbo
 
 ### 4.1 위키 빌더 (routine ①)
 
-- **입력**: S3 `question-source/community_post/`(무필터 원문), `player_meme/`(시드), 기존 위키 문서,
+- **입력**: **validation 러너 산출물**(검열·주제 필터 통과한 정제 커뮤니티 게시글 — 원문 직접
+  소비 금지), `question-source/player_meme/`(시드), 기존 위키 문서,
   `question-gen/config/all-time-records.yaml`(역대 기록 시드 — 아래)
+  - 정제 기준: 욕설·비속어 검열(기존 validation 모듈) + **야구 무관 이슈 배제**(정치·사회 등).
+    주제 필터가 현재 validation에 없으면 validation 파이프라인 확장이 선행 작업(해당 모듈 소관)
+  - 산출물 S3 경로는 기존 검열 러너의 out 경로를 따름(구현 시 확정)
 - **처리**: 선수별로 관련 글 그룹핑 → 기존 문서 로드 → LLM이 신규 사실만 병합. 갱신 대상은
   마지막 실행 이후 수집분(파티션 날짜 기준 증분)
 - **문서 구조** (고정 섹션):
@@ -75,8 +79,8 @@ routine에는 최소 권한 IAM 자격증명만 부여: `question-source/`·`kbo
 - **그래프 컴파일**: 갱신 마지막 단계에서 전체 문서 front-matter(`relations` + 팀 소속)를 긁어
   `wiki/graph.json`(nodes: 선수·팀·사건·밈, edges: typed) 하나로 재생성. 문서가 진실의 원천,
   graph.json은 언제든 재컴파일 가능한 파생물
-- **화제 토픽 추출**: 최근 여론 갱신 시 화제성 높은 주제(급증 키워드·논쟁 이슈)를
-  `wiki/stats/trending.md`로 요약 — 생성기가 시의성 템플릿 우선순위에 사용. 논란·사건 관련
+- **화제 토픽 추출**: **정제 게시글(validation 통과분)에서만** 화제성 높은 주제(급증 키워드)를
+  뽑아 `wiki/stats/trending.md`로 요약 — 생성기가 시의성 템플릿 우선순위에 사용. 논란·사건 관련
   토픽은 트렌딩에서 제외(안전 규칙)
 - **역대 기록 (시드 기반)**: `question-gen/config/all-time-records.yaml` — KBO 기록실 History 페이지
   크롤 스냅샷에서 **반자동 생성 + 사람 검수**(통산 순위 top N·마일스톤·단일 경기 진기록,
@@ -192,9 +196,10 @@ DB 스키마 변경 없음. routine IAM 읽기 권한에 `kbo-records/` prefix �
 ## 6. 리스크
 
 - **나무위키 라이선스/차단**: 1차 제외. 도입 시 사람 검수 + 비영리 조건 재검토 필수
-- **커뮤니티 원문 무필터**: 위키 빌더 프롬프트에서 정제를 명시 수행. 필요 시 기존 validation 모듈
-  통과 후 투입으로 강화
-- **community_post 봉투는 entities가 비어 있음**: 선수 매칭을 위키 빌더의 LLM이 수행(이름·별명 기반).
+- **validation 파이프라인 의존**: 위키 빌더는 validation 통과 데이터만 소비하므로, 검열 커버리지
+  (우회 표기)와 주제 필터(야구 무관 배제) 품질이 위키 품질의 상한. 우회 표기가 새는 경우를 대비해
+  위키 빌더 LLM 병합 시 2차 정제는 유지. 주제 필터 신설 여부는 validation 모듈과 협의 필요
+- **정제 게시글의 선수 매칭**: 선수 매칭(이름·별명 기반)은 위키 빌더의 LLM이 수행.
   오매칭은 출처 각주 덕에 사후 추적 가능
 - **routine의 AWS 자격증명 관리**: 최소 권한 IAM 사용자 별도 발급, 시크릿은 routine 환경변수로
 - **전년 데이터 부재 (확인 필요)**: "작년 대비" 류 템플릿은 2025 시즌 game_result가 S3/DB에
