@@ -1,6 +1,6 @@
 # 현재 크롤링 개요 (미팅용)
 
-> KBO 크롤러(`py-collector`)가 **현재** 무엇을 어떻게 수집하는지 — 기술 스택 · 데이터 소스 · 파싱 방식 · 저장 값(S3 & MySQL) · 데이터 규격 — 을 한 장에 정리한 문서. 모든 내용은 실제 코드(`kbo_collector/*.py`, `deploy/sql/schema.sql`) 근거.
+> KBO 크롤러(`py-collector`)가 **현재** 무엇을 어떻게 수집하는지 — 기술 스택 · 데이터 소스 · 파싱 방식 · 저장 값(S3 & MySQL) · 데이터 규격 — 을 한 장에 정리한 문서. 모든 내용은 실제 코드(`kbo_collector/*.py`)와 domain JPA 엔티티 근거.
 
 **목차**
 1. [기술 스택 & 수집 아키텍처](#1-기술-스택--수집-아키텍처)
@@ -186,7 +186,11 @@ flowchart TD
 
 **저장 데이터 성격**: schedule/result/relay는 네이버 원본 JSON **byte-for-byte**(스키마 소유=네이버), 커뮤니티 `RawPost`는 우리 통일 스키마(`schemaVersion=2`). 상세 필드는 `data-formats.md` 참고.
 
-## 5-2. MySQL 스키마 (`deploy/sql/schema.sql`)
+## 5-2. MySQL 스키마 (구버전 스냅샷 — 현행 구조는 domain JPA 엔티티)
+
+> **[구버전 스냅샷]** 아래 5-2절은 collector 소유 스키마 시절 기록이다. 현재는 **운영
+> 서비스 스키마**(teams/players/stadiums/game_statuses/games/**game_lineups**, BIGINT PK)에
+> 직접 적재한다 — 최신 구조는 domain 모듈 JPA 엔티티·`crawl-flow.md` 4절 참고.
 
 ### 로스터 (소스: KBO 공식)
 

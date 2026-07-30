@@ -424,32 +424,27 @@ def land_community_range(start, end, *, settings, sink, client, journal, force=F
 def land_registrations(date=None, *, settings, db, client,
                        teams=dimensions.TEAM_CODES,
                        fetch_html=None, current=None) -> list[str]:
+    """KBO 공식 1군 등록명단 -> 운영 players 테이블(kbo_player_id 자연키) upsert."""
     fetch_html = fetch_html or kbo_register.fetch_register_html
     current = current or kbo_register.current_date
-    site_current = current(settings, client)          # 'YYYY-MM-DD'
-    snapshot_date = date or site_current
-    is_current = snapshot_date == site_current
+    snapshot_date = date or current(settings, client)  # 'YYYY-MM-DD'
     date_compact = snapshot_date.replace("-", "")
 
-    db.upsert_teams(dimensions.TEAMS)  # FK 충족 위해 팀 시드 먼저
+    team_ids = db.upsert_teams(dimensions.TEAMS)  # FK 충족 위해 팀 시드 먼저
     synced: list[str] = []
     for code in teams:
         try:
             html = fetch_html(code, date_compact, settings=settings, client=client)
             rows = kbo_register.parse_register(html)
         except Exception:
-            continue  # 팀 실패: 스킵(inactive 처리 안 함)
-        db.upsert_players(rows, code, snapshot_date)
-        db.insert_registrations(snapshot_date, rows, code)
+            continue  # 팀 실패: 스킵
+        db.upsert_roster_players(rows, team_ids[code])
         synced.append(code)
-    if is_current:
-        for code in synced:
-            db.mark_not_first_team(code, snapshot_date)
     return synced
 
 
-def land_game_records(date, *, settings, db, client) -> tuple[list[str], list[str]]:
-    """하루치 완료 경기 record를 MySQL(games/game_pitching/game_batting)에 적재.
+def land_game_records(date, *, settings, db, client, team_ids=None) -> tuple[list[str], list[str]]:
+    """하루치 완료 경기 record를 운영 MySQL(games/game_lineups)에 적재.
 
     반환: (적재 성공 game_id, 실패 game_id).
     """
@@ -457,6 +452,7 @@ def land_game_records(date, *, settings, db, client) -> tuple[list[str], list[st
     url = game_records.schedule_url(settings, date)
     resp = fetch.fetch(client, url, settings=settings, referer=settings.naver_referer)
     finished = game_records.list_finished_games(resp.json())
+    team_ids = team_ids or db.upsert_teams(dimensions.TEAMS)
     loaded, failed = [], []
     for g in finished:
         gid = g["gameId"]
@@ -468,11 +464,14 @@ def land_game_records(date, *, settings, db, client) -> tuple[list[str], list[st
                 failed.append(gid)
                 continue
             game = game_records.parse_record(gid, record)
-            uid_map = db.upsert_game_players(game.players)
-            db.upsert_game(game, uid_map)
-            db.upsert_innings(game)
-            db.upsert_pitching(gid, game.pitching, uid_map)
-            db.upsert_batting(gid, game.batting, uid_map)
+            player_map = db.resolve_players(game.players, team_ids)
+            status = "DRAW" if game.winner == "draw" else "FINISHED"
+            game_pk = db.upsert_game(
+                game, team_ids=team_ids,
+                stadium_id=db.stadium_id(game.stadium),
+                status_id=db.status_id(status))
+            db.upsert_lineups(game_pk, game_records.build_lineups(game),
+                              player_map, team_ids)
             loaded.append(gid)
         except Exception as exc:  # 한 경기 실패가 백필 전체를 막지 않도록
             log.warning("record fail %s: %s", gid, exc)
@@ -482,20 +481,20 @@ def land_game_records(date, *, settings, db, client) -> tuple[list[str], list[st
 
 
 def land_game_records_range(start, end, *, settings, db, client, sleep=time.sleep) -> dict:
-    """[start, end] 날짜 구간 백필. teams 시드 후 일자별 반복, 마지막에 kbo_id 링크."""
-    db.upsert_teams(dimensions.TEAMS)
+    """[start, end] 날짜 구간 백필. teams 시드 후 일자별 반복."""
+    team_ids = db.upsert_teams(dimensions.TEAMS)
     d0 = date_cls.fromisoformat(start)
     d1 = date_cls.fromisoformat(end)
     loaded, failed = [], []
     d = d0
     while d <= d1:
-        lo, fa = land_game_records(d.isoformat(), settings=settings, db=db, client=client)
+        lo, fa = land_game_records(d.isoformat(), settings=settings, db=db,
+                                   client=client, team_ids=team_ids)
         loaded += lo
         failed += fa
         d += timedelta(days=1)
         if d <= d1:
             sleep(settings.fetch_delay_ms / 1000)
-    db.link_kbo_player_ids()
     return {"loaded": loaded, "failed": failed}
 
 

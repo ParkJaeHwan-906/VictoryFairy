@@ -76,3 +76,83 @@ def test_handler_uses_request_id_as_run_id(monkeypatch, settings):
 
     handler.handler({"job": "community"}, Ctx())
     assert captured["run_id"] == "abcdef012345-678"  # truncated to 16 chars
+
+
+# --- DB jobs (records / registrations) — kbo-collector-db 함수 경로 ---
+
+class _DummyDb:
+    def __init__(self):
+        self.closed = False
+
+    def close(self):
+        self.closed = True
+
+
+def _isolate_db(monkeypatch, settings):
+    _isolate(monkeypatch, settings)
+    db = _DummyDb()
+    monkeypatch.setattr(handler, "DbSink", lambda s: db)
+    # DB 잡은 S3 sink 를 만들면 안 된다
+    monkeypatch.setattr(handler, "S3RawSink", _boom("S3RawSink"))
+    return db
+
+
+def test_handler_records_range_backfill(monkeypatch, settings):
+    db = _isolate_db(monkeypatch, settings)
+    captured = {}
+
+    def fake_range(start, end, **k):
+        captured["range"] = (start, end)
+        return {"loaded": ["g1", "g2"], "failed": ["g3"]}
+
+    monkeypatch.setattr(handler.run, "land_game_records_range", fake_range)
+    monkeypatch.setattr(handler.run, "land_registrations", _boom("land_registrations"))
+    out = handler.handler({"job": "records", "from": "2026-07-01", "to": "2026-07-03"}, None)
+    assert captured["range"] == ("2026-07-01", "2026-07-03")
+    assert out["records"] == {"loaded": 2, "failed": ["g3"]}
+    assert db.closed
+
+
+def test_handler_records_defaults_to_single_date(monkeypatch, settings):
+    db = _isolate_db(monkeypatch, settings)
+    captured = {}
+
+    def fake_range(start, end, **k):
+        captured["range"] = (start, end)
+        return {"loaded": [], "failed": []}
+
+    monkeypatch.setattr(handler.run, "land_game_records_range", fake_range)
+    handler.handler({"job": "records", "date": "2026-07-10"}, None)
+    assert captured["range"] == ("2026-07-10", "2026-07-10")
+    assert db.closed
+
+
+def test_handler_registrations(monkeypatch, settings):
+    db = _isolate_db(monkeypatch, settings)
+    captured = {}
+
+    def fake_regs(date, **k):
+        captured["date"] = date
+        return ["OB", "LG"]
+
+    monkeypatch.setattr(handler.run, "land_registrations", fake_regs)
+    monkeypatch.setattr(handler.run, "land_game_records_range", _boom("records"))
+    out = handler.handler({"job": "registrations"}, None)
+    assert captured["date"] is None  # 미지정 -> KBO 사이트의 최신 등록일
+    assert out["registrations"] == ["OB", "LG"]
+    assert db.closed
+
+
+def test_handler_db_job_closes_connection_on_error(monkeypatch, settings):
+    db = _isolate_db(monkeypatch, settings)
+
+    def boom(*a, **k):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(handler.run, "land_registrations", boom)
+    try:
+        handler.handler({"job": "registrations"}, None)
+        raise AssertionError("should propagate")
+    except RuntimeError:
+        pass
+    assert db.closed

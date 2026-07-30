@@ -376,14 +376,16 @@ def test_main_game_job_runs_schedule_result_relay_not_community(monkeypatch):
 
 
 class _RecordingDb:
+    """운영 스키마 DbSink 흉내: 팀 upsert 는 code->id 맵을 돌려준다."""
     def __init__(self): self.calls = []
-    def upsert_teams(self, teams): self.calls.append(("teams", len(teams)))
-    def upsert_players(self, players, code, date): self.calls.append(("players", code, len(players)))
-    def insert_registrations(self, date, players, code): self.calls.append(("reg", code, date))
-    def mark_not_first_team(self, code, date): self.calls.append(("mark", code, date))
+    def upsert_teams(self, teams):
+        self.calls.append(("teams", len(teams)))
+        return {t.team_code: i + 1 for i, t in enumerate(teams)}
+    def upsert_roster_players(self, players, team_id):
+        self.calls.append(("players", team_id, len(players)))
 
 
-def test_land_registrations_current_date_upserts_and_marks(monkeypatch, settings):
+def test_land_registrations_current_date_upserts_by_team_pk(monkeypatch, settings):
     from kbo_collector import dimensions, kbo_register
     monkeypatch.setattr(kbo_register, "current_date", lambda s, c: "2026-07-13")
     def fake_fetch(code, date_compact, *, settings, client):
@@ -394,26 +396,28 @@ def test_land_registrations_current_date_upserts_and_marks(monkeypatch, settings
                         lambda html: [dimensions.PlayerRow("p1", "N", "1", "투수", "우투우타", None, None, None)])
     db = _RecordingDb()
     synced = run.land_registrations(None, settings=settings, db=db, client=object(),
-                                    teams=["LG", "OB"])
-    assert synced == ["LG", "OB"]
-    assert ("players", "LG", 1) in db.calls and ("reg", "OB", "2026-07-13") in db.calls
-    # 사이트 현재일이므로 mark 수행
-    assert ("mark", "LG", "2026-07-13") in db.calls
+                                    teams=["OB", "LG"])
+    assert synced == ["OB", "LG"]
+    # dimensions.TEAMS 순서상 OB=1, LG=2 -> team_id 로 upsert
+    assert ("players", 1, 1) in db.calls and ("players", 2, 1) in db.calls
 
 
-def test_land_registrations_backfill_does_not_mark(monkeypatch, settings):
+def test_land_registrations_backfill_uses_given_date(monkeypatch, settings):
     from kbo_collector import dimensions, kbo_register
-    monkeypatch.setattr(kbo_register, "current_date", lambda s, c: "2026-07-13")
-    monkeypatch.setattr(kbo_register, "fetch_register_html",
-                        lambda code, dc, *, settings, client: "<html></html>")
+    monkeypatch.setattr(kbo_register, "current_date",
+                        lambda s, c: (_ for _ in ()).throw(AssertionError("no site call")))
+    def fake_fetch(code, dc, *, settings, client):
+        assert dc == "20260501"  # 지정 날짜 사용, 사이트 현재일 조회 안 함
+        return "<html></html>"
+    monkeypatch.setattr(kbo_register, "fetch_register_html", fake_fetch)
     monkeypatch.setattr(kbo_register, "parse_register",
                         lambda html: [dimensions.PlayerRow("p1", "N", "1", "투수", "우투우타", None, None, None)])
     db = _RecordingDb()
     run.land_registrations("2026-05-01", settings=settings, db=db, client=object(), teams=["LG"])
-    assert not any(c[0] == "mark" for c in db.calls)  # backfill -> no mark
+    assert any(c[0] == "players" for c in db.calls)
 
 
-def test_land_registrations_failed_team_skipped_not_marked(monkeypatch, settings):
+def test_land_registrations_failed_team_skipped(monkeypatch, settings):
     from kbo_collector import dimensions, kbo_register
     monkeypatch.setattr(kbo_register, "current_date", lambda s, c: "2026-07-13")
     def fake_fetch(code, dc, *, settings, client):
@@ -427,4 +431,4 @@ def test_land_registrations_failed_team_skipped_not_marked(monkeypatch, settings
     synced = run.land_registrations(None, settings=settings, db=db, client=object(),
                                     teams=["LG", "OB"])
     assert synced == ["LG"]  # OB 실패 -> 제외
-    assert not any(c == ("mark", "OB", "2026-07-13") for c in db.calls)
+    assert ("players", 2, 1) in db.calls  # LG(=id 2)만 적재
