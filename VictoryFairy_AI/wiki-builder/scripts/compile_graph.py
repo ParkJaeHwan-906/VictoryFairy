@@ -71,6 +71,10 @@ def build_graph(docs: list, compiled_at: str | None = None) -> dict:
     - team 노드: id `team:{code}`. 여러 선수가 같은 팀이면 1개로 중복
       제거(dedup)한다.
 
+    team 노드의 `name`은 항상 None이다 — front-matter에는 팀 코드(예: `HT`)만
+    있고 팀 전체 이름(예: "KIA 타이거즈")은 이 계약에 없어 채울 데이터가
+    없기 때문이다(추후 팀 이름 매핑이 추가되면 여기만 바뀐다).
+
     엣지는 두 종류다.
     - 소속 엣지: 선수 문서마다 `{"source": player, "target": team,
       "type": "소속", "ref": None}` 1개.
@@ -78,11 +82,18 @@ def build_graph(docs: list, compiled_at: str | None = None) -> dict:
       `player:{target}`으로 정규화한다. `type`·`ref`는 그대로 보존한다 —
       `사건연루`처럼 민감한 타입도 여기서 걸러내지 않는다(모듈 docstring 참고).
 
+    relations 항목 하나가 스키마를 벗어나도(dict가 아님, `target` 없음,
+    `type` 없음) 전체 컴파일이 죽어서는 안 된다 — "문서가 진실의 원천"
+    원칙은 문서 단위 격리를 전제로 한다. 그런 불량 항목은 경고를 stderr에
+    남기고 그 항목만 스킵한다(같은 문서의 나머지 relations, 다른 문서에는
+    영향 없음).
+
     최종 반환 전에 노드는 `id` 기준, 엣지는 `(source, type, target)` 기준으로
     정렬한다 — 입력 docs 순서와 무관하게 실행마다 같은 결과가 나오게 하기
-    위한 결정성 보장이다. `compiled_at`은 이 함수 자체와 무관한 부수 값이라
-    인자로 주입받는다(기본값 None) — 그래프 조립 로직 자체는 순수하게
-    유지한다.
+    위한 결정성 보장이다(불량 relation을 스킵으로 처리하는 것도 이 정렬이
+    `None`과 `str`을 비교하다 죽지 않게 하는 전제 조건이다). `compiled_at`은
+    이 함수 자체와 무관한 부수 값이라 인자로 주입받는다(기본값 None) —
+    그래프 조립 로직 자체는 순수하게 유지한다.
     """
     nodes: dict[str, dict] = {}
     edges: list[dict] = []
@@ -125,7 +136,33 @@ def build_graph(docs: list, compiled_at: str | None = None) -> dict:
             })
 
         for rel in doc.get("relations") or []:
-            target_id = f"player:{rel['target']}"
+            # relations 항목별 방어: dict가 아니거나 target/type이 없으면
+            # 이 항목만 스킵한다(문서 단위 격리 — 크래시 금지, 위 docstring
+            # 참고). target 누락은 과거 KeyError, dict가 아닌 항목은 과거
+            # TypeError, type 누락은 과거 정렬 단계의 NoneType/str 비교
+            # TypeError로 전체 컴파일을 죽였다.
+            if not isinstance(rel, dict):
+                print(
+                    f"경고: {player_id} relations 항목이 dict가 아님, 스킵: {rel!r}",
+                    file=sys.stderr,
+                )
+                continue
+            target = rel.get("target")
+            if not target:
+                print(
+                    f"경고: {player_id} relations 항목에 target 없음, 스킵: {rel!r}",
+                    file=sys.stderr,
+                )
+                continue
+            rel_type = rel.get("type")
+            if not rel_type:
+                print(
+                    f"경고: {player_id} relations 항목에 type 없음, 스킵: {rel!r}",
+                    file=sys.stderr,
+                )
+                continue
+
+            target_id = f"player:{target}"
             nodes.setdefault(target_id, {
                 "id": target_id,
                 "type": "player",
@@ -135,7 +172,7 @@ def build_graph(docs: list, compiled_at: str | None = None) -> dict:
             edges.append({
                 "source": player_id,
                 "target": target_id,
-                "type": rel.get("type"),
+                "type": rel_type,
                 "ref": rel.get("ref"),
             })
 
