@@ -95,6 +95,24 @@ def test_stadium_id_inserts_when_missing_and_none_passthrough():
     assert sink.stadium_id(None) is None
 
 
+def test_position_id_lookup_hits_existing_row():
+    conn = FakeConn(fetch_results=[[(7,)]])
+    assert DbSink(None, connection=conn).position_id("중") == 7
+    assert len(conn.log) == 1  # INSERT 없음
+
+
+def test_position_id_inserts_when_missing_and_none_passthrough():
+    conn = FakeConn(fetch_results=[[]])
+    sink = DbSink(None, connection=conn)
+    assert sink.position_id("포") == 101   # last_id 100 -> INSERT 후 101
+    assert sink.position_id(None) is None
+
+
+def test_lineup_upsert_sql_targets_position_id_column():
+    assert "position_id" in LINEUP_UPSERT
+    assert "position_id=VALUES(position_id)" in LINEUP_UPSERT
+
+
 def test_resolve_players_kbo_id_hit_and_insert(caplog):
     refs = [PlayerRef("P1", "기존선수", "LG"), PlayerRef("P2", "개명선수", "LG"),
             PlayerRef("P3", "신규선수", "OB")]
@@ -137,13 +155,34 @@ def test_upsert_lineups_maps_ids_and_drops_unresolved():
         LineupRow("P2", "LG", False, None, "투", True, "W"),
         LineupRow("PX", "LG", False, 9, "포", False, None),  # 미해소 pcode -> 제외
     ]
-    conn = FakeConn()
+    # position lookup: "중" -> 30, "투" -> 40 (PX 는 제외되므로 "포" lookup 없음)
+    conn = FakeConn(fetch_results=[[(30,)], [(40,)]])
     DbSink(None, connection=conn).upsert_lineups(
         55, rows, {"P1": 11, "P2": 12}, {"LG": 2})
-    kind, sql, params = conn.log[0]
+    kind, sql, params = conn.log[-1]
     assert kind == "executemany" and sql == LINEUP_UPSERT
-    assert params == [(55, 2, 11, 1, "중", True, None),
-                      (55, 2, 12, None, "투", True, "W")]
+    assert params == [(55, 2, 11, 1, 30, True, None),
+                      (55, 2, 12, None, 40, True, "W")]
+    selects = [s for k, s, _ in conn.log if k == "execute" and s.startswith("SELECT")]
+    assert len(selects) == 2  # 포지션 2종 각 1회 lookup, "포" 는 미조회
+
+
+def test_upsert_lineups_memoizes_position_lookup_per_call():
+    rows = [
+        LineupRow("P1", "LG", False, 1, "중", True, None),
+        LineupRow("P2", "LG", False, 2, "중", True, None),  # 같은 포지션 재사용
+        LineupRow("P3", "LG", False, 3, "투", True, None),
+    ]
+    conn = FakeConn(fetch_results=[[(50,)], [(60,)]])  # "중"->50, "투"->60, 각 1회만
+    DbSink(None, connection=conn).upsert_lineups(
+        55, rows, {"P1": 11, "P2": 12, "P3": 13}, {"LG": 2})
+    selects = [s for k, s, _ in conn.log if k == "execute" and s.startswith("SELECT")]
+    assert len(selects) == 2  # memo 적중 -> "중" 은 한 번만 조회
+    kind, sql, params = conn.log[-1]
+    assert kind == "executemany" and sql == LINEUP_UPSERT
+    assert params == [(55, 2, 11, 1, 50, True, None),
+                      (55, 2, 12, 2, 50, True, None),
+                      (55, 2, 13, 3, 60, True, None)]
 
 
 def test_empty_rows_noop():

@@ -39,6 +39,10 @@ STADIUM_SELECT = "SELECT id FROM stadiums WHERE name=%s"
 STADIUM_INSERT = (
     "INSERT INTO stadiums (name, created_at, updated_at) VALUES (%s, NOW(6), NOW(6))"
 )
+POSITION_SELECT = "SELECT id FROM positions WHERE name=%s"
+POSITION_INSERT = (
+    "INSERT INTO positions (name, created_at, updated_at) VALUES (%s, NOW(6), NOW(6))"
+)
 
 # 박스스코어 선수 해소: kbo_player_id 일괄 조회 → 신규 INSERT
 # 실측상 네이버 pcode == KBO playerId (2026-07 박스스코어·로스터 교집합 228명 전수
@@ -65,11 +69,11 @@ GAME_UPSERT = (
 )
 
 LINEUP_UPSERT = (
-    "INSERT INTO game_lineups (game_id, team_id, player_id, bat_order, position, "
+    "INSERT INTO game_lineups (game_id, team_id, player_id, bat_order, position_id, "
     " is_starter, decision, created_at, updated_at) "
     "VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(6), NOW(6)) "
     "ON DUPLICATE KEY UPDATE team_id=VALUES(team_id), bat_order=VALUES(bat_order), "
-    "  position=VALUES(position), is_starter=VALUES(is_starter), decision=VALUES(decision), "
+    "  position_id=VALUES(position_id), is_starter=VALUES(is_starter), decision=VALUES(decision), "
     "  updated_at=NOW(6)"
 )
 
@@ -104,6 +108,11 @@ class DbSink:
         if not name:
             return None
         return self._lookup_or_insert(STADIUM_SELECT, STADIUM_INSERT, name)
+
+    def position_id(self, name):
+        if not name:
+            return None
+        return self._lookup_or_insert(POSITION_SELECT, POSITION_INSERT, name)
 
     # ---------- 선수 (박스스코어 kbo_player_id 해소) ----------
     def resolve_players(self, refs, team_ids) -> dict:
@@ -153,10 +162,20 @@ class DbSink:
         return pk
 
     def upsert_lineups(self, game_pk, lineups, player_map, team_ids) -> None:
+        """LineupRow 목록 upsert. position(명) -> position_id 는 호출당 memo dict로
+        해소한다 (포지션은 ~10종이라 중복 lookup 을 막는 게 목적)."""
+        rows = [r for r in lineups if r.pcode in player_map and r.team_code in team_ids]
+        position_memo: dict = {}
+
+        def resolved_position_id(name):
+            if name not in position_memo:
+                position_memo[name] = self.position_id(name)
+            return position_memo[name]
+
         self._many(LINEUP_UPSERT, [(
             game_pk, team_ids[r.team_code], player_map[r.pcode],
-            r.bat_order, r.position, r.is_starter, r.decision,
-        ) for r in lineups if r.pcode in player_map and r.team_code in team_ids])
+            r.bat_order, resolved_position_id(r.position), r.is_starter, r.decision,
+        ) for r in rows])
 
     # ---------- 공통 ----------
     def _lookup_or_insert(self, select_sql, insert_sql, name) -> int:
