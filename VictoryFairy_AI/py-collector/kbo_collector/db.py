@@ -77,6 +77,29 @@ LINEUP_UPSERT = (
     "  updated_at=NOW(6)"
 )
 
+# 경기×선수 1행 집계 기록 (UNIQUE(game_id, player_id)). BattingRow/PitchingRow
+# (game_records.py) 필드 순서와 컬럼 순서가 정확히 대응해야 한다.
+BATTER_UPSERT = (
+    "INSERT INTO batter_records (game_id, player_id, at_bats, runs, hits, home_runs, "
+    " rbi, walks, strikeouts, stolen_bases, created_at, updated_at) "
+    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(6),NOW(6)) "
+    "ON DUPLICATE KEY UPDATE at_bats=VALUES(at_bats), runs=VALUES(runs), "
+    "  hits=VALUES(hits), home_runs=VALUES(home_runs), rbi=VALUES(rbi), "
+    "  walks=VALUES(walks), strikeouts=VALUES(strikeouts), "
+    "  stolen_bases=VALUES(stolen_bases), updated_at=NOW(6)"
+)
+PITCHER_UPSERT = (
+    "INSERT INTO pitcher_records (game_id, player_id, seq, ip_display, ip_outs, "
+    " batters_faced, at_bats, hits, runs, earned_runs, home_runs, walks_hbp, "
+    " strikeouts, created_at, updated_at) "
+    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(6),NOW(6)) "
+    "ON DUPLICATE KEY UPDATE seq=VALUES(seq), ip_display=VALUES(ip_display), "
+    "  ip_outs=VALUES(ip_outs), batters_faced=VALUES(batters_faced), "
+    "  at_bats=VALUES(at_bats), hits=VALUES(hits), runs=VALUES(runs), "
+    "  earned_runs=VALUES(earned_runs), home_runs=VALUES(home_runs), "
+    "  walks_hbp=VALUES(walks_hbp), strikeouts=VALUES(strikeouts), updated_at=NOW(6)"
+)
+
 
 class DbSink:
     def __init__(self, settings, connection=None):
@@ -176,6 +199,21 @@ class DbSink:
             game_pk, team_ids[r.team_code], player_map[r.pcode],
             r.bat_order, resolved_position_id(r.position), r.is_starter, r.decision,
         ) for r in rows])
+
+    def upsert_batting(self, game_pk, rows, player_map) -> None:
+        """BattingRow 목록 upsert. player_map 에 없는 pcode(미해소 선수)는 스킵."""
+        self._many(BATTER_UPSERT, [(
+            game_pk, player_map[r.pcode], r.at_bats, r.runs, r.hits, r.home_runs,
+            r.rbi, r.walks, r.strikeouts, r.stolen_bases,
+        ) for r in rows if r.pcode in player_map])
+
+    def upsert_pitching(self, game_pk, rows, player_map) -> None:
+        """PitchingRow 목록 upsert. player_map 에 없는 pcode(미해소 선수)는 스킵."""
+        self._many(PITCHER_UPSERT, [(
+            game_pk, player_map[r.pcode], r.seq, r.ip_display, r.ip_outs,
+            r.batters_faced, r.at_bats, r.hits, r.runs, r.earned_runs,
+            r.home_runs, r.walks_hbp, r.strikeouts,
+        ) for r in rows if r.pcode in player_map])
 
     # ---------- 공통 ----------
     def _lookup_or_insert(self, select_sql, insert_sql, name) -> int:

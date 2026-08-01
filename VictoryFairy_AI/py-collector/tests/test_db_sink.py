@@ -2,10 +2,10 @@ from types import SimpleNamespace
 
 from kbo_collector.db import (
     DbSink, TEAMS_UPSERT, ROSTER_PLAYER_UPSERT, GAME_UPSERT, LINEUP_UPSERT,
-    PLAYER_INSERT,
+    PLAYER_INSERT, BATTER_UPSERT, PITCHER_UPSERT,
 )
 from kbo_collector.dimensions import PlayerRow, TeamRow
-from kbo_collector.game_records import LineupRow, PlayerRef
+from kbo_collector.game_records import LineupRow, PlayerRef, BattingRow, PitchingRow
 
 
 class FakeCursor:
@@ -195,6 +195,52 @@ def test_upsert_lineups_binds_null_for_missing_position():
     kind, sql, params = conn.log[-1]
     assert kind == "executemany" and sql == LINEUP_UPSERT
     assert params == [(55, 2, 11, None, None, True, None)]
+
+
+def _batting_row(pcode="P1", **overrides):
+    base = dict(pcode=pcode, team_code="LG", is_home=False, bat_order=3, position="중",
+               at_bats=4, runs=1, hits=2, home_runs=1, rbi=2, walks=0, strikeouts=1,
+               stolen_bases=0)
+    base.update(overrides)
+    return BattingRow(**base)
+
+
+def _pitching_row(pcode="P1", **overrides):
+    base = dict(pcode=pcode, team_code="LG", is_home=False, seq=0, decision="W",
+               ip_display="6", ip_outs=18, batters_faced=25, at_bats=22, hits=5,
+               runs=2, earned_runs=2, home_runs=1, walks_hbp=1, strikeouts=7)
+    base.update(overrides)
+    return PitchingRow(**base)
+
+
+def test_upsert_batting_maps_ids_and_drops_unresolved():
+    rows = [_batting_row("P1"), _batting_row("PX", bat_order=4, position="포")]  # PX 미해소
+    conn = FakeConn()
+    DbSink(None, connection=conn).upsert_batting(55, rows, {"P1": 11})
+    kind, sql, params = conn.log[-1]
+    assert kind == "executemany" and sql == BATTER_UPSERT
+    assert params == [(55, 11, 4, 1, 2, 1, 2, 0, 1, 0)]
+
+
+def test_upsert_batting_all_unresolved_is_noop():
+    conn = FakeConn()
+    DbSink(None, connection=conn).upsert_batting(55, [_batting_row("PX")], {})
+    assert conn.log == [] and conn.commits == 0
+
+
+def test_upsert_pitching_maps_ids_and_drops_unresolved():
+    rows = [_pitching_row("P1"), _pitching_row("PX", seq=1, decision=None)]  # PX 미해소
+    conn = FakeConn()
+    DbSink(None, connection=conn).upsert_pitching(55, rows, {"P1": 11})
+    kind, sql, params = conn.log[-1]
+    assert kind == "executemany" and sql == PITCHER_UPSERT
+    assert params == [(55, 11, 0, "6", 18, 25, 22, 5, 2, 2, 1, 1, 7)]
+
+
+def test_upsert_pitching_all_unresolved_is_noop():
+    conn = FakeConn()
+    DbSink(None, connection=conn).upsert_pitching(55, [_pitching_row("PX")], {})
+    assert conn.log == [] and conn.commits == 0
 
 
 def test_empty_rows_noop():

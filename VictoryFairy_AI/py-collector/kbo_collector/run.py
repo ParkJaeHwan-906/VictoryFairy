@@ -472,6 +472,8 @@ def land_game_records(date, *, settings, db, client, team_ids=None) -> tuple[lis
                 status_id=db.status_id(status))
             db.upsert_lineups(game_pk, game_records.build_lineups(game),
                               player_map, team_ids)
+            db.upsert_batting(game_pk, game.batting, player_map)
+            db.upsert_pitching(game_pk, game.pitching, player_map)
             loaded.append(gid)
         except Exception as exc:  # 한 경기 실패가 백필 전체를 막지 않도록
             log.warning("record fail %s: %s", gid, exc)

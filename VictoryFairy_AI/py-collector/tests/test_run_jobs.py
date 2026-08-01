@@ -417,6 +417,92 @@ def test_land_registrations_backfill_uses_given_date(monkeypatch, settings):
     assert any(c[0] == "players" for c in db.calls)
 
 
+class _RecordingRecordsDb:
+    """운영 스키마 DbSink 흉내: land_game_records 배선(호출 순서/인자) 검증용."""
+    def __init__(self, player_map, team_ids):
+        self.calls = []
+        self._player_map = player_map
+        self._team_ids = team_ids
+
+    def upsert_teams(self, teams):
+        return self._team_ids
+
+    def resolve_players(self, refs, team_ids):
+        return self._player_map
+
+    def stadium_id(self, name):
+        return 9
+
+    def status_id(self, name):
+        return 7
+
+    def upsert_game(self, game, *, team_ids, stadium_id, status_id):
+        self.calls.append(("game", game.game_id))
+        return 501
+
+    def upsert_lineups(self, game_pk, lineups, player_map, team_ids):
+        self.calls.append(("lineups", game_pk, player_map))
+
+    def upsert_batting(self, game_pk, rows, player_map):
+        self.calls.append(("batting", game_pk, rows, player_map))
+
+    def upsert_pitching(self, game_pk, rows, player_map):
+        self.calls.append(("pitching", game_pk, rows, player_map))
+
+
+def test_land_game_records_upserts_batting_and_pitching_after_lineups(monkeypatch, settings):
+    # records 잡: db.upsert_lineups 바로 다음 줄에서 upsert_batting/upsert_pitching이
+    # 호출돼야 한다. player_map에 없는 pcode("PX")는 run.py가 필터링하지 않고 그대로
+    # DbSink에 넘긴다 — 실제 스킵은 DbSink.upsert_batting/pitching 쪽 책임(db 단 테스트로 검증).
+    from kbo_collector import dimensions
+    from kbo_collector.game_records import GameRow, BattingRow, PitchingRow
+
+    fixed_game = GameRow(
+        game_id="g1", game_date="2026-07-10", game_type="regular", round_no=1,
+        stadium="잠실", start_time="18:30", away_team_code="LG", home_team_code="OB",
+        away_score=3, home_score=5, away_hits=8, home_hits=10,
+        away_errors=0, home_errors=1, away_bb=2, home_bb=3,
+        winner="home", away_starter_pcode="P9", home_starter_pcode="P8",
+        inn_scores={"away": [], "home": []},
+        pitching=[
+            PitchingRow(pcode="P1", team_code="OB", is_home=True, seq=0, decision="W",
+                       ip_display="6", ip_outs=18, batters_faced=25, at_bats=22, hits=5,
+                       runs=2, earned_runs=2, home_runs=1, walks_hbp=1, strikeouts=7),
+            PitchingRow(pcode="PX", team_code="LG", is_home=False, seq=0, decision="L",
+                       ip_display="5", ip_outs=15, batters_faced=20, at_bats=18, hits=6,
+                       runs=3, earned_runs=3, home_runs=0, walks_hbp=2, strikeouts=4),
+        ],
+        batting=[
+            BattingRow(pcode="P2", team_code="OB", is_home=True, bat_order=3, position="중",
+                      at_bats=4, runs=1, hits=2, home_runs=1, rbi=2, walks=0, strikeouts=1,
+                      stolen_bases=0),
+            BattingRow(pcode="PX", team_code="LG", is_home=False, bat_order=4, position="포",
+                      at_bats=3, runs=0, hits=1, home_runs=0, rbi=0, walks=1, strikeouts=0,
+                      stolen_bases=0),
+        ],
+        players=[],
+    )
+    player_map = {"P1": 11, "P2": 12}  # "PX" 미해소
+
+    class _FakeResp:
+        def json(self):
+            return {"result": {"recordData": {"dummy": True}}}
+
+    monkeypatch.setattr(run.fetch, "fetch", lambda *a, **k: _FakeResp())
+    monkeypatch.setattr(run.game_records, "list_finished_games", lambda js: [{"gameId": "g1"}])
+    monkeypatch.setattr(run.game_records, "parse_record", lambda gid, record: fixed_game)
+
+    db = _RecordingRecordsDb(player_map, team_ids={"OB": 1, "LG": 2})
+    loaded, failed = run.land_game_records("2026-07-10", settings=settings, db=db, client=object())
+
+    assert loaded == ["g1"] and failed == []
+    assert [c[0] for c in db.calls] == ["game", "lineups", "batting", "pitching"]
+    _, game_pk, rows, pm = next(c for c in db.calls if c[0] == "batting")
+    assert game_pk == 501 and rows == fixed_game.batting and pm == player_map
+    _, game_pk2, rows2, pm2 = next(c for c in db.calls if c[0] == "pitching")
+    assert game_pk2 == 501 and rows2 == fixed_game.pitching and pm2 == player_map
+
+
 def test_land_registrations_failed_team_skipped(monkeypatch, settings):
     from kbo_collector import dimensions, kbo_register
     monkeypatch.setattr(kbo_register, "current_date", lambda s, c: "2026-07-13")
