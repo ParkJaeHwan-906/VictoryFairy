@@ -82,7 +82,7 @@ class PlayerControllerTest {
     }
 
     @Test
-    @DisplayName("[USER-PL-2] 선수 항목은 id·name 두 필드만 담고 average·naverPcode·kboPlayerId·team은 "
+    @DisplayName("[USER-PL-2] 선수 항목은 id·name 두 필드만 담고 average·kboPlayerId·team은 "
             + "응답 어디에도 없다")
     void getPlayers_itemContainsOnlyIdAndName() throws Exception {
         // given
@@ -95,7 +95,6 @@ class PlayerControllerTest {
                 .andExpect(jsonPath("$.data[0].id").value(2))
                 .andExpect(jsonPath("$.data[0].name").value("김도영"))
                 .andExpect(jsonPath("$.data[0].average").doesNotExist())
-                .andExpect(jsonPath("$.data[0].naverPcode").doesNotExist())
                 .andExpect(jsonPath("$.data[0].kboPlayerId").doesNotExist())
                 .andExpect(jsonPath("$.data[0].team").doesNotExist());
     }

@@ -60,7 +60,6 @@ class PlayerServiceTest {
                 .team(KIA)
                 .name(name)
                 .average(0.312)
-                .naverPcode("6" + id)
                 .kboPlayerId("7" + id)
                 .build();
         ReflectionTestUtils.setField(player, "id", id);
@@ -147,7 +146,7 @@ class PlayerServiceTest {
 
     @Test
     @DisplayName("[USER-PL-2] 엔티티를 직접 노출하지 않고 id·name만 담은 PlayerResponse로 변환한다"
-            + "(naverPcode·kboPlayerId·average는 DTO에 필드 자체가 없어 컴파일 타임에 노출 불가)")
+            + "(kboPlayerId·average는 DTO에 필드 자체가 없어 컴파일 타임에 노출 불가)")
     void getPlayers_mapsOnlyIdAndNameFromEntity() {
         // given
         given(playerRepository.findAllByOrderByNameAsc()).willReturn(List.of(playerOf(42L, "김도영")));

@@ -646,7 +646,7 @@ KBO 선수 목록 조회. 대상 컨트롤러는 `PlayerController`(`@RequestMap
 | data[].name | String | 선수 이름 |
 | message | null | 사용되지 않음 |
 
-**`average`/`naverPcode`/`kboPlayerId`/`team`/`createdAt`/`updatedAt`는 의도적으로 응답에 없다.** `naverPcode`(네이버 record API의 pcode)와 `kboPlayerId`(KBO 공식 playerId)는 py-collector가 upsert 키로 소유하는 소스 자연키라 `TeamResponse`가 `Team.code`를 감추는 것과 같은 이유로 제외한다. `team`을 담지 않는 것은 N+1 방지 목적도 겸한다(`Player.team`이 LAZY라 응답 변환에서 초기화되지 않는다).
+**`average`/`kboPlayerId`/`team`/`createdAt`/`updatedAt`는 의도적으로 응답에 없다.** `kboPlayerId`(KBO 공식 playerId, 네이버 record API의 pcode 와도 실측상 동일 값)는 py-collector가 upsert 키로 소유하는 소스 자연키라 `TeamResponse`가 `Team.code`를 감추는 것과 같은 이유로 제외한다. `team`을 담지 않는 것은 N+1 방지 목적도 겸한다(`Player.team`이 LAZY라 응답 변환에서 초기화되지 않는다).
 
 **정렬: `name` 오름차순, DB(`ORDER BY name ASC`)가 단독 수행하며 애플리케이션에서 재정렬하지 않는다.** `teamId` 유무와 무관하게 같은 정렬이다. 구단 목록과 마찬가지로 한국어 로케일이 아닌 MySQL 콜레이션 기준이다.
 
@@ -698,7 +698,7 @@ curl -i -X GET "http://localhost:8080/api/member/players?teamId=6"
 |---|---|---|
 | success | boolean | 항상 `true` |
 | data | array | 경기 배열 |
-| data[].gameId | String | `Game.naverGameId` — 네이버 스포츠 gameId(예: `"20260708LGSS02026"`). py-collector가 upsert 키로 쓰는 자연키이지만, `Team.code`/`Player.naverPcode`와 달리 이 값은 응답에 그대로 노출된다(더블헤더 구분 등 클라이언트가 식별자로 쓸 필요가 있어 보임 — `TeamResponse`/`PlayerResponse`가 자연키를 감추는 것과 다른 결정이니 주의) |
+| data[].gameId | String | `Game.naverGameId` — 네이버 스포츠 gameId(예: `"20260708LGSS02026"`). py-collector가 upsert 키로 쓰는 자연키이지만, `Team.code`/`Player.kboPlayerId`와 달리 이 값은 응답에 그대로 노출된다(더블헤더 구분 등 클라이언트가 식별자로 쓸 필요가 있어 보임 — `TeamResponse`/`PlayerResponse`가 자연키를 감추는 것과 다른 결정이니 주의) |
 | data[].stadium | String \| null | 구장 이름(`Game.stadium.name`). **`null` 가능** — `Game.stadium`이 `Game`의 연관 중 유일하게 선택적(`optional = true`, `stadium_id` nullable)이라 구장이 아직 미정인 경기(편성 전·중립구장 미확정 등)는 `null`로 나간다. `homeTeamScore`/`awayTeamScore`가 경기 전 `null`인 것과 같은 취급이며, 표기 방식은 클라이언트가 정한다(`GameResponse.from()`이 `game.getStadium() == null ? null : game.getStadium().getName()`으로 방어) |
 | data[].homeTeam | String | 홈 구단 이름(`Game.homeTeam.name`) |
 | data[].awayTeam | String | 원정 구단 이름(`Game.awayTeam.name`) |
@@ -897,7 +897,7 @@ curl -i -X PUT http://localhost:8080/api/member/support/players/oppose \
 
 ## 확인 필요 / 코드 미확인
 - (정정, 2026-08-01) 이전 버전 문서에는 `GameResponse.from()`이 `stadium`을 응답에서 제외한다고 적혀 있었으나, `stadium` 필드가 응답에 추가되며 더 이상 사실이 아니다(위 `GET /api/member/games` 절 참고). `Game.id`(PK)·`createdAt`·`updatedAt`만 제외 대상이며, 이 셋의 제외 이유도 코드·Javadoc에 명시적으로 적혀 있지는 않다.
-- `GET /api/member/games`의 `gameId`(`naverGameId`)는 `TeamResponse.code`/`PlayerResponse.naverPcode`·`kboPlayerId`와 달리 자연키를 그대로 노출한다 — 의도적 결정인지, 아니면 향후 별도 PK 기반 식별자로 교체될 잠정값인지 코드만으로는 판단 불가. `(확인 필요)`
+- `GET /api/member/games`의 `gameId`(`naverGameId`)는 `TeamResponse.code`/`PlayerResponse.kboPlayerId`와 달리 자연키를 그대로 노출한다 — 의도적 결정인지, 아니면 향후 별도 PK 기반 식별자로 교체될 잠정값인지 코드만으로는 판단 불가. `(확인 필요)`
 - `SignupResponse` DTO는 코드상 정의되어 있으나 `AuthController.signup()`에서 실제로 사용되지 않는 죽은 코드로 확인됨(import만 존재).
 - `uid`를 응답 body/URL에 노출하는 엔드포인트는 아직 없음(현재는 토큰 `sub` claim 안에만 존재). `DELETE /api/member/users/me`도 `uid`가 아니라 access 토큰으로만 대상을 식별하며 응답에 아무것도 담지 않는다. 향후 `uid`를 응답에 싣는 변경이 생기면 이 문서를 다시 갱신해야 함.
 - (과거 기록, 정정됨) 이전 버전 문서에는 미인증 응답이 "401이 아니라 403"이라고 적혀 있었다 — `formLogin`/`httpBasic`을 disable하면 커스텀 엔트리포인트가 없는 한 Spring Security 기본값(`Http403ForbiddenEntryPoint`)으로 떨어지기 때문에 나온 실측이었다. 이후 `RestAuthenticationEntryPoint`가 도입되며 401로 고정됐다(위 "인증 방식" 절 참고). 과거 그 문서 기준 코드를 그대로 쓰고 있는 클라이언트가 있다면 401/403 처리 로직을 다시 확인할 것.

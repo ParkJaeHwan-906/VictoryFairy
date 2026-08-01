@@ -7,13 +7,13 @@
 
 1. **공개 범위** — 구단 목록과 같은 참조 데이터라 로그인 전에도 열려야 한다. 초안은 `SecurityConfig`에 규칙을 넣지 않아 `anyRequest().authenticated()`에 걸려 **무조건 401이 나는 상태**였다. 이 문서가 공개를 계약으로 못 박는다.
 2. **필터 축** — 화면이 "구단 선택 → 그 팀 선수"라 `teamId` 필터가 필요하다. 다만 필터는 **선택**이며, 없으면 전체를 준다.
-3. **소스 자연키 비노출** — `Player.naverPcode`(네이버 record API pcode)와 `Player.kboPlayerId`(KBO 공식 playerId)는 py-collector 가 upsert 키로 소유한다. `Team.code`와 정확히 같은 이유로 외부에 나가면 안 된다 — 클라이언트가 이 값으로 선수를 지칭하기 시작하면 수집기 코드 체계가 프론트 계약이 되어 버린다.
+3. **소스 자연키 비노출** — `Player.kboPlayerId`(KBO 공식 playerId, 네이버 record API pcode 도 실측상 동일 값)는 py-collector 가 upsert 키로 소유한다. `Team.code`와 정확히 같은 이유로 외부에 나가면 안 된다 — 클라이언트가 이 값으로 선수를 지칭하기 시작하면 수집기 코드 체계가 프론트 계약이 되어 버린다.
 
 ## 범위
 - 포함: 선수 목록 조회 엔드포인트 1개(`GET /api/member/players`), 선택 쿼리 파라미터 `teamId`, 응답 DTO(`id`+`name`), 정렬 순서 고정, `SecurityConfig`에 이 경로를 GET 한정 `permitAll`로 여는 변경
 - 제외:
   - **선수 단건 조회 / 생성 / 수정 / 삭제** — 데이터는 py-collector 가 소유한다. 앱에서 쓰기 경로를 열지 않는다
-  - **`naverPcode`·`kboPlayerId` 노출** — 위 배경 3 참조. 어떤 응답에도 넣지 않는다
+  - **`kboPlayerId` 노출** — 위 배경 3 참조. 어떤 응답에도 넣지 않는다
   - **`average`(타율) 노출** — 엔티티에는 있으나 이번 계약에 필요하지 않고, 값의 갱신 주기·기준(시즌/통산)이 정의돼 있지 않아 계약으로 만들면 안 된다. 필요해지면 별도 요구사항으로 다룬다
   - **응답에 소속 구단 정보 포함** — 프론트가 `teamId`로 이미 팀을 알고 요청한다는 전제다. 넣게 되면 `Player.team`이 LAZY 라 fetch join 을 함께 도입해야 하므로 **DTO 만 바꾸면 되는 변경이 아니다**(아래 "제약" 참조)
   - **페이징 / 이름 검색 / 포지션·타율 필터** — 이번 화면 요구가 아니다. `teamId` 외의 축은 열지 않는다(USER-PL-8 이 페이징 없음을 계약으로 못 박는다)
@@ -26,7 +26,7 @@
 | ID | 유형 | 요구사항 | 인수 기준 |
 |---|---|---|---|
 | USER-PL-1 | 이벤트 | WHEN 클라이언트가 선수 목록을 요청하면, THE 시스템 SHALL 200과 `ApiResponse` 래퍼에 담긴 선수 배열을 반환한다 | `GET /api/member/players` → 200, 본문 `{"success":true,"data":[...],"message":null}` |
-| USER-PL-2 | 유비쿼터스 | THE 시스템 SHALL 선수 항목에 `id`와 `name` 두 필드만 포함한다 | `data[0]`의 키 집합이 정확히 `{"id","name"}`. `average`·`naverPcode`·`kboPlayerId`·`team`·`createdAt`·`updatedAt` 키가 **응답 어디에도 없음** |
+| USER-PL-2 | 유비쿼터스 | THE 시스템 SHALL 선수 항목에 `id`와 `name` 두 필드만 포함한다 | `data[0]`의 키 집합이 정확히 `{"id","name"}`. `average`·`kboPlayerId`·`team`·`createdAt`·`updatedAt` 키가 **응답 어디에도 없음** |
 | USER-PL-3 | 유비쿼터스 | THE 시스템 SHALL 선수 목록을 `name` 오름차순(DB 콜레이션 기준)으로 정렬해 반환하며, `teamId` 유무와 무관하게 같은 정렬을 적용한다 | 동일 DB 상태에서 2회 연속 호출 시 순서 동일. `?teamId=` 를 붙인 응답도 `name` 오름차순 |
 | USER-PL-4 | 유비쿼터스 | THE 시스템 SHALL `teamId` 가 없으면 `players` 테이블의 모든 행을 반환한다 | `GET /api/member/players` → `data` 길이가 `SELECT COUNT(*) FROM players` 와 일치 |
 | USER-PL-5 | 이벤트 | WHEN 요청에 `teamId` 가 있으면, THE 시스템 SHALL 그 구단 소속 선수만 반환한다 | `GET /api/member/players?teamId=6` → 반환된 모든 선수의 `players.team_id` 가 6. 6이 아닌 구단 소속은 한 건도 없음 |
