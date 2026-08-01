@@ -1,7 +1,7 @@
 # infra 모듈 (배포 · 인프라)
 
 > 이 파일은 infra/배포 작업 시에만 로드되는 슬림 컨텍스트다.
-> 최종 업데이트: 2026-07-27
+> 최종 업데이트: 2026-08-01
 >
 > **서빙은 EKS다.** EC2+docker-compose 배포 경로는 2026-07-27 폐기됐다 — 대상 인스턴스가 이미
 > 사라져 있었고 워크플로도 실패만 하고 있었다. `deploy.yml`·`docker-compose.prod.yml`·`nginx.conf`를
@@ -14,7 +14,7 @@
 ```
 victoryfairy.com ──HTTPS──► ALB ──► user-app(8080) / quiz-app(8081) 파드
                                           │
-                                          └──► EC2 자체 호스팅 MySQL (10.0.10.135)
+                                          └──► EC2 자체 호스팅 MySQL (victoryfairy-mysql-dev, 10.0.0.14)
 ```
 
 - **코드 위치**: 인프라 Terraform·k8s 매니페스트는 이 BE 트리가 아니라 상위 레포의 `VictoryFairy_Infra/`에 있다.
@@ -27,8 +27,12 @@ victoryfairy.com ──HTTPS──► ALB ──► user-app(8080) / quiz-app(80
   `batch`(Spot, 평소 0대, CronJob 시각에만 0→N→0). 워커는 프라이빗 서브넷, 파드 권한은 IRSA(OIDC).
 - **DB**: RDS 미사용 — **EC2 자체 호스팅 MySQL+Redis 컨테이너**(`modules/mysql-ec2`), EBS 영속 볼륨,
   SSM 포트포워딩 접근(22/3306 인입 미개방), mysqldump→S3 백업 크론.
-  클러스터의 헤드리스 Service `mysql`이 이 인스턴스(`10.0.10.135`)를 가리킨다.
-  별도로 개발용 `dev-db` 인스턴스가 있고 매일 새벽 프로덕션 덤프를 복원한다.
+  ⚠ **MySQL EC2가 두 대다**(2026-08-01 AWS 실측, 헷갈리기 쉬우니 "운영 DB 확인했다"고 말할 때 어느 쪽인지 구분할 것):
+  - `victoryfairy-mysql-dev` — private `10.0.0.14` / public `43.200.82.148`. **EKS 파드가 쓰는 쪽**
+    (클러스터의 헤드리스 Service `mysql`, k8s `30-external-data.yaml`의 Endpoints가 이 IP).
+  - `victoryfairy-devdb-dev` — private `10.0.0.163` / public `52.78.153.242`. BE 레포 `.env`의 `DB_HOST`가
+    가리키는 **로컬 개발용**(매일 새벽 프로덕션 덤프를 복원).
+  - 두 DB는 데이터가 다르다.
 - **레지스트리/CI**: ECR(`victoryfairy-user`, `victoryfairy-quiz`) + GitHub Actions keyless(OIDC).
 
 ## 앱 설정 주입

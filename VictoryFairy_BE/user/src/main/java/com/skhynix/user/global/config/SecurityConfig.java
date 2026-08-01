@@ -43,6 +43,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/teams").permitAll()
                         // 선수 목록도 구단 목록과 같은 성격의 참조 데이터라 같은 이유·같은 방식(GET 한정)으로 연다.
                         .requestMatchers(HttpMethod.GET, "/players").permitAll()
+                        // 경기 목록도 같은 성격의 공개 참조 데이터라 같은 이유·같은 방식(GET 한정)으로 연다.
+                        .requestMatchers(HttpMethod.GET, "/games").permitAll()
                         .anyRequest().authenticated()
                 )
                 // formLogin/httpBasic을 모두 disable하면 엔트리포인트를 등록하는 주체가 없어
