@@ -323,7 +323,12 @@ else
   EXCLUDE_GRAPH=(--exclude "*.tmp")
 fi
 
-aws s3 sync .work/wiki/ "s3://$S3_BUCKET/wiki/" "${EXCLUDE_GRAPH[@]}"
+# .md는 Content-Type에 charset=utf-8을 명시한다 — 없으면 파일 바이트는 멀쩡해도
+# S3 콘솔/브라우저 미리보기가 라틴 인코딩으로 렌더해 한글이 깨져 보인다(2026-08-01
+# 실측). 사람이 콘솔에서 위키를 검수하는 경로라 md만 두 번째 패스로 나눠 올린다.
+aws s3 sync .work/wiki/ "s3://$S3_BUCKET/wiki/" "${EXCLUDE_GRAPH[@]}" \
+  --exclude "*" --include "*.md" --content-type "text/markdown; charset=utf-8"
+aws s3 sync .work/wiki/ "s3://$S3_BUCKET/wiki/" "${EXCLUDE_GRAPH[@]}" --exclude "*.md"
 
 RUN_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 cat > ".work/run-log.json" <<JSON

@@ -113,9 +113,13 @@ py-collector/.venv/bin/python question-gen/scripts/aggregate_stats.py \
   --envelopes-dir .work/game_result --kbo-dir .work/kbo-records \
   --out-dir .work/stats --date "$TODAY"
 
+# .md는 charset=utf-8 명시(없으면 S3 콘솔 미리보기에서 한글 mojibake —
+# wiki-builder/ROUTINE.md 7단계와 같은 이유), .json은 기본 추론으로 충분해 나눠 올린다.
 aws s3 sync .work/stats/ "s3://$S3_BUCKET/wiki/stats/" \
-  --exclude "*" --include "season.json" --include "season.md" \
-  --include "kbo-official.json" --include "kbo-official.md"
+  --exclude "*" --include "season.md" --include "kbo-official.md" \
+  --content-type "text/markdown; charset=utf-8"
+aws s3 sync .work/stats/ "s3://$S3_BUCKET/wiki/stats/" \
+  --exclude "*" --include "season.json" --include "kbo-official.json"
 ```
 
 `season.json`·`season.md`·`kbo-official.json`·`kbo-official.md` 4개 파일만 갱신한다
@@ -196,8 +200,10 @@ aws s3 cp --recursive "$VALIDATE_DIR/" "s3://$S3_BUCKET/quiz-candidates/$TODAY/"
 ```bash
 # good.md/bad.md는 이 세션이 검증 패스 4단계(재미 채점) 결과로 직접 갱신
 # (5점 사례 → good.md에 추가, 2점 이하 사례 → 사유와 함께 bad.md에 추가)
-aws s3 cp question-gen/casebook/good.md "s3://$S3_BUCKET/wiki/_meta/casebook/good.md"
-aws s3 cp question-gen/casebook/bad.md "s3://$S3_BUCKET/wiki/_meta/casebook/bad.md"
+aws s3 cp question-gen/casebook/good.md "s3://$S3_BUCKET/wiki/_meta/casebook/good.md" \
+  --content-type "text/markdown; charset=utf-8"
+aws s3 cp question-gen/casebook/bad.md "s3://$S3_BUCKET/wiki/_meta/casebook/bad.md" \
+  --content-type "text/markdown; charset=utf-8"
 ```
 
 routine은 리포에 커밋하지 않는다(클라우드 세션, S3 전용) — 갱신본은 S3에만
@@ -211,7 +217,8 @@ routine은 리포에 커밋하지 않는다(클라우드 세션, S3 전용) — 
 ```bash
 # (제안 내용은 이 세션이 오늘 실행 경험을 바탕으로 직접 작성)
 aws s3 cp .work/template-proposals.md \
-  "s3://$S3_BUCKET/wiki/_meta/template-proposals/$TODAY.md" 2>/dev/null || true
+  "s3://$S3_BUCKET/wiki/_meta/template-proposals/$TODAY.md" \
+  --content-type "text/markdown; charset=utf-8" 2>/dev/null || true
 ```
 
 **카탈로그 반영은 사람 승인 후 수동**이다 — 이 routine은 절대 `question-templates.yaml`
