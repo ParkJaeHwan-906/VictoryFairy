@@ -12,12 +12,12 @@ Quiz 도메인 REST API 서버. **구단별 채팅 기능 구현 완료**: `chat
 - `chat/service/ChatService` — 방 조회/구독/전송/히스토리/신고 로직. 전송 성공 후 SSE 발행은 fire-and-forget(예외 삼킴, 저장·응답은 되돌리지 않음)
 - `realtime/RealtimeEventPublisher` — 실시간 전송 포트(토픽=roomUid). **quiz 정답 집계 등 향후 기능도 재사용할 일반 설계**. 구현은 프로파일로 갈린다: `prod`=`RedisPubSubPublisher`(단일 채널 `realtime:events` 로 발행) + `RealtimeEventSubscriber`/`RealtimeRedisConfig`(리스너 컨테이너가 전 파드에서 수신 → 자기 레지스트리로 전달), `!prod`=`InMemoryPublisher`. 발행 파드도 자기 구독으로 되받으므로 Redis 구현은 로컬 레지스트리로 직접 전달하지 않는다(이중 전달 방지 — 테스트로 고정). quiz-app HPA maxReplicas=4 이므로 이 경로가 없으면 스케일아웃 시 메시지가 조용히 유실된다
 - **로컬 자동 시드(dev 전용)**: 기동 시 `infra/sql/teams-init.sql` → `chat-init.sql` 을 순서대로 실행해 구단 10개·SYSTEM 계정·구단별 채팅방 10개를 채운다(`application-dev.yaml` 의 `spring.sql.init`, 파일은 `build.gradle` 의 `processResources` 가 `classpath:sql/` 로 복사 — 시드의 단일 출처는 `infra/sql`). 전부 `INSERT ... WHERE NOT EXISTS` 라 매 기동 재실행해도 중복이 없다. `defer-datasource-initialization: true` 로 Hibernate 초기화 뒤에 돈다. **prod 는 해당 없음**(ddl-auto=none + 수동 적용 규칙 유지). dev `ddl-auto=update` 와 맞물려 **빈 DB 에서 `:quiz:bootRun` 한 번이면 스키마 15테이블 + 시드까지 완성**된다(실측 확인)
-- `realtime/SseEmitterRegistry` — 방별 SSE 구독 관리. 타임아웃 30분·하트비트 15초(`:ping` 주석 프레임). **participants는 DB 컬럼이 아니라 이 레지스트리의 현재 구독 수로 서빙**(connect/disconnect마다 DB write가 폭주하는 걸 피함). ⚠ 파드별 카운트라 **다중 파드에서는 실제보다 작게 나온다** — 메시지 fan-out은 Redis pub/sub로 해결됐지만 participants 전역 집계는 여전히 후속 과제. `Chatroom.participants`/`join()`/`leave()`는 domain에 존재하나 이번 범위에서 미사용
+- `realtime/SseEmitterRegistry` — 방별 SSE 구독 관리(발신자 제외 fan-out), 죽은 연결을 하트비트로 회수. 타임아웃 30분·하트비트 15초(`:ping` 주석 프레임). `register()`는 `rooms.compute(...)`로, `remove()`는 `rooms.computeIfPresent(...)`로 구현되어 있다 — Set에 넣고 빼는 일과 빈 Set을 맵에서 걷어내는 일을 같은 빈(bin) 잠금 아래 원자적으로 묶기 위함. **`computeIfAbsent`+람다 바깥 `add`로 "단순화"하면 고아 Set 레이스가 재발한다**: 마지막 퇴장(Set 비어 맵에서 제거)과 신규 입장(같은 Set을 얻어 add)이 겹치면 새 구독이 맵에서 떨어져 나간 Set에 갇혀 fan-out·하트비트 순회에서 누락된다(해당 사용자는 메시지를 못 받음). `count(roomUid)`는 남아 있으나 프로덕션 호출부는 없음(테스트·진단용 접근자). **참여 인원(participants)은 어디에도 서빙되지 않는다** — 인메모리 구독 수는 파드별 값이라 다중 파드에서 부정확하고, DB 컬럼 집계는 connect/disconnect마다 write가 폭주해 RDB 집계+Redis 재계산까지 구현했다가 방향 전환으로 전부 롤백했다(제품 결정). `Chatroom.participants`/`join()`/`leave()`는 되살릴 여지를 남기려는 의도적 결정으로 domain에 남아 있으나 quiz는 미사용
 - `realtime/RealtimeSchedulingConfig` — `@EnableScheduling`으로 하트비트 구동(quiz 좁은 스캔 범위 안이라 자동 등록)
 
 ## 엔드포인트 (`/api/game/chat`)
-- `GET /rooms` → 방 목록(소프트삭제 제외, participants=구독 수)
-- `GET /rooms/{roomUid}` → 방 상세. 없거나 삭제된 방 404
+- `GET /rooms` → 방 목록(소프트삭제 제외). 응답 `{roomUid, team, name}` — participants는 노출하지 않음
+- `GET /rooms/{roomUid}` → 방 상세. 없거나 삭제된 방 404. 응답 형태는 목록과 동일
 - `GET /rooms/{roomUid}/subscribe` → SSE 구독(`text/event-stream`). 표준 `EventSource`는 헤더를 못 실어 인증 실패(401) — fetch 기반 폴리필로 `Authorization` 헤더를 실어야 함
 - `POST /rooms/{roomUid}/messages` → 전송(`@Valid` content 검증). 저장 후 발신자 제외 구독자에게 SSE 전달, 201
 - `GET /rooms/{roomUid}/messages?page=` → 히스토리(최신순 30건 페이징, blind·삭제 제외)
