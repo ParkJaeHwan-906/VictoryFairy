@@ -1,5 +1,9 @@
 # 구단별 채팅 인수 테스트 시나리오
-> 상태: 승인됨 (2026-07-20) · 모듈: quiz (호스트 앱) · 최종 수정: 2026-07-20 · 원본: `docs/requirements/quiz/chat.md`
+> 상태: 승인됨 (2026-07-20) · 모듈: quiz (호스트 앱) · 최종 수정: 2026-08-01 · 원본: `docs/requirements/quiz/chat.md`
+
+> **개정 2026-08-01(2) — 구독 레지스트리 고아 Set 레이스**: 마지막 구독 해제와 새 구독 등록이 겹치면 새 구독이 fan-out·하트비트에서 누락되던 기존 결함을 수정하기로 확정. 새 요구사항 없이 AC-CHAT-11-5·55-2 동시성 시나리오를 보탰다(원본 제약 절 9).
+
+> **개정 2026-08-01 — 참여 인원(participants) 노출 폐지**: QUIZ-CHAT-7·8·26 철회에 따라 AC-CHAT-7-1/7-2·8-1/8-2·26-1/26-2를 **무효 처리**하고(하단 "삭제된 시나리오" 참고), 신규 QUIZ-CHAT-52~56 시나리오(AC-CHAT-52-1 ~ 56-1)를 추가했다. 사유: 참여 인원을 응답에 노출하지 않기로 결정. 집계 방식(인메모리/RDB)의 문제가 아니라 값 자체를 제공하지 않는 방향으로 제품 결정이 바뀐 것. 메시지 전송·SSE 전달·히스토리·신고 시나리오는 바뀌지 않았다.
 
 ## 읽는 법
 - 각 시나리오는 `docs/requirements/quiz/chat.md`의 EARS 요구사항 하나(또는 소수)를 Given-When-Then으로 관찰 가능한 사실까지 펼친 것이다. 이 문서는 **계약(무엇이 참이어야 하는가)**까지이고, 이를 테스트 코드로 옮기는 것은 `test-writer`의 일이다.
@@ -14,11 +18,11 @@
 
 | 흐름 | 시작 | 관찰 결과 |
 |---|---|---|
-| 방 목록 | `GET /api/game/chat/rooms` (인증) | 200, 삭제 안 된 방만, 정수 PK 없음 |
-| 입장 | `GET .../{roomUid}/subscribe` (fetch 폴리필로 Bearer 헤더) | 200 `text/event-stream`, `participants` +1 |
+| 방 목록 | `GET /api/game/chat/rooms` (인증) | 200, 삭제 안 된 방만, 정수 PK 없음, `participants` 키 없음 |
+| 입장 | `GET .../{roomUid}/subscribe` (fetch 폴리필로 Bearer 헤더) | 200 `text/event-stream`, 연결 유지 |
 | 전송 | `POST .../{roomUid}/messages {content}` (인증) | 201 저장, **발신자 제외** 구독자 SSE 수신 |
 | 히스토리 | `GET .../{roomUid}/messages` (인증) | 200 페이징(30·최신순), blind·삭제 제외 |
-| 퇴장 | 구독 연결 종료 | `participants` -1 (0 하한) |
+| 퇴장 | 구독 연결 종료 | 구독 레지스트리에서 제거(방 행 UPDATE 없음) |
 | 신고 | `POST .../messages/{messageId}/report` (인증, 타인 메시지) | 2xx, 대상 `blind=true` 즉시(자동, 관리자 없음) |
 
 ---
@@ -28,7 +32,7 @@
 | 시나리오 ID | 요구사항 | 구분 | Given | When | Then |
 |---|---|---|---|---|---|
 | AC-CHAT-1-1 | QUIZ-CHAT-1 | 정상 | 팀 시드와 함께 생성된 10개 구단 방(owner=시스템 계정), 유효 토큰 | 방 목록·구독·전송 응답을 관찰한다 | 방이 team↔room 1:1로 존재. 응답·경로에 정수 PK가 없고 36자 UUID(`roomUid`)만 나타난다 |
-| AC-CHAT-2-1 | QUIZ-CHAT-2 | 정상 | 삭제 안 된 방 N개, 삭제된 방 1개 | `GET /api/game/chat/rooms` | 200, N개만 반환, 각 항목에 `roomUid`·`team`·`name`·`participants` 포함 |
+| AC-CHAT-2-1 | QUIZ-CHAT-2 | 정상 | 삭제 안 된 방 N개, 삭제된 방 1개 | `GET /api/game/chat/rooms` | 200, N개만 반환, 각 항목에 `roomUid`·`team`·`name` 포함(2026-08-01 개정: `participants` 제거 — AC-CHAT-52-1) |
 | AC-CHAT-2-2 | QUIZ-CHAT-2 | 경계 | 삭제 안 된 방이 0개 | `GET /api/game/chat/rooms` | 200, 빈 배열(404 아님) |
 | AC-CHAT-3-1 | QUIZ-CHAT-3 | 예외 | 존재하지 않는 임의 UUID | `GET /api/game/chat/rooms/{uuid}` | 404 |
 | AC-CHAT-3-2 | QUIZ-CHAT-3 | 예외 | `deletedAt`이 채워진 방의 `roomUid` | `GET /api/game/chat/rooms/{roomUid}` | 404 (삭제된 방도 없는 방과 동일 취급) |
@@ -46,20 +50,19 @@
 | AC-CHAT-4-6 | QUIZ-CHAT-4 | 정상 | 유효한 액세스 토큰(활성 계정) | `GET /api/game/chat/rooms` | 200 (인증 통과) |
 | AC-CHAT-5-1 | QUIZ-CHAT-5 | 정상 | 인증 사용자, 임의 구단 방(자신의 응원팀과 무관) | 입장·전송 시도 | 접근 허용, 403이 발생하지 않는다(구단 소속 제한 없음) |
 
-## C. 입장(SSE 구독)·퇴장·참여 인원
+## C. 입장(SSE 구독)·퇴장·연결 유지
+
+> AC-CHAT-7-1/7-2·8-1/8-2·26-1/26-2는 2026-08-01 참여 인원 노출 폐지로 **무효**다(하단 "삭제된 시나리오"). 하트비트·죽은 연결 회수는 AC-CHAT-55-1·56-1로 승계되었다.
 
 | 시나리오 ID | 요구사항 | 구분 | Given | When | Then |
 |---|---|---|---|---|---|
 | AC-CHAT-6-1 | QUIZ-CHAT-6 | 정상 | 인증 사용자, 존재하는 방, fetch 폴리필로 `Authorization` 헤더 전달 | `GET .../{roomUid}/subscribe` | 200, `Content-Type: text/event-stream`, 연결 유지(즉시 종료 안 됨) |
 | AC-CHAT-6-2 | QUIZ-CHAT-6 | 경계 | 표준 브라우저 `EventSource`(헤더 못 실음) | 구독 시도 | 인증 헤더 부재로 401 — 프론트는 fetch 기반 폴리필을 써야 함(전제 2) |
-| AC-CHAT-7-1 | QUIZ-CHAT-7 | 정상 | 구독 전 `participants=k` | 구독이 성립한다 | 구독 직후 `participants=k+1` |
-| AC-CHAT-7-2 | QUIZ-CHAT-7 | 경계 | 같은 사용자가 두 탭에서 동시에 구독 | 두 번째 구독 성립 | `participants`가 2 증가(연결 기준 카운트, 사용자 기준 아님) |
-| AC-CHAT-8-1 | QUIZ-CHAT-8 | 정상 | 구독 중, `participants=k` | 클라이언트가 연결을 끊는다 | `participants=k-1` |
-| AC-CHAT-8-2 | QUIZ-CHAT-8 | 경계 | `participants=0`인 방(정합성 붕괴 가정) | 퇴장 신호 도달 | `participants`가 음수로 내려가지 않고 0 유지(`Chatroom.leave()` 0 하한) |
-| AC-CHAT-26-1 | QUIZ-CHAT-26 | 정상 | 유휴(메시지 없는) 구독 연결 | 시간이 흐른다 | 주기적 `:ping` 주석 프레임이 스트림에 관찰된다 |
-| AC-CHAT-26-2 | QUIZ-CHAT-26 | 예외 | 구독 중 클라이언트가 leave 신호 없이 비정상 종료 | 하트비트 전송이 실패해 죽은 연결로 감지됨 | 서버가 연결을 회수하고 `participants`를 1 감소(best-effort 근사 보정) |
 | AC-CHAT-9-1 | QUIZ-CHAT-9 | 예외 | 소프트삭제된 방 | `GET .../{roomUid}/subscribe` | 404, 스트림을 열지 않는다 |
 | AC-CHAT-9-2 | QUIZ-CHAT-9 | 경계 | 구독 중인 방이 도중에 소프트삭제됨 | 삭제 후 신규 구독 시도 | 신규 구독은 404. 기존 열린 스트림 종료 방식은 범위 밖 |
+| AC-CHAT-55-1 | QUIZ-CHAT-55 | 정상 | 유휴(메시지 없는) 구독 연결 | 시간이 흐른다 | 주기적 `:ping` 주석 프레임이 스트림에 관찰된다(현행 15초 주기) |
+| AC-CHAT-55-2 | QUIZ-CHAT-55 | 경계 | 다른 구독의 해제와 동시에 등록된 구독(고아 Set 레이스 상황) | 하트비트 주기가 지난다 | 그 연결도 `:ping`을 받는다(하트비트 대상에서 누락되지 않음, 원본 제약 절 9) |
+| AC-CHAT-56-1 | QUIZ-CHAT-56 | 예외 | 구독 중 클라이언트가 leave 신호 없이 비정상 종료 | 하트비트 전송이 실패해 죽은 연결로 감지됨 | 서버가 그 emitter를 구독 레지스트리에서 제거해 이후 메시지 fan-out 대상에서 뺀다. **REST 응답으로는 관찰 불가**(참여 인원 미노출) — `SseEmitterRegistry` 수준에서 확인하는 것으로 **확정**(2026-08-01). 관찰이 어렵다고 계약에서 내리지 않는다 |
 
 ## D. 메시지 전송
 
@@ -70,6 +73,7 @@
 | AC-CHAT-11-2 | QUIZ-CHAT-11 | 정상 | 발신자 A 자신도 같은 방 구독 중 | A가 전송 | **A는 SSE로 받지 않는다**(emitter를 `userAccountId`로 식별해 제외). A 본인 메시지는 201 POST 응답으로만 렌더 |
 | AC-CHAT-11-3 | QUIZ-CHAT-11 | 경계 | 방에 구독자가 아무도 없음 | 전송 | 201 저장 성공(전달 대상 0명이어도 전송은 성공), 히스토리로 조회됨 |
 | AC-CHAT-11-4 | QUIZ-CHAT-11 | 경계 | 발신자 A가 두 탭에서 구독 중(멀티탭) | A가 한 탭에서 전송 | 나머지 탭도 SSE 미수신(발신자 `userAccountId` 전체 제외). 다른 탭은 재접속 시 히스토리로 보정(알려진 한계) |
+| AC-CHAT-11-5 | QUIZ-CHAT-11 | 경계 | 방 R의 마지막 구독이 해제되어 빈 구독 집합이 정리되는 것과, 새 사용자 C의 구독 등록이 동시에 일어남(고아 Set 레이스) | 등록 성공(200 스트림) 직후 그 방으로 메시지 전송 | C가 메시지를 수신한다. 구독 성립을 응답받은 연결이 전달 대상에서 조용히 빠지는 일이 없다(2026-08-01 확정, 원본 제약 절 9) |
 | AC-CHAT-12-1 | QUIZ-CHAT-12 | 예외 | `content=null`(필드 누락) | `POST .../messages` | 400, `chats` 증가 없음 |
 | AC-CHAT-12-2 | QUIZ-CHAT-12 | 예외 | `content=""`(빈 문자열) | `POST .../messages` | 400, 저장 없음 |
 | AC-CHAT-12-3 | QUIZ-CHAT-12 | 예외 | `content="   "`(공백 3칸) | `POST .../messages` | 400(공백만은 빈 값으로 취급), 저장 없음 |
@@ -143,6 +147,17 @@
 | AC-CHAT-31-2 | QUIZ-CHAT-31 | 경계 | 어떤 방의 owner 계정이 소프트삭제(`withdraw`)됨 | 방 존재를 확인한다 | 방과 `owner_account_id`가 그대로 보존된다(비-CASCADE, 계정 row는 exit_at만 기록되어 남음) |
 | AC-CHAT-31-3 | QUIZ-CHAT-31 | 경계 | owner를 읽거나 쓰는 API를 찾는다 | 방 생성·삭제·owner 노출 엔드포인트 탐색 | **없음** — `owner_account_id`는 선제 모델링이라 이번 범위에 활성 동작이 없다. 사용자 생성 방 + 삭제 기능 도입 시 실효 |
 
+## K. 참여 인원 미노출 (2026-08-01 결정)
+
+| 시나리오 ID | 요구사항 | 구분 | Given | When | Then |
+|---|---|---|---|---|---|
+| AC-CHAT-52-1 | QUIZ-CHAT-52 | 정상 | 인증 사용자, 삭제 안 된 방 N개 | `GET /api/game/chat/rooms` | 200, 각 항목의 키 집합이 `roomUid`·`team`·`name`이고 `participants` 키가 **없다** |
+| AC-CHAT-52-2 | QUIZ-CHAT-52 | 정상 | 인증 사용자, 존재하는 방 | `GET /api/game/chat/rooms/{roomUid}` | 200, 본문 키 집합에 `participants`가 없다 |
+| AC-CHAT-52-3 | QUIZ-CHAT-52 | 경계 | 방에 구독자가 여러 명 있는 상태(값이 존재할 여지가 있는 상황) | 방 목록·상세 조회 | 그래도 `participants` 키가 나타나지 않는다(값 `0`/`null`을 싣는 것이 아니라 키 자체 부재) |
+| AC-CHAT-53-1 | QUIZ-CHAT-53 | 정상 | 방 행의 `participants` 컬럼 값이 `k` | 사용자가 구독을 시작한다 | 컬럼 값이 여전히 `k`(방 행에 UPDATE 없음, `Chatroom.join()` 미호출) |
+| AC-CHAT-53-2 | QUIZ-CHAT-53 | 정상 | 구독 중, 방 행의 `participants` 컬럼 값이 `k` | 구독 연결이 종료(정상 종료·타임아웃·오류)된다 | 컬럼 값이 여전히 `k`(`Chatroom.leave()` 미호출) |
+| AC-CHAT-54-1 | QUIZ-CHAT-54 | 정상 | 현행 스키마·엔티티 | `chatrooms` 테이블과 `Chatroom` 엔티티를 확인한다 | `participants` 컬럼과 필드가 존재한다(노출만 폐지, 삭제 마이그레이션 없음) |
+
 ---
 
 ## 경계 조건 커버리지 체크리스트 (예외 경로 집중)
@@ -154,6 +169,15 @@
 | **신고→블라인드** | 정상 신고 / 없는 메시지 404 / 미인증 401 / 자기 신고 403 / 이미 blind 멱등 / 삭제된 메시지 신고 404 / blind 후 조회·전달 제외 / 기전달분 소급 없음 / 해제 경로 없음 | AC-CHAT-20-1~3, 27-1, 28-1, 29-1, 21-1~3 |
 | **소프트삭제** | 메시지 blind/삭제 히스토리 제외 / 방 삭제 시 목록·구독·전송·히스토리 404 / 삭제 실행 트리거 없음 | AC-CHAT-19-1~2, 24-1~5 |
 | **권한 없음** | 미인증 401 / 만료 / 리프레시 오용 / 깨진 헤더 / 탈퇴 계정 / 표준 EventSource 헤더 부재 401 / 자기 신고 403 | AC-CHAT-4-1~5, 6-2, 27-1 |
+| **구독 레지스트리 동시성** (2026-08-01 추가) | 마지막 구독 해제와 새 구독 등록이 겹칠 때 fan-out 누락 없음 / 하트비트 누락 없음 / 죽은 연결 회수 | AC-CHAT-11-5, 55-2, 56-1 |
+
+## 무효 시나리오 (참여 인원 노출 폐지 — 2026-08-01)
+사유: **참여 인원을 응답에 노출하지 않기로 결정. 집계 방식(인메모리/RDB)의 문제가 아니라 값 자체를 제공하지 않는 방향으로 제품 결정이 바뀐 것.** 삭제하지 않고 남겨 "왜 participants가 없지?"를 다시 파헤치지 않게 한다.
+- **구 AC-CHAT-7-1/7-2**(구독 시 `participants` +1, 멀티탭 +2): 대응 요구사항 QUIZ-CHAT-7 철회로 무효 → AC-CHAT-52-1/53-1로 대체.
+- **구 AC-CHAT-8-1/8-2**(구독 종료 시 −1, 0 하한): QUIZ-CHAT-8 철회로 무효 → AC-CHAT-53-2로 대체.
+- **구 AC-CHAT-26-1**(유휴 연결 `:ping` 관찰): 시나리오 자체는 유효하나 요구사항이 QUIZ-CHAT-26 → 55로 승계되어 **AC-CHAT-55-1로 이관**.
+- **구 AC-CHAT-26-2**(죽은 연결 회수 시 `participants` 감소): 관찰 수단이 사라져 무효 → 참여 인원 문구를 뺀 **AC-CHAT-56-1로 대체**.
+- 참여 인원 집계를 RDB+Redis로 옮기려던 별도 문서 `participants-count.md`(QUIZ-CHAT-32~51)와 그 인수 기준은 구현과 함께 **롤백·폐기**되어 존재하지 않는다. 32~51번대 ID는 재사용 금지.
 
 ## 삭제된 시나리오 (관리자 기능 제외로 무효)
 - **구 AC-CHAT-5-2**(소속 아닌 방 접근 403): Q1이 "전원 허용"으로 확정 — 방 접근 제한 자체가 없어 무효.

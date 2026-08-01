@@ -61,8 +61,8 @@ class ChatControllerRoomTest {
     @DisplayName("[AC-CHAT-2-1] 인증 사용자가 방 목록을 요청하면 200과 서비스가 반환한 방 목록을 그대로 반환한다")
     void getRooms_authenticated_returns200WithRoomList() throws Exception {
         List<RoomResponse> rooms = List.of(
-                new RoomResponse("uid-1", "두산", "두산 채팅방", 3),
-                new RoomResponse("uid-2", "롯데", "롯데 채팅방", 0));
+                new RoomResponse("uid-1", "두산", "두산 채팅방"),
+                new RoomResponse("uid-2", "롯데", "롯데 채팅방"));
         given(chatService.getRooms()).willReturn(rooms);
 
         mockMvc.perform(get("/chat/rooms").with(authenticatedAs(USER_ID)))
@@ -71,7 +71,7 @@ class ChatControllerRoomTest {
                 .andExpect(jsonPath("$.data.length()").value(2))
                 .andExpect(jsonPath("$.data[0].roomUid").value("uid-1"))
                 .andExpect(jsonPath("$.data[0].team").value("두산"))
-                .andExpect(jsonPath("$.data[0].participants").value(3))
+                .andExpect(jsonPath("$.data[0].participants").doesNotExist())
                 .andExpect(jsonPath("$.data[1].roomUid").value("uid-2"));
     }
 
@@ -105,6 +105,23 @@ class ChatControllerRoomTest {
 
         mockMvc.perform(get("/chat/rooms/{roomUid}", "deleted-uid").with(authenticatedAs(USER_ID)))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("[AC-CHAT-52-2] 방 상세 응답에도 participants 키가 존재하지 않는다")
+    void getRoom_activeRoom_returns200WithoutParticipantsField() throws Exception {
+        given(chatService.getRoom(eq("uid-1")))
+                .willReturn(new RoomResponse("uid-1", "두산", "두산 채팅방"));
+
+        // 목록(AC-CHAT-52-1)과 같은 RoomResponse 타입이라 구조적으로는 이미 보장되지만, 상세 경로에도
+        // 단언을 둔다 — 나중에 상세 전용 DTO로 갈라지면 타입 동일성이라는 근거가 조용히 사라진다.
+        mockMvc.perform(get("/chat/rooms/{roomUid}", "uid-1").with(authenticatedAs(USER_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.roomUid").value("uid-1"))
+                .andExpect(jsonPath("$.data.team").value("두산"))
+                .andExpect(jsonPath("$.data.name").value("두산 채팅방"))
+                .andExpect(jsonPath("$.data.participants").doesNotExist());
     }
 
     @Test

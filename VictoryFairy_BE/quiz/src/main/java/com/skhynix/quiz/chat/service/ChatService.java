@@ -29,10 +29,10 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 /**
  * 채팅 도메인 비즈니스 로직: 방 조회·구독·전송·히스토리·신고.
  *
- * <p>participants는 {@link SseEmitterRegistry}의 현재 구독 수로 서빙한다(best-effort). connect/disconnect
- * 마다 {@code chatrooms.participants} 컬럼을 갱신하면 write가 폭주하므로, 단일 인스턴스에서 정확한
- * 인메모리 카운트를 채택했다. {@code Chatroom.join()/leave()}와 {@code participants} 컬럼은 그대로
- * 존재하지만 이번 범위에서 쓰지 않는다(다중 인스턴스 전역 집계는 후속).
+ * <p>방 조회 응답은 참여 인원을 노출하지 않는다. 인메모리 구독 수는 파드별 값이라 다중 파드에서
+ * 실제보다 작게 나오고, DB 컬럼으로 집계하면 connect/disconnect마다 write가 폭주한다 — 어느 쪽도
+ * 신뢰할 수 없어 필드 자체를 응답에서 뺐다. {@code Chatroom.participants}와 {@code join()/leave()}는
+ * 되살릴 여지를 두고 domain에 남아 있으나 여기서 쓰지 않는다.
  */
 @Service
 @RequiredArgsConstructor
@@ -48,11 +48,11 @@ public class ChatService {
     private final SseEmitterRegistry emitterRegistry;
 
     /**
-     * 소프트 삭제되지 않은 방 목록. participants는 각 방의 현재 구독 수로 채운다.
+     * 소프트 삭제되지 않은 방 목록.
      */
     public List<RoomResponse> getRooms() {
         return chatroomRepository.findAllByDeletedAtIsNull().stream()
-                .map(room -> RoomResponse.of(room, emitterRegistry.count(room.getUid())))
+                .map(RoomResponse::of)
                 .toList();
     }
 
@@ -60,12 +60,11 @@ public class ChatService {
      * 방 상세. 없거나 소프트 삭제된 방이면 404.
      */
     public RoomResponse getRoom(String roomUid) {
-        Chatroom room = findActiveRoom(roomUid);
-        return RoomResponse.of(room, emitterRegistry.count(roomUid));
+        return RoomResponse.of(findActiveRoom(roomUid));
     }
 
     /**
-     * SSE 구독을 연다. 없거나 삭제된 방이면 404. 구독 성립 시 participants(구독 수)가 1 증가하고,
+     * SSE 구독을 연다. 없거나 삭제된 방이면 404. 구독 성립 시 레지스트리의 구독 수가 1 증가하고,
      * 연결 종료 시 감소한다(레지스트리 콜백).
      */
     public SseEmitter subscribe(String roomUid, Long userAccountId) {
