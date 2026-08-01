@@ -9,8 +9,8 @@
 **Tech Stack:** Python 3.12 (pymysql, httpx) / Java 21 + Spring Data JPA (dev_be) / MySQL 8.0
 
 **Worktrees (2개):**
-- **AI**: `/Users/sotaeho/PycharmProjects/VictoryFairy-games-records` — 브랜치 `sotaeho/ai/feat-games-status-records` (wiki-quiz 브랜치 `sotaeho/ai/feat-llm-wiki-quiz` 위에 스택). Task 4~9.
-- **BE**: `/Users/sotaeho/PycharmProjects/VictoryFairy-be-records` — 브랜치 `sotaeho/be/feat-position-record-aggregate` (origin/dev_be 파생). Task 1~3.
+- **AI**: `/Users/sotaeho/PycharmProjects/VictoryFairy-games-records` — 브랜치 `sotaeho/ai/feat-games-status-records` (wiki-quiz 브랜치 `sotaeho/ai/feat-llm-wiki-quiz` 위에 스택). Task 5~11.
+- **BE**: `/Users/sotaeho/PycharmProjects/VictoryFairy-be-records` — 브랜치 `sotaeho/be/feat-position-record-aggregate` (origin/dev_be 파생). Task 1~4.
 
 ## Global Constraints
 
@@ -22,6 +22,7 @@
 - **스키마 진실은 domain JPA 엔티티.** py-collector에 DDL 사본(schema.sql류) 금지. 1회성 마이그레이션 SQL은 dev_be `VictoryFairy_BE/infra/sql/`에 둔다.
 - **BE 컨벤션 (`.claude/modules/domain.md`) 준수:** 테이블 복수형 스네이크, `@NoArgsConstructor(PROTECTED)`, private 생성자 + `@Builder`, 타임스탬프는 빌더 파라미터 금지, 모든 컬럼 `length`/`nullable` 명시, UNIQUE는 `@Table(uniqueConstraints=...)` 명시, `@Setter` 금지.
 - **수집기 멱등:** 자연키(naver_game_id, game_id+player_id) upsert, 재실행 안전.
+- **선수 자연키는 `kbo_player_id` 단일:** 네이버 pcode == KBO playerId 실측(2026-07 박스스코어·로스터 교집합 228명 전수 일치)을 스키마 전제로 승격, `players.naver_pcode` 컬럼 폐기. resolve 시 DB 이름과 API 이름이 다르면 warning 로그(동치 전제 훼손 감지 신호).
 - **테스트:** py-collector는 `pytest -q` (worktree의 `VictoryFairy_AI/py-collector`에서), BE는 `JAVA_HOME=$(brew --prefix openjdk@21) ./gradlew :domain:test` (worktree의 `VictoryFairy_BE`에서).
 - 커밋 메시지 끝에 `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`.
 
@@ -36,7 +37,7 @@
 - Test: `VictoryFairy_BE/domain/src/test/java/com/skhynix/domain/game/entity/GameLineupTest.java` (기존 파일 갱신)
 
 **Interfaces:**
-- Produces: `positions` 테이블 (id BIGINT PK, name VARCHAR(100) NOT NULL, created_at/updated_at), `game_lineups.position_id` BIGINT NULL FK — Task 3 마이그레이션 SQL과 Task 4 수집기 SQL이 이 구조에 의존.
+- Produces: `positions` 테이블 (id BIGINT PK, name VARCHAR(100) NOT NULL, created_at/updated_at), `game_lineups.position_id` BIGINT NULL FK — Task 4 마이그레이션 SQL과 Task 6 수집기 SQL이 이 구조에 의존.
 
 - [ ] **Step 1: Position 엔티티 작성** — `GameStatus.java`를 그대로 본뜬 코드 테이블. javadoc에 값의 원천 명시:
 
@@ -113,7 +114,7 @@ public interface PositionRepository extends JpaRepository<Position, Long> {
 - Test: `record/entity/BatterRecordTest.java`, `record/entity/PitcherRecordTest.java` (신규)
 
 **Interfaces:**
-- Produces: `batter_records`/`pitcher_records` 집계 컬럼 구조 — Task 3 DDL과 Task 5 수집기 upsert가 컬럼명에 의존.
+- Produces: `batter_records`/`pitcher_records` 집계 컬럼 구조 — Task 4 DDL과 Task 7 수집기 upsert가 컬럼명에 의존.
 - 컬럼 세트의 원천: py-collector `game_records.py`의 `BattingRow`/`PitchingRow` dataclass (네이버 record API battersBoxscore/pitchersBoxscore와 1:1).
 
 - [ ] **Step 1: BatterRecord 재작성** — 경기×선수 1행 집계. `batResult` FK 제거, 스탯 컬럼 추가. 수집기 멱등 upsert 대상이므로 "기록성(created_at만)"이 아니라 **갱신되는 엔티티(created_at+updated_at)** 로 재분류:
@@ -198,19 +199,56 @@ public class BatterRecord {
 
 - [ ] **Step 6: Commit** — `feat(domain): batter/pitcher_records 집계형 재설계 — bat/pitch_results 코드테이블 폐기`
 
-### Task 3: [BE] 마이그레이션 SQL + domain.md 갱신
+### Task 3: [BE] Player.naverPcode 폐기 — kbo_player_id 단일 자연키
+
+**Files:**
+- Modify: `VictoryFairy_BE/domain/src/main/java/com/skhynix/domain/player/entity/Player.java`
+- Modify: `VictoryFairy_BE/user/src/main/java/com/skhynix/user/player/dto/PlayerResponse.java` (javadoc만)
+- Modify: `VictoryFairy_BE/user/src/test/java/com/skhynix/user/player/service/PlayerServiceTest.java`
+- Modify: `VictoryFairy_BE/user/src/test/java/com/skhynix/user/player/controller/PlayerControllerTest.java`
+
+**Interfaces:**
+- Produces: `players` 테이블에서 `naver_pcode` 컬럼 제거 — Task 4 마이그레이션 SQL과 Task 5 수집기 해소 로직이 이 결정에 의존.
+- 근거: 네이버 pcode == KBO playerId 실측 동치(Global Constraints) + naverPcode 소비처 없음(DTO 미노출, 서비스 로직 미사용 — 엔티티 필드·테스트 픽스처가 전부).
+
+- [ ] **Step 1: Player.java 수정** — `naverPcode` 필드와 빌더 파라미터를 삭제하고, `kboPlayerId` javadoc을 교체 (기존 naverPcode javadoc의 "KBO 공식 playerId 와는 다른 체계" 서술은 실측으로 반증된 낡은 문구 — 함께 제거):
+
+```java
+    /**
+     * KBO 공식 사이트 playerId. py-collector 로스터·박스스코어 적재 공통의 소스 자연키(UNIQUE).
+     * 네이버 record API 의 pcode 도 실측상 같은 값(2026-07 교집합 228명 전수 일치)이라
+     * 단일 컬럼으로 통합했다(구 naver_pcode 컬럼 폐기 — infra/sql/migrate-position-records.sql).
+     */
+    @Column(name = "kbo_player_id", length = 16, unique = true)
+    private String kboPlayerId;
+```
+
+빌더 시그니처: `private Player(Team team, String name, double average, String kboPlayerId)`.
+
+- [ ] **Step 2: PlayerResponse.java javadoc 정리** — "`Player.naverPcode`/`kboPlayerId` 는 py-collector 가 upsert 키로 소유하는 소스 자연키라" → "`Player.kboPlayerId` 는 py-collector 가 upsert 키로 소유하는 소스 자연키라". 나머지 서술 불변.
+
+- [ ] **Step 3: 테스트 픽스처 정리** — `PlayerServiceTest`의 `.naverPcode("6" + id)` 라인 삭제. `PlayerControllerTest`의 `@DisplayName` 문구 "average·naverPcode·kboPlayerId·team" → "average·kboPlayerId·team", `jsonPath("$.data[0].naverPcode").doesNotExist()` 라인 삭제.
+
+- [ ] **Step 4: 잔존 참조 확인** — `grep -rn naverPcode VictoryFairy_BE/` 결과 0건.
+
+- [ ] **Step 5: 테스트 실행** — `JAVA_HOME=$(brew --prefix openjdk@21) ./gradlew :domain:test :user:test` PASS.
+
+- [ ] **Step 6: Commit** — `feat(domain): players.naver_pcode 폐기 — kbo_player_id 단일 자연키로 통합`
+
+### Task 4: [BE] 마이그레이션 SQL + domain.md 갱신
 
 **Files:**
 - Create: `VictoryFairy_BE/infra/sql/migrate-position-records.sql`
 - Modify: `VictoryFairy_BE/.claude/modules/domain.md`
 
 **Interfaces:**
-- Produces: prod/로컬 DB에 1회 실행할 마이그레이션 (Task 10에서 실행). 실행 전제: batter/pitcher_records·bat/pitch_results **행 0건** 확인(소비처 없음).
+- Produces: prod/로컬 DB에 1회 실행할 마이그레이션 (Task 12에서 실행). 실행 전제: batter/pitcher_records·bat/pitch_results **행 0건** 확인(소비처 없음) + players pcode 단일화 검증 2건 0건.
 
 - [ ] **Step 1: 마이그레이션 SQL 작성** (`chat-init.sql` 선례처럼 주석에 실행 조건 명시):
 
 ```sql
--- game_lineups.position 텍스트 → positions FK 전환 + record 계열 집계형 재구축. MySQL 8.0.
+-- game_lineups.position 텍스트 → positions FK 전환 + record 계열 집계형 재구축
+-- + players.naver_pcode 단일화(kbo_player_id 로 통합). MySQL 8.0.
 -- 실행 전 확인: SELECT COUNT(*) FROM batter_records; 가 0이어야 한다 (0이 아니면 중단하고 상의).
 -- 실행 후: user 앱 ddl-auto=update 는 이미 맞는 스키마를 발견하므로 추가 DDL 없음.
 
@@ -269,13 +307,117 @@ CREATE TABLE pitcher_records (
   CONSTRAINT fk_pitcher_records_player FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE,
   CONSTRAINT fk_pitcher_records_game   FOREIGN KEY (game_id)   REFERENCES games(id)   ON DELETE CASCADE
 );
+
+-- players.naver_pcode 단일화: 실측 동치(2026-07 교집합 228명 전수 일치) 근거로 kbo_player_id 통합.
+-- 실행 전 확인: 아래 두 검증 쿼리가 모두 0 이어야 한다 (0이 아니면 중단하고 상의).
+--   SELECT COUNT(*) FROM players
+--     WHERE naver_pcode IS NOT NULL AND kbo_player_id IS NOT NULL
+--       AND naver_pcode != kbo_player_id;                        -- 값 충돌
+--   SELECT COUNT(*) FROM players p1 JOIN players p2
+--     ON p1.naver_pcode = p2.kbo_player_id AND p1.id != p2.id;   -- 같은 인물 중복 행
+UPDATE players SET kbo_player_id = naver_pcode
+WHERE kbo_player_id IS NULL AND naver_pcode IS NOT NULL;
+
+ALTER TABLE players DROP COLUMN naver_pcode;
 ```
 
-- [ ] **Step 2: domain.md 갱신** — ① 모듈 목록: `record` 설명을 집계형으로, `BatResult`/`PitchResult` 제거, `game`에 `Position` 추가 ② 엔티티→테이블 표 갱신 ③ FK 관계: `GameLineup → Position`(@OnDelete 없음, 마스터), `BatterRecord/PitcherRecord → Player/Game`(CASCADE 유지) ④ 타임스탬프 정책 문단: BatterRecord/PitcherRecord를 "갱신되는 엔티티"로 이동(사유: 수집기 멱등 upsert) ⑤ "py-collector와 테이블 스키마 충돌 (미해결)" 항목을 해소로 갱신(집계형 재설계로 수렴) ⑥ game_statuses 시드 항목에 "수집기 games_sync가 lookup-or-insert로 자동 생성" 추가.
+- [ ] **Step 2: domain.md 갱신** — ① 모듈 목록: `record` 설명을 집계형으로, `BatResult`/`PitchResult` 제거, `game`에 `Position` 추가 ② 엔티티→테이블 표 갱신 ③ FK 관계: `GameLineup → Position`(@OnDelete 없음, 마스터), `BatterRecord/PitcherRecord → Player/Game`(CASCADE 유지) ④ 타임스탬프 정책 문단: BatterRecord/PitcherRecord를 "갱신되는 엔티티"로 이동(사유: 수집기 멱등 upsert) ⑤ "py-collector와 테이블 스키마 충돌 (미해결)" 항목을 해소로 갱신(집계형 재설계로 수렴) ⑥ game_statuses 시드 항목에 "수집기 games_sync가 lookup-or-insert로 자동 생성" 추가 ⑦ Player 관련 서술: naver_pcode 폐기·kbo_player_id 단일 자연키(실측 동치 228명 전수 일치 근거) 반영.
 
 - [ ] **Step 3: 테스트 재실행 + Commit** — `./gradlew :domain:test` PASS 후 `feat(infra): position·record 재구축 마이그레이션 SQL + domain.md 정합`
 
-### Task 4: [AI] 수집기 position FK 적재 전환
+### Task 5: [AI] 선수 해소 kbo_player_id 단일키 전환
+
+**Files:**
+- Modify: `VictoryFairy_AI/py-collector/kbo_collector/db.py`
+- Test: `VictoryFairy_AI/py-collector/tests/test_db_sink.py`
+
+**Interfaces:**
+- Consumes: Task 3/4의 players 단일키 구조 (`naver_pcode` 컬럼 없음).
+- Produces: `resolve_players(refs, team_ids) -> {pcode: players.id}` — **시그니처·반환 형태 불변** (records 잡과 Task 7이 그대로 사용). 내부에서 pcode 값을 kbo_player_id 로 취급.
+
+- [ ] **Step 1: 실패 테스트 작성** — `test_db_sink.py`의 resolve 테스트 2개를 아래로 교체 (기존 4단계 백필 테스트 `test_resolve_players_pcode_hit_name_backfill_and_insert`는 삭제). 임포트 라인의 `PLAYER_SET_PCODE, PLAYER_INSERT_PCODE` → `PLAYER_INSERT`:
+
+```python
+def test_resolve_players_kbo_id_hit_and_insert(caplog):
+    refs = [PlayerRef("P1", "기존선수", "LG"), PlayerRef("P2", "개명선수", "LG"),
+            PlayerRef("P3", "신규선수", "OB")]
+    conn = FakeConn(fetch_results=[
+        [("P1", 11, "기존선수"), ("P2", 22, "옛이름")],  # 일괄 조회 (P3 미존재)
+    ])
+    with caplog.at_level("WARNING", logger="db"):
+        out = DbSink(None, connection=conn).resolve_players(refs, {"LG": 2, "OB": 1})
+    # P3 는 유일한 INSERT — FakeCursor last_id 100 -> 101
+    assert out == {"P1": 11, "P2": 22, "P3": 101}
+    sqls = [s for _, s, _ in conn.log]
+    assert PLAYER_INSERT in sqls
+    # 이름 불일치는 pcode==kbo_player_id 동치 전제 훼손 신호 — warning 1건
+    assert "name mismatch" in caplog.text and "P2" in caplog.text
+
+
+def test_resolve_players_skips_unknown_team():
+    refs = [PlayerRef("P9", "올스타", "DR")]
+    conn = FakeConn(fetch_results=[[]])
+    out = DbSink(None, connection=conn).resolve_players(refs, {"LG": 2})
+    assert out == {}
+```
+
+- [ ] **Step 2: 구현** — `db.py`에서 SQL 상수 5개(`PLAYER_BY_PCODE`, `PLAYER_BY_KBO_ID_EQ`, `PLAYER_BY_NAME_TEAM`, `PLAYER_SET_PCODE`, `PLAYER_INSERT_PCODE`)를 삭제하고 아래로 교체:
+
+```python
+# 실측상 네이버 pcode == KBO playerId (2026-07 박스스코어·로스터 교집합 228명 전수
+# 일치) — 이 동치를 스키마 전제로 승격해 kbo_player_id 단일 자연키로 해소한다.
+# 전제가 깨지면 이름 불일치 warning 이 급증하므로 그때 재설계한다.
+PLAYER_BY_KBO_ID = (
+    "SELECT kbo_player_id, id, name FROM players WHERE kbo_player_id IN ({ph})"
+)
+PLAYER_INSERT = (
+    "INSERT INTO players (kbo_player_id, name, team_id, average, created_at, updated_at) "
+    "VALUES (%s, %s, %s, 0, NOW(6), NOW(6))"
+)
+```
+
+`resolve_players` 재작성 (시그니처 불변):
+
+```python
+    def resolve_players(self, refs, team_ids) -> dict:
+        """PlayerRef 목록 -> {pcode: players.id}. pcode == kbo_player_id 전제.
+
+        1) kbo_player_id 로 일괄 조회 — DB 이름과 API 이름이 다르면 동치 전제
+           훼손 신호라 warning. 2) 없으면 신규 행 INSERT (이후 로스터 잡이 같은
+           키로 upsert 하므로 자연 병합). 팀 코드가 미지(비표준 팀)면 스킵.
+        """
+        uniq = {r.pcode: r for r in refs}
+        if not uniq:
+            return {}
+        codes = list(uniq)
+        ph = ",".join(["%s"] * len(codes))
+        out = {}
+        for kbo_id, pk, db_name in self.fetch_all(PLAYER_BY_KBO_ID.format(ph=ph), codes):
+            out[kbo_id] = pk
+            if db_name != uniq[kbo_id].name:
+                log.warning("resolve_players: name mismatch pcode=%s db=%s api=%s",
+                            kbo_id, db_name, uniq[kbo_id].name)
+        with self._conn.cursor() as cur:
+            for pcode, ref in uniq.items():
+                if pcode in out:
+                    continue
+                team_id = team_ids.get(ref.team_code)
+                if team_id is None:
+                    log.warning("resolve_players: unknown team %s (pcode=%s %s)",
+                                ref.team_code, pcode, ref.name)
+                    continue
+                cur.execute(PLAYER_INSERT, (pcode, ref.name, team_id))
+                out[pcode] = cur.lastrowid
+        self._conn.commit()
+        return out
+```
+
+모듈 docstring의 자연키 열거 `players.kbo_player_id/naver_pcode` → `players.kbo_player_id`, "박스스코어 선수 해소" 주석 블록(4단계 서술)도 새 로직에 맞게 축약.
+
+- [ ] **Step 3: 테스트** — `pytest -q` 전체 PASS.
+- [ ] **Step 4: Commit** — `feat(py-collector): 선수 해소를 kbo_player_id 단일키로 단순화 — naver_pcode 폐기`
+
+### Task 6: [AI] 수집기 position FK 적재 전환
 
 **Files:**
 - Modify: `VictoryFairy_AI/py-collector/kbo_collector/db.py` (LINEUP_UPSERT, position lookup)
@@ -309,7 +451,7 @@ POSITION_INSERT = (
 - [ ] **Step 3: 테스트** — `pytest -q` 전체 PASS.
 - [ ] **Step 4: Commit** — `feat(py-collector): 라인업 포지션을 positions FK로 적재`
 
-### Task 5: [AI] batter/pitcher 경기 기록 적재
+### Task 7: [AI] batter/pitcher 경기 기록 적재
 
 **Files:**
 - Modify: `VictoryFairy_AI/py-collector/kbo_collector/db.py` (BATTER_UPSERT/PITCHER_UPSERT + 메서드 2개)
@@ -317,7 +459,7 @@ POSITION_INSERT = (
 - Test: `tests/test_db_sink.py`, `tests/test_run_jobs.py`(records 잡 테스트가 있는 파일)
 
 **Interfaces:**
-- Consumes: `GameRow.batting: list[BattingRow]`, `GameRow.pitching: list[PitchingRow]` (이미 파싱됨 — game_records.py 수정 불필요), Task 2/3의 테이블 구조.
+- Consumes: `GameRow.batting: list[BattingRow]`, `GameRow.pitching: list[PitchingRow]` (이미 파싱됨 — game_records.py 수정 불필요), Task 2/4의 테이블 구조.
 - Produces: `DbSink.upsert_batting(game_pk, rows, player_map)`, `DbSink.upsert_pitching(game_pk, rows, player_map)`.
 
 - [ ] **Step 1: 실패 테스트** — records 잡 실행 시 batter/pitcher upsert가 호출되고, player_map에 없는 pcode 행은 스킵되는지.
@@ -351,7 +493,7 @@ PITCHER_UPSERT = (
 - [ ] **Step 3: 테스트** — `pytest -q` PASS.
 - [ ] **Step 4: Commit** — `feat(py-collector): records 잡에 batter/pitcher 경기 기록 집계 적재 복원`
 
-### Task 6: [AI] 상태 매핑 + games_sync 잡
+### Task 8: [AI] 상태 매핑 + games_sync 잡
 
 **Files:**
 - Modify: `VictoryFairy_AI/py-collector/kbo_collector/game_records.py` (`list_kbo_games`, `map_status` 추가)
@@ -360,7 +502,7 @@ PITCHER_UPSERT = (
 - Test: `tests/test_game_records.py`, `tests/test_db_sink.py`
 
 **Interfaces:**
-- Produces: `map_status(g: dict) -> str | None` (5종 상태명 또는 None=skip), `job_games_sync(settings, db, date)` — Task 7 핸들러가 호출.
+- Produces: `map_status(g: dict) -> str | None` (5종 상태명 또는 None=skip), `job_games_sync(settings, db, date)` — Task 9 핸들러가 호출.
 
 - [ ] **Step 1: 실패 테스트 (map_status)** — 실측 케이스 고정:
 
@@ -475,7 +617,7 @@ CLI: argparse 잡 목록에 `games_sync` 추가 (`--date` 기본값은 기존 re
 - [ ] **Step 5: 테스트** — `pytest -q` PASS (sync_game의 COALESCE 계약은 SQL 문자열 단언 + FakeDb 호출 인자 검증).
 - [ ] **Step 6: Commit** — `feat(py-collector): games_sync 잡 — 취소·예정·진행 경기 상태 동기화`
 
-### Task 7: [AI] Lambda 핸들러 + 스케줄 문서
+### Task 9: [AI] Lambda 핸들러 + 스케줄 문서
 
 **Files:**
 - Modify: `VictoryFairy_AI/py-collector/deploy/lambda/handler.py` (`{"job": "games_sync"}` 추가 — DB 잡이므로 -db 함수 소관)
@@ -483,7 +625,7 @@ CLI: argparse 잡 목록에 `games_sync` 추가 (`--date` 기본값은 기존 re
 - Test: `tests/test_lambda_handler.py`
 
 **Interfaces:**
-- Consumes: Task 6의 `job_games_sync`. 날짜 앵커는 이 브랜치의 game_schedule 잡과 동일하게 **KST** (`TZ=Asia/Seoul` 기준 오늘).
+- Consumes: Task 8의 `job_games_sync`. 날짜 앵커는 이 브랜치의 game_schedule 잡과 동일하게 **KST** (`TZ=Asia/Seoul` 기준 오늘).
 
 - [ ] **Step 1: 실패 테스트** — `{"job": "games_sync"}` 이벤트가 `job_games_sync`를 KST 오늘 날짜로 호출하는지 (기존 game_schedule 잡 테스트 패턴).
 - [ ] **Step 2: 구현** — handler 잡 분기 추가. 문서에 EventBridge 스케줄 제안 기록 (테라폼 적용은 infra 보류 상태이므로 **문서만**):
@@ -491,7 +633,7 @@ CLI: argparse 잡 목록에 `games_sync` 추가 (`--date` 기본값은 기존 re
   - 경기 시간대: `cron(0/10 8-14 * * ? *)` = 17:00~23:50 KST 10분 간격 — LIVE/종료/취소 반영
 - [ ] **Step 3: 테스트 + Commit** — `feat(py-collector): games_sync Lambda 잡 + 스케줄 제안 문서`
 
-### Task 8: [AI] exporter 상태 필터 (통계 오염 방지)
+### Task 10: [AI] exporter 상태 필터 (통계 오염 방지)
 
 **Files:**
 - Modify: `VictoryFairy_AI/py-collector/kbo_collector/exports/exporter.py` (game_result SQL)
@@ -514,12 +656,13 @@ def test_game_results_sql_filters_finished_and_draw_only():
 - [ ] **Step 2: 구현** — WHERE 절에 `AND gs.name IN ('FINISHED','DRAW')` 추가.
 - [ ] **Step 3: 테스트 + Commit** — `fix(py-collector): game_result export를 완료 경기(FINISHED/DRAW)로 한정`
 
-### Task 9: [AI] 네이버 API 문서 보강
+### Task 11: [AI] 네이버 API 문서 보강
 
 **Files:**
 - Modify: `VictoryFairy_AI/py-collector/docs/data-formats.md`
-- Modify: `VictoryFairy_AI/py-collector/CLAUDE.md` (DB 잡 문단에 games_sync 한 줄)
-- Modify: `VictoryFairy_AI/py-collector/docs/current-crawl-overview.md` (스키마 표: positions·batter/pitcher_records 반영)
+- Modify: `VictoryFairy_AI/py-collector/CLAUDE.md` (DB 잡 문단에 games_sync 한 줄 + 자연키 열거에서 naver_pcode 제거)
+- Modify: `VictoryFairy_AI/py-collector/docs/current-crawl-overview.md` (스키마 표: positions·batter/pitcher_records 반영, players 표기 갱신)
+- Modify: `VictoryFairy_AI/py-collector/docs/crawl-flow.md`, `VictoryFairy_AI/py-collector/docs/data-pipeline-requirements.md` (자연키 열거에서 naver_pcode 제거)
 
 - [ ] **Step 1: data-formats.md "경기 상태 판정" 절 보강** — 기존 표를 DB 상태값까지 확장:
 
@@ -532,14 +675,16 @@ def test_game_results_sql_filters_finished_and_draw_only():
 
 추가 문구: ① **`winner` 필드로 무승부·취소를 판정하지 말 것** (취소 경기도 `winner:"DRAW"`) ② **schedule API 광범위 조회 금지** — `fromDate~toDate` 2개월 조회 실측 시 경기 4건만 반환, 하루 단위 조회가 정석 ③ `suspended`(서스펜디드)는 아직 미반영 — 관측되면 `map_status`가 skip하고 warning 로그 ④ 취소·예정 경기의 0-0 점수는 껍데기이므로 DB에는 NULL로 적재(games_sync).
 
-- [ ] **Step 2: CLAUDE.md·current-crawl-overview.md 갱신 + Commit** — `docs(py-collector): 경기 상태 판정·API 함정 실측 보강 + 신규 테이블 반영`
+- [ ] **Step 2: 선수 자연키 단일화 반영** — data-formats.md "선수코드 주의" 문구 교체: 기존 "이 `pcode`는 KBO 공식 `playerId`와 **다른 체계**라 … `naver_pcode`/`kbo_player_id` 두 컬럼으로 각각 매핑" → "이 `pcode`는 실측상 KBO 공식 `playerId`와 **같은 값**(2026-07 교집합 228명 전수 일치)이라 `players.kbo_player_id` 단일 컬럼으로 통합(해소: kbo_player_id 일괄 조회 → 없으면 신규 행. DB 이름과 API 이름이 다르면 동치 전제 훼손 신호로 warning)". CLAUDE.md·crawl-flow.md·data-pipeline-requirements.md의 자연키 열거에서 `naver_pcode` 제거.
 
-### Task 10: [수동 게이트] prod 마이그레이션 + 2026 백필 실행
+- [ ] **Step 3: CLAUDE.md·current-crawl-overview.md 갱신 + Commit** — `docs(py-collector): 경기 상태 판정·API 함정 실측 보강 + 신규 테이블·단일 자연키 반영`
 
-> **이 태스크는 코드가 아니라 운영 실행이다. 반드시 사용자 승인 후, 사용자와 함께 진행한다** (prod DDL + SSH 터널 필요). 구현 태스크(1~9) 완료·리뷰 통과 후 별도로 실행.
+### Task 12: [수동 게이트] prod 마이그레이션 + 2026 백필 실행
 
-- [ ] **Step 1: 사전 확인** — SSH 터널 열림(`127.0.0.1:3306` = 원격 DB), `SELECT COUNT(*) FROM batter_records;` == 0, `SHOW CREATE TABLE game_lineups;`로 구 스키마(position 텍스트) 확인.
-- [ ] **Step 2: 마이그레이션 실행** — `migrate-position-records.sql` 실행 → positions 행 수·game_lineups.position_id NULL 비율 검증 (`position IS NOT NULL이던 행 == position_id IS NOT NULL 행`).
+> **이 태스크는 코드가 아니라 운영 실행이다. 반드시 사용자 승인 후, 사용자와 함께 진행한다** (prod DDL + SSH 터널 필요). 구현 태스크(1~11) 완료·리뷰 통과 후 별도로 실행.
+
+- [ ] **Step 1: 사전 확인** — SSH 터널 열림(`127.0.0.1:3306` = 원격 DB), `SELECT COUNT(*) FROM batter_records;` == 0, `SHOW CREATE TABLE game_lineups;`로 구 스키마(position 텍스트) 확인, **players pcode 단일화 검증 2건 == 0** (마이그레이션 SQL 주석의 값 충돌·중복 인물 쿼리).
+- [ ] **Step 2: 마이그레이션 실행** — `migrate-position-records.sql` 실행 → positions 행 수·game_lineups.position_id NULL 비율 검증 (`position IS NOT NULL이던 행 == position_id IS NOT NULL 행`), `SHOW COLUMNS FROM players LIKE 'naver_pcode';` 0행 확인.
 - [ ] **Step 3: 2026 백필** — AI worktree에서 `python -m kbo_collector.run records --from 2026-03-28 --to <오늘>` → batter/pitcher_records 건수 검증 (경기 수 × 평균 출전 인원 규모, 예: `SELECT COUNT(DISTINCT game_id) FROM batter_records;`가 games의 FINISHED/DRAW 수와 일치).
 - [ ] **Step 4: games_sync 1회 수동 실행** — `python -m kbo_collector.run games_sync --date <오늘>` → 당일 경기 SCHEDULED 행 + (있다면) 취소 경기 CANCELED 행 확인.
-- [ ] **Step 5: Lambda 배포 + EventBridge 등록** — infra 보류 상태 해소 시점에 별도 진행 (Task 7 문서의 cron 2줄).
+- [ ] **Step 5: Lambda 배포 + EventBridge 등록** — infra 보류 상태 해소 시점에 별도 진행 (Task 9 문서의 cron 2줄).
