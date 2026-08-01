@@ -185,6 +185,18 @@ def test_upsert_lineups_memoizes_position_lookup_per_call():
                       (55, 2, 13, 3, 60, True, None)]
 
 
+def test_upsert_lineups_binds_null_for_missing_position():
+    rows = [LineupRow("P1", "LG", False, None, None, True, None)]  # 대타/교체 등 미표기
+    conn = FakeConn()
+    DbSink(None, connection=conn).upsert_lineups(
+        55, rows, {"P1": 11}, {"LG": 2})
+    selects = [s for k, s, _ in conn.log if k == "execute" and s.startswith("SELECT")]
+    assert selects == []  # position=None -> lookup 자체를 안 함
+    kind, sql, params = conn.log[-1]
+    assert kind == "executemany" and sql == LINEUP_UPSERT
+    assert params == [(55, 2, 11, None, None, True, None)]
+
+
 def test_empty_rows_noop():
     conn = FakeConn()
     DbSink(None, connection=conn).upsert_roster_players([], 2)
