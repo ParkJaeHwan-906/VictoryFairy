@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 from kbo_collector.db import (
     DbSink, TEAMS_UPSERT, ROSTER_PLAYER_UPSERT, GAME_UPSERT, LINEUP_UPSERT,
-    PLAYER_SET_PCODE, PLAYER_INSERT_PCODE,
+    PLAYER_INSERT,
 )
 from kbo_collector.dimensions import PlayerRow, TeamRow
 from kbo_collector.game_records import LineupRow, PlayerRef
@@ -95,19 +95,20 @@ def test_stadium_id_inserts_when_missing_and_none_passthrough():
     assert sink.stadium_id(None) is None
 
 
-def test_resolve_players_pcode_hit_name_backfill_and_insert():
-    refs = [PlayerRef("P1", "기존선수", "LG"), PlayerRef("P2", "로스터선수", "LG"),
+def test_resolve_players_kbo_id_hit_and_insert(caplog):
+    refs = [PlayerRef("P1", "기존선수", "LG"), PlayerRef("P2", "개명선수", "LG"),
             PlayerRef("P3", "신규선수", "OB")]
     conn = FakeConn(fetch_results=[
-        [("P1", 11)],   # P1: pcode 즉시 매칭
-        [(22,)],        # P2: 이름+팀 유일 매칭 -> pcode 백필
-        [],             # P3: 매칭 없음 -> INSERT
+        [("P1", 11, "기존선수"), ("P2", 22, "옛이름")],  # 일괄 조회 (P3 미존재)
     ])
-    out = DbSink(None, connection=conn).resolve_players(refs, {"LG": 2, "OB": 1})
-    # P3 는 102: 페이크 커서가 P2 백필 UPDATE 에서도 last_id 를 1 올리기 때문
-    assert out == {"P1": 11, "P2": 22, "P3": 102}
+    with caplog.at_level("WARNING", logger="db"):
+        out = DbSink(None, connection=conn).resolve_players(refs, {"LG": 2, "OB": 1})
+    # P3 는 유일한 INSERT — FakeCursor last_id 100 -> 101
+    assert out == {"P1": 11, "P2": 22, "P3": 101}
     sqls = [s for _, s, _ in conn.log]
-    assert PLAYER_SET_PCODE in sqls and PLAYER_INSERT_PCODE in sqls
+    assert PLAYER_INSERT in sqls
+    # 이름 불일치는 pcode==kbo_player_id 동치 전제 훼손 신호 — warning 1건
+    assert "name mismatch" in caplog.text and "P2" in caplog.text
 
 
 def test_resolve_players_skips_unknown_team():
