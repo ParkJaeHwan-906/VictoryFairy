@@ -6,6 +6,7 @@
 프로젝트 전체 JPA 엔티티·리포지토리를 담는 `java-library` 모듈. 자체 실행 앱이 아니라 **포트 없음**. `user`·`quiz` 두 모듈이 이 모듈을 참조해 엔티티를 공유한다.
 
 ## 패키지 구성 (`domain/src/main/java/com/skhynix/domain/`)
+각 도메인 패키지는 `entity`/`repository` 하위 패키지로 나뉜다(예: `com.skhynix.domain.user.entity.User`, `com.skhynix.domain.user.repository.UserRepository`) — 전 도메인 공통 구조.
 - `user` — `User`, `UserAccount`, `UserRefreshToken`, `Gender`(enum) + 각 리포지토리
 - `team` — `Team` + `TeamRepository`
 - `player` — `Player` + `PlayerRepository`
