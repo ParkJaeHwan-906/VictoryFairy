@@ -131,3 +131,57 @@ def test_list_finished_games_filters():
     ]}}
     ids = [g["gameId"] for g in gr.list_finished_games(js)]
     assert ids == ["ok"]
+
+
+# --------------------------------------------------------------------------- games_sync (Task 8)
+def test_list_kbo_games_includes_cancelled_scheduled_and_live():
+    # list_finished_games 와 달리 취소/예정/진행 경기도 포함해야 한다(games_sync용).
+    js = {"result": {"games": [
+        {"categoryId": "kbo", "statusCode": "RESULT", "cancel": False,
+         "awayTeamCode": "HT", "homeTeamCode": "SK", "gameId": "finished"},
+        {"categoryId": "kbo", "statusCode": "BEFORE", "cancel": True,
+         "awayTeamCode": "HT", "homeTeamCode": "SK", "gameId": "cancelled"},
+        {"categoryId": "kbo", "statusCode": "BEFORE", "cancel": False,
+         "awayTeamCode": "HT", "homeTeamCode": "SK", "gameId": "scheduled"},
+        {"categoryId": "kbo", "statusCode": "LIVE", "cancel": False,
+         "awayTeamCode": "HT", "homeTeamCode": "SK", "gameId": "live"},
+        {"categoryId": "kbo", "statusCode": "RESULT", "cancel": False,
+         "awayTeamCode": "WE", "homeTeamCode": "EA", "gameId": "allstar"},
+        {"categoryId": "kbaseballetc", "statusCode": "RESULT", "cancel": False,
+         "awayTeamCode": "HT", "homeTeamCode": "SK", "gameId": "etc"},
+    ]}}
+    ids = [g["gameId"] for g in gr.list_kbo_games(js)]
+    assert ids == ["finished", "cancelled", "scheduled", "live"]
+
+
+def test_map_status_cancelled_game_wins_over_winner_field():
+    # 2026-07-08 NCHH 실측: 취소 경기는 BEFORE + cancel:true + winner:"DRAW"로 온다.
+    g = {"statusCode": "BEFORE", "cancel": True, "winner": "DRAW",
+         "homeTeamScore": 0, "awayTeamScore": 0}
+    assert gr.map_status(g) == "CANCELED"
+
+
+def test_map_status_result_draw_by_scores():
+    g = {"statusCode": "RESULT", "cancel": False,
+         "homeTeamScore": 5, "awayTeamScore": 5}
+    assert gr.map_status(g) == "DRAW"
+
+
+def test_map_status_unknown_returns_none():
+    assert gr.map_status({"statusCode": "READY", "cancel": False}) is None
+
+
+def test_map_status_before_is_scheduled():
+    g = {"statusCode": "BEFORE", "cancel": False}
+    assert gr.map_status(g) == "SCHEDULED"
+
+
+def test_map_status_live_is_in_progress():
+    g = {"statusCode": "LIVE", "cancel": False}
+    assert gr.map_status(g) == "IN_PROGRESS"
+
+
+def test_map_status_result_non_draw_is_finished():
+    g = {"statusCode": "RESULT", "cancel": False,
+         "homeTeamScore": 7, "awayTeamScore": 3}
+    assert gr.map_status(g) == "FINISHED"

@@ -146,6 +146,37 @@ def list_finished_games(schedule_json: dict) -> list[dict]:
     return out
 
 
+def list_kbo_games(schedule_json: dict) -> list[dict]:
+    """일자별 스케줄 JSON -> 상태 무관 KBO 정규 팀 경기 전부 (games_sync용).
+
+    list_finished_games 와 달리 취소·예정·진행 경기를 포함한다.
+    """
+    games = (schedule_json.get("result") or {}).get("games") or []
+    return [g for g in games
+            if g.get("categoryId") == "kbo"
+            and g.get("awayTeamCode") in TEAM_CODES
+            and g.get("homeTeamCode") in TEAM_CODES]
+
+
+def map_status(g: dict) -> str | None:
+    """schedule 경기 1건 -> game_statuses.name (미지 상태는 None).
+
+    취소는 cancel 플래그 최우선 — 취소 경기는 statusCode "BEFORE" + winner
+    "DRAW" 껍데기로 오므로(2026-07-08 NCHH 실측) 다른 필드로 판정하면 오답.
+    """
+    if g.get("cancel"):
+        return "CANCELED"
+    sc = g.get("statusCode")
+    if sc == "BEFORE":
+        return "SCHEDULED"
+    if sc == "LIVE":
+        return "IN_PROGRESS"
+    if sc == "RESULT":
+        draw = g.get("homeTeamScore") == g.get("awayTeamScore")
+        return "DRAW" if draw else "FINISHED"
+    return None
+
+
 def _decisions(record: dict) -> dict:
     """pcode -> 'W'/'L'/'S'/'H' (pitchingResult)."""
     out = {}

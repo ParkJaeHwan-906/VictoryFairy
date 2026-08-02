@@ -247,3 +247,43 @@ def test_empty_rows_noop():
     conn = FakeConn()
     DbSink(None, connection=conn).upsert_roster_players([], 2)
     assert conn.log == [] and conn.commits == 0
+
+
+# --------------------------------------------------------------------------- games_sync (Task 8)
+# GAME_SYNC_UPSERT / sync_game don't exist yet -> imported lazily inside each test
+# so the rest of this file still collects cleanly while these are RED.
+def test_game_sync_upsert_sql_inserts_null_stadium_and_coalesces_scores():
+    from kbo_collector.db import GAME_SYNC_UPSERT
+    assert "VALUES (%s, %s, %s, %s, NULL, %s, %s, %s, NOW(6), NOW(6))" in GAME_SYNC_UPSERT
+    assert "home_score=COALESCE(VALUES(home_score), home_score)" in GAME_SYNC_UPSERT
+    assert "away_score=COALESCE(VALUES(away_score), away_score)" in GAME_SYNC_UPSERT
+
+
+def test_game_sync_upsert_sql_excludes_stadium_id_from_update_clause():
+    from kbo_collector.db import GAME_SYNC_UPSERT
+    # stadium_id 는 records 잡 소유 — games_sync 의 UPDATE 목록에 있으면 records가
+    # 적재한 구장을 games_sync가 NULL로 덮어써버린다.
+    update_clause = GAME_SYNC_UPSERT.split("ON DUPLICATE KEY UPDATE", 1)[1]
+    assert "stadium_id" not in update_clause
+
+
+def test_sync_game_upserts_with_null_stadium_and_commits():
+    from kbo_collector.db import GAME_SYNC_UPSERT
+    conn = FakeConn()
+    pk = DbSink(None, connection=conn).sync_game(
+        naver_game_id="20260708LGSS02026", game_dt="2026-07-08 18:30:00",
+        home_team_id=3, away_team_id=2, home_score=5, away_score=3, status_id=7)
+    kind, sql, params = conn.log[0]
+    assert kind == "execute" and sql == GAME_SYNC_UPSERT
+    assert params == ("20260708LGSS02026", "2026-07-08 18:30:00", 3, 2, 5, 3, 7)
+    assert pk == 101
+    assert conn.commits == 1
+
+
+def test_sync_game_passes_none_scores_through_for_scheduled_or_cancelled():
+    conn = FakeConn()
+    DbSink(None, connection=conn).sync_game(
+        naver_game_id="g1", game_dt="2026-07-08 00:00:00",
+        home_team_id=3, away_team_id=2, home_score=None, away_score=None, status_id=1)
+    _, _, params = conn.log[0]
+    assert params[4] is None and params[5] is None  # home_score, away_score

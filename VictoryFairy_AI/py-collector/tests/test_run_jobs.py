@@ -503,6 +503,135 @@ def test_land_game_records_upserts_batting_and_pitching_after_lineups(monkeypatc
     assert game_pk2 == 501 and rows2 == fixed_game.pitching and pm2 == player_map
 
 
+class _RecordingSyncDb:
+    """운영 스키마 DbSink 흉내: job_games_sync 배선(호출 인자) 검증용."""
+    def __init__(self, team_ids):
+        self.calls = []
+        self._team_ids = team_ids
+        self._status_ids = {"SCHEDULED": 1, "IN_PROGRESS": 2, "FINISHED": 3,
+                            "DRAW": 4, "CANCELED": 5}
+
+    def upsert_teams(self, teams):
+        return self._team_ids
+
+    def status_id(self, name):
+        return self._status_ids[name]
+
+    def sync_game(self, *, naver_game_id, game_dt, home_team_id, away_team_id,
+                  home_score, away_score, status_id):
+        self.calls.append(dict(
+            naver_game_id=naver_game_id, game_dt=game_dt, home_team_id=home_team_id,
+            away_team_id=away_team_id, home_score=home_score, away_score=away_score,
+            status_id=status_id))
+
+
+def _games_sync_schedule_games():
+    return [
+        {"gameId": "finished", "categoryId": "kbo", "statusCode": "RESULT", "cancel": False,
+         "homeTeamCode": "OB", "awayTeamCode": "LG",
+         "homeTeamScore": 7, "awayTeamScore": 3, "gameDateTime": "2026-07-10T18:30:00"},
+        {"gameId": "draw", "categoryId": "kbo", "statusCode": "RESULT", "cancel": False,
+         "homeTeamCode": "OB", "awayTeamCode": "LG",
+         "homeTeamScore": 4, "awayTeamScore": 4, "gameDateTime": "2026-07-10T18:30:00"},
+        {"gameId": "live", "categoryId": "kbo", "statusCode": "LIVE", "cancel": False,
+         "homeTeamCode": "OB", "awayTeamCode": "LG",
+         "homeTeamScore": 2, "awayTeamScore": 1, "gameDateTime": "2026-07-10T18:30:00"},
+        {"gameId": "scheduled", "categoryId": "kbo", "statusCode": "BEFORE", "cancel": False,
+         "homeTeamCode": "OB", "awayTeamCode": "LG",
+         "homeTeamScore": 0, "awayTeamScore": 0, "gameDateTime": "2026-07-10T18:30:00"},
+        {"gameId": "cancelled", "categoryId": "kbo", "statusCode": "BEFORE", "cancel": True,
+         "winner": "DRAW", "homeTeamCode": "OB", "awayTeamCode": "LG",
+         "homeTeamScore": 0, "awayTeamScore": 0, "gameDateTime": "2026-07-10T18:30:00"},
+        {"gameId": "unknown", "categoryId": "kbo", "statusCode": "READY", "cancel": False,
+         "homeTeamCode": "OB", "awayTeamCode": "LG"},
+    ]
+
+
+class _FakeScheduleResp:
+    def json(self):
+        return {"result": {"games": _games_sync_schedule_games()}}
+
+
+def test_job_games_sync_scores_live_or_done_only_and_skips_unknown(monkeypatch, settings, caplog):
+    import contextlib
+    monkeypatch.setattr(run.fetch, "build_client", lambda settings: contextlib.nullcontext(object()))
+    monkeypatch.setattr(run.fetch, "fetch", lambda *a, **k: _FakeScheduleResp())
+    db = _RecordingSyncDb(team_ids={"OB": 1, "LG": 2})
+
+    with caplog.at_level("WARNING", logger="games_sync"):
+        synced = run.job_games_sync(settings, db, "2026-07-10")
+
+    assert synced == 5  # "unknown" 은 skip
+    by_id = {c["naver_game_id"]: c for c in db.calls}
+    assert set(by_id) == {"finished", "draw", "live", "scheduled", "cancelled"}
+
+    assert by_id["finished"]["status_id"] == 3
+    assert (by_id["finished"]["home_score"], by_id["finished"]["away_score"]) == (7, 3)
+
+    assert by_id["draw"]["status_id"] == 4
+    assert (by_id["draw"]["home_score"], by_id["draw"]["away_score"]) == (4, 4)
+
+    assert by_id["live"]["status_id"] == 2
+    assert (by_id["live"]["home_score"], by_id["live"]["away_score"]) == (2, 1)
+
+    # SCHEDULED/CANCELED 의 0-0 은 껍데기 -> None 으로 적재(0:0 무승부처럼 보이면 안 됨)
+    assert by_id["scheduled"]["status_id"] == 1
+    assert (by_id["scheduled"]["home_score"], by_id["scheduled"]["away_score"]) == (None, None)
+
+    assert by_id["cancelled"]["status_id"] == 5
+    assert (by_id["cancelled"]["home_score"], by_id["cancelled"]["away_score"]) == (None, None)
+
+    assert by_id["finished"]["home_team_id"] == 1 and by_id["finished"]["away_team_id"] == 2
+
+    assert "unknown status" in caplog.text and "READY" in caplog.text
+
+
+def test_main_games_sync_lazily_creates_db_and_calls_job(monkeypatch, settings):
+    calls = []
+
+    class _FakeDbSink:
+        def __init__(self, settings):
+            calls.append(("db_created",))
+
+        def close(self):
+            calls.append(("db_closed",))
+
+    monkeypatch.setattr("kbo_collector.db.DbSink", _FakeDbSink)
+
+    def fake_job(settings, db, date):
+        calls.append(("job", date))
+        assert isinstance(db, _FakeDbSink)
+        return 3
+
+    monkeypatch.setattr(run, "job_games_sync", fake_job)
+    rc = run.main(["games_sync", "--date", "2026-07-10"])
+    assert rc == 0
+    assert calls == [("db_created",), ("job", "2026-07-10"), ("db_closed",)]
+
+
+def test_main_games_sync_defaults_date_to_today_like_records(monkeypatch, settings):
+    # records 잡과 동일 규약: --date 미지정 시 UTC 오늘(_today()) 사용 (community 만 KST).
+    class _FakeDbSink:
+        def __init__(self, settings):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("kbo_collector.db.DbSink", _FakeDbSink)
+    seen = {}
+
+    def fake_job(settings, db, date):
+        seen["date"] = date
+        return 0
+
+    monkeypatch.setattr(run, "job_games_sync", fake_job)
+    monkeypatch.setattr(run, "_today", lambda: "2026-07-27")
+    rc = run.main(["games_sync"])
+    assert rc == 0
+    assert seen["date"] == "2026-07-27"
+
+
 def test_land_registrations_failed_team_skipped(monkeypatch, settings):
     from kbo_collector import dimensions, kbo_register
     monkeypatch.setattr(kbo_register, "current_date", lambda s, c: "2026-07-13")
