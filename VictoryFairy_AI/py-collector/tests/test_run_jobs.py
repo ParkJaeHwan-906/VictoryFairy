@@ -542,6 +542,9 @@ def _games_sync_schedule_games():
         {"gameId": "cancelled", "categoryId": "kbo", "statusCode": "BEFORE", "cancel": True,
          "winner": "DRAW", "homeTeamCode": "OB", "awayTeamCode": "LG",
          "homeTeamScore": 0, "awayTeamScore": 0, "gameDateTime": "2026-07-10T18:30:00"},
+        {"gameId": "no_dt", "categoryId": "kbo", "statusCode": "LIVE", "cancel": False,
+         "homeTeamCode": "OB", "awayTeamCode": "LG",
+         "homeTeamScore": 1, "awayTeamScore": 0},  # gameDateTime 키 자체가 결측
         {"gameId": "unknown", "categoryId": "kbo", "statusCode": "READY", "cancel": False,
          "homeTeamCode": "OB", "awayTeamCode": "LG"},
     ]
@@ -561,12 +564,14 @@ def test_job_games_sync_scores_live_or_done_only_and_skips_unknown(monkeypatch, 
     with caplog.at_level("WARNING", logger="games_sync"):
         synced = run.job_games_sync(settings, db, "2026-07-10")
 
-    assert synced == 5  # "unknown" 은 skip
+    assert synced == 6  # "unknown" 은 skip
     by_id = {c["naver_game_id"]: c for c in db.calls}
-    assert set(by_id) == {"finished", "draw", "live", "scheduled", "cancelled"}
+    assert set(by_id) == {"finished", "draw", "live", "scheduled", "cancelled", "no_dt"}
 
     assert by_id["finished"]["status_id"] == 3
     assert (by_id["finished"]["home_score"], by_id["finished"]["away_score"]) == (7, 3)
+    # gameDateTime "2026-07-10T18:30:00" -> "T"를 공백으로 치환해 DATETIME 리터럴로
+    assert by_id["finished"]["game_dt"] == "2026-07-10 18:30:00"
 
     assert by_id["draw"]["status_id"] == 4
     assert (by_id["draw"]["home_score"], by_id["draw"]["away_score"]) == (4, 4)
@@ -581,9 +586,34 @@ def test_job_games_sync_scores_live_or_done_only_and_skips_unknown(monkeypatch, 
     assert by_id["cancelled"]["status_id"] == 5
     assert (by_id["cancelled"]["home_score"], by_id["cancelled"]["away_score"]) == (None, None)
 
+    # gameDateTime 결측 -> f"{date} 00:00:00" 폴백
+    assert by_id["no_dt"]["game_dt"] == "2026-07-10 00:00:00"
+
     assert by_id["finished"]["home_team_id"] == 1 and by_id["finished"]["away_team_id"] == 2
 
     assert "unknown status" in caplog.text and "READY" in caplog.text
+
+
+def test_job_games_sync_game_dt_falls_back_for_empty_string_datetime(monkeypatch, settings):
+    # gameDateTime이 빈 문자열("")로 오는 경우도 결측과 동일하게 취급해 date 자정으로
+    # 폴백해야 한다 (None 결측과는 별개 분기: `(g.get(...) or "").replace(...) or fallback`).
+    import contextlib
+
+    class _EmptyDtResp:
+        def json(self):
+            return {"result": {"games": [
+                {"gameId": "empty_dt", "categoryId": "kbo", "statusCode": "LIVE",
+                 "cancel": False, "homeTeamCode": "OB", "awayTeamCode": "LG",
+                 "homeTeamScore": 0, "awayTeamScore": 0, "gameDateTime": ""},
+            ]}}
+
+    monkeypatch.setattr(run.fetch, "build_client", lambda settings: contextlib.nullcontext(object()))
+    monkeypatch.setattr(run.fetch, "fetch", lambda *a, **k: _EmptyDtResp())
+    db = _RecordingSyncDb(team_ids={"OB": 1, "LG": 2})
+
+    run.job_games_sync(settings, db, "2026-07-11")
+
+    assert db.calls[0]["game_dt"] == "2026-07-11 00:00:00"
 
 
 def test_main_games_sync_lazily_creates_db_and_calls_job(monkeypatch, settings):
