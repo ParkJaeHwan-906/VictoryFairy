@@ -5,4 +5,5 @@
 export const ROUTES = {
   login: '/login',
   signup: '/signup',
+  community: '/community',
 } as const;

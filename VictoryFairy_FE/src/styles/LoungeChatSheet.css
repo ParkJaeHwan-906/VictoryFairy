@@ -1,0 +1,285 @@
+/**
+ * LoungeChatSheet(라운지 채팅 바텀시트) 스타일.
+ * Figma: SWM / [Lounge] 라운지-챗 (시안) (node 744:21903), 기준 프레임 402 x 874.
+ *
+ * 시트 높이는 디자인의 694px 를 기준으로 하되, 화면이 더 낮으면 화면에 맞춘다.
+ * 시트 안은 핸들 · 제목(고정) / 메시지 목록(스크롤) / 입력창(고정) 3단이다.
+ */
+
+.lounge-chat {
+  position: fixed;
+  z-index: 10;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+/* 딤 — 클릭하면 닫힌다. 버튼이지만 화면에는 어두운 면으로만 보인다. */
+.lounge-chat__dim {
+  position: absolute;
+  inset: 0;
+  border: none;
+  padding: 0;
+  background-color: var(--color-dim);
+  cursor: default;
+}
+
+.lounge-chat__sheet {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--layout-app-width);
+  height: min(var(--layout-chat-sheet-height), 100dvh);
+  border-radius: var(--radius-40) var(--radius-40) 0 0;
+  background-color: var(--color-surface);
+  overflow: clip;
+  animation: lounge-chat-rise 0.24s ease-out;
+}
+
+@keyframes lounge-chat-rise {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Handle / Title — 시트 상단 고정 영역
+ * ------------------------------------------------------------------ */
+.lounge-chat__handle {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 12px 0;
+  background-color: var(--color-surface);
+}
+
+.lounge-chat__handle-bar {
+  width: 48px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-label-assistive);
+}
+
+/* 핸들의 용도를 보조기기에만 알린다(화면에는 막대만 보인다). */
+.lounge-chat__handle-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.lounge-chat__title {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  height: 42px;
+  margin: 0;
+  padding-inline: var(--layout-gutter);
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  text-align: center;
+}
+
+/* ------------------------------------------------------------------ *
+ * Messages — 말풍선 목록(스크롤 영역)
+ * ------------------------------------------------------------------ */
+.lounge-chat__messages {
+  display: flex;
+  flex: 1 0 0;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+  /* 제목 하단(72) → 첫 말풍선(92) = 20px */
+  margin: 0;
+  padding: 20px 0;
+  list-style: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.lounge-chat__message {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding-inline: var(--layout-gutter);
+}
+
+.lounge-chat__avatar {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-40);
+  object-fit: cover;
+}
+
+.lounge-chat__body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+
+.lounge-chat__sender {
+  margin: 0;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+}
+
+/* 말풍선 + 시각. 시각은 말풍선 아래쪽 선에 맞춘다. */
+.lounge-chat__bubble-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.lounge-chat__bubble {
+  max-width: 266px;
+  margin: 0;
+  padding: 6px 12px;
+  border-radius: var(--radius-10);
+  background-color: var(--color-background-gray);
+  color: var(--color-label-normal);
+  font-size: var(--font-size-body2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body2);
+  overflow-wrap: anywhere;
+}
+
+.lounge-chat__time {
+  flex-shrink: 0;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+/* 내가 보낸 말풍선 — 오른쪽 정렬, 주황 바탕에 흰 글씨 */
+.lounge-chat__message--mine {
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.lounge-chat__bubble--mine {
+  background-color: var(--color-primary-400);
+  color: var(--color-white);
+  text-align: right;
+}
+
+/* ------------------------------------------------------------------ *
+ * Composer — 하단 입력창
+ * 디자인 기준 입력창 아래 여백 46px(=694 - 600 - 48).
+ * ------------------------------------------------------------------ */
+.lounge-chat__composer {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  /* 좌우 24px 여백을 유지하면서 입력창 자체 padding(16/12)을 겹쳐 준다 */
+  margin: 0 var(--layout-gutter) 46px;
+  padding: 12px 12px 12px 16px;
+  border-radius: var(--radius-10);
+  background-color: var(--color-gray-100);
+}
+
+/*
+ * 입력 중 상태 — 바탕이 흰색으로 바뀌고 회색 테두리가 생긴다.
+ * 테두리를 border 로 주면 입력창 높이가 48 → 50px 로 늘어 포커스 순간 레이아웃이
+ * 튀므로, LoginPage 의 에러 테두리와 같이 inset box-shadow 로 그린다.
+ */
+.lounge-chat__composer:has(.lounge-chat__input:focus) {
+  background-color: var(--color-background-basic);
+  box-shadow: inset 0 0 0 1.5px var(--color-gray-300);
+}
+
+.lounge-chat__input {
+  flex: 1 0 0;
+  min-width: 0;
+  border: none;
+  background: none;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-body2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body2);
+}
+
+.lounge-chat__input::placeholder {
+  color: var(--color-label-assistive);
+}
+
+/* 전역 포커스 링(주황) 대신 위의 흰 바탕 + 회색 테두리로 포커스를 알린다. */
+.lounge-chat__input:focus {
+  outline: none;
+}
+
+/* 입력을 시작하면 자리표시 문구는 비운다(요소는 남아 커서 위치는 그대로). */
+.lounge-chat__input:focus::placeholder {
+  color: transparent;
+}
+
+/*
+ * 전송 버튼.
+ * 아이콘은 24px 이지만 손가락으로 누르기엔 작아, ::after 로 44px 짜리
+ * 히트 영역을 덧대 실제 터치 범위만 넓힌다(디자인의 Touchpoint p-10 과 같은 뜻).
+ */
+.lounge-chat__send {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+}
+
+.lounge-chat__send::after {
+  position: absolute;
+  inset: -10px;
+  content: '';
+}
+
+/* `send.svg` 의 fill 이 검정이라 mask 로 오려내고 색만 입힌다. */
+.lounge-chat__send-icon {
+  width: 24px;
+  height: 24px;
+  background-color: var(--color-primary-normal);
+  -webkit-mask: url('../assets/send.svg') no-repeat center / contain;
+  mask: url('../assets/send.svg') no-repeat center / contain;
+}
+
+/* ------------------------------------------------------------------ *
+ * 반응형 · 접근성
+ * ------------------------------------------------------------------ */
+@media (max-width: 359px) {
+  .lounge-chat__message {
+    padding-inline: 16px;
+  }
+
+  .lounge-chat__composer {
+    margin-inline: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lounge-chat__sheet {
+    animation: none;
+  }
+}
