@@ -1,5 +1,5 @@
 import type { AxiosResponse } from 'axios';
-import { httpClient } from './httpClient';
+import { userClient } from './httpClient';
 import type { ApiResponse } from '../types/api';
 import type {
   EmailSendCodeRequest,
@@ -31,7 +31,7 @@ function unwrap<T>(res: AxiosResponse<ApiResponse<T>>): T {
 export function validatePassword(
   body: PasswordValidationRequest,
 ): Promise<PasswordValidationResponse> {
-  return httpClient
+  return userClient
     .post<ApiResponse<PasswordValidationResponse>>('/auth/password/validate', body)
     .then(unwrap);
 }
@@ -40,7 +40,7 @@ export function validatePassword(
 export function validateNickname(
   body: NicknameValidationRequest,
 ): Promise<NicknameValidationResponse> {
-  return httpClient
+  return userClient
     .post<ApiResponse<NicknameValidationResponse>>('/auth/nickname/validate', body)
     .then(unwrap);
 }
@@ -49,7 +49,7 @@ export function validateNickname(
 export function checkNicknameDuplicate(
   body: NicknameValidationRequest,
 ): Promise<NicknameValidationResponse> {
-  return httpClient
+  return userClient
     .post<ApiResponse<NicknameValidationResponse>>('/auth/nickname/duplicate', body)
     .then(unwrap);
 }
@@ -60,12 +60,12 @@ export function checkNicknameDuplicate(
 
 /** POST /auth/email/send-code — 에러: 400(형식)/409(DUPLICATE_EMAIL)/429(EMAIL_SEND_COOLDOWN). */
 export async function sendEmailCode(body: EmailSendCodeRequest): Promise<void> {
-  await httpClient.post<ApiResponse<null>>('/auth/email/send-code', body);
+  await userClient.post<ApiResponse<null>>('/auth/email/send-code', body);
 }
 
 /** POST /auth/email/verify — 에러: 400(EXPIRED/INVALID_VERIFICATION_CODE, ATTEMPTS_EXCEEDED). */
 export async function verifyEmailCode(body: EmailVerifyRequest): Promise<void> {
-  await httpClient.post<ApiResponse<null>>('/auth/email/verify', body);
+  await userClient.post<ApiResponse<null>>('/auth/email/verify', body);
 }
 
 /* ------------------------------------------------------------------ *
@@ -77,7 +77,7 @@ export async function verifyEmailCode(body: EmailVerifyRequest): Promise<void> {
  * 에러: 400(검증/EMAIL_NOT_VERIFIED), 409(DUPLICATE_EMAIL/TEL/NICKNAME).
  */
 export async function signup(body: SignupRequest): Promise<boolean> {
-  const res = await httpClient.post<boolean>('/auth/signup', body);
+  const res = await userClient.post<boolean>('/auth/signup', body);
   return res.data;
 }
 
@@ -87,7 +87,7 @@ export async function signup(body: SignupRequest): Promise<boolean> {
  * 에러: 401 INVALID_CREDENTIALS.
  */
 export async function login(body: LoginRequest): Promise<TokenResponse> {
-  const res = await httpClient.post<TokenResponse>('/auth/login', body);
+  const res = await userClient.post<TokenResponse>('/auth/login', body);
   return res.data;
 }
 
@@ -98,13 +98,13 @@ export async function login(body: LoginRequest): Promise<TokenResponse> {
  * 에러: 401 INVALID_REFRESH_TOKEN / EXPIRED_REFRESH_TOKEN.
  */
 export async function refresh(body: TokenRequest): Promise<TokenResponse> {
-  const res = await httpClient.post<TokenResponse>('/auth/refresh', body);
+  const res = await userClient.post<TokenResponse>('/auth/refresh', body);
   return res.data;
 }
 
 /** POST /auth/logout — 204 무본문. 멱등(존재하지 않는 토큰도 성공). */
 export async function logout(body: TokenRequest): Promise<void> {
-  await httpClient.post<void>('/auth/logout', body);
+  await userClient.post<void>('/auth/logout', body);
 }
 
 /**
@@ -112,5 +112,5 @@ export async function logout(body: TokenRequest): Promise<void> {
  * 성공 시 204 무본문. 에러: 401 UNAUTHENTICATED.
  */
 export async function withdraw(): Promise<void> {
-  await httpClient.delete<void>('/users/me', { requiresAuth: true });
+  await userClient.delete<void>('/users/me', { requiresAuth: true });
 }

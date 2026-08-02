@@ -3,10 +3,13 @@
  * 컴포넌트/스토어는 raw axios가 아니라 여기서 import한다.
  */
 
-// axios 인스턴스(고급 사용/직접 요청용). 일반적으로는 authApi 함수를 쓴다.
-export { httpClient } from './httpClient';
+// 모듈별 base URL — 엔드포인트 함수는 이 base 기준 상대 경로를 쓴다.
+export { USER_BASE_URL, GAME_BASE_URL } from './config';
 
-// 엔드포인트 함수
+// 모듈별 axios 인스턴스(고급 사용/직접 요청용). 일반적으로는 아래 엔드포인트 함수를 쓴다.
+export { userClient, gameClient } from './httpClient';
+
+// 인증·계정(user 모듈) 엔드포인트 함수
 export {
   validatePassword,
   validateNickname,
@@ -20,12 +23,37 @@ export {
   withdraw,
 } from './authApi';
 
+// 채팅(game 모듈) 엔드포인트 함수
+export {
+  getChatRooms,
+  getChatRoom,
+  subscribeChatRoom,
+  sendChatMessage,
+  getChatMessages,
+  reportChatMessage,
+  validateChatMessageContent,
+  isChatRoomNotFound,
+  isChatMessageNotFound,
+  isSelfReport,
+  CHAT_ERROR_MESSAGE,
+  CHAT_MESSAGE_PAGE_SIZE,
+  CHAT_MESSAGE_MAX_LENGTH,
+} from './chatApi';
+export type { ChatSubscription, ChatSubscriptionHandlers } from './chatApi';
+
 // 토큰 저장 추상화 — store-agent가 setTokenStorage로 zustand persist 구현 주입
 export { setTokenStorage, getTokenStorage } from './tokenStorage';
 export type { TokenStorage } from './tokenStorage';
 
 // 에러 정규화
-export { ApiError, AUTH_ERROR_MESSAGE, resolveAuthErrorKind, normalizeError } from './errors';
+export {
+  ApiError,
+  AUTH_ERROR_MESSAGE,
+  resolveAuthErrorKind,
+  normalizeError,
+  apiErrorFromResponse,
+  networkError,
+} from './errors';
 export type { AuthErrorKind } from './errors';
 
 // 타입 재노출(편의)
@@ -43,3 +71,10 @@ export type {
   TokenResponse,
 } from '../types/auth';
 export type { ApiResponse, FieldErrors, ApiErrorResponse } from '../types/api';
+export type {
+  ChatRoom,
+  ChatMessage,
+  ChatMessageEvent,
+  ChatMessagePage,
+  SendChatMessageRequest,
+} from '../types/chat';
