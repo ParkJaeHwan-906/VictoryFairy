@@ -27,3 +27,19 @@ def test_bind_wiki_returns_doc_source(work):
 def test_recent_counts_and_summaries(work):
     assert recent_template_counts(work) == {"MEME_OWNER": 1}
     assert recent_summaries(work)[0]["quizId"] == "QZ-20260801-005"
+
+
+def test_enumerate_entities_game_result_filters_by_date(work):
+    # conftest의 game_result 경기는 gameId 20260728... (2026-07-28 경기).
+    yesterday = {"id": "YESTERDAY_WINNER", "needs": ["envelope.game_result.yesterday"]}
+    recent7d = {"id": "RECENT7D_TPL", "needs": ["envelope.game_result.recent7d"]}
+
+    # today가 그 경기의 다음날이면 "어제 경기"로 잡힌다.
+    assert enumerate_entities(work, yesterday, "2026-07-29") == ["20260728OBSK02026"]
+    # today가 훨씬 뒤라 그 경기가 "어제"가 아니면 제외된다(그저께 경기 오분류 방지).
+    assert enumerate_entities(work, yesterday, "2026-08-03") == []
+
+    # recent7d: today-7일 ~ today 창에 들어오면 포함.
+    assert enumerate_entities(work, recent7d, "2026-08-03") == ["20260728OBSK02026"]
+    # 창 밖(8일 이상 지남)이면 제외.
+    assert enumerate_entities(work, recent7d, "2026-08-05") == []

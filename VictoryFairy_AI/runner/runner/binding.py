@@ -4,6 +4,7 @@ needs 어휘 사전은 question-templates.yaml 머리 주석이 원전이다.
 """
 import json
 import re
+from datetime import date, timedelta
 from pathlib import Path
 
 import yaml
@@ -167,7 +168,27 @@ def _wiki_entities_with_section(work: Path, section: str) -> list:
     return sorted(ids)
 
 
-def _envelope_game_ids(dir_path) -> set:
+def _to_date(ymd8: str) -> "date | None":
+    if not ymd8 or len(ymd8) != 8 or not ymd8.isdigit():
+        return None
+    try:
+        return date(int(ymd8[0:4]), int(ymd8[4:6]), int(ymd8[6:8]))
+    except ValueError:
+        return None
+
+
+def _to_date_arg(today: str) -> date:
+    y, m, d = today.split("-")
+    return date(int(y), int(m), int(d))
+
+
+def _envelope_game_ids(dir_path, date_pred=None) -> set:
+    """dir_path 안의 envelope들에서 entities.gameId를 모은다.
+
+    date_pred가 주어지면 gameId 앞 8자리(YYYYMMDD, KST 경기일)를 date로 파싱해
+    통과하는 것만 채택한다 — yesterday/recent7d 세분화용(카탈로그 원전 준수).
+    파싱 불가(형식 이상)면 date_pred가 있을 때 보수적으로 제외한다.
+    """
     ids = set()
     if not dir_path or not dir_path.is_dir():
         return ids
@@ -177,8 +198,13 @@ def _envelope_game_ids(dir_path) -> set:
         except (OSError, json.JSONDecodeError):
             continue
         gid = ((env or {}).get("entities") or {}).get("gameId")
-        if gid:
-            ids.add(gid)
+        if not gid:
+            continue
+        if date_pred is not None:
+            gdate = _to_date(gid[:8])
+            if gdate is None or not date_pred(gdate):
+                continue
+        ids.add(gid)
     return ids
 
 
@@ -198,7 +224,17 @@ def enumerate_entities(work: Path, template: dict, today: str, *,
     if family == "stats.trending":
         return ["TOP1"]
     if family and family.startswith("envelope.game_result"):
-        ids = _envelope_game_ids(_latest_partition(work / "game_result"))
+        part = _latest_partition(work / "game_result")
+        today_d = _to_date_arg(today)
+        if family == "envelope.game_result.yesterday":
+            target = today_d - timedelta(days=1)
+            ids = _envelope_game_ids(part, lambda d: d == target)
+        elif family == "envelope.game_result.recent7d":
+            start = today_d - timedelta(days=7)
+            ids = _envelope_game_ids(part, lambda d: start <= d <= today_d)
+        else:
+            # 카탈로그에 없는 미지 접미사 — 방어적으로 필터 없이(구동작 유지).
+            ids = _envelope_game_ids(part)
         return sorted(ids, reverse=True)[:5]
     if family in _SECTION_BY_WIKI_FAMILY:
         return _wiki_entities_with_section(work, _SECTION_BY_WIKI_FAMILY[family])
