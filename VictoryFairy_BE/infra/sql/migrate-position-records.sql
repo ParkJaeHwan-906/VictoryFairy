@@ -61,19 +61,24 @@ CREATE TABLE IF NOT EXISTS positions (
 );
 
 -- 포지션 표기 매핑 (네이버 원문 → 자체 영문 약어). 매핑에 없는 표기는 원문 그대로.
--- (수집기 kbo_collector/db.py POSITION_CODES 와 동일해야 한다)
---
+-- (수집기 kbo_collector/db.py POSITION_CODES 와 동일해야 한다.)
+-- 아래 INSERT/UPDATE 두 문장이 반드시 같은 매핑을 쓰도록 임시 테이블에 한 번만
+-- 정의한다 — 두 곳에 따로 하드코딩하면 한쪽만 고쳐졌을 때 position_id 가
+-- NULL 로 남는 이관 누락이 생긴다.
+CREATE TEMPORARY TABLE pos_map (
+  raw  VARCHAR(8) PRIMARY KEY,
+  code VARCHAR(8) NOT NULL
+);
+INSERT INTO pos_map (raw, code) VALUES
+  ('투','P'),  ('포','C'),  ('一','1B'), ('二','2B'), ('三','3B'), ('유','SS'),
+  ('좌','LF'), ('중','CF'), ('우','RF'), ('지','DH'), ('타','PH'), ('주','PR');
+
 -- 기존 game_lineups.position 텍스트값을 위 매핑으로 정규화(COALESCE(약어, 원문))해
 -- 중복 없이 코드테이블로 이관.
 INSERT INTO positions (name, created_at, updated_at)
 SELECT DISTINCT COALESCE(m.code, gl.position), NOW(6), NOW(6)
 FROM game_lineups gl
-LEFT JOIN (
-  SELECT '투' raw, 'P' code UNION ALL SELECT '포','C' UNION ALL SELECT '一','1B'
-  UNION ALL SELECT '二','2B' UNION ALL SELECT '三','3B' UNION ALL SELECT '유','SS'
-  UNION ALL SELECT '좌','LF' UNION ALL SELECT '중','CF' UNION ALL SELECT '우','RF'
-  UNION ALL SELECT '지','DH' UNION ALL SELECT '타','PH' UNION ALL SELECT '주','PR'
-) m ON m.raw = gl.position
+LEFT JOIN pos_map m ON m.raw = gl.position
 WHERE gl.position IS NOT NULL
   AND NOT EXISTS (SELECT 1 FROM positions p WHERE p.name = COALESCE(m.code, gl.position));
 
@@ -83,17 +88,14 @@ ALTER TABLE game_lineups
 
 -- GameLineup.position 은 @OnDelete 미지정(마스터 데이터 정책) — 위 FK도
 -- ON DELETE 절을 생략해 InnoDB 기본 RESTRICT 그대로 둔다(positions 삭제 시
--- game_lineups 연쇄 삭제 금지). JOIN 조건도 위와 같은 매핑(COALESCE)을 써야
+-- game_lineups 연쇄 삭제 금지). JOIN 조건도 같은 pos_map 매핑(COALESCE)을 써야
 -- INSERT 로 만든 행(약어 name)과 정확히 맞물린다.
 UPDATE game_lineups gl
-LEFT JOIN (
-  SELECT '투' raw, 'P' code UNION ALL SELECT '포','C' UNION ALL SELECT '一','1B'
-  UNION ALL SELECT '二','2B' UNION ALL SELECT '三','3B' UNION ALL SELECT '유','SS'
-  UNION ALL SELECT '좌','LF' UNION ALL SELECT '중','CF' UNION ALL SELECT '우','RF'
-  UNION ALL SELECT '지','DH' UNION ALL SELECT '타','PH' UNION ALL SELECT '주','PR'
-) m ON m.raw = gl.position
+LEFT JOIN pos_map m ON m.raw = gl.position
 JOIN positions p ON p.name = COALESCE(m.code, gl.position)
 SET gl.position_id = p.id;
+
+DROP TEMPORARY TABLE pos_map;
 
 ALTER TABLE game_lineups DROP COLUMN position;
 
