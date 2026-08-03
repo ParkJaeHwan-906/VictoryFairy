@@ -21,14 +21,20 @@ aws s3 sync "s3://$S3_BUCKET/wiki/" "$WORK/wiki/" --only-show-errors
 aws s3 sync "s3://$S3_BUCKET/kbo-records/" "$WORK/kbo-records/" --only-show-errors
 
 # ── 2. 통계 재집계 + 업로드 (md는 charset 명시 — ROUTINE.md 2단계) ──
-python question-gen/scripts/aggregate_stats.py \
+# 실패해도 전체 파이프라인을 죽이지 않는다(ROUTINE.md "aggregate_stats.py 실패" 절):
+# stats.* needs 템플릿만 자연 제외하고 나머지로 계속 진행, 이전 wiki/stats/ 스냅샷은
+# 손대지 않는다(업로드 자체를 건너뛰므로 덮어쓰기가 일어나지 않는다).
+if python question-gen/scripts/aggregate_stats.py \
   --envelopes-dir "$WORK/game_result" --kbo-dir "$WORK/kbo-records" \
-  --out-dir "$WORK/stats" --date "$TODAY"
-aws s3 sync "$WORK/stats/" "s3://$S3_BUCKET/wiki/stats/" \
-  --exclude "*" --include "season.md" --include "kbo-official.md" \
-  --content-type "text/markdown; charset=utf-8" --only-show-errors
-aws s3 sync "$WORK/stats/" "s3://$S3_BUCKET/wiki/stats/" \
-  --exclude "*" --include "season.json" --include "kbo-official.json" --only-show-errors
+  --out-dir "$WORK/stats" --date "$TODAY"; then
+  aws s3 sync "$WORK/stats/" "s3://$S3_BUCKET/wiki/stats/" \
+    --exclude "*" --include "season.md" --include "kbo-official.md" \
+    --content-type "text/markdown; charset=utf-8" --only-show-errors
+  aws s3 sync "$WORK/stats/" "s3://$S3_BUCKET/wiki/stats/" \
+    --exclude "*" --include "season.json" --include "kbo-official.json" --only-show-errors
+else
+  echo "경고: aggregate_stats 실패 — stats.* 템플릿 제외하고 계속, 이전 wiki/stats/ 유지" >&2
+fi
 
 # ── 3~6. 생성·심사·확정 (Bedrock 2콜) ──
 python -m runner.main --work "$WORK" --repo-root /app/VictoryFairy_AI --date "$TODAY"
