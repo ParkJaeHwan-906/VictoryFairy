@@ -23,6 +23,7 @@
 - **BE 컨벤션 (`.claude/modules/domain.md`) 준수:** 테이블 복수형 스네이크, `@NoArgsConstructor(PROTECTED)`, private 생성자 + `@Builder`, 타임스탬프는 빌더 파라미터 금지, 모든 컬럼 `length`/`nullable` 명시, UNIQUE는 `@Table(uniqueConstraints=...)` 명시, `@Setter` 금지.
 - **수집기 멱등:** 자연키(naver_game_id, game_id+player_id) upsert, 재실행 안전.
 - **선수 자연키는 `kbo_player_id` 단일:** 네이버 pcode == KBO playerId 실측(2026-07 박스스코어·로스터 교집합 228명 전수 일치)을 스키마 전제로 승격, `players.naver_pcode` 컬럼 폐기. resolve 시 DB 이름과 API 이름이 다르면 warning 로그(동치 전제 훼손 감지 신호).
+- **positions.name은 자체 영문 약어**(P/C/1B/2B/3B/SS/LF/CF/RF/DH/PH/PR — 사용자 결정, 2026-08-03): 수집기가 네이버 표기를 변환, 미지 표기는 warning 후 원문 적재.
 - **테스트:** py-collector는 `pytest -q` (worktree의 `VictoryFairy_AI/py-collector`에서), BE는 `JAVA_HOME=$(brew --prefix openjdk@21) ./gradlew :domain:test` (worktree의 `VictoryFairy_BE`에서).
 - 커밋 메시지 끝에 `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`.
 

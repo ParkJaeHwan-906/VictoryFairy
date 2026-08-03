@@ -44,6 +44,26 @@ POSITION_INSERT = (
     "INSERT INTO positions (name, created_at, updated_at) VALUES (%s, NOW(6), NOW(6))"
 )
 
+# 네이버 박스스코어 pos 표기 → 자체 영문 약어 (사용자 결정: DB 는 표준 표기 저장).
+# "타"/"주"는 수비 위치가 아닌 출전 형태(대타/대주자) — PH/PR 로 구분 보존.
+# 미지 표기는 warning 후 원문 그대로 적재해 수집이 깨지지 않게 한다(매핑 추가는 후속).
+POSITION_CODES = {
+    "투": "P", "포": "C", "一": "1B", "二": "2B", "三": "3B",
+    "유": "SS", "좌": "LF", "중": "CF", "우": "RF", "지": "DH",
+    "타": "PH", "주": "PR",
+}
+
+
+def position_code(raw):
+    if raw is None:
+        return None
+    code = POSITION_CODES.get(raw)
+    if code is None:
+        log.warning("unknown position notation %r — storing raw", raw)
+        return raw
+    return code
+
+
 # 박스스코어 선수 해소: kbo_player_id 일괄 조회 → 신규 INSERT
 # 실측상 네이버 pcode == KBO playerId (2026-07 박스스코어·로스터 교집합 228명 전수
 # 일치) — 이 동치를 스키마 전제로 승격해 kbo_player_id 단일 자연키로 해소한다.
@@ -210,15 +230,17 @@ class DbSink:
         return pk
 
     def upsert_lineups(self, game_pk, lineups, player_map, team_ids) -> None:
-        """LineupRow 목록 upsert. position(명) -> position_id 는 호출당 memo dict로
-        해소한다 (포지션은 ~10종이라 중복 lookup 을 막는 게 목적)."""
+        """LineupRow 목록 upsert. position(네이버 원문 표기) -> 자체 영문 약어로
+        변환한 뒤 position_id 는 호출당 memo dict로 해소한다 (포지션은 ~10종이라
+        중복 lookup 을 막는 게 목적. memo 키도 변환 후 값 기준)."""
         rows = [r for r in lineups if r.pcode in player_map and r.team_code in team_ids]
         position_memo: dict = {}
 
         def resolved_position_id(name):
-            if name not in position_memo:
-                position_memo[name] = self.position_id(name)
-            return position_memo[name]
+            code = position_code(name)
+            if code not in position_memo:
+                position_memo[code] = self.position_id(code)
+            return position_memo[code]
 
         self._many(LINEUP_UPSERT, [(
             game_pk, team_ids[r.team_code], player_map[r.pcode],

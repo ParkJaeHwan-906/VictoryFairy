@@ -195,7 +195,9 @@ flowchart TD
 > `pitcher_records`는 `game_id`+`player_id` UNIQUE의 경기×선수 1행 집계이고, `positions`는
 > 포지션 lookup 테이블(name에 DB UNIQUE 없음 — lookup-or-insert가 SELECT 후 INSERT하는
 > 크론 단일 실행 전제, `game_lineups.position_id`가 참조) — 최신 구조는 domain
-> 모듈 JPA 엔티티·`crawl-flow.md` 4절 참고.
+> 모듈 JPA 엔티티·`crawl-flow.md` 4절 참고. `positions.name`은 네이버 원문(중/포/一…)이
+> 아니라 자체 영문 약어(P/C/1B/2B/3B/SS/LF/CF/RF/DH/PH/PR)로 적재된다 — 매핑 표는
+> `data-formats.md` `battersBoxscore` 절 참고, 미지 표기는 warning 후 원문 적재.
 
 ### 로스터 (소스: KBO 공식)
 

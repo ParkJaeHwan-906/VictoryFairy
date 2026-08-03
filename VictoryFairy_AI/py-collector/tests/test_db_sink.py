@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 from kbo_collector.db import (
     DbSink, TEAMS_UPSERT, ROSTER_PLAYER_UPSERT, GAME_UPSERT, LINEUP_UPSERT,
-    PLAYER_INSERT, BATTER_UPSERT, PITCHER_UPSERT,
+    PLAYER_INSERT, BATTER_UPSERT, PITCHER_UPSERT, POSITION_SELECT, POSITION_CODES,
 )
 from kbo_collector.dimensions import PlayerRow, TeamRow
 from kbo_collector.game_records import LineupRow, PlayerRef, BattingRow, PitchingRow
@@ -155,7 +155,7 @@ def test_upsert_lineups_maps_ids_and_drops_unresolved():
         LineupRow("P2", "LG", False, None, "투", True, "W"),
         LineupRow("PX", "LG", False, 9, "포", False, None),  # 미해소 pcode -> 제외
     ]
-    # position lookup: "중" -> 30, "투" -> 40 (PX 는 제외되므로 "포" lookup 없음)
+    # position lookup: "중"->CF->30, "투"->P->40 (PX 는 제외되므로 "포" lookup 없음)
     conn = FakeConn(fetch_results=[[(30,)], [(40,)]])
     DbSink(None, connection=conn).upsert_lineups(
         55, rows, {"P1": 11, "P2": 12}, {"LG": 2})
@@ -163,8 +163,10 @@ def test_upsert_lineups_maps_ids_and_drops_unresolved():
     assert kind == "executemany" and sql == LINEUP_UPSERT
     assert params == [(55, 2, 11, 1, 30, True, None),
                       (55, 2, 12, None, 40, True, "W")]
-    selects = [s for k, s, _ in conn.log if k == "execute" and s.startswith("SELECT")]
+    selects = [(s, p) for k, s, p in conn.log if k == "execute" and s.startswith("SELECT")]
     assert len(selects) == 2  # 포지션 2종 각 1회 lookup, "포" 는 미조회
+    # POSITION_SELECT 바인딩 값은 네이버 원문이 아니라 자체 영문 약어여야 한다.
+    assert selects == [(POSITION_SELECT, ("CF",)), (POSITION_SELECT, ("P",))]
 
 
 def test_upsert_lineups_memoizes_position_lookup_per_call():
@@ -176,13 +178,38 @@ def test_upsert_lineups_memoizes_position_lookup_per_call():
     conn = FakeConn(fetch_results=[[(50,)], [(60,)]])  # "중"->50, "투"->60, 각 1회만
     DbSink(None, connection=conn).upsert_lineups(
         55, rows, {"P1": 11, "P2": 12, "P3": 13}, {"LG": 2})
-    selects = [s for k, s, _ in conn.log if k == "execute" and s.startswith("SELECT")]
-    assert len(selects) == 2  # memo 적중 -> "중" 은 한 번만 조회
+    selects = [(s, p) for k, s, p in conn.log if k == "execute" and s.startswith("SELECT")]
+    assert len(selects) == 2  # memo 적중 -> "중" 은 한 번만 조회 (memo 키도 변환 후 값 기준)
+    assert selects == [(POSITION_SELECT, ("CF",)), (POSITION_SELECT, ("P",))]
     kind, sql, params = conn.log[-1]
     assert kind == "executemany" and sql == LINEUP_UPSERT
     assert params == [(55, 2, 11, 1, 50, True, None),
                       (55, 2, 12, 2, 50, True, None),
                       (55, 2, 13, 3, 60, True, None)]
+
+
+def test_upsert_lineups_unknown_position_notation_falls_back_to_raw(caplog):
+    """매핑에 없는 표기(예: 미지 신설 표기)는 warning 후 원문 그대로 바인딩한다
+    (수집이 절대 깨지지 않는 기존 lookup-or-insert 설계 유지)."""
+    rows = [LineupRow("P1", "LG", False, 1, "겸", True, None)]
+    conn = FakeConn(fetch_results=[[(99,)]])
+    with caplog.at_level("WARNING", logger="db"):
+        DbSink(None, connection=conn).upsert_lineups(55, rows, {"P1": 11}, {"LG": 2})
+    selects = [(s, p) for k, s, p in conn.log if k == "execute" and s.startswith("SELECT")]
+    assert selects == [(POSITION_SELECT, ("겸",))]
+    kind, sql, params = conn.log[-1]
+    assert kind == "executemany" and sql == LINEUP_UPSERT
+    assert params == [(55, 2, 11, 1, 99, True, None)]
+    assert "unknown position notation" in caplog.text and "겸" in caplog.text
+
+
+def test_position_codes_covers_all_twelve_naver_notations():
+    """네이버 박스스코어 pos 표기 12종 -> 자체 영문 약어 확정 매핑 전수 단언."""
+    assert POSITION_CODES == {
+        "투": "P", "포": "C", "一": "1B", "二": "2B", "三": "3B",
+        "유": "SS", "좌": "LF", "중": "CF", "우": "RF", "지": "DH",
+        "타": "PH", "주": "PR",
+    }
 
 
 def test_upsert_lineups_binds_null_for_missing_position():
