@@ -59,12 +59,18 @@ def run(work: Path, repo_root: Path, today: str, client, model_c1: str, model_c2
     verified = []
     for cand in candidates:
         entity = entity_by_template.get(cand.get("templateId"))
+        # 오케스트레이션 순서 계약: check_evidence는 "전 후보"에 대해 실행한다 —
+        # 엔티티 매칭 실패라고 evidence 검사를 건너뛰지 않는다(두 실패가 겹치면
+        # 사유를 합쳐서 남긴다).
+        evidence_ok = check_evidence(work, repo_root, cand)
+        cand_reasons = []
         if entity is None:
-            discarded.append(f"{cand['quizId']}: templateId({cand.get('templateId')})가 "
-                             "combos에 없음 — 엔티티 매칭 실패, 폐기")
-            continue
-        if not check_evidence(work, repo_root, cand):
-            discarded.append(f"{cand['quizId']}: evidence 원문 대조 실패")
+            cand_reasons.append(f"templateId({cand.get('templateId')})가 combos에 없음 — "
+                                "엔티티 매칭 실패")
+        if not evidence_ok:
+            cand_reasons.append("evidence 원문 대조 실패")
+        if cand_reasons:
+            discarded.append(f"{cand['quizId']}: " + "; ".join(cand_reasons))
             continue
         entity_of[cand["quizId"]] = entity
         verified.append(cand)
