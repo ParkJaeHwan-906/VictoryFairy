@@ -1,5 +1,11 @@
 # 퀴즈 생성기 routine 실행 지침
 
+> **실행체 안내 (2026-08-03)**: 이 문서는 이제 Bedrock 러너
+> (`runner/entrypoint-quiz.sh` + `runner/runner/`)의 스펙 문서다. 셸 블록은
+> entrypoint가, "이 세션이 직접 수행" 단계는 러너의 C1(작문)·C2(심사) Bedrock
+> 콜이 구현한다. 러너와 이 문서가 어긋나면 이 문서를 먼저 고치고 구현을 맞춘다
+> (스펙: docs/superpowers/specs/2026-08-03-bedrock-quiz-runner-design.md).
+
 Claude Code 클라우드 스케줄 잡(routine)이 실행마다 그대로 따르는 절차다. 이 routine
 자신이 "① 템플릿 선택·③ 문구 생성·검증 엔진"이므로, 그 세 단계는 별도 프로세스를
 호출하지 않고 이 세션이 직접 `question-gen/prompts/generation-rules.md`·
