@@ -1,7 +1,7 @@
 # user API 명세
 
 > 코드 기준 자동 작성. 포트 **8080**(`user/src/main/resources/application.yaml`의 `server.port: 8080`). `server.servlet.context-path: /api/member`가 설정돼 있어(같은 파일) 컨트롤러의 `@RequestMapping`은 접두사 없는 자원 경로만 갖고, 실제 외부 경로에는 `/api/member`가 항상 붙는다. base URL 자체(`http://localhost:8080`)는 context-path와 무관.
-> 최종 갱신: 2026-08-01 (`GET /api/member/games` 추가, `date` 필수→선택 변경, 응답에 `stadium`(nullable) 필드 추가 반영 — `dev_be` 병합 완료)
+> 최종 갱신: 2026-08-03 (`GET /api/member/players`에 이름 부분 일치 검색 파라미터 `name` 추가 — `teamId`와 AND 결합, 빈 값·공백은 미지정과 동일)
 > 대상 컨트롤러: `user/src/main/java/com/skhynix/user/auth/controller/AuthController.java` (`@RequestMapping("/auth")`), `user/src/main/java/com/skhynix/user/account/controller/UserAccountController.java` (`@RequestMapping("/users")`), `user/src/main/java/com/skhynix/user/team/controller/TeamController.java` (`@RequestMapping("/teams")`), `user/src/main/java/com/skhynix/user/player/controller/PlayerController.java` (`@RequestMapping("/players")`), `user/src/main/java/com/skhynix/user/support/controller/SupportController.java` (`@RequestMapping("/support")`), `user/src/main/java/com/skhynix/user/game/controller/GameController.java` (`@RequestMapping("/games")`) — user 모듈의 컨트롤러 6개.
 > 인증: JWT Bearer (`Authorization: Bearer <accessToken>`). `SecurityConfig`에서 `/api/member/auth/**` 전체가 `permitAll()`이라 `AuthController`의 9개 엔드포인트는 인증 불필요. **`/api/member/users/me`(회원탈퇴)는 `anyRequest().authenticated()`에 걸리는 이 모듈의 첫 인증 필요 엔드포인트다** — 과거 이 문서에 "user 모듈에 실제로 인증이 걸리는 엔드포인트는 없다"고 적혀 있었다면 그건 이 엔드포인트가 생기기 전 사실이었다. 미인증 시 **401**(`RestAuthenticationEntryPoint`) — 자세한 내용은 아래 "인증 방식" 절 참고. **`GET /api/member/teams`는 `/api/member/auth/**` 밖에서 처음으로 `permitAll`이 된 경로**이며 GET으로만 좁혀 열려 있다(비-GET은 401 — 아래 해당 절 참고). **`GET /api/member/players`·`GET /api/member/games`도 같은 성격의 참조 데이터라 같은 방식(GET 한정 `permitAll`)으로 열려 있다.**
 
@@ -624,17 +624,31 @@ curl -i -X POST http://localhost:8080/api/member/teams
 ---
 
 ## GET /api/member/players
-KBO 선수 목록 조회. 대상 컨트롤러는 `PlayerController`(`@RequestMapping("/players")`, `com.skhynix.user.player.controller.PlayerController`) → `PlayerService.getPlayers(Long)` → `PlayerRepository.findAllByOrderByNameAsc()` 또는 `findAllByTeam_IdOrderByNameAsc(teamId)`.
+KBO 선수 목록 조회 및 이름 검색. 대상 컨트롤러는 `PlayerController`(`@RequestMapping("/players")`, `com.skhynix.user.player.controller.PlayerController`) → `PlayerService.getPlayers(Long, String)` → `PlayerRepository`의 네 메서드 중 하나.
 
 **인증 불필요.** `GET /api/member/teams`와 같은 성격의 참조 데이터라 `SecurityConfig`가 같은 방식으로 열었다(`.requestMatchers(HttpMethod.GET, "/players").permitAll()`). **`permitAll`은 `HttpMethod.GET`으로 좁혀져 있어** `POST /api/member/players`는 405가 아니라 **401**이다.
 
-**요청**: 쿼리 파라미터 `teamId` 1개(선택).
+**요청**: 쿼리 파라미터 2개(둘 다 선택).
 
 | 파라미터 | 타입 | 필수 | 설명 |
 |---|---|---|---|
-| teamId | Long | 아니오 | 구단 PK(`GET /api/member/teams`의 `data[].id`). 주면 해당 구단 소속 선수만, 생략하면 전체 선수를 반환한다 |
+| teamId | Long | 아니오 | 구단 PK(`GET /api/member/teams`의 `data[].id`). 주면 해당 구단 소속 선수만, 생략하면 구단으로 거르지 않는다 |
+| name | String | 아니오 | 선수 이름 **부분 일치** 검색어(`LIKE '%검색어%'`). 주면 이름에 이 문자열이 포함된 선수만 반환한다. 앞부분 일치가 아니라 **포함**이므로 `?name=도영`으로 `"김도영"`이 걸린다. 생략하면 이름으로 거르지 않는다 |
 
-`?page=`/`?size=` 등은 서버가 해석하지 않으며 **페이징이 없다** — 항상 단일 배열로 반환한다.
+**두 파라미터를 함께 주면 AND로 결합**된다(`?teamId=6&name=도영` → KIA 소속이면서 이름에 "도영"이 든 선수). 조합에 따라 실제로 나가는 쿼리는 다음 4가지다:
+
+| teamId | name | 리포지토리 메서드 |
+|---|---|---|
+| 없음 | 없음 | `findAllByOrderByNameAsc()` |
+| 있음 | 없음 | `findAllByTeam_IdOrderByNameAsc(teamId)` |
+| 없음 | 있음 | `findAllByNameContainingOrderByNameAsc(name)` |
+| 있음 | 있음 | `findAllByTeam_IdAndNameContainingOrderByNameAsc(teamId, name)` |
+
+**`name`의 빈 값·공백 처리**: `?name=`(값 없음), `?name=%20%20`(공백만)은 **`name`을 주지 않은 것과 동일하게** 취급한다(`LIKE '%%'`로 헛도는 쿼리를 만들지 않는다). 검색어 앞뒤 공백은 제거한 뒤 매칭하므로 `?name=%20도영%20`은 `?name=도영`과 결과가 같다.
+
+**대소문자를 구분하지 않는다** — MySQL 기본 콜레이션(`_ci`)이 흡수한다. 다만 초성 검색(`ㄱㄷㅇ`), 오타 허용, 관련도 순 정렬은 **지원하지 않는다**(단순 `LIKE` 검색이며 정렬은 아래대로 항상 `name` 오름차순 고정).
+
+`?page=`/`?size=` 등은 서버가 해석하지 않으며 **페이징이 없다** — 항상 단일 배열로 반환한다. 검색 결과가 많아도 마찬가지다.
 
 **응답 200 OK** `ApiResponse<List<PlayerResponse>>`
 
@@ -648,9 +662,9 @@ KBO 선수 목록 조회. 대상 컨트롤러는 `PlayerController`(`@RequestMap
 
 **`average`/`naverPcode`/`kboPlayerId`/`team`/`createdAt`/`updatedAt`는 의도적으로 응답에 없다.** `naverPcode`(네이버 record API의 pcode)와 `kboPlayerId`(KBO 공식 playerId)는 py-collector가 upsert 키로 소유하는 소스 자연키라 `TeamResponse`가 `Team.code`를 감추는 것과 같은 이유로 제외한다. `team`을 담지 않는 것은 N+1 방지 목적도 겸한다(`Player.team`이 LAZY라 응답 변환에서 초기화되지 않는다).
 
-**정렬: `name` 오름차순, DB(`ORDER BY name ASC`)가 단독 수행하며 애플리케이션에서 재정렬하지 않는다.** `teamId` 유무와 무관하게 같은 정렬이다. 구단 목록과 마찬가지로 한국어 로케일이 아닌 MySQL 콜레이션 기준이다.
+**정렬: `name` 오름차순, DB(`ORDER BY name ASC`)가 단독 수행하며 애플리케이션에서 재정렬하지 않는다.** `teamId`·`name` 유무와 무관하게 같은 정렬이다(검색 결과도 관련도 순이 아니라 이름 오름차순). 구단 목록과 마찬가지로 한국어 로케일이 아닌 MySQL 콜레이션 기준이다.
 
-**존재하지 않는 `teamId`는 404가 아니라 200 + 빈 배열**이다. 구단 존재 여부를 따로 조회하지 않으며, `GET /api/member/teams`가 유효한 id의 출처라고 전제한다. `players` 테이블에 행이 없을 때도 동일하다:
+**존재하지 않는 `teamId`나 일치하는 선수가 없는 `name`은 404가 아니라 200 + 빈 배열**이다. 구단 존재 여부를 따로 조회하지 않으며, `GET /api/member/teams`가 유효한 id의 출처라고 전제한다. `players` 테이블에 행이 없을 때도 동일하다:
 ```json
 {"success":true,"data":[],"message":null}
 ```
@@ -662,12 +676,22 @@ KBO 선수 목록 조회. 대상 컨트롤러는 `PlayerController`(`@RequestMap
 | 400 | (래퍼 없음) | `teamId`가 숫자가 아님(예: `?teamId=abc`). 컨트롤러 진입 전 타입 변환 실패라 `GlobalExceptionHandler`가 아니라 Spring 기본 `DefaultHandlerExceptionResolver`가 처리한다 — **이 응답만 `ApiResponse` 래퍼가 아니다** |
 | 401 | UNAUTHENTICATED | `GET` 이외의 메서드로 이 경로 요청(`permitAll`이 GET으로만 좁혀져 있음 — 405 아님) |
 
+**`name`에는 400이 없다.** 문자열이라 타입 변환이 실패할 수 없고, 길이·문자 종류 제약도 걸지 않는다. 어떤 값을 줘도 200이며 일치하는 선수가 없으면 빈 배열이다.
+
 Authorization 헤더가 있어도(만료·무효 토큰이어도) 이 경로는 `permitAll`이라 그대로 200을 반환한다.
+
+**알려진 동작(주의)**: 검색어에 든 `%`·`_`는 `LIKE` 와일드카드로 그대로 해석된다(이스케이프하지 않는다) — `?name=%25`는 전체 조회와 같아지고 `?name=_`는 아무 한 글자에나 걸린다. 선수 이름에 이 문자가 들어갈 일이 없어 실사용 영향이 없다고 보고 남겨둔 상태다(파라미터 바인딩이라 SQL 인젝션 경로는 아니다).
 
 **예시**
 ```bash
+# 전체
 curl -i -X GET http://localhost:8080/api/member/players
+# 구단 필터
 curl -i -X GET "http://localhost:8080/api/member/players?teamId=6"
+# 이름 검색(부분 일치)
+curl -i -X GET "http://localhost:8080/api/member/players?name=%EB%8F%84%EC%98%81"
+# 구단 + 이름 (AND)
+curl -i -X GET "http://localhost:8080/api/member/players?teamId=6&name=%EB%8F%84%EC%98%81"
 ```
 ```json
 {"success":true,"data":[{"id":2,"name":"김도영"}],"message":null}
