@@ -60,12 +60,22 @@ CREATE TABLE IF NOT EXISTS positions (
   updated_at DATETIME(6) NOT NULL
 );
 
--- 기존 game_lineups.position 텍스트값 중복 없이 코드테이블로 이관.
+-- 포지션 표기 매핑 (네이버 원문 → 자체 영문 약어). 매핑에 없는 표기는 원문 그대로.
+-- (수집기 kbo_collector/db.py POSITION_CODES 와 동일해야 한다)
+--
+-- 기존 game_lineups.position 텍스트값을 위 매핑으로 정규화(COALESCE(약어, 원문))해
+-- 중복 없이 코드테이블로 이관.
 INSERT INTO positions (name, created_at, updated_at)
-SELECT DISTINCT gl.position, NOW(6), NOW(6)
+SELECT DISTINCT COALESCE(m.code, gl.position), NOW(6), NOW(6)
 FROM game_lineups gl
+LEFT JOIN (
+  SELECT '투' raw, 'P' code UNION ALL SELECT '포','C' UNION ALL SELECT '一','1B'
+  UNION ALL SELECT '二','2B' UNION ALL SELECT '三','3B' UNION ALL SELECT '유','SS'
+  UNION ALL SELECT '좌','LF' UNION ALL SELECT '중','CF' UNION ALL SELECT '우','RF'
+  UNION ALL SELECT '지','DH' UNION ALL SELECT '타','PH' UNION ALL SELECT '주','PR'
+) m ON m.raw = gl.position
 WHERE gl.position IS NOT NULL
-  AND NOT EXISTS (SELECT 1 FROM positions p WHERE p.name = gl.position);
+  AND NOT EXISTS (SELECT 1 FROM positions p WHERE p.name = COALESCE(m.code, gl.position));
 
 ALTER TABLE game_lineups
   ADD COLUMN position_id BIGINT NULL,
@@ -73,8 +83,16 @@ ALTER TABLE game_lineups
 
 -- GameLineup.position 은 @OnDelete 미지정(마스터 데이터 정책) — 위 FK도
 -- ON DELETE 절을 생략해 InnoDB 기본 RESTRICT 그대로 둔다(positions 삭제 시
--- game_lineups 연쇄 삭제 금지).
-UPDATE game_lineups gl JOIN positions p ON p.name = gl.position
+-- game_lineups 연쇄 삭제 금지). JOIN 조건도 위와 같은 매핑(COALESCE)을 써야
+-- INSERT 로 만든 행(약어 name)과 정확히 맞물린다.
+UPDATE game_lineups gl
+LEFT JOIN (
+  SELECT '투' raw, 'P' code UNION ALL SELECT '포','C' UNION ALL SELECT '一','1B'
+  UNION ALL SELECT '二','2B' UNION ALL SELECT '三','3B' UNION ALL SELECT '유','SS'
+  UNION ALL SELECT '좌','LF' UNION ALL SELECT '중','CF' UNION ALL SELECT '우','RF'
+  UNION ALL SELECT '지','DH' UNION ALL SELECT '타','PH' UNION ALL SELECT '주','PR'
+) m ON m.raw = gl.position
+JOIN positions p ON p.name = COALESCE(m.code, gl.position)
 SET gl.position_id = p.id;
 
 ALTER TABLE game_lineups DROP COLUMN position;
@@ -154,8 +172,10 @@ ALTER TABLE players DROP COLUMN naver_pcode;
 --    -- 미리 세어 두고 위 결과와 같아야(그 이상이면 이관 누락) 정상이다.
 --
 -- 2) 스텝 1 positions 테이블 행수: game_lineups.position 원본 DISTINCT 값 개수와
---    일치해야 한다(이관 전에 미리 세어둘 것).
+--    일치해야 한다(매핑이 1:1 치환이라 개수는 그대로, 값만 약어로 바뀐다 —
+--    이관 전에 미리 세어둘 것).
 --    SELECT COUNT(*) FROM positions;
+--    -- 기대 값 예시: '투'→'P', '중'→'CF', '포'→'C' 등(매핑에 없는 원문은 그대로 유지).
 --
 -- 3) 스텝 2 재구축 후 두 테이블이 빈 테이블로 새로 만들어졌는지(FK 포함):
 --    SELECT COUNT(*) FROM batter_records;   -- 기대: 0

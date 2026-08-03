@@ -15,10 +15,12 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
 /**
- * 수비 포지션 코드 테이블. 값은 네이버 record API 박스스코어의 {@code pos} 표기 그대로다
- * (중/포/지/투/좌/우/유/一/二/三 … 표기, 대타는 "타", 대주자는 "주").
- * py-collector 가 lookup-or-insert 로 행을 만들며, {@link GameLineup}이 {@code position_id} FK로 참조한다.
- * "타"/"주"는 수비 위치가 아니라 출전 형태 표기임에 주의 — 원천 표기를 가공 없이 보존하는 설계다.
+ * 수비 포지션 코드 테이블. 값은 자체 영문 약어다 — P/C/1B/2B/3B/SS/LF/CF/RF/DH,
+ * 출전 형태 표기 PH(대타)/PR(대주자). py-collector 가 네이버 record API 박스스코어의
+ * {@code pos} 표기(중/포/一 …)를 이 약어로 변환해 lookup-or-insert 하며,
+ * {@link GameLineup}이 {@code position_id} FK 로 참조한다.
+ * PH/PR 는 수비 위치가 아니라 출전 형태임에 주의. 매핑에 없는 미지 표기는 수집기가
+ * warning 후 원문 그대로 적재하므로 약어 외 값이 존재할 수 있다(발견 시 매핑 추가).
  */
 @Entity
 @Table(name = "positions")

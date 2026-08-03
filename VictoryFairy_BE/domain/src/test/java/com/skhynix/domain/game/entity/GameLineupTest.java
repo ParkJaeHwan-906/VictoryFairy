@@ -35,7 +35,7 @@ class GameLineupTest {
         Game game = newGame(home, away);
 
         // when
-        Position center = Position.builder().name("중").build();
+        Position center = Position.builder().name("CF").build();
         GameLineup lineup = GameLineup.builder()
                 .game(game)
                 .team(away)
@@ -50,7 +50,7 @@ class GameLineupTest {
         assertThat(lineup.getTeam()).isSameAs(away);
         assertThat(lineup.getPlayer()).isSameAs(batter);
         assertThat(lineup.getBatOrder()).isEqualTo(1);
-        assertThat(lineup.getPosition().getName()).isEqualTo("중");
+        assertThat(lineup.getPosition().getName()).isEqualTo("CF");
         assertThat(lineup.isStarter()).isTrue();
         assertThat(lineup.getDecision()).isNull();
     }
@@ -68,14 +68,14 @@ class GameLineupTest {
                 .game(newGame(home, away))
                 .team(home)
                 .player(pitcher)
-                .position(Position.builder().name("투").build())
+                .position(Position.builder().name("P").build())
                 .isStarter(false)
                 .decision("W")
                 .build();
 
         // then
         assertThat(lineup.getBatOrder()).isNull();
-        assertThat(lineup.getPosition().getName()).isEqualTo("투");
+        assertThat(lineup.getPosition().getName()).isEqualTo("P");
         assertThat(lineup.isStarter()).isFalse();
         assertThat(lineup.getDecision()).isEqualTo("W");
     }
