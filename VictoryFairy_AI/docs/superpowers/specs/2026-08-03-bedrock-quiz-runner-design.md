@@ -130,7 +130,11 @@ LLM이 반드시 필요한 지점만 구조화 호출로 남긴다. 에이전트
 ## 10. 오픈 퀘스천
 
 1. **EKS CronJob vs Fargate** — dev_infra 소유자와 확정 (기존 "DB 적재 Lambda vs
-   EKS CronJob" 결정 기록과 정합 확인)
+   EKS CronJob" 결정 기록과 정합 확인). 2026-08-03 실측으로 두 판단 변수는 확인됨:
+   `victoryfairy-dev` 클러스터에 OIDC 프로바이더 등록 + IRSA 실사용 3건
+   (aws-lbc·cluster-autoscaler·external-dns — 전부 kube-system 애드온, 앱 레벨은
+   러너가 첫 사례가 됨), cluster-autoscaler 가동으로 노드 용량 우려도 완화 —
+   둘 다 EKS CronJob 쪽을 지지한다.
 2. **Bedrock 모델 가용성** — ap-northeast-2에서 사용할 Sonnet/Haiku 모델 ID·쿼터
    확인 (검열 파이프라인이 쓰는 모델·리전 구성을 그대로 따르는 것이 1안)
 3. **casebook 리포 반영 주기** — 러너는 S3 `wiki/_meta/casebook/`만 갱신(기존
