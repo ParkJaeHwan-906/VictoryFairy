@@ -2,6 +2,8 @@
 
 Bedrock 기반 일일 퀴즈 생성 파이프라인을 EKS 클러스터에서 CronJob으로 실행하는 절차. Task 8의 `victoryfairy-quiz-runner` 이미지를 배포하고 필요한 권한(IRSA)을 설정한 후 모니터링까지 다룬다.
 
+**소유권**: 이 문서의 IAM 역할 생성(§2), kubectl apply 실행(§3)은 dev_infra 소유자가 수행한다. 이 리포는 파일과 절차만 제공한다.
+
 ## 1. ECR 리포 생성 · 이미지 푸시
 
 ### 1-1. ECR 리포 생성
@@ -24,11 +26,11 @@ aws ecr create-repository \
 kubectl get nodes -o jsonpath='{.items[0].status.nodeInfo.architecture}'
 ```
 
-빌드 및 푸시:
+빌드 및 푸시 (리포 루트에서 실행):
 
 ```bash
 # Task 8 빌드 명령 + --platform 플래그
-cd VictoryFairy_AI
+# 모든 경로는 리포 루트(VictoryFairy_AI/) 기준
 ARCH=$(kubectl get nodes -o jsonpath='{.items[0].status.nodeInfo.architecture}')
 PLATFORM="linux/$ARCH"
 ACCOUNT=555209622409
@@ -36,9 +38,9 @@ REGION=ap-northeast-2
 
 docker build \
   --platform "$PLATFORM" \
-  -f runner/Dockerfile \
+  -f VictoryFairy_AI/runner/Dockerfile \
   -t victoryfairy-quiz-runner:latest \
-  .
+  VictoryFairy_AI
 
 # ECR 로그인
 aws ecr get-login-password --region "$REGION" | \
@@ -62,16 +64,19 @@ kubectl create serviceaccount quiz-runner \
   --namespace victoryfairy
 ```
 
-### 2-2. IRSA 역할 생성
+### 2-2. IRSA 역할 생성 (dev_infra)
 
-기존 IRSA 패턴(kube-system 애드온들과 동일)을 따른다.
+기존 IRSA 패턴(kube-system 애드온들과 동일)을 따른다. 리포 루트에서 실행한다.
 
 ```bash
 # 계정 및 클러스터 정보
 ACCOUNT=555209622409
 CLUSTER=victoryfairy-dev
 REGION=ap-northeast-2
-OIDC_ID=3613BBAC68BE9C5508DB6133B2D1EC16
+
+# OIDC ID 동적 조회 (2026-08-03 실측값: 3613BBAC68BE9C5508DB6133B2D1EC16)
+OIDC_ISSUER=$(aws eks describe-cluster --name "$CLUSTER" --query "cluster.identity.oidc.issuer" --output text)
+OIDC_ID=${OIDC_ISSUER##*/}
 
 # 신뢰 대상 (ServiceAccount)
 TRUST_ENTITY="system:serviceaccount:victoryfairy:quiz-runner"
@@ -104,9 +109,9 @@ aws iam create-role \
   --assume-role-policy-document file:///tmp/trust-policy.json \
   --region "$REGION"
 
-# 정책 첨부 (${BUCKET}은 실제 버킷명으로 치환)
-BUCKET=$(grep '^COLLECTOR_S3_BUCKET=' ../../py-collector/.env | cut -d= -f2)
-sed "s/\${BUCKET}/$BUCKET/g" irsa-policy-runner.json > /tmp/irsa-policy-runner.json
+# 정책 첨부 (${BUCKET}은 실제 버킷명으로 치환, 리포 루트에서 실행)
+BUCKET=$(grep '^COLLECTOR_S3_BUCKET=' VictoryFairy_AI/py-collector/.env | cut -d= -f2)
+sed "s/\${BUCKET}/$BUCKET/g" VictoryFairy_AI/deploy/runner/irsa-policy-runner.json > /tmp/irsa-policy-runner.json
 
 aws iam put-role-policy \
   --role-name victoryfairy-quiz-runner \
@@ -114,20 +119,22 @@ aws iam put-role-policy \
   --policy-document file:///tmp/irsa-policy-runner.json
 ```
 
-### 2-3. ServiceAccount에 IAM 역할 어노테이션 추가
+### 2-3. ServiceAccount에 IAM 역할 어노테이션 추가 (dev_infra)
 
 ```bash
 kubectl annotate serviceaccount quiz-runner \
   --namespace victoryfairy \
-  eks.amazonaws.com/role-arn=arn:aws:iam::$ACCOUNT:role/victoryfairy-quiz-runner \
+  eks.amazonaws.com/role-arn=arn:aws:iam::555209622409:role/victoryfairy-quiz-runner \
   --overwrite
 ```
 
-## 3. CronJob 배포
+## 3. CronJob 배포 (dev_infra)
+
+리포 루트에서 실행한다.
 
 ```bash
 # CronJob 배포
-kubectl apply -f cronjob-quiz.yaml
+kubectl apply -f VictoryFairy_AI/deploy/runner/cronjob-quiz.yaml
 
 # 배포 확인
 kubectl get cronjob -n victoryfairy quiz-runner
@@ -156,11 +163,11 @@ kubectl describe job quiz-runner-manual -n victoryfairy
 
 ### 5-1. quiz-candidates 파티션 적재 확인
 
-오늘자 `quiz-candidates/{date}/` 파티션에 파일이 적재되었는지 매일 확인한다. 파이프라인 목표는 일일 10문항이고, 며칠 연속 0건이면 조사가 필요하다.
+오늘자 `quiz-candidates/{date}/` 파티션에 파일이 적재되었는지 매일 확인한다. 파이프라인 목표는 일일 10문항이고, 며칠 연속 0건이면 조사가 필요하다. 리포 루트에서 실행한다.
 
 ```bash
 # 버킷명 확인
-BUCKET=$(grep '^COLLECTOR_S3_BUCKET=' ../../py-collector/.env | cut -d= -f2)
+BUCKET=$(grep '^COLLECTOR_S3_BUCKET=' VictoryFairy_AI/py-collector/.env | cut -d= -f2)
 
 # 오늘자 파티션 건수 확인 (KST 기준)
 TODAY=$(TZ=Asia/Seoul date +%Y-%m-%d)
@@ -170,14 +177,14 @@ aws s3 ls "s3://$BUCKET/quiz-candidates/$TODAY/" --recursive | wc -l
 ### 5-2. 러너 로그 확인
 
 ```bash
-# 최근 CronJob 실행 조회
+# 최근 CronJob 실행 조회 (라벨로 필터)
 kubectl get pods -n victoryfairy -l app.kubernetes.io/name=quiz-runner --sort-by=.metadata.creationTimestamp | tail -5
 
 # 특정 Pod 로그 확인
 kubectl logs -n victoryfairy <pod-name>
 
-# CloudWatch에서 로그 확인 (설정되어 있는 경우)
-aws logs tail /aws/eks/victoryfairy-dev/victoryfairy --follow
+# CloudWatch 로그 확인 (EKS logging 설정 시)
+aws logs tail /aws/eks/victoryfairy-dev/cluster --follow
 ```
 
 ## 6. 운영 전제 조건
