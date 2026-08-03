@@ -20,6 +20,14 @@ def _ok(fun=5, diff="EASY"):
             "difficulty": diff, "reason": "ok"}
 
 
+def _pred(nn, template, game_id="NOPE"):
+    c = _cand(nn, template)
+    c["kind"] = "PREDICTION"
+    c["evidence"] = None
+    c["settlement"] = {"gameId": game_id, "metric": "WIN_TEAM"}
+    return c
+
+
 def test_check_evidence_resolves_stats_md(work):
     assert check_evidence(work, REPO, _cand(1, "STREAK_CURRENT")) is True
     assert check_evidence(work, REPO, _cand(2, "STREAK_CURRENT", quote="없는 문장")) is False
@@ -33,6 +41,25 @@ def test_select_final_drops_by_verdict_and_remaps_points():
     assert [c["quizId"] for c in final] == ["RAW-01"]
     assert final[0]["difficulty"] == "MEDIUM" and final[0]["pointReward"] == 50
     assert len(reasons) == 2                       # fun<4, duplicate
+
+
+def test_select_final_drops_unrecognized_difficulty():
+    cands = [_cand(1, "A")]
+    verdicts = {"RAW-01": _ok(diff="ULTRA")}
+    final, reasons = select_final(cands, verdicts, {})
+    assert final == []
+    assert len(reasons) == 1
+    assert "ULTRA" in reasons[0]
+
+
+def test_assign_and_write_skips_prediction_missing_schedule_and_logs_reason(work):
+    final = [_pred(9, "PRED_WIN_LOSE", game_id="NOPE")]
+    reasons = []
+    paths = assign_and_write(final, {}, work, TODAY, reasons)
+    assert paths == []
+    assert len(reasons) == 1
+    assert "RAW-09(PRED_WIN_LOSE)" in reasons[0]
+    assert "startTime 미발견" in reasons[0]
 
 
 def test_assign_and_write_orders_by_template_entity(work):

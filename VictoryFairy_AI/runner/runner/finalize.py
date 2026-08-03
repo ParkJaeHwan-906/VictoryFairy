@@ -62,8 +62,12 @@ def select_final(candidates, verdicts, entity_of):
         if fun < 4:
             reasons.append(f"{qid}: 재미 점수 부족(fun={fun}<4) — 폐기")
             continue
-        c["difficulty"] = v.get("difficulty")
-        c["pointReward"] = POINTS.get(c["difficulty"])
+        new_diff = v.get("difficulty")
+        if new_diff not in POINTS:
+            reasons.append(f"{qid}: 난이도 재분류 값 인식 불가: {new_diff}")
+            continue
+        c["difficulty"] = new_diff
+        c["pointReward"] = POINTS[new_diff]
         passed.append(c)
 
     final = []
@@ -101,11 +105,12 @@ def _kst_to_utc_iso(date_str: str, hhmm: str, minus_hours: float = 0) -> str:
     return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def assign_and_write(final, entity_of, work: Path, today: str) -> list:
+def assign_and_write(final, entity_of, work: Path, today: str, reasons: "list | None" = None) -> list:
     """(templateId, entity) 사전순 정렬 → QZ-{YYYYMMDD}-{NNN} 부여 → 파일로 쓴다.
 
     PREDICTION인데 game_schedule에서 매치되는 startTime을 못 찾으면 그 후보는
-    번호를 소비하지 않고 건너뛴다(쓰지 않음)."""
+    번호를 소비하지 않고 건너뛴다(쓰지 않음) — `reasons`가 주어지면 폐기 사유를
+    한 줄 append한다(Task 7이 요약에 싣는 용도, 반환형은 list[Path] 그대로 유지)."""
     ordered = sorted(final, key=lambda c: (c["templateId"], entity_of.get(c["quizId"], "")))
     out_dir = work / "candidates" / today
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -119,6 +124,10 @@ def assign_and_write(final, entity_of, work: Path, today: str) -> list:
             payload = _schedule_payload(work, today, game_id)
             start_time = (payload or {}).get("startTime")
             if not start_time:
+                if reasons is not None:
+                    reasons.append(
+                        f"{cand['quizId']}({cand['templateId']}): "
+                        "game_schedule에서 startTime 미발견 — 폐기")
                 continue
             deadline = _kst_to_utc_iso(today, start_time, minus_hours=2)
         else:
