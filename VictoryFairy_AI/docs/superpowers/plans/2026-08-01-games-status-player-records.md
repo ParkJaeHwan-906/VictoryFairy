@@ -683,6 +683,12 @@ def test_game_results_sql_filters_finished_and_draw_only():
 
 > **이 태스크는 코드가 아니라 운영 실행이다. 반드시 사용자 승인 후, 사용자와 함께 진행한다** (prod DDL + SSH 터널 필요). 구현 태스크(1~11) 완료·리뷰 통과 후 별도로 실행.
 
+> **실행 순서 제약 (최종 리뷰 발견):**
+> 1. **"구 스키마 확인 → 마이그레이션 → 즉시 새 BE 배포" 순서 고정.** 마이그레이션 전에 새 BE가 기동하면 ddl-auto=update가 position_id를 선생성해 ALTER가 중간 실패하고, 마이그레이션 후 구 BE가 떠 있으면 naver_pcode DROP 때문에 players/support API가 500. 가능하면 user 앱 정지 상태에서 실행.
+> 2. **수집기 Lambda는 머지 즉시 CI 자동 배포됨** — AI 머지와 마이그레이션 사이에 03:30 KST records 잡이 돌면 positions 부재로 per-game 실패(멱등 백필로 복구 가능). 머지와 마이그레이션을 같은 날, 다음 03:30 KST 이전에 완료할 것.
+> 3. 수동 실행 시 `--date`/`--from/--to` 항상 명시 — CLI 기본값은 UTC-오늘이라 00:00~08:59 KST에는 KST-어제로 잡힘.
+> 4. 마이그레이션 직후 user 앱 재기동 로그에서 추가 DDL이 없는지 확인(있으면 이름 불일치 신호).
+
 - [ ] **Step 1: 사전 확인** — SSH 터널 열림(`127.0.0.1:3306` = 원격 DB), `SELECT COUNT(*) FROM batter_records;` == 0, `SHOW CREATE TABLE game_lineups;`로 구 스키마(position 텍스트) 확인, **players pcode 단일화 검증 2건 == 0** (마이그레이션 SQL 주석의 값 충돌·중복 인물 쿼리).
 - [ ] **Step 2: 마이그레이션 실행** — `migrate-position-records.sql` 실행 → positions 행 수·game_lineups.position_id NULL 비율 검증 (`position IS NOT NULL이던 행 == position_id IS NOT NULL 행`), `SHOW COLUMNS FROM players LIKE 'naver_pcode';` 0행 확인.
 - [ ] **Step 3: 2026 백필** — AI worktree에서 `python -m kbo_collector.run records --from 2026-03-28 --to <오늘>` → batter/pitcher_records 건수 검증 (경기 수 × 평균 출전 인원 규모, 예: `SELECT COUNT(DISTINCT game_id) FROM batter_records;`가 games의 FINISHED/DRAW 수와 일치).

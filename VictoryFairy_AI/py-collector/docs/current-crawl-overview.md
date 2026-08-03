@@ -193,7 +193,8 @@ flowchart TD
 > 서비스 스키마**(teams/players/stadiums/game_statuses/**positions**/games/**game_lineups**/
 > **batter_records**/**pitcher_records**, BIGINT PK)에 직접 적재한다. `batter_records`·
 > `pitcher_records`는 `game_id`+`player_id` UNIQUE의 경기×선수 1행 집계이고, `positions`는
-> 포지션 lookup 테이블(name UNIQUE, `game_lineups.position_id`가 참조) — 최신 구조는 domain
+> 포지션 lookup 테이블(name에 DB UNIQUE 없음 — lookup-or-insert가 SELECT 후 INSERT하는
+> 크론 단일 실행 전제, `game_lineups.position_id`가 참조) — 최신 구조는 domain
 > 모듈 JPA 엔티티·`crawl-flow.md` 4절 참고.
 
 ### 로스터 (소스: KBO 공식)
