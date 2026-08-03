@@ -1,7 +1,7 @@
 # quiz API 명세
 
 > 코드 기준 자동 작성. 포트 **8081**(`quiz/src/main/resources/application.yaml`의 `server.port: 8081`), `server.servlet.context-path`는 `/api/game`이므로 base URL은 `http://localhost:8081/api/game`.
-> 최종 갱신: 2026-07-27 (메시지 `id` 노출 · Redis pub/sub fan-out · 커밋 이후 발행 · 로컬 자동 시드)
+> 최종 갱신: 2026-08-01 (`RoomResponse`에서 `participants` 필드 제거 — 참여 인원은 API 응답에 노출하지 않기로 결정)
 > 대상 컨트롤러: `quiz/src/main/java/com/skhynix/quiz/chat/controller/ChatController.java` (`@RequestMapping("/api/game/chat")`) — 현재 quiz 모듈의 유일한 컨트롤러.
 > 인증: JWT Bearer (`Authorization: Bearer <accessToken>`). `SecurityConfig`가 `/`, `/error`, `GET /health`만 permitAll이고 그 외 `anyRequest().authenticated()`이므로 **`/api/game/chat/**` 6개 엔드포인트 전부 인증 필수**다. 인증 방식·401 형식은 `docs/api/user.md`의 "인증 방식" 절과 동일(`RestAuthenticationEntryPoint`가 필터 단계에서 401 `ApiResponse` JSON을 직렬화). `@AuthenticationPrincipal Long userAccountId`는 `JwtAuthenticationFilter`가 토큰 `sub`(uid)를 활성 계정의 내부 PK로 변환해 주입한 값이다.
 
@@ -45,7 +45,8 @@ blind 해제(unblind), 메시지/방 삭제를 수행하는 엔드포인트는 �
 | roomUid | String | 방 외부 식별자(UUID) |
 | team | String | 구단(팀) 이름 |
 | name | String | 방 이름 |
-| participants | int | 현재 SSE 구독 수(best-effort, 아래 "participants 집계 방식" 참고) |
+
+참여 인원(participants)은 이 응답에 없다 — `RoomResponse`에서 해당 필드가 제거됐다(이전 문서에는 있었다).
 
 `Chatroom.deletedAt`이 채워진 방은 목록에서 제외된다(`chatroomRepository.findAllByDeletedAtIsNull()`).
 
@@ -70,7 +71,7 @@ curl -i http://localhost:8081/api/game/chat/rooms \
 |---|---|---|
 | roomUid | String | 방 외부 식별자 |
 
-**응답 200 OK** `ApiResponse<RoomResponse>` — 필드는 목록 항목과 동일(`roomUid`/`team`/`name`/`participants`).
+**응답 200 OK** `ApiResponse<RoomResponse>` — 필드는 목록 항목과 동일(`roomUid`/`team`/`name`).
 
 **실패**
 
@@ -97,18 +98,18 @@ curl -i http://localhost:8081/api/game/chat/rooms/3f9c2e10-... \
 |---|---|---|
 | roomUid | String | 방 외부 식별자 |
 
-**연결 성립 시 동작**: `Content-Type: text/event-stream`으로 200 응답을 열고 연결을 유지한다. 구독이 성립하는 순간 해당 방의 `participants`(=`SseEmitterRegistry`의 구독 수)가 1 증가하고, 연결이 끝나면(완료/타임아웃/오류 콜백) 1 감소한다. 같은 사용자가 여러 탭에서 구독해도 연결 단위로 각각 +1 카운트된다.
+**연결 성립 시 동작**: `Content-Type: text/event-stream`으로 200 응답을 열고 연결을 유지한다. 구독이 성립하는 순간 `SseEmitterRegistry`에 연결이 등록되어 발신자 제외 fan-out 대상이 되고, 연결이 끝나면(완료/타임아웃/오류 콜백) 레지스트리에서 제거된다. 같은 사용자가 여러 탭에서 구독해도 연결 단위로 각각 별개로 등록된다. (참여 인원 수는 어떤 API 응답에도 노출되지 않는다.)
 
 **이벤트 계약**
 
 | 이벤트 | `event:` | `data:` | 설명 |
 |---|---|---|---|
 | 메시지 | `message` | JSON `{id, content, senderNickname, createdAt, roomUid}`(`MessageEvent`) | 같은 방에 **커밋된** 새 메시지가 저장될 때 전달(커밋 이후 발행이라 전달된 메시지는 반드시 DB에 있다). SSE 프레임의 `id:` 필드는 여전히 없다(Last-Event-ID 미지원 — 재연결 시 놓친 메시지는 `GET .../messages`로 복구하고, payload 의 `id` 로 중복을 걸러낼 것) |
-| 하트비트 | 없음 | 없음(SSE 주석 `:ping`) | `SseEmitterRegistry.heartbeat()`가 **15초 주기**로 전송. 서버는 전송 실패를 감지하면 그 연결을 죽은 것으로 간주해 즉시 회수하고 `participants`를 보정한다 |
+| 하트비트 | 없음 | 없음(SSE 주석 `:ping`) | `SseEmitterRegistry.heartbeat()`가 **15초 주기**로 전송. 서버는 전송 실패를 감지하면 그 연결을 죽은 것으로 간주해 즉시 레지스트리에서 회수한다 |
 
 **발신자 에코 없음**: 메시지를 보낸 사용자 본인의 emitter는 fan-out에서 제외된다(서버가 emitter를 `userAccountId`로 식별해 발신자 구독에는 전달하지 않음). 발신자는 `POST .../messages`의 201 응답으로만 자기 메시지를 렌더해야 한다. 발신자의 다른 탭(멀티탭)은 실시간으로 받지 못하며 재접속/히스토리 조회로 보정해야 한다(알려진 한계).
 
-**연결 타임아웃**: `SseEmitter` 타임아웃은 **30분**(`EMITTER_TIMEOUT_MS`). 타임아웃 시 서버가 연결을 `complete()`하고 구독을 해제(participants -1)한다.
+**연결 타임아웃**: `SseEmitter` 타임아웃은 **30분**(`EMITTER_TIMEOUT_MS`). 타임아웃 시 서버가 연결을 `complete()`하고 구독을 레지스트리에서 해제한다.
 
 **실패**
 
@@ -268,8 +269,8 @@ curl -i -X POST http://localhost:8081/api/game/chat/rooms/3f9c2e10-.../messages/
 
 ---
 
-## participants 집계 방식 (참고 — 여러 엔드포인트 공통)
-`participants`는 DB 컬럼이 아니라 `SseEmitterRegistry`(인메모리)의 현재 SSE 구독 수로 매 요청 서빙된다(`GET /rooms`, `GET /rooms/{roomUid}` 둘 다). connect/disconnect마다 DB write를 피하기 위한 best-effort 방식이며, 앱을 여러 인스턴스로 띄우면 인스턴스별로 다른 값이 나올 수 있다(전역 집계는 이번 범위에 없음). `Chatroom.participants` 컬럼과 `join()`/`leave()` 메서드는 엔티티에 남아 있으나 이 6개 엔드포인트 중 어디서도 쓰이지 않는다.
+## 참여 인원(participants)은 노출하지 않음
+방 목록·상세 응답(`RoomResponse`)에는 참여 인원 수 필드가 없다 — 노출하지 않기로 결정됐다. `Chatroom.participants` 컬럼과 `join()`/`leave()` 메서드는 엔티티에 남아 있으나 이 6개 엔드포인트 중 어디서도 쓰이지 않는다.
 
 ## 다중 인스턴스 fan-out은 아직 미구현
 `RealtimeEventPublisher` 포트 구현체는 프로파일로 갈린다(`quiz/src/main/java/com/skhynix/quiz/realtime/`).
@@ -280,8 +281,6 @@ curl -i -X POST http://localhost:8081/api/game/chat/rooms/3f9c2e10-.../messages/
 | `!prod`(dev/test) | `InMemoryPublisher` | 같은 프로세스의 `SseEmitterRegistry`만. 로컬 개발에 Redis 불필요 |
 
 발행 파드도 자기 구독으로 되받으므로 `RedisPubSubPublisher`는 로컬 레지스트리로 직접 전달하지 않는다(하면 같은 파드 구독자에게 이중 전달).
-
-**여전한 한계 — participants**: `SseEmitterRegistry.count()`는 **그 파드의 구독 수**라, 파드가 2개 이상이면 방 목록/상세의 `participants`가 실제보다 작게 나온다(전역 집계는 후속 과제). 메시지 전달 자체는 위 pub/sub으로 전 파드에 닿으므로 영향 없다.
 
 ## 확인 필요 / 코드 미확인
 - `@NotBlank`/`@Size` 위반 시 실제 필드 검증 메시지 문구는 Hibernate Validator 기본 로케일 메시지를 그대로 쓰며(커스텀 `message` 속성 미부착), 이 문서의 예시 문구(`"공백일 수 없습니다"`)는 기본값 추정이다 — 실행 환경(로케일 설정)에 따라 문구가 달라질 수 있어 실측 확인 필요.

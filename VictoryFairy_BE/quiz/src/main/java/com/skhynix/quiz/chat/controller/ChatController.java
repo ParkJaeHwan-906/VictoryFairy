@@ -48,7 +48,7 @@ public class ChatController {
 
     /**
      * SSE 구독 스트림. fetch 기반 EventSource 폴리필로 {@code Authorization} 헤더를 실어야 인증된다.
-     * 구독 성립 시 participants +1, 연결 종료 시 -1(레지스트리 콜백).
+     * 구독 성립 시 레지스트리 구독 수 +1, 연결 종료 시 -1(레지스트리 콜백).
      */
     @GetMapping(value = "/rooms/{roomUid}/subscribe", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter subscribe(@PathVariable String roomUid,

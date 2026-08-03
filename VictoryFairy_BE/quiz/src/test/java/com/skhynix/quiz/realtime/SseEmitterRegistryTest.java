@@ -4,7 +4,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
 import java.lang.reflect.Field;
+import java.util.AbstractSet;
+import java.util.Iterator;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -60,10 +66,10 @@ class SseEmitterRegistryTest {
         callback.accept(error);
     }
 
-    // ---------- participants(count) ----------
+    // ---------- 구독 수(count) ----------
 
     @Test
-    @DisplayName("[AC-CHAT-7-1] register()로 구독하면 해당 방의 participants(구독 수)가 1 증가한다")
+    @DisplayName("register()로 구독하면 레지스트리 내부 구독 수(count)가 1 증가한다(참여 인원 미노출과는 무관한 내부 집계 — QUIZ-CHAT-7 철회, 대응 인수 시나리오 없음)")
     void register_incrementsParticipantsCount() {
         SseEmitterRegistry registry = new SseEmitterRegistry();
         assertThat(registry.count(ROOM_UID)).isZero();
@@ -74,7 +80,7 @@ class SseEmitterRegistryTest {
     }
 
     @Test
-    @DisplayName("[AC-CHAT-7-2] 같은 사용자가 두 탭에서 동시에 구독하면 participants가 2 증가한다(연결 기준 카운트)")
+    @DisplayName("같은 사용자가 두 탭에서 동시에 구독하면 내부 구독 수가 2 증가한다(연결 기준 카운트 — QUIZ-CHAT-7 철회, 대응 인수 시나리오 없음)")
     void register_sameUserTwoTabs_countsBothConnections() {
         SseEmitterRegistry registry = new SseEmitterRegistry();
 
@@ -85,7 +91,7 @@ class SseEmitterRegistryTest {
     }
 
     @Test
-    @DisplayName("구독이 없는 방의 participants는 0이다(경계)")
+    @DisplayName("구독이 없는 방의 구독 수는 0이다(경계)")
     void count_roomWithNoSubscriptions_returnsZero() {
         SseEmitterRegistry registry = new SseEmitterRegistry();
 
@@ -93,7 +99,7 @@ class SseEmitterRegistryTest {
     }
 
     @Test
-    @DisplayName("participants는 방별로 독립적으로 집계된다")
+    @DisplayName("구독 수는 방별로 독립적으로 집계된다")
     void count_isPerRoom() {
         SseEmitterRegistry registry = new SseEmitterRegistry();
         registry.register(ROOM_UID, 1L);
@@ -105,7 +111,7 @@ class SseEmitterRegistryTest {
     // ---------- 연결 종료(퇴장) ----------
 
     @Test
-    @DisplayName("[AC-CHAT-8-1] 구독 연결이 정상 완료(onCompletion)되면 participants가 1 감소한다")
+    @DisplayName("구독 연결이 정상 완료(onCompletion)되면 내부 구독 수가 1 감소한다(QUIZ-CHAT-8 철회, 대응 인수 시나리오 없음)")
     void onCompletion_decrementsParticipantsCount() throws Exception {
         SseEmitterRegistry registry = new SseEmitterRegistry();
         SseEmitter emitter = registry.register(ROOM_UID, 1L);
@@ -117,7 +123,7 @@ class SseEmitterRegistryTest {
     }
 
     @Test
-    @DisplayName("[AC-CHAT-8-1] 구독 연결이 타임아웃(onTimeout)되면 participants가 1 감소한다")
+    @DisplayName("구독 연결이 타임아웃(onTimeout)되면 내부 구독 수가 1 감소한다(QUIZ-CHAT-8 철회, 대응 인수 시나리오 없음)")
     void onTimeout_decrementsParticipantsCount() throws Exception {
         SseEmitterRegistry registry = new SseEmitterRegistry();
         SseEmitter emitter = registry.register(ROOM_UID, 1L);
@@ -128,7 +134,7 @@ class SseEmitterRegistryTest {
     }
 
     @Test
-    @DisplayName("[AC-CHAT-8-1] 구독 연결이 오류(onError)로 종료되면 participants가 1 감소한다")
+    @DisplayName("구독 연결이 오류(onError)로 종료되면 내부 구독 수가 1 감소한다(QUIZ-CHAT-8 철회, 대응 인수 시나리오 없음)")
     void onError_decrementsParticipantsCount() throws Exception {
         SseEmitterRegistry registry = new SseEmitterRegistry();
         SseEmitter emitter = registry.register(ROOM_UID, 1L);
@@ -139,7 +145,7 @@ class SseEmitterRegistryTest {
     }
 
     @Test
-    @DisplayName("[AC-CHAT-8-2 근사] 같은 연결의 종료 콜백이 중복 호출돼도 participants는 0 아래로 내려가지 않는다")
+    @DisplayName("같은 연결의 종료 콜백이 중복 호출돼도 내부 구독 수는 0 아래로 내려가지 않는다(QUIZ-CHAT-8 철회, 대응 인수 시나리오 없음)")
     void onCompletion_calledTwice_doesNotUnderflowBelowZero() throws Exception {
         SseEmitterRegistry registry = new SseEmitterRegistry();
         SseEmitter emitter = registry.register(ROOM_UID, 1L);
@@ -203,7 +209,7 @@ class SseEmitterRegistryTest {
     }
 
     @Test
-    @DisplayName("publish 중 전송이 실패하는(이미 완료된) 구독은 즉시 회수돼 participants가 감소한다")
+    @DisplayName("publish 중 전송이 실패하는(이미 완료된) 구독은 즉시 회수돼 구독 수가 감소한다")
     void publish_deadConnection_isRemovedAndCountDecreases() throws Exception {
         SseEmitterRegistry registry = new SseEmitterRegistry();
         SseEmitter alive = registry.register(ROOM_UID, 1L);
@@ -216,10 +222,10 @@ class SseEmitterRegistryTest {
         assertThat(earlySendCount(alive)).isGreaterThan(0);
     }
 
-    // ---------- 하트비트(AC-CHAT-26) ----------
+    // ---------- 하트비트·죽은 연결 회수(AC-CHAT-55·56, QUIZ-CHAT-26에서 승계) ----------
 
     @Test
-    @DisplayName("[AC-CHAT-26-1] 유휴 연결에 heartbeat()를 실행하면 :ping 프레임 전송이 시도되고 구독은 유지된다")
+    @DisplayName("[AC-CHAT-55-1] 유휴 연결에 heartbeat()를 실행하면 :ping 프레임 전송이 시도되고 구독은 유지된다")
     void heartbeat_liveConnection_sendsPingAndKeepsSubscription() throws Exception {
         SseEmitterRegistry registry = new SseEmitterRegistry();
         SseEmitter emitter = registry.register(ROOM_UID, 1L);
@@ -231,7 +237,7 @@ class SseEmitterRegistryTest {
     }
 
     @Test
-    @DisplayName("[AC-CHAT-26-2] leave 신호 없이 죽은 연결은 heartbeat() 전송 실패로 감지돼 회수되고 participants가 감소한다")
+    @DisplayName("[AC-CHAT-56-1] leave 신호 없이 죽은 연결은 heartbeat() 전송 실패로 감지돼 회수되고 구독 수가 감소한다")
     void heartbeat_deadConnection_isRemovedAndParticipantsDecreases() throws Exception {
         SseEmitterRegistry registry = new SseEmitterRegistry();
         SseEmitter emitter = registry.register(ROOM_UID, 1L);
@@ -240,5 +246,166 @@ class SseEmitterRegistryTest {
         registry.heartbeat();
 
         assertThat(registry.count(ROOM_UID)).isZero();
+    }
+
+    // ---------- 고아 Set 레이스 회귀 (2026-08-01, chat.md 제약 절 9 / AC-CHAT-11-5·55-2) ----------
+
+    /**
+     * 방 R의 "마지막 구독 해제"와 "새 구독 등록"이 겹치는 순간을 결정적으로(스레드 스케줄링에 기대지
+     * 않고) 재현하기 위한 테스트 전용 {@link Set} 데코레이터.
+     *
+     * <p>수정 전 {@code remove()}는 {@code rooms.get(key)}로 Set을 얻은 뒤 그 Set의
+     * {@code isEmpty()}가 참이면 {@code rooms.remove(key)}(맵에서 통째로 걷어냄)를 호출했다. 이 둘
+     * 사이의 틈이 바로 고아 Set 레이스의 창구다: 그 틈에 {@code register()}가 같은(아직 맵에 남아
+     * 있는) Set에 새 구독을 얹으면, 뒤이은 {@code rooms.remove(key)}가 그 Set 전체를 맵에서
+     * 떼어내 버려 새 구독이 고아가 된다.
+     *
+     * <p>이 데코레이터는 실제 {@code rooms} 맵의 값(Set)을 {@link SseEmitterRegistry}의 private
+     * 필드에 리플렉션으로 주입해 교체한 뒤, 그 Set의 {@code isEmpty()}가 "비었다"고 판정하는
+     * 바로 그 순간(=낡은 코드가 {@code rooms.remove(key)}를 부르기 직전)에 멈춰 서서 다른 스레드의
+     * {@code register()}가 끼어들 시간을 강제로 벌어준다. 프로덕션 코드는 전혀 건드리지 않는다.
+     *
+     * <p>수정된 코드({@code compute}/{@code computeIfPresent})에서는 같은 키에 대한 이 두 호출이
+     * {@link ConcurrentHashMap}의 빈(bin) 잠금 아래 상호 배타적이라, {@code register()} 쪽이 이
+     * 대기 구간 동안 아예 진입하지 못하고 블록된다 — 그래서 대기가 타임아웃으로 풀려도 끼어들 틈이
+     * 없었으므로 고아가 생기지 않는다. 즉 이 테스트는 "수정 전엔 반드시 재현되고, 수정 후엔 락 자체가
+     * 재현을 원천 차단한다"는 사실에 기대는 결정적(=확률적이지 않은) 회귀 테스트다.
+     */
+    private static final class OrphanRaceSet extends AbstractSet<Object> {
+        private final Set<Object> delegate;
+        private final CountDownLatch emptyObserved;
+        private final CountDownLatch registrationLanded;
+        private final long awaitTimeoutMillis;
+        private volatile boolean armed;
+
+        OrphanRaceSet(Set<Object> delegate, CountDownLatch emptyObserved,
+                CountDownLatch registrationLanded, long awaitTimeoutMillis) {
+            this.delegate = delegate;
+            this.emptyObserved = emptyObserved;
+            this.registrationLanded = registrationLanded;
+            this.awaitTimeoutMillis = awaitTimeoutMillis;
+        }
+
+        void arm() {
+            this.armed = true;
+        }
+
+        @Override
+        public Iterator<Object> iterator() {
+            return delegate.iterator();
+        }
+
+        @Override
+        public int size() {
+            return delegate.size();
+        }
+
+        @Override
+        public boolean add(Object o) {
+            return delegate.add(o);
+        }
+
+        @Override
+        public boolean remove(Object o) {
+            return delegate.remove(o);
+        }
+
+        @Override
+        public boolean isEmpty() {
+            boolean empty = delegate.isEmpty();
+            if (armed && empty) {
+                emptyObserved.countDown();
+                try {
+                    registrationLanded.await(awaitTimeoutMillis, TimeUnit.MILLISECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            return empty;
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Set<Object>> getRoomsMap(SseEmitterRegistry registry) throws Exception {
+        Field field = SseEmitterRegistry.class.getDeclaredField("rooms");
+        field.setAccessible(true);
+        return (Map<String, Set<Object>>) field.get(registry);
+    }
+
+    /**
+     * 방 R에 구독자 A(userId=1) 하나만 있는 상태에서 A의 퇴장(마지막 구독 해제)과 새 구독자
+     * C(userId=2)의 등록을 결정적으로 겹치게 만든다. 반환된 emitter가 C의 구독이다.
+     */
+    private static SseEmitter reproduceOrphanRace(SseEmitterRegistry registry) throws Exception {
+        SseEmitter emitterA = registry.register(ROOM_UID, 1L);
+
+        Map<String, Set<Object>> rooms = getRoomsMap(registry);
+        Set<Object> original = rooms.get(ROOM_UID);
+        Set<Object> backing = ConcurrentHashMap.newKeySet();
+        backing.addAll(original);
+        CountDownLatch emptyObserved = new CountDownLatch(1);
+        CountDownLatch registrationLanded = new CountDownLatch(1);
+        OrphanRaceSet racySet = new OrphanRaceSet(backing, emptyObserved, registrationLanded, 500L);
+        rooms.put(ROOM_UID, racySet);
+        racySet.arm();
+
+        Thread leaveThread = new Thread(() -> {
+            try {
+                triggerCompletion(emitterA); // remove(ROOM_UID, subscriptionA) 트리거
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }, "orphan-race-leave");
+        leaveThread.start();
+
+        boolean reachedBlock = emptyObserved.await(2, TimeUnit.SECONDS);
+        if (!reachedBlock) {
+            leaveThread.join(1000);
+            throw new IllegalStateException("퇴장 스레드가 '빈 Set' 판정 지점에 도달하지 못했다(테스트 설계 오류 가능성)");
+        }
+
+        // 퇴장 스레드가 "이 Set은 비었다"고 이미 판정한(그러나 맵 정리는 아직 하지 않은) 바로 그
+        // 순간에 새 구독을 등록한다. 수정 전 코드라면 이 등록이 곧 떨어져 나갈 그 Set에 실린다.
+        SseEmitter newEmitter = registry.register(ROOM_UID, 2L);
+        registrationLanded.countDown();
+
+        leaveThread.join(2000);
+        if (leaveThread.isAlive()) {
+            throw new IllegalStateException("퇴장 스레드가 시간 내에 끝나지 않았다(테스트 설계 오류 가능성)");
+        }
+
+        return newEmitter;
+    }
+
+    @Test
+    @DisplayName("[AC-CHAT-11-5] 마지막 구독 해제와 새 구독 등록이 동시에 일어나도, 등록된 구독은 publish() 전달 대상에서 빠지지 않는다")
+    void concurrentUnsubscribeAndRegister_publishStillReachesNewSubscription() throws Exception {
+        SseEmitterRegistry registry = new SseEmitterRegistry();
+
+        SseEmitter newEmitter = reproduceOrphanRace(registry);
+        registry.publish(ROOM_UID, new RealtimeEvent("message", "payload", null));
+
+        assertThat(registry.count(ROOM_UID))
+                .as("새 구독이 고아 Set이 아니라 살아 있는 맵 엔트리에 남아 있어야 한다")
+                .isEqualTo(1);
+        assertThat(earlySendCount(newEmitter))
+                .as("고아 Set에 갇혀 fan-out에서 조용히 누락되지 않아야 한다")
+                .isGreaterThan(0);
+    }
+
+    @Test
+    @DisplayName("[AC-CHAT-55-2] 마지막 구독 해제와 새 구독 등록이 동시에 일어나도, 등록된 구독은 heartbeat() 대상에서 빠지지 않는다")
+    void concurrentUnsubscribeAndRegister_heartbeatStillReachesNewSubscription() throws Exception {
+        SseEmitterRegistry registry = new SseEmitterRegistry();
+
+        SseEmitter newEmitter = reproduceOrphanRace(registry);
+        registry.heartbeat();
+
+        assertThat(registry.count(ROOM_UID))
+                .as("새 구독이 고아 Set이 아니라 살아 있는 맵 엔트리에 남아 있어야 한다")
+                .isEqualTo(1);
+        assertThat(earlySendCount(newEmitter))
+                .as("고아 Set에 갇혀 heartbeat 순회에서 조용히 누락되지 않아야 한다")
+                .isGreaterThan(0);
     }
 }

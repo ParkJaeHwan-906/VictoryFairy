@@ -100,21 +100,17 @@ class ChatServiceTest {
     // ---------- getRooms / getRoom ----------
 
     @Test
-    @DisplayName("getRooms()는 삭제 안 된 방 목록을 조회해 각 방의 participants를 emitterRegistry.count()로 채운다")
-    void getRooms_mapsEachRoomWithEmitterRegistryCount() {
+    @DisplayName("getRooms()는 삭제 안 된 방 목록을 조회해 RoomResponse로 매핑한다(participants 필드 없음)")
+    void getRooms_mapsEachRoomToRoomResponse() {
         Chatroom room1 = activeRoom("uid-1");
         Chatroom room2 = activeRoom("uid-2");
         given(chatroomRepository.findAllByDeletedAtIsNull()).willReturn(List.of(room1, room2));
-        given(emitterRegistry.count("uid-1")).willReturn(3);
-        given(emitterRegistry.count("uid-2")).willReturn(0);
 
         List<RoomResponse> result = chatService.getRooms();
 
         assertThat(result).hasSize(2);
         assertThat(result.get(0).roomUid()).isEqualTo("uid-1");
-        assertThat(result.get(0).participants()).isEqualTo(3);
         assertThat(result.get(1).roomUid()).isEqualTo("uid-2");
-        assertThat(result.get(1).participants()).isEqualTo(0);
     }
 
     @Test
@@ -122,12 +118,10 @@ class ChatServiceTest {
     void getRoom_activeRoom_returnsRoomResponse() {
         Chatroom room = activeRoom(ROOM_UID);
         given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
-        given(emitterRegistry.count(ROOM_UID)).willReturn(5);
 
         RoomResponse result = chatService.getRoom(ROOM_UID);
 
         assertThat(result.roomUid()).isEqualTo(ROOM_UID);
-        assertThat(result.participants()).isEqualTo(5);
     }
 
     @Test
