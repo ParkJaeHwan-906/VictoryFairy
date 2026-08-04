@@ -60,7 +60,7 @@ class ChatControllerHistoryTest {
                 new MessageResponse(2L, "최신", "닉1", LocalDateTime.of(2026, 7, 20, 12, 0)),
                 new MessageResponse(1L, "이전", "닉2", LocalDateTime.of(2026, 7, 20, 11, 0)));
         PageResponse<MessageResponse> page = new PageResponse<>(messages, 0, 30, 50L, 2, true);
-        given(chatService.getHistory(eq(ROOM_UID), eq(0))).willReturn(page);
+        given(chatService.getHistory(eq(ROOM_UID), eq(0), eq(USER_ID))).willReturn(page);
 
         mockMvc.perform(get("/chat/rooms/{roomUid}/messages", ROOM_UID)
                         .with(authenticatedAs(USER_ID)))
@@ -71,14 +71,14 @@ class ChatControllerHistoryTest {
                 .andExpect(jsonPath("$.data.totalElements").value(50))
                 .andExpect(jsonPath("$.data.hasNext").value(true));
 
-        verify(chatService).getHistory(ROOM_UID, 0);
+        verify(chatService).getHistory(ROOM_UID, 0, USER_ID);
     }
 
     @Test
     @DisplayName("[AC-CHAT-18-2] 메시지가 0개인 방은 200과 빈 목록을 반환한다")
     void getHistory_noMessages_returns200WithEmptyContent() throws Exception {
         PageResponse<MessageResponse> emptyPage = new PageResponse<>(List.of(), 0, 30, 0L, 0, false);
-        given(chatService.getHistory(eq(ROOM_UID), eq(0))).willReturn(emptyPage);
+        given(chatService.getHistory(eq(ROOM_UID), eq(0), eq(USER_ID))).willReturn(emptyPage);
 
         mockMvc.perform(get("/chat/rooms/{roomUid}/messages", ROOM_UID)
                         .with(authenticatedAs(USER_ID)))
@@ -94,7 +94,7 @@ class ChatControllerHistoryTest {
             messages.add(new MessageResponse((long) i, "메시지" + i, "닉", LocalDateTime.now()));
         }
         PageResponse<MessageResponse> page = new PageResponse<>(messages, 0, 30, 30L, 1, false);
-        given(chatService.getHistory(eq(ROOM_UID), eq(0))).willReturn(page);
+        given(chatService.getHistory(eq(ROOM_UID), eq(0), eq(USER_ID))).willReturn(page);
 
         mockMvc.perform(get("/chat/rooms/{roomUid}/messages", ROOM_UID)
                         .with(authenticatedAs(USER_ID)))
@@ -106,12 +106,37 @@ class ChatControllerHistoryTest {
     @Test
     @DisplayName("[AC-CHAT-18-4] 없는 방의 히스토리를 조회하면 404를 반환한다")
     void getHistory_roomNotFound_returns404() throws Exception {
-        given(chatService.getHistory(eq("nope"), eq(0)))
+        given(chatService.getHistory(eq("nope"), eq(0), eq(USER_ID)))
                 .willThrow(new BusinessException(ErrorCode.CHATROOM_NOT_FOUND));
 
         mockMvc.perform(get("/chat/rooms/{roomUid}/messages", "nope")
                         .with(authenticatedAs(USER_ID)))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-12] 내 응원 구단 방이 아니면 히스토리 조회는 403 CHATROOM_TEAM_MISMATCH를 반환하고 메시지가 실리지 않는다")
+    void getHistory_teamMismatch_returns403WithoutMessages() throws Exception {
+        given(chatService.getHistory(eq("other-team-uid"), eq(0), eq(USER_ID)))
+                .willThrow(new BusinessException(ErrorCode.CHATROOM_TEAM_MISMATCH));
+
+        mockMvc.perform(get("/chat/rooms/{roomUid}/messages", "other-team-uid")
+                        .with(authenticatedAs(USER_ID)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.data").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.message").value(ErrorCode.CHATROOM_TEAM_MISMATCH.getMessage()));
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-15] 응원 구단이 없으면 히스토리 조회는 400 SUPPORT_TEAM_REQUIRED를 반환한다")
+    void getHistory_noSupportTeam_returns400() throws Exception {
+        given(chatService.getHistory(eq(ROOM_UID), eq(0), eq(USER_ID)))
+                .willThrow(new BusinessException(ErrorCode.SUPPORT_TEAM_REQUIRED));
+
+        mockMvc.perform(get("/chat/rooms/{roomUid}/messages", ROOM_UID)
+                        .with(authenticatedAs(USER_ID)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(ErrorCode.SUPPORT_TEAM_REQUIRED.getMessage()));
     }
 
     @Test

@@ -115,4 +115,29 @@ class ChatControllerReportTest {
                         .with(authenticatedAs(USER_ID)))
                 .andExpect(status().isNotFound());
     }
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-13] 내 응원 구단 방이 아니면 신고는 403 CHATROOM_TEAM_MISMATCH를 반환한다"
+            + "(자기신고 403의 SELF_REPORT_NOT_ALLOWED 문구와 구분됨)")
+    void reportMessage_teamMismatch_returns403WithDistinctMessage() throws Exception {
+        willThrow(new BusinessException(ErrorCode.CHATROOM_TEAM_MISMATCH))
+                .given(chatService).reportMessage(eq("other-team-uid"), eq(MESSAGE_ID), eq(USER_ID));
+
+        mockMvc.perform(post("/chat/rooms/{roomUid}/messages/{messageId}/report", "other-team-uid", MESSAGE_ID)
+                        .with(authenticatedAs(USER_ID)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message").value(ErrorCode.CHATROOM_TEAM_MISMATCH.getMessage()));
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-15] 응원 구단이 없으면 신고는 400 SUPPORT_TEAM_REQUIRED를 반환한다")
+    void reportMessage_noSupportTeam_returns400() throws Exception {
+        willThrow(new BusinessException(ErrorCode.SUPPORT_TEAM_REQUIRED))
+                .given(chatService).reportMessage(eq(ROOM_UID), eq(MESSAGE_ID), eq(USER_ID));
+
+        mockMvc.perform(post("/chat/rooms/{roomUid}/messages/{messageId}/report", ROOM_UID, MESSAGE_ID)
+                        .with(authenticatedAs(USER_ID)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(ErrorCode.SUPPORT_TEAM_REQUIRED.getMessage()));
+    }
 }

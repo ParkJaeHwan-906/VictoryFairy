@@ -2,6 +2,7 @@ package com.skhynix.quiz.chat.controller;
 
 import static com.skhynix.quiz.chat.controller.ChatControllerTestSupport.authenticatedAs;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -58,12 +59,13 @@ class ChatControllerRoomTest {
     private UserAccountRepository userAccountRepository;
 
     @Test
-    @DisplayName("[AC-CHAT-2-1] 인증 사용자가 방 목록을 요청하면 200과 서비스가 반환한 방 목록을 그대로 반환한다")
+    @DisplayName("[AC-CHAT-2-1][QUIZ-CTAC-2] teamId 없이 방 목록을 요청하면 200과 서비스가 반환한 방 목록을 그대로 반환한다"
+            + "(컨트롤러는 teamId 생략 시 null을 그대로 서비스에 넘긴다)")
     void getRooms_authenticated_returns200WithRoomList() throws Exception {
         List<RoomResponse> rooms = List.of(
                 new RoomResponse("uid-1", "두산", "두산 채팅방"),
                 new RoomResponse("uid-2", "롯데", "롯데 채팅방"));
-        given(chatService.getRooms()).willReturn(rooms);
+        given(chatService.getRooms(isNull(), eq(USER_ID))).willReturn(rooms);
 
         mockMvc.perform(get("/chat/rooms").with(authenticatedAs(USER_ID)))
                 .andExpect(status().isOk())
@@ -78,7 +80,7 @@ class ChatControllerRoomTest {
     @Test
     @DisplayName("[AC-CHAT-2-2] 삭제 안 된 방이 0개면 200과 빈 배열을 반환한다(404 아님)")
     void getRooms_noRooms_returns200WithEmptyArray() throws Exception {
-        given(chatService.getRooms()).willReturn(List.of());
+        given(chatService.getRooms(isNull(), eq(USER_ID))).willReturn(List.of());
 
         mockMvc.perform(get("/chat/rooms").with(authenticatedAs(USER_ID)))
                 .andExpect(status().isOk())
@@ -87,9 +89,77 @@ class ChatControllerRoomTest {
     }
 
     @Test
+    @DisplayName("[QUIZ-CTAC-5] teamId가 응원 구단과 같으면 200과 그 구단 방 목록을 반환한다")
+    void getRooms_teamIdMatchesSupportTeam_returns200() throws Exception {
+        List<RoomResponse> rooms = List.of(new RoomResponse("uid-1", "두산", "두산 채팅방"));
+        given(chatService.getRooms(eq(6L), eq(USER_ID))).willReturn(rooms);
+
+        mockMvc.perform(get("/chat/rooms").param("teamId", "6").with(authenticatedAs(USER_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].team").value("두산"));
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-6] teamId가 응원 구단과 다르면 403 CHATROOM_TEAM_MISMATCH를 반환하고 data는 null이다")
+    void getRooms_teamIdMismatch_returns403WithNullData() throws Exception {
+        given(chatService.getRooms(eq(3L), eq(USER_ID)))
+                .willThrow(new BusinessException(ErrorCode.CHATROOM_TEAM_MISMATCH));
+
+        mockMvc.perform(get("/chat/rooms").param("teamId", "3").with(authenticatedAs(USER_ID)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.data").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.message").value(ErrorCode.CHATROOM_TEAM_MISMATCH.getMessage()));
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-7] 존재하지 않는 구단 id를 teamId로 보내도 404가 아니라 QUIZ-CTAC-6과 동일한 403을 반환한다")
+    void getRooms_nonexistentTeamId_returnsSame403AsMismatch() throws Exception {
+        given(chatService.getRooms(eq(999_999L), eq(USER_ID)))
+                .willThrow(new BusinessException(ErrorCode.CHATROOM_TEAM_MISMATCH));
+
+        mockMvc.perform(get("/chat/rooms").param("teamId", "999999").with(authenticatedAs(USER_ID)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message").value(ErrorCode.CHATROOM_TEAM_MISMATCH.getMessage()));
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-3] 응원 구단이 없으면 teamId 없이 요청해도 400 SUPPORT_TEAM_REQUIRED를 반환한다")
+    void getRooms_noSupportTeamAndNoTeamId_returns400() throws Exception {
+        given(chatService.getRooms(isNull(), eq(USER_ID)))
+                .willThrow(new BusinessException(ErrorCode.SUPPORT_TEAM_REQUIRED));
+
+        mockMvc.perform(get("/chat/rooms").with(authenticatedAs(USER_ID)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value(ErrorCode.SUPPORT_TEAM_REQUIRED.getMessage()));
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-4] 응원 구단이 없으면 teamId를 보내도 400 SUPPORT_TEAM_REQUIRED를 반환한다(403 아님)")
+    void getRooms_noSupportTeamWithTeamIdProvided_returns400NotForbidden() throws Exception {
+        given(chatService.getRooms(eq(3L), eq(USER_ID)))
+                .willThrow(new BusinessException(ErrorCode.SUPPORT_TEAM_REQUIRED));
+
+        mockMvc.perform(get("/chat/rooms").param("teamId", "3").with(authenticatedAs(USER_ID)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(ErrorCode.SUPPORT_TEAM_REQUIRED.getMessage()));
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-8] teamId가 정수로 변환할 수 없으면 바인딩 단계에서 400을 반환한다"
+            + "(ApiResponse 래퍼가 아닌 기존 공통 규약의 예외 — 이 문서가 바꾸지 않는 기존 동작)")
+    void getRooms_nonNumericTeamId_returns400AtBindingStage() throws Exception {
+        mockMvc.perform(get("/chat/rooms").param("teamId", "abc").with(authenticatedAs(USER_ID)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     @DisplayName("[AC-CHAT-3-1] 존재하지 않는 roomUid로 방 상세를 조회하면 404를 반환한다")
     void getRoom_notFound_returns404() throws Exception {
-        given(chatService.getRoom(eq("nope"))).willThrow(new BusinessException(ErrorCode.CHATROOM_NOT_FOUND));
+        given(chatService.getRoom(eq("nope"), eq(USER_ID)))
+                .willThrow(new BusinessException(ErrorCode.CHATROOM_NOT_FOUND));
 
         mockMvc.perform(get("/chat/rooms/{roomUid}", "nope").with(authenticatedAs(USER_ID)))
                 .andExpect(status().isNotFound())
@@ -100,7 +170,7 @@ class ChatControllerRoomTest {
     @Test
     @DisplayName("[AC-CHAT-3-2] 소프트삭제된 방의 roomUid로 조회해도 없는 방과 동일하게 404를 반환한다")
     void getRoom_softDeleted_returns404SameAsNotFound() throws Exception {
-        given(chatService.getRoom(eq("deleted-uid")))
+        given(chatService.getRoom(eq("deleted-uid"), eq(USER_ID)))
                 .willThrow(new BusinessException(ErrorCode.CHATROOM_NOT_FOUND));
 
         mockMvc.perform(get("/chat/rooms/{roomUid}", "deleted-uid").with(authenticatedAs(USER_ID)))
@@ -108,20 +178,34 @@ class ChatControllerRoomTest {
     }
 
     @Test
-    @DisplayName("[AC-CHAT-52-2] 방 상세 응답에도 participants 키가 존재하지 않는다")
+    @DisplayName("[QUIZ-CTAC-9] 내 응원 구단 방이 아니면 방 상세 조회는 403 CHATROOM_TEAM_MISMATCH를 반환한다")
+    void getRoom_teamMismatch_returns403() throws Exception {
+        given(chatService.getRoom(eq("other-team-uid"), eq(USER_ID)))
+                .willThrow(new BusinessException(ErrorCode.CHATROOM_TEAM_MISMATCH));
+
+        mockMvc.perform(get("/chat/rooms/{roomUid}", "other-team-uid").with(authenticatedAs(USER_ID)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message").value(ErrorCode.CHATROOM_TEAM_MISMATCH.getMessage()));
+    }
+
+    @Test
+    @DisplayName("[AC-CHAT-52-2][QUIZ-CTAC-18] 방 상세 응답은 정확히 {roomUid, team, name} 3개 필드만 갖는다"
+            + "(participants도, 접근 가능 여부를 나타내는 새 필드도 없음 — 엄격 비교로 필드 집합 자체를 고정)")
     void getRoom_activeRoom_returns200WithoutParticipantsField() throws Exception {
-        given(chatService.getRoom(eq("uid-1")))
+        given(chatService.getRoom(eq("uid-1"), eq(USER_ID)))
                 .willReturn(new RoomResponse("uid-1", "두산", "두산 채팅방"));
 
-        // 목록(AC-CHAT-52-1)과 같은 RoomResponse 타입이라 구조적으로는 이미 보장되지만, 상세 경로에도
-        // 단언을 둔다 — 나중에 상세 전용 DTO로 갈라지면 타입 동일성이라는 근거가 조용히 사라진다.
         mockMvc.perform(get("/chat/rooms/{roomUid}", "uid-1").with(authenticatedAs(USER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.roomUid").value("uid-1"))
                 .andExpect(jsonPath("$.data.team").value("두산"))
                 .andExpect(jsonPath("$.data.name").value("두산 채팅방"))
-                .andExpect(jsonPath("$.data.participants").doesNotExist());
+                .andExpect(jsonPath("$.data.participants").doesNotExist())
+                .andExpect(content().json(
+                        "{\"success\":true,\"data\":{\"roomUid\":\"uid-1\",\"team\":\"두산\",\"name\":\"두산 채팅방\"},"
+                                + "\"message\":null}",
+                        true));
     }
 
     @Test
@@ -169,5 +253,19 @@ class ChatControllerRoomTest {
         mockMvc.perform(get("/chat/rooms/{roomUid}/subscribe", "deleted-uid")
                         .with(authenticatedAs(USER_ID)))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-10] 내 응원 구단 방이 아니면 구독 요청은 스트림을 열지 않고 403 CHATROOM_TEAM_MISMATCH를 반환한다"
+            + "(Content-Type이 text/event-stream이 아님 — 레지스트리 등록 자체는 ChatServiceTest에서 검증)")
+    void subscribe_teamMismatch_returns403WithoutOpeningEventStream() throws Exception {
+        given(chatService.subscribe(eq("other-team-uid"), eq(USER_ID)))
+                .willThrow(new BusinessException(ErrorCode.CHATROOM_TEAM_MISMATCH));
+
+        mockMvc.perform(get("/chat/rooms/{roomUid}/subscribe", "other-team-uid")
+                        .with(authenticatedAs(USER_ID)))
+                .andExpect(status().isForbidden())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.message").value(ErrorCode.CHATROOM_TEAM_MISMATCH.getMessage()));
     }
 }

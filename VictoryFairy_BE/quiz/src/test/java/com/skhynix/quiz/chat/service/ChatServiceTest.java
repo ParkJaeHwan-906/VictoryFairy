@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import com.skhynix.common.error.BusinessException;
@@ -16,6 +17,8 @@ import com.skhynix.domain.chat.entity.Chat;
 import com.skhynix.domain.chat.entity.Chatroom;
 import com.skhynix.domain.chat.repository.ChatRepository;
 import com.skhynix.domain.chat.repository.ChatroomRepository;
+import com.skhynix.domain.support.entity.UserSupportTeam;
+import com.skhynix.domain.support.repository.UserSupportTeamRepository;
 import com.skhynix.domain.team.entity.Team;
 import com.skhynix.domain.user.entity.UserAccount;
 import com.skhynix.domain.user.repository.UserAccountRepository;
@@ -26,6 +29,7 @@ import com.skhynix.quiz.chat.dto.RoomResponse;
 import com.skhynix.quiz.realtime.RealtimeEvent;
 import com.skhynix.quiz.realtime.RealtimeEventPublisher;
 import com.skhynix.quiz.realtime.SseEmitterRegistry;
+import com.skhynix.quiz.realtime.SubscriptionCloseCommand;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -52,11 +56,20 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  * <p>리포지토리 쿼리 자체(예: {@code findByChatroomAndBlindFalseAndDeletedAtIsNullOrderByCreatedAtDesc}의
  * 실제 WHERE/ORDER BY 동작)는 여기서 목으로 대체되므로 검증되지 않는다 — "서비스가 리포지토리에 올바른
  * 인자로 위임하고, 리포지토리가 돌려준 결과를 가공 없이 그대로 반환한다"는 계약만 검증한다.
+ *
+ * <p><b>구단 가드 픽스처</b>: 방 단위 경로는 전부 {@code findAccessibleRoom}을 거치므로,
+ * {@code userSupportTeamRepository.findByUserAccount_IdAndOpposeIsNull}이 방의 구단과 일치하는 값을
+ * 돌려주지 않으면 403/400으로 먼저 끝난다. {@link #givenSupportTeam}/{@link #givenNoSupportTeam}으로
+ * 그 스텁을 깔고, 일치시키지 않는 테스트는 그 자체가 가드 검증이다(QUIZ-CTAC-6/9~13/15 등).
+ * {@code unsubscribe()}만 예외다 — 이 경로는 구단 조회 자체를 하지 않는다(QUIZ-CTAC-21/22).
  */
 @ExtendWith(MockitoExtension.class)
 class ChatServiceTest {
 
     private static final String ROOM_UID = "room-uid-1";
+    private static final String OTHER_ROOM_UID = "other-room-uid";
+    private static final Long SUPPORT_TEAM_ID = 6L; // 두산(예시 구단)
+    private static final Long OTHER_TEAM_ID = 3L;   // LG(예시 구단)
 
     @Mock
     private ChatroomRepository chatroomRepository;
@@ -68,6 +81,9 @@ class ChatServiceTest {
     private UserAccountRepository userAccountRepository;
 
     @Mock
+    private UserSupportTeamRepository userSupportTeamRepository;
+
+    @Mock
     private RealtimeEventPublisher eventPublisher;
 
     @Mock
@@ -77,12 +93,22 @@ class ChatServiceTest {
     private ChatService chatService;
 
     private Team team() {
-        return Team.builder().name("두산").build();
+        return team(SUPPORT_TEAM_ID, "두산");
+    }
+
+    private Team team(Long id, String name) {
+        Team team = Team.builder().name(name).build();
+        ReflectionTestUtils.setField(team, "id", id);
+        return team;
     }
 
     private Chatroom activeRoom(String uid) {
+        return activeRoom(uid, team());
+    }
+
+    private Chatroom activeRoom(String uid, Team team) {
         UserAccount owner = userAccountWithId(999L, "시스템계정");
-        Chatroom room = Chatroom.builder().team(team()).owner(owner).name("두산 채팅방").build();
+        Chatroom room = Chatroom.builder().team(team).owner(owner).name(team.getName() + " 채팅방").build();
         ReflectionTestUtils.setField(room, "uid", uid);
         return room;
     }
@@ -97,29 +123,127 @@ class ChatServiceTest {
         return Chat.builder().chatroom(room).userAccount(author).content(content).build();
     }
 
-    // ---------- getRooms / getRoom ----------
+    /** 지정 계정의 현재 응원 구단을 {@code team}으로 스텁한다. */
+    private void givenSupportTeam(Long userAccountId, Team team) {
+        UserSupportTeam support = UserSupportTeam.builder()
+                .userAccount(userAccountWithId(userAccountId, "무관"))
+                .team(team)
+                .build();
+        given(userSupportTeamRepository.findByUserAccount_IdAndOpposeIsNull(userAccountId))
+                .willReturn(Optional.of(support));
+    }
+
+    /** 지정 계정에 응원 구단이 없는 상태(QUIZ-CTAC-3/4/15)를 스텁한다. */
+    private void givenNoSupportTeam(Long userAccountId) {
+        given(userSupportTeamRepository.findByUserAccount_IdAndOpposeIsNull(userAccountId))
+                .willReturn(Optional.empty());
+    }
+
+    // ---------- getRooms ----------
 
     @Test
-    @DisplayName("getRooms()는 삭제 안 된 방 목록을 조회해 RoomResponse로 매핑한다(participants 필드 없음)")
-    void getRooms_mapsEachRoomToRoomResponse() {
-        Chatroom room1 = activeRoom("uid-1");
-        Chatroom room2 = activeRoom("uid-2");
-        given(chatroomRepository.findAllByDeletedAtIsNull()).willReturn(List.of(room1, room2));
+    @DisplayName("[QUIZ-CTAC-2] teamId를 생략하면 요청자의 현재 응원 구단으로 간주해 그 구단 방 목록을 반환한다")
+    void getRooms_teamIdOmitted_fallsBackToSupportTeam() {
+        Chatroom room = activeRoom(ROOM_UID);
+        givenSupportTeam(1L, team());
+        given(chatroomRepository.findAllByTeam_IdAndDeletedAtIsNull(SUPPORT_TEAM_ID)).willReturn(List.of(room));
 
-        List<RoomResponse> result = chatService.getRooms();
+        List<RoomResponse> result = chatService.getRooms(null, 1L);
 
-        assertThat(result).hasSize(2);
-        assertThat(result.get(0).roomUid()).isEqualTo("uid-1");
-        assertThat(result.get(1).roomUid()).isEqualTo("uid-2");
+        assertThat(result).extracting(RoomResponse::roomUid).containsExactly(ROOM_UID);
     }
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-5] teamId가 응원 구단과 같으면 그 구단 방만 200으로 반환한다(생략했을 때와 동일 결과)")
+    void getRooms_teamIdMatchesSupportTeam_returnsThatTeamRoomsOnly() {
+        Chatroom room = activeRoom(ROOM_UID);
+        givenSupportTeam(1L, team());
+        given(chatroomRepository.findAllByTeam_IdAndDeletedAtIsNull(SUPPORT_TEAM_ID)).willReturn(List.of(room));
+
+        List<RoomResponse> result = chatService.getRooms(SUPPORT_TEAM_ID, 1L);
+
+        assertThat(result).extracting(RoomResponse::roomUid).containsExactly(ROOM_UID);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-3] 응원 구단이 없고 teamId도 없으면 400 SUPPORT_TEAM_REQUIRED를 던진다")
+    void getRooms_noSupportTeamAndNoTeamId_throwsSupportTeamRequired() {
+        givenNoSupportTeam(1L);
+
+        assertThatThrownBy(() -> chatService.getRooms(null, 1L))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.SUPPORT_TEAM_REQUIRED);
+        verify(chatroomRepository, never()).findAllByTeam_IdAndDeletedAtIsNull(any());
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-4] 응원 구단이 없으면 teamId가 전달돼도 400 SUPPORT_TEAM_REQUIRED를 던진다")
+    void getRooms_noSupportTeamWithTeamIdProvided_stillThrowsSupportTeamRequired() {
+        givenNoSupportTeam(1L);
+
+        assertThatThrownBy(() -> chatService.getRooms(OTHER_TEAM_ID, 1L))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.SUPPORT_TEAM_REQUIRED);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-6] teamId가 응원 구단과 다르면 403 CHATROOM_TEAM_MISMATCH를 던지고 방 목록을 조회하지 않는다")
+    void getRooms_teamIdMismatchesSupportTeam_throwsChatroomTeamMismatch() {
+        givenSupportTeam(1L, team());
+
+        assertThatThrownBy(() -> chatService.getRooms(OTHER_TEAM_ID, 1L))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.CHATROOM_TEAM_MISMATCH);
+        verify(chatroomRepository, never()).findAllByTeam_IdAndDeletedAtIsNull(any());
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-7] teamId가 존재하지 않는 구단 id여도 구단 존재를 별도 조회하지 않고 QUIZ-CTAC-6과 동일한 403을 던진다")
+    void getRooms_teamIdIsNonexistentTeam_throwsSameChatroomTeamMismatch() {
+        givenSupportTeam(1L, team());
+
+        assertThatThrownBy(() -> chatService.getRooms(999_999L, 1L))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.CHATROOM_TEAM_MISMATCH);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-1] 판정 기준 구단은 매 호출마다 새로 조회한다(캐시 없음) — "
+            + "응원 구단이 바뀌면 다음 호출부터 새 구단 기준으로 필터링된다")
+    void getRooms_supportTeamChangesBetweenCalls_reflectsLatestTeamEachTime() {
+        Team kia = team(SUPPORT_TEAM_ID, "KIA");
+        Team lg = team(OTHER_TEAM_ID, "LG");
+        Chatroom kiaRoom = activeRoom(ROOM_UID, kia);
+        Chatroom lgRoom = activeRoom(OTHER_ROOM_UID, lg);
+        given(userSupportTeamRepository.findByUserAccount_IdAndOpposeIsNull(1L))
+                .willReturn(Optional.of(UserSupportTeam.builder()
+                        .userAccount(userAccountWithId(1L, "무관")).team(kia).build()))
+                .willReturn(Optional.of(UserSupportTeam.builder()
+                        .userAccount(userAccountWithId(1L, "무관")).team(lg).build()));
+        given(chatroomRepository.findAllByTeam_IdAndDeletedAtIsNull(SUPPORT_TEAM_ID)).willReturn(List.of(kiaRoom));
+        given(chatroomRepository.findAllByTeam_IdAndDeletedAtIsNull(OTHER_TEAM_ID)).willReturn(List.of(lgRoom));
+
+        List<RoomResponse> first = chatService.getRooms(null, 1L);
+        List<RoomResponse> second = chatService.getRooms(null, 1L);
+
+        assertThat(first).extracting(RoomResponse::roomUid).containsExactly(ROOM_UID);
+        assertThat(second).extracting(RoomResponse::roomUid).containsExactly(OTHER_ROOM_UID);
+    }
+
+    // ---------- getRoom ----------
 
     @Test
     @DisplayName("getRoom()은 존재하는 방이면 RoomResponse를 반환한다")
     void getRoom_activeRoom_returnsRoomResponse() {
         Chatroom room = activeRoom(ROOM_UID);
+        givenSupportTeam(1L, team());
         given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
 
-        RoomResponse result = chatService.getRoom(ROOM_UID);
+        RoomResponse result = chatService.getRoom(ROOM_UID, 1L);
 
         assertThat(result.roomUid()).isEqualTo(ROOM_UID);
     }
@@ -129,18 +253,57 @@ class ChatServiceTest {
     void getRoom_missingOrDeletedRoom_throwsChatroomNotFound() {
         given(chatroomRepository.findByUidAndDeletedAtIsNull("nope")).willReturn(Optional.empty());
 
-        assertThatThrownBy(() -> chatService.getRoom("nope"))
+        assertThatThrownBy(() -> chatService.getRoom("nope", 1L))
                 .isInstanceOf(BusinessException.class)
                 .extracting(ex -> ((BusinessException) ex).getErrorCode())
                 .isEqualTo(ErrorCode.CHATROOM_NOT_FOUND);
     }
 
+    @Test
+    @DisplayName("[QUIZ-CTAC-9] getRoom()은 방의 구단이 응원 구단과 다르면 403 CHATROOM_TEAM_MISMATCH를 던진다")
+    void getRoom_teamMismatch_throwsChatroomTeamMismatch() {
+        Chatroom room = activeRoom(ROOM_UID, team(OTHER_TEAM_ID, "LG"));
+        givenSupportTeam(1L, team());
+        given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
+
+        assertThatThrownBy(() -> chatService.getRoom(ROOM_UID, 1L))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.CHATROOM_TEAM_MISMATCH);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-14] 존재하지 않는 방은 응원 구단 조회 자체를 하지 않고 404를 던진다(404가 구단 판정보다 먼저)")
+    void getRoom_missingRoom_neverQueriesSupportTeam() {
+        given(chatroomRepository.findByUidAndDeletedAtIsNull("nope")).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> chatService.getRoom("nope", 1L))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.CHATROOM_NOT_FOUND);
+        verify(userSupportTeamRepository, never()).findByUserAccount_IdAndOpposeIsNull(any());
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-15] getRoom()은 응원 구단이 없으면 활성 방이 실재해도 403이 아니라 400 SUPPORT_TEAM_REQUIRED를 던진다")
+    void getRoom_noSupportTeam_throwsSupportTeamRequiredEvenWhenRoomExists() {
+        Chatroom room = activeRoom(ROOM_UID);
+        given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
+        givenNoSupportTeam(1L);
+
+        assertThatThrownBy(() -> chatService.getRoom(ROOM_UID, 1L))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.SUPPORT_TEAM_REQUIRED);
+    }
+
     // ---------- subscribe ----------
 
     @Test
-    @DisplayName("subscribe()는 방이 존재하면 emitterRegistry.register()에 위임해 SseEmitter를 반환한다")
+    @DisplayName("subscribe()는 방이 존재하고 응원 구단이 일치하면 emitterRegistry.register()에 위임해 SseEmitter를 반환한다")
     void subscribe_activeRoom_delegatesToEmitterRegistry() {
         Chatroom room = activeRoom(ROOM_UID);
+        givenSupportTeam(1L, team());
         given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
         SseEmitter emitter = new SseEmitter();
         given(emitterRegistry.register(ROOM_UID, 1L)).willReturn(emitter);
@@ -163,6 +326,122 @@ class ChatServiceTest {
         verify(emitterRegistry, never()).register(anyString(), any());
     }
 
+    @Test
+    @DisplayName("[QUIZ-CTAC-10] subscribe()는 방의 구단이 응원 구단과 다르면 403을 던지고 "
+            + "emitterRegistry.register()를 호출하지 않는다(스트림을 열지 않고 레지스트리에도 등록하지 않음)")
+    void subscribe_teamMismatch_throwsAndNeverRegisters() {
+        Chatroom room = activeRoom(ROOM_UID, team(OTHER_TEAM_ID, "LG"));
+        givenSupportTeam(1L, team());
+        given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
+
+        assertThatThrownBy(() -> chatService.subscribe(ROOM_UID, 1L))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.CHATROOM_TEAM_MISMATCH);
+        verify(emitterRegistry, never()).register(anyString(), any());
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-15] subscribe()는 응원 구단이 없으면 400을 던지고 emitterRegistry.register()를 호출하지 않는다")
+    void subscribe_noSupportTeam_throwsAndNeverRegisters() {
+        Chatroom room = activeRoom(ROOM_UID);
+        given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
+        givenNoSupportTeam(1L);
+
+        assertThatThrownBy(() -> chatService.subscribe(ROOM_UID, 1L))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.SUPPORT_TEAM_REQUIRED);
+        verify(emitterRegistry, never()).register(anyString(), any());
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-24/29] subscribe()는 등록 후 같은 사용자를 대상으로 한 "
+            + "축출(evict, allRooms=true) 종료 명령을 발행한다(다중 파드 전파의 발신측)")
+    void subscribe_success_publishesEvictCloseCommandTargetingOwnUser() {
+        Chatroom room = activeRoom(ROOM_UID);
+        givenSupportTeam(1L, team());
+        given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
+        given(emitterRegistry.register(ROOM_UID, 1L)).willReturn(new SseEmitter());
+        given(emitterRegistry.instanceId()).willReturn("instance-A");
+
+        chatService.subscribe(ROOM_UID, 1L);
+
+        ArgumentCaptor<RealtimeEvent> captor = ArgumentCaptor.forClass(RealtimeEvent.class);
+        verify(eventPublisher).publish(eq(ROOM_UID), captor.capture());
+        RealtimeEvent event = captor.getValue();
+        assertThat(event.name()).isEqualTo(SubscriptionCloseCommand.EVENT_NAME);
+        assertThat(event.data()).isInstanceOf(SubscriptionCloseCommand.class);
+        SubscriptionCloseCommand command = (SubscriptionCloseCommand) event.data();
+        assertThat(command.targetUserAccountId()).isEqualTo(1L);
+        assertThat(command.originInstanceId()).isEqualTo("instance-A");
+        assertThat(command.allRooms()).isTrue();
+    }
+
+    // ---------- unsubscribe ----------
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-19] unsubscribe()는 emitterRegistry.closeSubscriptions()에 위임해 그 방 구독을 종료한다")
+    void unsubscribe_delegatesToEmitterRegistryCloseSubscriptions() {
+        chatService.unsubscribe(ROOM_UID, 1L);
+
+        verify(emitterRegistry).closeSubscriptions(ROOM_UID, 1L);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-19/28] unsubscribe()는 그 방에 한정된(allRooms=false) leave 종료 명령을 발행한다"
+            + "(다중 파드 전파의 발신측)")
+    void unsubscribe_publishesLeaveCloseCommandScopedToRoom() {
+        given(emitterRegistry.instanceId()).willReturn("instance-A");
+
+        chatService.unsubscribe(ROOM_UID, 1L);
+
+        ArgumentCaptor<RealtimeEvent> captor = ArgumentCaptor.forClass(RealtimeEvent.class);
+        verify(eventPublisher).publish(eq(ROOM_UID), captor.capture());
+        RealtimeEvent event = captor.getValue();
+        assertThat(event.name()).isEqualTo(SubscriptionCloseCommand.EVENT_NAME);
+        SubscriptionCloseCommand command = (SubscriptionCloseCommand) event.data();
+        assertThat(command.targetUserAccountId()).isEqualTo(1L);
+        assertThat(command.originInstanceId()).isEqualTo("instance-A");
+        assertThat(command.allRooms()).isFalse();
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-20] 끊을 구독이 없어도 unsubscribe()는 예외를 던지지 않는다(멱등)")
+    void unsubscribe_noExistingSubscription_doesNotThrow() {
+        assertThatCode(() -> chatService.unsubscribe(ROOM_UID, 1L)).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-20] 같은 해제 요청을 연속 2회 보내도 둘 다 예외 없이 처리되고 "
+            + "emitterRegistry.closeSubscriptions()가 매번 호출된다")
+    void unsubscribe_calledTwiceConsecutively_bothSucceed() {
+        chatService.unsubscribe(ROOM_UID, 1L);
+        chatService.unsubscribe(ROOM_UID, 1L);
+
+        verify(emitterRegistry, times(2)).closeSubscriptions(ROOM_UID, 1L);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-21/22/26] unsubscribe()는 구단 일치·응원 구단 존재·방 존재 여부를 전혀 조회하지 않는다"
+            + "(구단을 바꾼 사용자·응원 구단 없는 사용자도 정리할 수 있어야 하고, "
+            + "chatroomRepository를 건드리지 않으므로 participants도 건드릴 수단 자체가 없다)")
+    void unsubscribe_neverChecksTeamOrRoomExistence() {
+        assertThatCode(() -> chatService.unsubscribe(ROOM_UID, 1L)).doesNotThrowAnyException();
+
+        verify(chatroomRepository, never()).findByUidAndDeletedAtIsNull(anyString());
+        verify(userSupportTeamRepository, never()).findByUserAccount_IdAndOpposeIsNull(any());
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-23] 존재하지 않거나 삭제된 roomUid로 구독 해제를 요청해도 예외 없이 처리된다(404 아님)")
+    void unsubscribe_nonexistentRoomUid_doesNotThrow() {
+        assertThatCode(() -> chatService.unsubscribe("does-not-exist", 1L)).doesNotThrowAnyException();
+
+        verify(emitterRegistry).closeSubscriptions("does-not-exist", 1L);
+        verify(chatroomRepository, never()).findByUidAndDeletedAtIsNull(anyString());
+    }
+
     // ---------- sendMessage ----------
 
     @Test
@@ -170,6 +449,7 @@ class ChatServiceTest {
     void sendMessage_validRoomAndSender_savesWithBlindFalse() {
         Chatroom room = activeRoom(ROOM_UID);
         UserAccount sender = userAccountWithId(1L, "두산팬1");
+        givenSupportTeam(1L, team());
         given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
         given(userAccountRepository.findById(1L)).willReturn(Optional.of(sender));
         given(chatRepository.saveAndFlush(any(Chat.class))).willAnswer(invocation -> invocation.getArgument(0));
@@ -194,6 +474,7 @@ class ChatServiceTest {
     void sendMessage_publishesRealtimeEventExcludingSenderWithMessageEventPayload() {
         Chatroom room = activeRoom(ROOM_UID);
         UserAccount sender = userAccountWithId(1L, "두산팬1");
+        givenSupportTeam(1L, team());
         given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
         given(userAccountRepository.findById(1L)).willReturn(Optional.of(sender));
         // saveAndFlush 목이 실제 JPA persist처럼 @CreationTimestamp(createdAt)를 채워주지 않으므로,
@@ -229,6 +510,7 @@ class ChatServiceTest {
     void sendMessage_defersPublishUntilAfterCommit() {
         Chatroom room = activeRoom(ROOM_UID);
         UserAccount sender = userAccountWithId(1L, "두산팬1");
+        givenSupportTeam(1L, team());
         given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
         given(userAccountRepository.findById(1L)).willReturn(Optional.of(sender));
         given(chatRepository.saveAndFlush(any(Chat.class))).willAnswer(invocation -> invocation.getArgument(0));
@@ -267,6 +549,7 @@ class ChatServiceTest {
     void sendMessage_publishFails_stillReturnsResponseWithoutPropagatingException() {
         Chatroom room = activeRoom(ROOM_UID);
         UserAccount sender = userAccountWithId(1L, "두산팬1");
+        givenSupportTeam(1L, team());
         given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
         given(userAccountRepository.findById(1L)).willReturn(Optional.of(sender));
         given(chatRepository.saveAndFlush(any(Chat.class))).willAnswer(invocation -> invocation.getArgument(0));
@@ -288,6 +571,7 @@ class ChatServiceTest {
     @DisplayName("경계(요구사항 미기재, 방어 코드): 발신자 계정을 찾을 수 없으면 UNAUTHENTICATED를 던지고 저장하지 않는다")
     void sendMessage_senderNotFound_throwsUnauthenticated() {
         Chatroom room = activeRoom(ROOM_UID);
+        givenSupportTeam(1L, team());
         given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
         given(userAccountRepository.findById(1L)).willReturn(Optional.empty());
 
@@ -298,12 +582,42 @@ class ChatServiceTest {
         verify(chatRepository, never()).saveAndFlush(any());
     }
 
+    @Test
+    @DisplayName("[QUIZ-CTAC-11] sendMessage()는 방의 구단이 응원 구단과 다르면 403을 던지고 저장·발행하지 않는다")
+    void sendMessage_teamMismatch_throwsAndNeverSavesOrPublishes() {
+        Chatroom room = activeRoom(ROOM_UID, team(OTHER_TEAM_ID, "LG"));
+        givenSupportTeam(1L, team());
+        given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
+
+        assertThatThrownBy(() -> chatService.sendMessage(ROOM_UID, 1L, "안녕"))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.CHATROOM_TEAM_MISMATCH);
+        verify(chatRepository, never()).saveAndFlush(any());
+        verify(eventPublisher, never()).publish(anyString(), any());
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-15] sendMessage()는 응원 구단이 없으면 400을 던지고 저장하지 않는다")
+    void sendMessage_noSupportTeam_throwsAndNeverSaves() {
+        Chatroom room = activeRoom(ROOM_UID);
+        given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
+        givenNoSupportTeam(1L);
+
+        assertThatThrownBy(() -> chatService.sendMessage(ROOM_UID, 1L, "안녕"))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.SUPPORT_TEAM_REQUIRED);
+        verify(chatRepository, never()).saveAndFlush(any());
+    }
+
     // ---------- getHistory ----------
 
     @Test
     @DisplayName("[AC-CHAT-18] getHistory()는 page·30건 Pageable로 리포지토리에 위임하고 결과를 PageResponse로 감싼다")
     void getHistory_delegatesToRepositoryWithPageableAndWrapsResult() {
         Chatroom room = activeRoom(ROOM_UID);
+        givenSupportTeam(1L, team());
         given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
         UserAccount author = userAccountWithId(1L, "닉네임");
         Chat chat = chatOf(room, author, "내용");
@@ -311,7 +625,7 @@ class ChatServiceTest {
         given(chatRepository.findByChatroomAndBlindFalseAndDeletedAtIsNullOrderByCreatedAtDesc(
                 eq(room), any(Pageable.class))).willReturn(repoPage);
 
-        PageResponse<MessageResponse> result = chatService.getHistory(ROOM_UID, 0);
+        PageResponse<MessageResponse> result = chatService.getHistory(ROOM_UID, 0, 1L);
 
         ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
         verify(chatRepository).findByChatroomAndBlindFalseAndDeletedAtIsNullOrderByCreatedAtDesc(
@@ -327,10 +641,38 @@ class ChatServiceTest {
     void getHistory_missingRoom_throwsChatroomNotFound() {
         given(chatroomRepository.findByUidAndDeletedAtIsNull("nope")).willReturn(Optional.empty());
 
-        assertThatThrownBy(() -> chatService.getHistory("nope", 0))
+        assertThatThrownBy(() -> chatService.getHistory("nope", 0, 1L))
                 .isInstanceOf(BusinessException.class)
                 .extracting(ex -> ((BusinessException) ex).getErrorCode())
                 .isEqualTo(ErrorCode.CHATROOM_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-12] getHistory()는 방의 구단이 응원 구단과 다르면 403을 던진다")
+    void getHistory_teamMismatch_throwsChatroomTeamMismatch() {
+        Chatroom room = activeRoom(ROOM_UID, team(OTHER_TEAM_ID, "LG"));
+        givenSupportTeam(1L, team());
+        given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
+
+        assertThatThrownBy(() -> chatService.getHistory(ROOM_UID, 0, 1L))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.CHATROOM_TEAM_MISMATCH);
+        verify(chatRepository, never())
+                .findByChatroomAndBlindFalseAndDeletedAtIsNullOrderByCreatedAtDesc(any(), any());
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-15] getHistory()는 응원 구단이 없으면 400을 던진다")
+    void getHistory_noSupportTeam_throwsSupportTeamRequired() {
+        Chatroom room = activeRoom(ROOM_UID);
+        given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
+        givenNoSupportTeam(1L);
+
+        assertThatThrownBy(() -> chatService.getHistory(ROOM_UID, 0, 1L))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.SUPPORT_TEAM_REQUIRED);
     }
 
     // ---------- reportMessage ----------
@@ -341,6 +683,7 @@ class ChatServiceTest {
         Chatroom room = activeRoom(ROOM_UID);
         UserAccount author = userAccountWithId(1L, "작성자");
         Chat chat = chatOf(room, author, "내용");
+        givenSupportTeam(2L, team());
         given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
         given(chatRepository.findByIdAndChatroom(42L, room)).willReturn(Optional.of(chat));
 
@@ -355,6 +698,7 @@ class ChatServiceTest {
         Chatroom room = activeRoom(ROOM_UID);
         UserAccount author = userAccountWithId(1L, "작성자");
         Chat chat = chatOf(room, author, "내용");
+        givenSupportTeam(1L, team());
         given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
         given(chatRepository.findByIdAndChatroom(42L, room)).willReturn(Optional.of(chat));
 
@@ -372,6 +716,7 @@ class ChatServiceTest {
         UserAccount author = userAccountWithId(1L, "작성자");
         Chat chat = chatOf(room, author, "내용");
         chat.blind(); // 이미 신고돼 blind 상태
+        givenSupportTeam(2L, team());
         given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
         given(chatRepository.findByIdAndChatroom(42L, room)).willReturn(Optional.of(chat));
 
@@ -386,6 +731,7 @@ class ChatServiceTest {
         UserAccount author = userAccountWithId(1L, "작성자");
         Chat chat = chatOf(room, author, "내용");
         chat.delete(LocalDateTime.now());
+        givenSupportTeam(2L, team());
         given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
         given(chatRepository.findByIdAndChatroom(42L, room)).willReturn(Optional.of(chat));
 
@@ -399,6 +745,7 @@ class ChatServiceTest {
     @DisplayName("[AC-CHAT-20-2] reportMessage()는 방 안에서 messageId를 찾지 못하면 404를 던진다")
     void reportMessage_messageNotFoundInRoom_throwsChatMessageNotFound() {
         Chatroom room = activeRoom(ROOM_UID);
+        givenSupportTeam(2L, team());
         given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
         given(chatRepository.findByIdAndChatroom(999L, room)).willReturn(Optional.empty());
 
@@ -418,5 +765,33 @@ class ChatServiceTest {
                 .extracting(ex -> ((BusinessException) ex).getErrorCode())
                 .isEqualTo(ErrorCode.CHATROOM_NOT_FOUND);
         verify(chatRepository, never()).findByIdAndChatroom(any(), any());
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-13] reportMessage()는 방의 구단이 응원 구단과 다르면 403을 던지고 "
+            + "대상 메시지를 조회·blind하지 않는다")
+    void reportMessage_teamMismatch_throwsAndNeverBlindsMessage() {
+        Chatroom room = activeRoom(ROOM_UID, team(OTHER_TEAM_ID, "LG"));
+        givenSupportTeam(2L, team());
+        given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
+
+        assertThatThrownBy(() -> chatService.reportMessage(ROOM_UID, 42L, 2L))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.CHATROOM_TEAM_MISMATCH);
+        verify(chatRepository, never()).findByIdAndChatroom(any(), any());
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-15] reportMessage()는 응원 구단이 없으면 400을 던진다")
+    void reportMessage_noSupportTeam_throwsSupportTeamRequired() {
+        Chatroom room = activeRoom(ROOM_UID);
+        given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
+        givenNoSupportTeam(2L);
+
+        assertThatThrownBy(() -> chatService.reportMessage(ROOM_UID, 42L, 2L))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.SUPPORT_TEAM_REQUIRED);
     }
 }
