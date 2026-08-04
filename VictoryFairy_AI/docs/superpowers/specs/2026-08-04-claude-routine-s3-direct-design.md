@@ -125,16 +125,25 @@ BE 퀴즈 테이블 신설 시 `difficulty`·`points` 칼럼과 정답/오답 �
   §5.3 필드). 소비: BE 임포터가 RDB 적재 — 적재 방식·주기는 BE 소유.
 - **위키**: S3 `wiki/` (기존 계약 그대로 — players/*.md, graph.json,
   trending.md, _meta/).
-- **위키 열람 미러 (확정·구축 완료 2026-08-04)**: 전용 리포
-  [VictoryFairy_WIKI](https://github.com/ParkJaeHwan-906/VictoryFairy_WIKI)가
-  사람 열람·diff·히스토리용 미러다. 리포 내 Actions 워크플로
-  `mirror-s3-wiki`(IAM 롤 `vf-wiki-mirror-gha`, OIDC 무키·읽기 전용)가 화·금
-  07:30 KST에 S3 `wiki/` → 리포 `wiki/`를 단방향 동기화한다. 쓰기 주체는 항상
-  S3 — 루틴(무인) 세션의 GitHub 쓰기는 리포 종류와 무관하게 차단됨이 3회
-  실측(메인 리포 push·Contents API·전용 리포 push 전부 무산출)으로 확정됐기
-  때문이다. 리포에서 직접 고친 내용은 다음 동기화 때 덮어써진다(수정은
-  파이프라인 시드·규칙에서). 기존 dev_wiki 브랜치는 폐기 — 삭제는 룰셋 제한으로
-  관리자 소관.
+- **위키 원본 = git (확정·구축 완료 2026-08-04)**: 위키의 진실의 원천은 전용
+  리포 [VictoryFairy_WIKI](https://github.com/ParkJaeHwan-906/VictoryFairy_WIKI)의
+  **dev 브랜치**다 (main은 워크플로 전용 — schedule은 기본 브랜치에서만 발화).
+  루틴(무인) 세션의 GitHub 쓰기는 리포 종류와 무관하게 차단됨이 3회 실측(메인
+  리포 push·Contents API·전용 리포 push 전부 무산출)으로 확정됐으므로, 흐름을
+  다음처럼 구성한다 (E2E 검증 완료):
+
+  | 단계 | 주체 | 내용 |
+  |---|---|---|
+  | 읽기 | 위키 빌더 루틴 | `git clone -b dev` 로 기존 위키 읽음 (public 리포 전제) |
+  | 쓰기 | 위키 빌더 루틴 | 갱신분을 S3 `wiki-outbox/` 에 상대경로 그대로 업로드 (유일한 반출 통로) |
+  | 반영 | Actions `wiki-sync` (화·금 07:30 KST) | outbox → dev 커밋 → dev `wiki/` → S3 `wiki/` 역동기화(퀴즈 루틴 읽기 캐시) → outbox 비움 |
+  | 사람 편집 | dev 직접 커밋/PR | 덮어써지지 않음 — 빌더가 다음 실행 때 그 위에서 작업 |
+
+  IAM 롤 `vf-wiki-mirror-gha`(OIDC 무키): `wiki/*`·`wiki-outbox/*` 한정
+  읽기/쓰기. S3 `wiki/`는 원본이 아니라 **파생 캐시**로 지위가 바뀐다. 주의:
+  리포가 private로 전환되면 루틴의 public clone이 깨지므로, 전환 시 읽기 전용
+  PAT를 환경변수로 주입하는 방식으로 교체해야 한다. 기존 dev_wiki 브랜치는
+  폐기 — 삭제는 룰셋 제한으로 관리자 소관.
 
 ## 7. 스케줄
 
