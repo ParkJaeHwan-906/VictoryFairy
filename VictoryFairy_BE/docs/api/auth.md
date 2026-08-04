@@ -3,7 +3,7 @@
 > **도메인** `auth` — 회원가입 전 사전 검사, 이메일 소유 확인, 가입, 로그인/토큰 수명 관리.
 > **모듈** user (포트 8080) · **경로 접두사** `/api/member/auth` · **엔드포인트** 9개
 > **컨트롤러** `user/src/main/java/com/skhynix/user/auth/controller/AuthController.java` (`@RequestMapping("/auth")`)
-> **최종 갱신** 2026-08-04 — 모듈별(`user.md`) 문서를 도메인별로 분리. 계약 변경 없음.
+> **최종 갱신** 2026-08-04 — `POST /api/member/auth/signup`에 `users_bq` 행 생성 부수 효과 반영(요청·응답 계약은 변경 없음).
 > 공통 규약(응답 래퍼·JWT payload·401 4종·403 부재)은 [README.md](README.md)를 먼저 볼 것.
 
 ## 엔드포인트 목록
@@ -295,9 +295,9 @@ curl -i -X POST http://localhost:8080/api/member/auth/email/verify \
 ---
 
 ## POST /api/member/auth/signup
-> 최종 변경: 2026-07-27 (추정) — 도메인 분리 이전 이력이 없어 `AuthController` 마지막 커밋 기준
+> 최종 변경: 2026-08-04 — 부수 효과 추가: 같은 트랜잭션에서 `users_bq` 행(누적 점수 0)을 함께 생성. **요청·응답 계약·상태 코드·검사 순서는 변경 없음**
 
-회원가입. `User`(개인정보)와 `UserAccount`(로그인 계정)를 함께 생성한다.
+회원가입. `User`(개인정보)와 `UserAccount`(로그인 계정)를 함께 생성한다. **같은 트랜잭션에서 `users_bq` 행(`bq_score=0`)도 함께 생성한다**(`AuthService.signup()`, `UserBqRepository.save()`) — 이 행은 [계정(account)](account.md#get-apimemberusersme)의 `GET /api/member/users/me`가 `bqScore`로 노출하는 누적 획득 점수의 출처다. 트랜잭션이 어느 단계에서든 실패하면(형식 위반·`EMAIL_NOT_VERIFIED`·중복 409 등) `users_bq` 행도 남지 않는다. 이 부수 효과는 **응답 바디·상태 코드·요청 필드·검사 순서에 아무 영향을 주지 않는다** — 여전히 `Boolean` 201, 아래 요청/실패 표 그대로다.
 
 **선행 조건: 이메일 인증 완료.** `request.email`이 `POST /api/member/auth/email/verify`로 검증 성공한 뒤 TTL 30분 이내(인증완료 상태가 살아 있는 동안)여야 가입할 수 있다. `email/send-code`를 호출한 적이 없거나, `verify`에 성공하지 못했거나, 성공했더라도 30분이 지나 인증완료 상태가 만료됐으면 `EMAIL_NOT_VERIFIED`(400)로 거부된다 — 미인증과 만료가 코드상 동일하게 취급된다(`store.isVerified()`가 키 부재를 구분하지 않음).
 
@@ -513,5 +513,5 @@ curl -i -X POST http://localhost:8080/api/member/auth/logout \
 
 ## 관련 문서
 
-- [계정(account)](account.md) — 회원탈퇴. 탈퇴가 이 도메인의 login/refresh/signup 응답에 미치는 영향이 정리돼 있다.
-- 요구사항: `docs/requirements/user/email-verification.md`, `docs/requirements/user/nickname-policy.md`, `docs/requirements/user/withdraw.md`
+- [계정(account)](account.md) — 회원탈퇴, 그리고 `GET /api/member/users/me`(내 프로필 요약 조회 — signup이 만든 `users_bq` 행의 `bq_score`를 `bqScore`로 노출). 탈퇴가 이 도메인의 login/refresh/signup 응답에 미치는 영향도 정리돼 있다.
+- 요구사항: `docs/requirements/user/email-verification.md`, `docs/requirements/user/nickname-policy.md`, `docs/requirements/user/withdraw.md`, `docs/requirements/user/me-profile.md`(USER-ME-23~25·30 — signup의 `users_bq` 생성 계약)

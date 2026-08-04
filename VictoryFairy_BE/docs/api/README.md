@@ -1,6 +1,6 @@
 # API 명세 — 도메인별 문서
 
-> 최종 업데이트: 2026-08-04 — 모듈별(`user.md`·`quiz.md`) 2개 문서를 도메인별 7개 문서로 분리. **엔드포인트 계약은 하나도 바뀌지 않았다.**
+> 최종 업데이트: 2026-08-04 — `GET /api/member/users/me`(내 프로필 요약 조회) 신규 추가 + `POST /api/member/auth/signup`에 `users_bq` 행 생성 부수 효과 반영.
 
 이 디렉터리는 **도메인 단위**로 나뉜다. 이전에는 Gradle 모듈 단위(`user.md`, `quiz.md`) 두 문서에 모든 엔드포인트가 들어 있었으나, 한 문서가 900줄을 넘고 서로 무관한 도메인(인증·구단·선수·경기·응원)이 뒤섞여 찾기 어려워졌다. **모듈은 배포 단위일 뿐 API 계약의 경계가 아니라는 판단**으로 문서 축을 도메인으로 바꿨다.
 
@@ -8,8 +8,8 @@
 
 | 도메인 | 문서 | 소속 모듈 | 경로 접두사 | 엔드포인트 | 인증 | 최종 업데이트 | Notion |
 |---|---|---|---|---|---|---|---|
-| 인증 | [auth.md](auth.md) | user | `/api/member/auth` | 9 | 전부 불필요 | 2026-07-27 (추정) | [🔗](https://app.notion.com/p/3b278fa9b0f981b39166c408778394e9) |
-| 계정 | [account.md](account.md) | user | `/api/member/users` | 1 | 필수 | 2026-07-27 (추정) | [🔗](https://app.notion.com/p/3b278fa9b0f981f8b5bcf163fc897b12) |
+| 인증 | [auth.md](auth.md) | user | `/api/member/auth` | 9 | 전부 불필요 | 2026-08-04 | [🔗](https://app.notion.com/p/3b278fa9b0f981b39166c408778394e9) |
+| 계정 | [account.md](account.md) | user | `/api/member/users` | 2 | 필수 | 2026-08-04 | [🔗](https://app.notion.com/p/3b278fa9b0f981f8b5bcf163fc897b12) |
 | 구단 | [team.md](team.md) | user | `/api/member/teams` | 1 | 불필요(GET 한정) | 2026-07-28 (추정) | [🔗](https://app.notion.com/p/3b278fa9b0f981859999f42bfc4dd56b) |
 | 선수 | [player.md](player.md) | user | `/api/member/players` | 1 | 불필요(GET 한정) | 2026-08-03 | [🔗](https://app.notion.com/p/3b278fa9b0f981afb501f9e94e1f32f4) |
 | 경기 | [game.md](game.md) | user | `/api/member/games` | 1 | 불필요(GET 한정) | 2026-08-01 | [🔗](https://app.notion.com/p/3b278fa9b0f981938659cb3681750105) |
@@ -18,7 +18,7 @@
 
 `최종 업데이트`는 **계약이 마지막으로 바뀐 날**이지 문서를 손댄 날이 아니다. 2026-08-04의 도메인 분리는 계약을 바꾸지 않았으므로 어느 행에도 찍지 않았다. `(추정)`은 도메인 분리 이전에 엔드포인트별 이력이 없어 해당 컨트롤러의 마지막 커밋 날짜로 역산했다는 뜻이다.
 
-**총 22개 엔드포인트.** 도메인 이름은 코드의 패키지 구조(`com.skhynix.user.<domain>`, `com.skhynix.quiz.<domain>`)와 1:1로 대응한다 — 새 도메인 패키지가 생기면 이 디렉터리에도 같은 이름의 문서가 하나 생긴다.
+**총 23개 엔드포인트.** 도메인 이름은 코드의 패키지 구조(`com.skhynix.user.<domain>`, `com.skhynix.quiz.<domain>`)와 1:1로 대응한다 — 새 도메인 패키지가 생기면 이 디렉터리에도 같은 이름의 문서가 하나 생긴다.
 
 ## base URL과 context-path
 
@@ -46,8 +46,8 @@
 | chat 6개 | `ApiResponse<T>` | SSE 구독만 예외(`SseEmitter`, JSON 래핑 안 함) |
 | auth의 validate·email 계열 5개 | `ApiResponse<T>` | |
 | auth의 signup/login/refresh/logout 4개 | **raw**(`ResponseEntity<T>` 직접 반환) | `ApiResponse`로 감싸지 않는다 |
-| account의 회원탈퇴 | **raw**, 본문 없음(204) | |
-| team·player·game·support | `ApiResponse<T>` | |
+| account의 회원탈퇴(DELETE) | **raw**, 본문 없음(204) | |
+| account의 내 프로필 조회(GET) · team·player·game·support | `ApiResponse<T>` | |
 
 **에러 응답은 (아래 예외를 빼면) 전부 `ApiResponse`로 감싸인다** — `GlobalExceptionHandler`(`@RestControllerAdvice`)가 변환한다. 즉 user 모듈의 auth·account 일부는 "성공은 raw, 실패는 ApiResponse"인 비대칭 구조다.
 
