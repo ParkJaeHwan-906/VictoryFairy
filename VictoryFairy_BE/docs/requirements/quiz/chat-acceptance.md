@@ -1,5 +1,7 @@
 # 구단별 채팅 인수 테스트 시나리오
-> 상태: 승인됨 (2026-07-20) · 모듈: quiz (호스트 앱) · 최종 수정: 2026-08-01 · 원본: `docs/requirements/quiz/chat.md`
+> 상태: 승인됨 (2026-07-20) · 모듈: quiz (호스트 앱) · 최종 수정: 2026-08-04 · 원본: `docs/requirements/quiz/chat.md`
+
+> **개정 2026-08-04 — QUIZ-CHAT-5 철회에 따른 AC-CHAT-5-1 무효**: 응원 구단 기반 접근 제어 도입으로 "구단 소속 제한 없음"이 뒤집혀 AC-CHAT-5-1을 **무효 처리**했다(B절). 대체 시나리오는 `docs/requirements/quiz/chat-team-access-control.md`에 있으며 이 문서로 옮겨오지 않는다. 그 외 시나리오는 그대로 유효하다.
 
 > **개정 2026-08-01(2) — 구독 레지스트리 고아 Set 레이스**: 마지막 구독 해제와 새 구독 등록이 겹치면 새 구독이 fan-out·하트비트에서 누락되던 기존 결함을 수정하기로 확정. 새 요구사항 없이 AC-CHAT-11-5·55-2 동시성 시나리오를 보탰다(원본 제약 절 9).
 
@@ -48,7 +50,7 @@
 | AC-CHAT-4-4 | QUIZ-CHAT-4 | 예외 | `Bearer ` 접두사 없는/깨진 헤더 | `POST .../{roomUid}/messages` | 401 |
 | AC-CHAT-4-5 | QUIZ-CHAT-4 | 경계 | 서명은 유효하나 **탈퇴 계정**의 uid 토큰 | `POST .../{roomUid}/messages` | 401 (`findActiveIdByUid`가 빈 결과 → SecurityContext 미설정) |
 | AC-CHAT-4-6 | QUIZ-CHAT-4 | 정상 | 유효한 액세스 토큰(활성 계정) | `GET /api/game/chat/rooms` | 200 (인증 통과) |
-| AC-CHAT-5-1 | QUIZ-CHAT-5 | 정상 | 인증 사용자, 임의 구단 방(자신의 응원팀과 무관) | 입장·전송 시도 | 접근 허용, 403이 발생하지 않는다(구단 소속 제한 없음) |
+| ~~AC-CHAT-5-1~~ | ~~QUIZ-CHAT-5~~ | **무효 (2026-08-04)** | ~~인증 사용자, 임의 구단 방(자신의 응원팀과 무관)~~ | ~~입장·전송 시도~~ | **무효 사유**: QUIZ-CHAT-5가 철회되어(응원 구단 기반 접근 제어 도입) 이 시나리오는 이제 **반대 결과**를 요구한다 — 응원 구단과 다른 방은 403이다. 대체 시나리오는 `docs/requirements/quiz/chat-team-access-control.md`의 QUIZ-CTAC-6/9~15 인수 기준에 있다. 테스트 대상이 아니다 |
 
 ## C. 입장(SSE 구독)·퇴장·연결 유지
 

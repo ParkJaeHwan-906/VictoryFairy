@@ -1,6 +1,7 @@
 # 구단별 채팅 요구사항
-> 상태: 승인됨 (2026-07-20) · 모듈: quiz (호스트 앱) · 최종 수정: 2026-08-01
+> 상태: 승인됨 (2026-07-20) · 모듈: quiz (호스트 앱) · 최종 수정: 2026-08-04
 
+> **개정 2026-08-04 — 응원 구단 기반 접근 제어 도입에 따른 QUIZ-CHAT-5 철회**: "구단 소속에 따른 접근 제한 없음"을 확정했던 QUIZ-CHAT-5를 **철회**하고, 확정 전제 4·결정 근거 Q1을 무효 표기했다. 대체 계약은 `docs/requirements/quiz/chat-team-access-control.md`(QUIZ-CTAC 계열)이며, 이 개정으로 바뀐 것은 **접근 인가 조건뿐**이다 — 방 목록·상세·구독·전송·히스토리·신고의 나머지 계약(응답 형태·SSE 포맷·페이징·신고 규칙)은 그대로 유효하다. 다만 그 문서는 `DELETE .../subscribe`(명시적 퇴장)와 중복 구독 축출을 **추가**하므로, 구독 수명에 관한 한 이 문서만으로는 전체 계약이 되지 않는다.
 > **개정 2026-08-01 — 참여 인원(participants) 노출 폐지**: QUIZ-CHAT-7·8·26을 **철회**하고 QUIZ-CHAT-52~56을 추가했다. 사유: 참여 인원을 응답에 노출하지 않기로 결정. 집계 방식(인메모리/RDB)의 문제가 아니라 값 자체를 제공하지 않는 방향으로 제품 결정이 바뀐 것. 메시지 전송·SSE 전달·히스토리·신고 계약은 이 개정으로 바뀌지 않았다.
 > **개정 2026-08-01(2) — 구독 레지스트리 고아 Set 레이스**: 마지막 구독 해제와 새 구독 등록이 겹칠 때 새 구독이 fan-out·하트비트에서 누락되는 기존 결함을 수정하기로 확정했다. 새 ID를 만들지 않고 이미 그 성질을 요구하던 QUIZ-CHAT-11·55의 인수 기준에 동시성 조건을 명시했다(근거는 제약 절 9).
 > 참고로 이 개정 이전에 참여 인원 집계를 RDB 컬럼 + Redis 주기 재계산으로 옮기려던 별도 요구사항 문서(`participants-count.md`, QUIZ-CHAT-32~51)가 있었으나, 위 결정으로 **구현과 함께 전부 롤백·폐기되었다**. 그 문서는 더 이상 존재하지 않으며 32~51번대 ID도 **재사용하지 않는다**(부활 시에도 새 번호를 쓴다).
@@ -24,7 +25,7 @@ KBO 구단(team)별 실시간 채팅을 제공한다. 아키텍처는 사용자�
 1. **인증 principal = `Long userAccountId`.** `JwtAuthenticationFilter`가 토큰 subject(`uid`)를 활성 계정의 내부 PK로 변환해 SecurityContext에 넣는다. 컨트롤러는 이 값으로 발신자를 식별한다.
 2. **JWT는 `Authorization: Bearer` 헤더에서만 읽는다(Q7 확정).** SSE 인증도 **헤더 방식을 유지**하며, 표준 브라우저 `EventSource`는 헤더를 실을 수 없으므로 **fetch 기반 EventSource 폴리필로 `Authorization: Bearer`를 유지**하는 것을 전제한다. 쿼리 파라미터·쿠키 토큰 방식은 채택하지 않는다. SecurityConfig·JWT 필터는 변경하지 않는다.
 3. **`/api/game/chat/**`는 자동으로 인증 필수.** quiz `SecurityConfig`가 `/`, `/error`, `GET /health` 외 `anyRequest().authenticated()`이며 미인증은 user의 `RestAuthenticationEntryPoint`로 **401**을 낸다. chat 경로용 SecurityConfig 수정은 불필요.
-4. **방 접근에는 구단 소속 제한이 없다(Q1 확정).** 모든 인증 사용자가 모든 구단 방을 조회·입장·전송할 수 있다. user↔team 소속 개념은 도입하지 않는다.
+4. ~~**방 접근에는 구단 소속 제한이 없다(Q1 확정).** 모든 인증 사용자가 모든 구단 방을 조회·입장·전송할 수 있다. user↔team 소속 개념은 도입하지 않는다.~~ → **무효 (2026-08-04)**: 응원 구단 기반 접근 제어 도입으로 뒤집혔다. 이제 판정 기준은 `user_support_team`(`oppose IS NULL`)의 응원 구단이며, 어긋나면 403 `CHATROOM_TEAM_MISMATCH`다. 대체 전제·계약은 `docs/requirements/quiz/chat-team-access-control.md`.
 5. **관리자 개념이 없다(Q4 재확정).** 이번 범위엔 관리자/Role 체계도, admin 허용목록도 두지 않는다. 신고→blind는 **완전 자동**이며 사람이 승인·해제하는 경로가 없다. unblind/메시지 soft-delete는 후속 과제(하단 제외 범위).
 6. **`Chat`에는 외부 식별자(`uid`)가 없고, 추가하지 않는다(Q5 확정).** `chats`는 고write 테이블이라 랜덤 UUID 유니크 인덱스는 삽입 지역성을 해쳐 채택하지 않는다. 메시지를 지목해야 하는 유일한 경로인 신고는 **내부 PK를 room-스코프 경로로 지목**한다: `POST /api/game/chat/rooms/{roomUid}/messages/{messageId}/report`. 열거 방어는 인가(방 접근 사용자)·신고 규칙·blind 가역성으로 충당한다. **SSE·히스토리 응답 payload에는 메시지 식별자를 싣지 않는다.**
 7. **발신자에게는 SSE 에코를 하지 않는다(Q8 확정).** 서버는 emitter를 `userAccountId`로 식별해 발신자 구독을 fan-out에서 제외한다. 발신자 본인 메시지는 POST 응답으로 렌더한다. 발신자의 다른 탭은 실시간 수신 대신 재접속 시 히스토리로 보정된다(알려진 한계).
@@ -49,7 +50,7 @@ KBO 구단(team)별 실시간 채팅을 제공한다. 아키텍처는 사용자�
 | ID | 유형 | 요구사항 | 인수 기준 |
 |---|---|---|---|
 | QUIZ-CHAT-4 | 예외 | IF `/api/game/chat/**` 요청에 유효한 액세스 토큰이 없으면, THEN THE 시스템 SHALL 401을 반환한다 | `Authorization` 헤더 없이 `POST /api/game/chat/rooms/{roomUid}/messages` → 401(`RestAuthenticationEntryPoint` 형식). 만료·리프레시 토큰도 401 |
-| QUIZ-CHAT-5 | 유비쿼터스 | THE 시스템 SHALL 인증된 모든 사용자에게 모든 구단 방의 조회·입장·전송을 허용한다(구단 소속에 따른 접근 제한 없음) | 임의 인증 사용자가 임의 구단 방에 입장·전송 → 403이 발생하지 않는다. user↔team 소속 개념 없음 |
+| QUIZ-CHAT-5 | **철회됨 (2026-08-04, `chat-team-access-control.md`로 대체)** | ~~THE 시스템 SHALL 인증된 모든 사용자에게 모든 구단 방의 조회·입장·전송을 허용한다(구단 소속에 따른 접근 제한 없음)~~ | **철회 사유**: 응원 구단 기반 접근 제어를 도입하기로 제품 결정이 바뀌었다 — 사용자는 자신이 응원하는 구단의 방만 조회·구독·전송·히스토리·신고할 수 있다. 대체 계약은 `docs/requirements/quiz/chat-team-access-control.md`의 QUIZ-CTAC-1~18(특히 QUIZ-CTAC-6/9~15)이다. 계약으로서는 무효이며 테스트 대상이 아니다 |
 
 ### C. 입장(SSE 구독)·퇴장·연결 유지
 
@@ -141,7 +142,7 @@ KBO 구단(team)별 실시간 채팅을 제공한다. 아키텍처는 사용자�
 - **prod DDL·시드 마이그레이션**: `chatrooms`/`chats` 테이블과 팀당 1행 방 시드(제약 절 5).
 
 ## 결정 근거 (해소된 질문 — 조사를 반복하지 않기 위해)
-1. **Q1 방 접근**: 모든 인증 사용자가 모든 구단 방 접근. user↔team 소속 개념 도입 안 함(QUIZ-CHAT-5).
+1. ~~**Q1 방 접근**: 모든 인증 사용자가 모든 구단 방 접근. user↔team 소속 개념 도입 안 함(QUIZ-CHAT-5).~~ → **무효 (2026-08-04)**: 응원 구단 기반 접근 제어를 도입하기로 결정이 바뀌어 QUIZ-CHAT-5가 철회되었다. "구단 소속 제한을 둘 것인가"라는 질문 자체가 다시 열렸다가 **둔다**로 종결됐으며, 새 결정 근거는 `docs/requirements/quiz/chat-team-access-control.md`의 "결정 근거" 절(Q1~Q5)에 있다.
 2. **Q2 길이/페이징**: content 최대 500자(`String.length()` UTF-16 code unit), 히스토리 페이지 30·최신순(`createdAt` desc)(QUIZ-CHAT-13/18).
 3. ~~**Q3 participants**: best-effort. 구독 +1 / 종료·타임아웃 −1 / 0 하한. 크래시 시 일시적 과다 카운트 허용. SSE 타임아웃 + 하트비트(`:ping`)로 죽은 연결을 감지·회수해 근사 정확도 유지(정확성 보장 아님)(QUIZ-CHAT-8/26).~~ → **무효 (2026-08-01)**: 참여 인원을 응답에 노출하지 않기로 결정. 집계 방식(인메모리/RDB)의 문제가 아니라 값 자체를 제공하지 않는 방향으로 제품 결정이 바뀐 것. 따라서 "얼마나 정확한 카운트인가"라는 질문 자체가 사라졌다(QUIZ-CHAT-52~54). 하트비트·죽은 연결 회수는 참여 인원과 무관하게 **연결 유지 목적으로 존속**한다(QUIZ-CHAT-55/56).
 4. **Q4 관리자**: 관리자/Role 체계·admin 허용목록 **전면 제외**(재확정). 신고→blind는 완전 자동, unblind/메시지 soft-delete·방 삭제 트리거는 후속(제외 범위 절).
