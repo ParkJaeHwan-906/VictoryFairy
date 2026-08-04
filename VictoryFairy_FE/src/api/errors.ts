@@ -68,6 +68,41 @@ export class ApiError extends Error {
   }
 }
 
+/** 응답 없이 끝난 요청(네트워크/타임아웃/취소·스트림 끊김)용 에러. */
+export function networkError(
+  message = '네트워크 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.',
+): ApiError {
+  return new ApiError({
+    message,
+    status: null,
+    fieldErrors: null,
+    isNetworkError: true,
+    authKind: null,
+  });
+}
+
+/**
+ * HTTP 상태 + ApiResponse 형태의 실패 본문을 ApiError로 만든다.
+ * axios 경로(normalizeError)와 fetch 기반 SSE 경로가 같은 규칙을 쓰도록 공유한다.
+ */
+export function apiErrorFromResponse(
+  status: number,
+  body: ApiErrorResponse | null | undefined,
+  fallbackMessage = '요청 처리 중 오류가 발생했습니다.',
+): ApiError {
+  const message = body?.message ?? fallbackMessage;
+  const fieldErrors =
+    body && body.data !== null && typeof body.data === 'object' ? (body.data as FieldErrors) : null;
+
+  return new ApiError({
+    message,
+    status,
+    fieldErrors,
+    isNetworkError: false,
+    authKind: status === 401 ? resolveAuthErrorKind(message) : null,
+  });
+}
+
 /**
  * axios 에러/기타 에러를 ApiError로 정규화한다.
  * 실패 응답은 항상 ApiResponse 형태이므로 body.message / body.data를 신뢰해 파싱한다.
@@ -78,28 +113,14 @@ export function normalizeError(error: unknown): ApiError {
 
     // 응답 자체가 없으면 네트워크/타임아웃/취소 계열.
     if (!response) {
-      return new ApiError({
-        message: '네트워크 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.',
-        status: null,
-        fieldErrors: null,
-        isNetworkError: true,
-        authKind: null,
-      });
+      return networkError();
     }
 
-    const body = response.data as ApiErrorResponse | undefined;
-    const message = body?.message ?? error.message ?? '요청 처리 중 오류가 발생했습니다.';
-    const fieldErrors =
-      body && body.data !== null && typeof body.data === 'object' ? (body.data as FieldErrors) : null;
-    const authKind = response.status === 401 ? resolveAuthErrorKind(message) : null;
-
-    return new ApiError({
-      message,
-      status: response.status,
-      fieldErrors,
-      isNetworkError: false,
-      authKind,
-    });
+    return apiErrorFromResponse(
+      response.status,
+      response.data as ApiErrorResponse | undefined,
+      error.message,
+    );
   }
 
   if (error instanceof Error) {
