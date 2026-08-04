@@ -11,20 +11,16 @@ import java.lang.annotation.Target;
 /**
  * 비밀번호가 {@link PasswordPolicy}를 만족하는지 검증한다.
  *
- * <p><b>왜 단일 애노테이션인가</b>: 예전에는 {@code @NotBlank + @Size + @Pattern}을 겹쳐 걸었는데,
- * 길이와 구성을 동시에 위반하는 입력(예: {@code "abc"})은 위반이 2개 생성됐다. 이때
- * {@code GlobalExceptionHandler}는 {@code Map<필드명, 메시지>}에 {@code put}하므로 마지막 하나만
- * 살아남고, 그 순회 순서는 보장되지 않아 <b>같은 요청인데 응답 메시지가 호출마다 달라졌다</b>.
- * 이 제약은 {@link PasswordPolicy#findViolation(String)}에 판정을 위임해 <b>위반을 항상 정확히
- * 1개만</b> 만들므로, 비결정성이 원인에서 사라지고 사전 검사 API
- * ({@code POST /api/member/auth/password/validate})와 문자 그대로 같은 함수를 공유하게 된다.
+ * <p>단일 애노테이션인 이유: {@code @NotBlank}/{@code @Size}/{@code @Pattern}을 겹쳐 걸면 길이·구성을
+ * 동시에 위반하는 입력에서 위반이 2개 생겨 {@code GlobalExceptionHandler}의 {@code Map<필드명,메시지>}
+ * put 순서가 비결정적이라 응답 메시지가 호출마다 달라진다. 이 제약이 {@link PasswordPolicy}에 판정을
+ * 위임해 위반을 항상 1개로 유지하고, 사전 검사 API와 같은 판정 함수를 공유한다.
  *
- * <p><b>{@code null}·빈 문자열도 이 제약이 책임진다</b>: {@code @NotBlank}를 함께 걸지 말 것.
- * 자세한 이유는 {@link PasswordValidator}의 Javadoc 참고.
+ * <p>{@code null}·빈 문자열도 이 제약이 책임진다 — {@code @NotBlank}를 같이 걸지 말 것(이유는
+ * {@link PasswordValidator} 참고).
  *
- * <p>실제 응답 메시지는 위반 종류(길이/구성)에 따라 달라지므로 {@link #message()}가 아니라
- * {@link PasswordValidator}가 런타임에 채운다. 아래 기본값은 검증기가 메시지를 채우지 못한
- * 예외적인 경우를 위한 안전망일 뿐이다.
+ * <p>실제 메시지는 위반 종류에 따라 {@link PasswordValidator}가 런타임에 채운다. {@link #message()}
+ * 기본값은 채우지 못한 예외적 상황의 안전망일 뿐이다.
  */
 @Documented
 @Constraint(validatedBy = PasswordValidator.class)

@@ -29,10 +29,9 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 /**
  * 채팅 도메인 비즈니스 로직: 방 조회·구독·전송·히스토리·신고.
  *
- * <p>방 조회 응답은 참여 인원을 노출하지 않는다. 인메모리 구독 수는 파드별 값이라 다중 파드에서
- * 실제보다 작게 나오고, DB 컬럼으로 집계하면 connect/disconnect마다 write가 폭주한다 — 어느 쪽도
- * 신뢰할 수 없어 필드 자체를 응답에서 뺐다. {@code Chatroom.participants}와 {@code join()/leave()}는
- * 되살릴 여지를 두고 domain에 남아 있으나 여기서 쓰지 않는다.
+ * <p>방 조회 응답은 참여 인원을 노출하지 않는다 — 인메모리 구독 수도 DB 집계도 다중 파드에서 신뢰할
+ * 값을 못 만든다(상세는 {@code .claude/modules/quiz.md}). {@code Chatroom.participants}는 domain에
+ * 남아 있으나 여기서 쓰지 않는다.
  */
 @Service
 @RequiredArgsConstructor
@@ -63,10 +62,7 @@ public class ChatService {
         return RoomResponse.of(findActiveRoom(roomUid));
     }
 
-    /**
-     * SSE 구독을 연다. 없거나 삭제된 방이면 404. 구독 성립 시 레지스트리의 구독 수가 1 증가하고,
-     * 연결 종료 시 감소한다(레지스트리 콜백).
-     */
+    /** SSE 구독을 연다. 없거나 삭제된 방이면 404. */
     public SseEmitter subscribe(String roomUid, Long userAccountId) {
         findActiveRoom(roomUid);
         return emitterRegistry.register(roomUid, userAccountId);
@@ -129,14 +125,9 @@ public class ChatService {
     }
 
     /**
-     * 저장 트랜잭션이 <b>커밋된 뒤에</b> 전달한다. 커밋 전에 발행하면(=이 메서드를 그냥 호출하면)
-     * 뒤이어 커밋이 실패했을 때 구독자는 DB에 없는 메시지를 이미 받아버린다 — 새로고침하면 사라지는
-     * 유령 메시지이고, 재현이 어려워 원인 찾기가 고약하다. afterCommit 으로 미뤄 불변식을
-     * <b>"전달된 것은 반드시 저장돼 있다"</b> 한 방향으로 고정한다(역은 보장하지 않는다 — 전달 실패는
-     * 아래처럼 삼키고 클라이언트가 히스토리 조회로 수렴한다).
-     *
-     * <p>동기화가 없는 경우(트랜잭션 밖 호출)를 대비해 즉시 발행으로 떨어진다. 현재 호출부는
-     * {@code @Transactional} 안이지만, 이 메서드만 떼어 쓰는 미래 호출을 조용히 누락시키지 않기 위함이다.
+     * 저장 트랜잭션이 <b>커밋된 뒤에</b> 전달한다. 커밋 전에 발행하면 뒤이어 커밋이 실패했을 때 구독자가
+     * DB에 없는 유령 메시지를 이미 받아버릴 수 있다 — afterCommit으로 미뤄 "전달된 것은 반드시 저장돼
+     * 있다"를 보장한다. 동기화가 없는 호출(트랜잭션 밖)을 대비해 그 경우 즉시 발행으로 떨어진다.
      */
     private void publishMessage(String roomUid, Chat chat, Long senderId) {
         MessageEvent payload = MessageEvent.of(chat, roomUid);
@@ -155,11 +146,10 @@ public class ChatService {
     }
 
     private void publishNow(String roomUid, RealtimeEvent event) {
-        // fire-and-forget: 전달 실패가 저장·응답을 되돌리지 않도록 삼킨다(히스토리로 복구 가능).
+        // fire-and-forget: 전달 실패가 저장·응답을 되돌리지 않도록 삼킨다(QUIZ-CHAT-17, 히스토리로 복구 가능).
         try {
             eventPublisher.publish(roomUid, event);
         } catch (Exception ignored) {
-            // 전달 실패는 무시한다(QUIZ-CHAT-17).
         }
     }
 }

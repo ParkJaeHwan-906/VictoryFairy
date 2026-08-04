@@ -24,17 +24,9 @@ public class PlayerController {
     private final PlayerService playerService;
 
     /**
-     * 선수 목록(name 오름차순). {@code teamId} 를 주면 해당 구단 소속만, {@code name} 을 주면 이름에 그
-     * 문자열이 포함된 선수만(부분 일치), 둘 다 주면 두 조건을 모두 만족하는 선수만 반환한다. 둘 다
-     * 생략하면 전체다. 페이징 파라미터는 해석하지 않으며 항상 단일 배열로 반환한다. 일치하는 선수가
-     * 없으면 200 + 빈 배열.
-     *
-     * <p>{@code name} 은 문자열이라 타입 변환 실패가 없다 — 검증 없이 서비스로 넘기고, 빈 값·공백은
-     * 서비스가 "검색어 없음"으로 접는다.
-     *
-     * <p>{@code teamId} 가 숫자가 아니면 컨트롤러 진입 전 타입 변환에서 400 이 난다
-     * ({@code GlobalExceptionHandler} 가 아니라 Spring 기본 {@code DefaultHandlerExceptionResolver} 경로라
-     * {@code ApiResponse} 래퍼가 아니다).
+     * 선수 목록(name 오름차순, 없으면 200 + 빈 배열). {@code teamId}·{@code name} 은 AND 결합(부분
+     * 일치), 둘 다 생략하면 전체다. {@code teamId} 가 숫자가 아니면 컨트롤러 진입 전 타입 변환에서
+     * 400 — {@code GlobalExceptionHandler} 를 안 타 {@code ApiResponse} 래퍼가 아니다.
      */
     @GetMapping
     public ResponseEntity<ApiResponse<List<PlayerResponse>>> getPlayers(

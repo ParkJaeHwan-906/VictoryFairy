@@ -15,6 +15,7 @@ import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.ColumnDefault;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
@@ -31,10 +32,7 @@ public class UserAccount {
     @Column(name = "id")
     private Long id;
 
-    /**
-     * 외부 노출용 식별자. {@code id}(순차 PK)는 내부 전용이며, API·URL에는 이 값을 노출해 PK 열거를 막는다.
-     * 생성자 본문에서만 채워지고 {@code updatable = false}로 고정 — 회원가입 이후 변경되지 않는다.
-     */
+    // 외부 노출용 식별자 — id(순차 PK)는 내부 전용이라 API·URL에는 이 값을 노출해 PK 열거를 막는다.
     @Column(name = "uid", length = 36, nullable = false, unique = true, updatable = false,
             columnDefinition = "VARCHAR(36) CHARACTER SET ascii COLLATE ascii_bin")
     private String uid;
@@ -53,6 +51,16 @@ public class UserAccount {
     @Column(name = "exit_at")
     private LocalDateTime exitAt;
 
+    /**
+     * 보유 포인트. 신규 계정은 항상 0에서 시작한다.
+     *
+     * <p>이미 행이 있는 테이블에 붙는 NOT NULL 컬럼이라 {@code @ColumnDefault}(기존 행)와 자바 필드
+     * 초기값(신규 행)이 각각 다른 경로의 0 보장을 맡는다 — 하나만 있으면 한쪽이 깨진다.
+     */
+    @Column(name = "point", nullable = false)
+    @ColumnDefault("0")
+    private long point = 0L;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -63,25 +71,18 @@ public class UserAccount {
 
     @Builder
     private UserAccount(User user, String nickname, String password) {
-        // uid·exitAt은 호출자가 지정할 수 없도록 @Builder 파라미터로 받지 않는다. uid는 여기서 생성하고,
-        // exitAt은 null(활성)로 시작해 withdraw()로만 전이한다 — 탈퇴 상태로 태어나는 계정을 막는다.
+        // uid·exitAt·point는 @Builder 파라미터로 받지 않는다 — 탈퇴 상태로 태어나는 계정을 막기 위해
+        // exitAt은 null(활성)로 시작해 withdraw()로만 전이한다.
         this.uid = UUID.randomUUID().toString();
         this.user = user;
         this.nickname = nickname;
         this.password = password;
+        this.point = 0L;
     }
 
-    /**
-     * 이 계정을 탈퇴 처리한다. {@code exitAt}은 "탈퇴 예정 시각"이 아니라 <b>탈퇴 완료 시각</b>이다
-     * (유예 기간·취소 없음).
-     *
-     * <p>이미 탈퇴한 계정이면 아무것도 하지 않고 최초 탈퇴 시각을 그대로 보존한다 — 한 번 기록된
-     * {@code exit_at}은 이후 변경되지 않아야 한다. 상태 전이를 엔티티가 직접 책임지므로
-     * {@code @Setter}를 두지 않는다.
-     *
-     * @param exitAt 탈퇴 시각. 같은 트랜잭션의 다른 작업(refresh 토큰 만료)과 시각을 정확히 맞출 수
-     *               있도록 엔티티가 {@code now()}를 직접 읽지 않고 호출자에게서 받는다.
-     */
+    // exitAt은 "탈퇴 예정 시각"이 아니라 탈퇴 완료 시각이다(유예 기간·취소 없음). 이미 탈퇴한 계정이면
+    // no-op으로 최초 탈퇴 시각을 보존한다. 호출자가 시각을 넘기는 이유는 같은 트랜잭션의 다른 작업
+    // (refresh 토큰 만료)과 시각을 정확히 맞추기 위해서다.
     public void withdraw(LocalDateTime exitAt) {
         if (isWithdrawn()) {
             return;
@@ -89,9 +90,6 @@ public class UserAccount {
         this.exitAt = exitAt;
     }
 
-    /**
-     * 탈퇴한 계정인지 여부. {@code exit_at}이 채워져 있으면 탈퇴가 완료된 계정이다.
-     */
     public boolean isWithdrawn() {
         return exitAt != null;
     }
