@@ -19,7 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * 응원 구단·선수 선택 엔드포인트({@code /api/member/support/**}).
- * 요구사항: {@code docs/requirements/user/support-selection.md}(USER-SP-1~29).
+ * 요구사항: {@code docs/requirements/user/support-selection.md}.
  *
  * <p><b>{@code SecurityConfig} 를 수정하지 말 것</b> — 세 경로 모두 {@code permitAll} 목록에 없어
  * {@code anyRequest().authenticated()} 에 이미 걸린다. 실수로 열면 {@code SupportControllerTest} 의

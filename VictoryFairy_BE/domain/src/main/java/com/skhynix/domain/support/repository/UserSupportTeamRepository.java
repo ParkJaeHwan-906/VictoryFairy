@@ -19,8 +19,7 @@ public interface UserSupportTeamRepository extends JpaRepository<UserSupportTeam
      * 위 메서드와 조건은 같고 구단까지 함께 가져온다. 응답에 구단명이 필요한 호출자용이다.
      *
      * <p>이 {@code @EntityGraph} 를 빼거나 조건이 같은 {@link #findByUserAccount_IdAndOpposeIsNull} 로
-     * 되돌리면 SELECT 가 4→5회가 되어 USER-ME-22(SELECT ≤ 4, {@code docs/requirements/user/me-profile.md})
-     * 가 깨진다.
+     * 되돌리면 SELECT 가 4→5회로 늘어난다({@code docs/requirements/user/me-profile.md} 참고).
      */
     @EntityGraph(attributePaths = "team")
     Optional<UserSupportTeam> findWithTeamByUserAccount_IdAndOpposeIsNull(Long userAccountId);
