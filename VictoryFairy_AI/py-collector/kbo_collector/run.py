@@ -472,12 +472,47 @@ def land_game_records(date, *, settings, db, client, team_ids=None) -> tuple[lis
                 status_id=db.status_id(status))
             db.upsert_lineups(game_pk, game_records.build_lineups(game),
                               player_map, team_ids)
+            db.upsert_batting(game_pk, game.batting, player_map)
+            db.upsert_pitching(game_pk, game.pitching, player_map)
             loaded.append(gid)
         except Exception as exc:  # 한 경기 실패가 백필 전체를 막지 않도록
             log.warning("record fail %s: %s", gid, exc)
             failed.append(gid)
     log.info("%s: loaded=%d failed=%d", date, len(loaded), len(failed))
     return loaded, failed
+
+
+def job_games_sync(settings, db, date):
+    """당일 KBO 경기 전부의 상태를 games 테이블에 동기화 (취소·예정 포함).
+
+    점수는 LIVE/RESULT 에서만 채운다 — SCHEDULED/CANCELED 의 0-0 은 껍데기라
+    NULL 로 적재해야 미시작 경기가 0:0 무승부처럼 보이지 않는다.
+    """
+    log = logging.getLogger("games_sync")
+    with fetch.build_client(settings) as client:
+        resp = fetch.fetch(client, game_records.schedule_url(settings, date),
+                           settings=settings, referer=settings.naver_referer)
+    games = game_records.list_kbo_games(resp.json())
+    team_ids = db.upsert_teams(dimensions.TEAMS)
+    synced, skipped = 0, 0
+    for g in games:
+        status = game_records.map_status(g)
+        if status is None:
+            log.warning("unknown status %s: %s", g.get("gameId"), g.get("statusCode"))
+            skipped += 1
+            continue
+        live_or_done = status in ("IN_PROGRESS", "FINISHED", "DRAW")
+        dt = (g.get("gameDateTime") or "").replace("T", " ") or f"{date} 00:00:00"
+        db.sync_game(
+            naver_game_id=g["gameId"], game_dt=dt,
+            home_team_id=team_ids[g["homeTeamCode"]],
+            away_team_id=team_ids[g["awayTeamCode"]],
+            home_score=g.get("homeTeamScore") if live_or_done else None,
+            away_score=g.get("awayTeamScore") if live_or_done else None,
+            status_id=db.status_id(status))
+        synced += 1
+    log.info("%s: synced=%d skipped=%d", date, synced, skipped)
+    return synced
 
 
 def land_game_records_range(start, end, *, settings, db, client, sleep=time.sleep) -> dict:
@@ -503,7 +538,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="kbo_collector")
     parser.add_argument("job", choices=["schedule", "result", "relay", "game",
                                         "community", "all", "teams", "registrations",
-                                        "records", "collect", "export"])
+                                        "records", "games_sync", "collect", "export"])
     parser.add_argument("--target", default=None,
                         help="collect: source_id / export: docType")
     parser.add_argument("--date", default=None, help="YYYY-MM-DD (default: today UTC)")
@@ -565,19 +600,24 @@ def main(argv=None) -> int:
             db.close()
         return 0
 
-    if args.job in ("teams", "registrations", "records"):
+    if args.job in ("teams", "registrations", "records", "games_sync"):
         from .db import DbSink
         db = DbSink(settings)
         try:
-            with fetch.build_client(settings) as client:
-                if args.job == "teams":
-                    db.upsert_teams(dimensions.TEAMS)
-                elif args.job == "registrations":
-                    land_registrations(args.date, settings=settings, db=db, client=client)
-                else:  # records
-                    start = args.from_date or date
-                    end = args.to_date or start
-                    land_game_records_range(start, end, settings=settings, db=db, client=client)
+            if args.job == "games_sync":
+                # job_games_sync 는 fetch 클라이언트를 자체 관리한다(Task 9 Lambda
+                # 핸들러가 settings/db/date 세 인자만으로 직접 호출하는 것과 동일 경로).
+                job_games_sync(settings, db, date)
+            else:
+                with fetch.build_client(settings) as client:
+                    if args.job == "teams":
+                        db.upsert_teams(dimensions.TEAMS)
+                    elif args.job == "registrations":
+                        land_registrations(args.date, settings=settings, db=db, client=client)
+                    else:  # records
+                        start = args.from_date or date
+                        end = args.to_date or start
+                        land_game_records_range(start, end, settings=settings, db=db, client=client)
         finally:
             db.close()
         return 0
