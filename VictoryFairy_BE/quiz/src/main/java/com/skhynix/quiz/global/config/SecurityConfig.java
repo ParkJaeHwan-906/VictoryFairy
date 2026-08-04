@@ -18,8 +18,6 @@ import tools.jackson.databind.ObjectMapper;
 
 @Configuration
 // web-support가 컴포넌트 스캔(com.skhynix.quiz) 밖이라 자동 감지되지 않으므로 명시적으로 끌어온다.
-// JwtVerificationConfig: 토큰 검증 부품(JwtTokenProvider 빈, 발급 로직은 제외)
-// GlobalExceptionHandler: BusinessException/검증 예외를 ApiResponse 포맷으로 처리하는 @RestControllerAdvice
 @Import({JwtVerificationConfig.class, GlobalExceptionHandler.class})
 public class SecurityConfig {
 
@@ -33,14 +31,11 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/", "/error").permitAll()
-                        // ALB 타깃 헬스체크. 종전 "/health" 는 처리할 핸들러가 없어 항상 404 였다
-                        // (그래서 타깃이 Unhealthy → 503). actuator 경로로 교체한다.
-                        // context-path(/api/game)는 필터 이전에 떨어지므로 접두사 없이 쓴다.
+                        // ALB 타깃 헬스체크. context-path(/api/game)는 필터 이전에 떨어지므로 접두사 없이 쓴다.
                         .requestMatchers(HttpMethod.GET, "/actuator/health/**").permitAll()
                         .anyRequest().authenticated()
                 )
-                // formLogin/httpBasic을 모두 disable하면 엔트리포인트를 등록하는 주체가 없어
-                // 기본값(Http403ForbiddenEntryPoint)으로 떨어진다. 401을 내리려면 명시가 필요하다.
+                // formLogin/httpBasic을 disable하면 엔트리포인트 기본값(403)으로 떨어져 401을 내리려면 명시가 필요하다.
                 .exceptionHandling(handling -> handling
                         .authenticationEntryPoint(new RestAuthenticationEntryPoint(objectMapper)))
                 .addFilterBefore(new JwtAuthenticationFilter(tokenProvider, userAccountRepository),

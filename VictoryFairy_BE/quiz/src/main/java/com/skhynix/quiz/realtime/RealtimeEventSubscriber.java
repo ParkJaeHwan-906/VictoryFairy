@@ -12,9 +12,6 @@ import tools.jackson.databind.ObjectMapper;
  * Redis 채널({@link RedisPubSubPublisher#CHANNEL})을 듣고 이 인스턴스의 구독자에게 전달하는 수신 측
  * ({@code prod} 전용). 등록은 {@link RealtimeRedisConfig}가 한다.
  *
- * <p>이 인스턴스가 모르는 방의 이벤트도 그대로 받는다(단일 채널). 그 경우
- * {@link SseEmitterRegistry#publish}가 맵 조회 한 번으로 반환하므로 별도 필터링을 두지 않는다.
- *
  * <p>깨진 payload 하나가 리스너 컨테이너를 흔들지 않도록 예외는 여기서 삼키고 로그만 남긴다.
  */
 @Component

@@ -46,20 +46,14 @@ public class ChatController {
         return ResponseEntity.ok(ApiResponse.ok(chatService.getRoom(roomUid)));
     }
 
-    /**
-     * SSE 구독 스트림. fetch 기반 EventSource 폴리필로 {@code Authorization} 헤더를 실어야 인증된다.
-     * 구독 성립 시 레지스트리 구독 수 +1, 연결 종료 시 -1(레지스트리 콜백).
-     */
+    /** SSE 구독 스트림. 표준 {@code EventSource}는 헤더를 못 실어 fetch 기반 폴리필로 인증해야 한다. */
     @GetMapping(value = "/rooms/{roomUid}/subscribe", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter subscribe(@PathVariable String roomUid,
             @AuthenticationPrincipal Long userAccountId) {
         return chatService.subscribe(roomUid, userAccountId);
     }
 
-    /**
-     * 메시지 전송. content 검증({@code @Valid})은 컨트롤러 진입 전에 수행돼 위반 시 400이 방 미존재
-     * 404보다 먼저 판정된다. 저장 후 발신자를 제외한 구독자에게 SSE로 전달하고 저장 메시지를 201로 반환.
-     */
+    /** 메시지 전송. 저장 후 발신자를 제외한 구독자에게 SSE로 전달하고 저장 메시지를 201로 반환. */
     @PostMapping("/rooms/{roomUid}/messages")
     public ResponseEntity<ApiResponse<MessageResponse>> sendMessage(@PathVariable String roomUid,
             @Valid @RequestBody SendMessageRequest request,
