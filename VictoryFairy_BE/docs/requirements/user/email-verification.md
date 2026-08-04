@@ -63,7 +63,7 @@
 - 개정 전: `POST /api/member/auth/signup` → 형식·중복 통과 시 201.
 - 개정 후: `POST /api/member/auth/signup` → **이메일이 Redis 인증 완료 상태일 때만** 형식·중복 검사로 진행. 미인증/만료면 USER-EMV-16/17로 거부(신규 `EMAIL_NOT_VERIFIED`). 가입 성공 시 인증 완료 상태 소비·제거(USER-EMV-18).
 - 검사 순서(제약): 형식(Bean Validation, 400) → **이메일 인증 완료 여부(USER-EMV-16, `EMAIL_NOT_VERIFIED`)** → 중복(`existsBy*`, 409). 인증 완료 검사가 중복 검사보다 먼저인지 여부는 구현 재량이나, 세 단계가 모두 통과해야 가입된다. `SignupRequest` 본문 스키마는 그대로다(인증 상태는 서버 Redis 조회, 요청 필드 추가 없음).
-- 이 개정은 `docs/api/user.md`의 signup 명세에도 반영돼야 한다(`api-documenter` 소관).
+- 이 개정은 `docs/api/auth.md`의 signup 명세에도 반영돼야 한다(`api-documenter` 소관).
 
 ## 구현 제약 (구현이 지켜야 할 사실 — 구현 방법 지시가 아님)
 1. **Redis + spring-data-redis 도입이 전제다 — 현재 모듈 의존성에 없다.** `.claude/modules/user.md` 기준 현재 라이브러리는 Security/JPA/Validation/JJWT/BCrypt/MySQL/dotenv뿐이다. 인증번호·시도횟수·쿨다운·인증완료 상태를 전부 TTL 기반으로 보관할 **Redis**가 도입돼야 하고, `spring-data-redis` 의존성 추가와 `docker-compose`에 Redis 서비스 추가가 전제된다. 이는 확정 결정이 강제하는 **제약**이다(연결·직렬화 세부는 `spring-dev`).

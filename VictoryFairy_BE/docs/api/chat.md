@@ -1,37 +1,50 @@
-# quiz API 명세
+# 채팅(chat) API 명세
 
-> 코드 기준 자동 작성. 포트 **8081**(`quiz/src/main/resources/application.yaml`의 `server.port: 8081`), `server.servlet.context-path`는 `/api/game`이므로 base URL은 `http://localhost:8081/api/game`.
-> 최종 갱신: 2026-08-01 (`RoomResponse`에서 `participants` 필드 제거 — 참여 인원은 API 응답에 노출하지 않기로 결정)
-> 대상 컨트롤러: `quiz/src/main/java/com/skhynix/quiz/chat/controller/ChatController.java` (`@RequestMapping("/api/game/chat")`) — 현재 quiz 모듈의 유일한 컨트롤러.
-> 인증: JWT Bearer (`Authorization: Bearer <accessToken>`). `SecurityConfig`가 `/`, `/error`, `GET /health`만 permitAll이고 그 외 `anyRequest().authenticated()`이므로 **`/api/game/chat/**` 6개 엔드포인트 전부 인증 필수**다. 인증 방식·401 형식은 `docs/api/user.md`의 "인증 방식" 절과 동일(`RestAuthenticationEntryPoint`가 필터 단계에서 401 `ApiResponse` JSON을 직렬화). `@AuthenticationPrincipal Long userAccountId`는 `JwtAuthenticationFilter`가 토큰 `sub`(uid)를 활성 계정의 내부 PK로 변환해 주입한 값이다.
+> **도메인** `chat` — 구단별 채팅방, 메시지 전송·히스토리·신고, SSE 실시간 구독.
+> **모듈** quiz (포트 8081) · **경로 접두사** `/api/game/chat` · **엔드포인트** 6개
+> **컨트롤러** `quiz/src/main/java/com/skhynix/quiz/chat/controller/ChatController.java` (`@RequestMapping("/api/game/chat")`) — 현재 quiz 모듈의 유일한 컨트롤러.
+> **최종 갱신** 2026-08-04 — 모듈별(`quiz.md`) 문서를 도메인별로 분리. 계약 변경 없음. (직전 변경: 2026-08-01 `RoomResponse`에서 `participants` 필드 제거)
+> **요구사항** `docs/requirements/quiz/chat.md`
+> 공통 규약(응답 래퍼·JWT payload·401 정책)은 [README.md](README.md)를 먼저 볼 것.
 
-## 공통 사항
+## 엔드포인트 목록
 
-### 응답 포맷
-`ChatController`의 6개 엔드포인트 모두 `ResponseEntity<ApiResponse<T>>`를 반환한다(`SseEmitter` 반환인 구독 엔드포인트만 예외 — 아래 참고). `ApiResponse<T>` = `{ success, data, message }`(`:common`).
+| 메서드 | 경로 | 성공 | 용도 |
+|---|---|---|---|
+| GET | [/api/game/chat/rooms](#get-apigamechatrooms) | 200 | 채팅방 목록 |
+| GET | [/api/game/chat/rooms/{roomUid}](#get-apigamechatroomsroomuid) | 200 | 채팅방 상세 |
+| GET | [/api/game/chat/rooms/{roomUid}/subscribe](#get-apigamechatroomsroomuidsubscribe) | 200 (SSE) | 방 실시간 구독 |
+| POST | [/api/game/chat/rooms/{roomUid}/messages](#post-apigamechatroomsroomuidmessages) | 201 | 메시지 전송 |
+| GET | [/api/game/chat/rooms/{roomUid}/messages](#get-apigamechatroomsroomuidmessages) | 200 | 히스토리 조회(페이징) |
+| POST | [/api/game/chat/rooms/{roomUid}/messages/{messageId}/report](#post-apigamechatroomsroomuidmessagesmessageidreport) | 200 | 메시지 신고 → 즉시 blind |
 
-- 성공: `{ "success": true, "data": <T>, "message": null }`
-- 실패(`BusinessException`): `{ "success": false, "data": null, "message": "<ErrorCode 메시지>" }`, 상태코드는 `ErrorCode.getStatus()`.
-- 실패(Bean Validation, `MethodArgumentNotValidException`): `{ "success": false, "data": {"필드명":"메시지", ...}, "message": "입력값이 올바르지 않습니다." }`, 상태코드 `400`.
+## 이 도메인의 특이사항
 
-이 변환은 `quiz`의 `SecurityConfig`가 `web-support`의 `GlobalExceptionHandler`(`@RestControllerAdvice`)를 `@Import`로 명시 등록해 이루어진다(quiz 모듈 컨텍스트 참고 — 좁은 컴포넌트 스캔 범위 밖이라 자동 감지되지 않으므로 이 import가 빠지면 `BusinessException`이 스프링 기본 500으로 나간다).
+**6개 전부 인증 필수.** quiz의 `SecurityConfig`는 `/`, `/error`, `GET /health`만 permitAll이고 그 외 `anyRequest().authenticated()`다. user 모듈처럼 GET 한정으로 열린 공개 경로가 없다.
+
+**응답 래퍼는 6개 모두 `ApiResponse<T>`이나 SSE 구독만 예외**로 `SseEmitter`를 반환한다(이벤트 스트림이라 JSON 래핑 대상이 아님).
 
 ### 외부 식별자
-- 채팅방은 `roomUid`(`Chatroom.uid`, UUID)로만 노출된다. 응답 어디에도 순차 PK가 나타나지 않는다.
-- 메시지 식별자는 `id`(=`Chat` 내부 PK)이며 `MessageResponse`(전송 응답·히스토리)와 `MessageEvent`(SSE payload) 양쪽에 같은 값이 실린다. 신고(`POST .../messages/{messageId}/report`)의 `{messageId}`가 이 값이다. 클라이언트는 이 `id`로 (1) SSE로 이미 그린 메시지를 히스토리 재조회 때 중복 렌더하지 않도록 걸러내고 (2) 신고를 호출한다. 순차 PK가 노출되므로 **방 식별자는 계속 uid(UUID)** 를 쓴다(열거 방지는 방 단위에서 유지).
+
+- 채팅방은 `roomUid`(`Chatroom.uid`, UUID)로만 노출된다. 응답 어디에도 방의 순차 PK가 나타나지 않는다.
+- 메시지 식별자는 `id`(=`Chat` 내부 PK)이며 `MessageResponse`(전송 응답·히스토리)와 `MessageEvent`(SSE payload) 양쪽에 같은 값이 실린다. 신고 경로의 `{messageId}`가 이 값이다. 클라이언트는 이 `id`로 (1) SSE로 이미 그린 메시지를 히스토리 재조회 때 중복 렌더하지 않도록 걸러내고 (2) 신고를 호출한다. 메시지는 순차 PK가 노출되므로 **방 식별자는 계속 uid(UUID)** 를 쓴다(열거 방지는 방 단위에서 유지).
 - 발신자/작성자 계정 PK(`user_account_id`)도 응답에 노출되지 않는다. `senderNickname`(`UserAccount.nickname`)만 노출된다.
 
 ### 로컬에서 띄우기
+
 `docker compose up -d mysql` 로 DB만 올린 뒤 `./gradlew :quiz:bootRun` 한 번이면 끝난다 — dev 프로파일이 `ddl-auto: update`로 스키마를 만들고, 이어서 `spring.sql.init`이 `infra/sql/teams-init.sql` → `chat-init.sql`을 실행해 **구단 10개 · SYSTEM 계정 · 구단별 채팅방 10개**를 채운다. 시드는 `INSERT ... WHERE NOT EXISTS`라 재기동해도 중복이 생기지 않는다. Redis는 dev에서 쓰지 않으므로 띄우지 않아도 된다(실시간 전달은 `InMemoryPublisher`).
 
 ⚠ `user` 앱도 같은 로컬 DB를 본다. dev `ddl-auto`가 `create`였을 때는 user를 띄우는 순간 이 시드가 전부 사라졌다 — 현재는 둘 다 `update`라 안전하다.
 
 ### 관리자 기능은 범위 밖
+
 blind 해제(unblind), 메시지/방 삭제를 수행하는 엔드포인트는 코드에 없다(`Chat.unblind()`/`Chat.delete()`/`Chatroom.delete()`는 엔티티에 구현돼 있으나 어떤 컨트롤러에서도 호출되지 않는다). 이 문서는 그런 엔드포인트를 다루지 않는다.
 
 ---
 
 ## GET /api/game/chat/rooms
+> 최종 변경: 2026-08-01 (추정) — 도메인 분리 이전 이력이 없어 `ChatController` 마지막 커밋 기준
+
 채팅방 목록(소프트삭제 제외).
 
 **인증 필요** — `Authorization: Bearer <accessToken>`
@@ -61,6 +74,8 @@ curl -i http://localhost:8081/api/game/chat/rooms \
 ---
 
 ## GET /api/game/chat/rooms/{roomUid}
+> 최종 변경: 2026-08-01 (추정) — 도메인 분리 이전 이력이 없어 `ChatController` 마지막 커밋 기준
+
 채팅방 상세.
 
 **인증 필요** — `Authorization: Bearer <accessToken>`
@@ -88,6 +103,8 @@ curl -i http://localhost:8081/api/game/chat/rooms/3f9c2e10-... \
 ---
 
 ## GET /api/game/chat/rooms/{roomUid}/subscribe
+> 최종 변경: 2026-08-01 (추정) — 도메인 분리 이전 이력이 없어 `ChatController` 마지막 커밋 기준
+
 방 실시간 구독(SSE). `produces = text/event-stream`. 반환 타입은 `SseEmitter`이며 `ApiResponse`로 감싸지 않는다(다른 5개 엔드포인트와 다름 — 이벤트 스트림이라 JSON 래핑 대상이 아님).
 
 **인증 필요** — `Authorization: Bearer <accessToken>`. **표준 브라우저 `EventSource`는 커스텀 헤더를 실을 수 없으므로 이 엔드포인트를 그대로 쓸 수 없다.** 클라이언트는 fetch 기반 EventSource 폴리필로 `Authorization: Bearer` 헤더를 유지한 채 스트림을 열어야 한다(쿼리 파라미터·쿠키 토큰 방식은 서버가 지원하지 않음).
@@ -128,6 +145,8 @@ curl -i -N http://localhost:8081/api/game/chat/rooms/3f9c2e10-.../subscribe \
 ---
 
 ## POST /api/game/chat/rooms/{roomUid}/messages
+> 최종 변경: 2026-08-01 (추정) — 도메인 분리 이전 이력이 없어 `ChatController` 마지막 커밋 기준
+
 메시지 전송. 저장 후 발신자를 제외한 같은 방 구독자에게 SSE `message` 이벤트로 전달(fire-and-forget)하고, 저장된 메시지를 응답으로 반환한다.
 
 **인증 필요** — `Authorization: Bearer <accessToken>`
@@ -183,6 +202,8 @@ curl -i -X POST http://localhost:8081/api/game/chat/rooms/3f9c2e10-.../messages 
 ---
 
 ## GET /api/game/chat/rooms/{roomUid}/messages
+> 최종 변경: 2026-08-01 (추정) — 도메인 분리 이전 이력이 없어 `ChatController` 마지막 커밋 기준
+
 방 히스토리 조회(페이징).
 
 **인증 필요** — `Authorization: Bearer <accessToken>`
@@ -229,6 +250,8 @@ curl -i "http://localhost:8081/api/game/chat/rooms/3f9c2e10-.../messages?page=0"
 ---
 
 ## POST /api/game/chat/rooms/{roomUid}/messages/{messageId}/report
+> 최종 변경: 2026-08-01 (추정) — 도메인 분리 이전 이력이 없어 `ChatController` 마지막 커밋 기준
+
 메시지 신고 → 즉시 blind 전환(자동, 관리자 개입 없음, 멱등).
 
 **인증 필요** — `Authorization: Bearer <accessToken>`
@@ -284,3 +307,8 @@ curl -i -X POST http://localhost:8081/api/game/chat/rooms/3f9c2e10-.../messages/
 
 ## 확인 필요 / 코드 미확인
 - `@NotBlank`/`@Size` 위반 시 실제 필드 검증 메시지 문구는 Hibernate Validator 기본 로케일 메시지를 그대로 쓰며(커스텀 `message` 속성 미부착), 이 문서의 예시 문구(`"공백일 수 없습니다"`)는 기본값 추정이다 — 실행 환경(로케일 설정)에 따라 문구가 달라질 수 있어 실측 확인 필요.
+
+## 관련 문서
+
+- [README.md](README.md) — 인증·401 정책은 user 모듈과 동일한 `web-support` 구현을 공유한다.
+- 요구사항: `docs/requirements/quiz/chat.md`
