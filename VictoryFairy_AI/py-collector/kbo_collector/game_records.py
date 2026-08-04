@@ -163,13 +163,15 @@ def map_status(g: dict) -> str | None:
 
     취소는 cancel 플래그 최우선 — 취소 경기는 statusCode "BEFORE" + winner
     "DRAW" 껍데기로 오므로(2026-07-08 NCHH 실측) 다른 필드로 판정하면 오답.
+    진행 중 statusCode 는 "STARTED"(2026-08-04 실황 3경기 실측). "LIVE" 는
+    초기 가정값인데 반례가 없어 호환으로 남겨 둔다.
     """
     if g.get("cancel"):
         return "CANCELED"
     sc = g.get("statusCode")
     if sc == "BEFORE":
         return "SCHEDULED"
-    if sc == "LIVE":
+    if sc in ("STARTED", "LIVE"):
         return "IN_PROGRESS"
     if sc == "RESULT":
         draw = g.get("homeTeamScore") == g.get("awayTeamScore")

@@ -176,9 +176,10 @@ def test_map_status_before_is_scheduled():
     assert gr.map_status(g) == "SCHEDULED"
 
 
-def test_map_status_live_is_in_progress():
-    g = {"statusCode": "LIVE", "cancel": False}
-    assert gr.map_status(g) == "IN_PROGRESS"
+def test_map_status_started_or_live_is_in_progress():
+    # 실측(2026-08-04 실황 3경기): 진행 중은 "STARTED". "LIVE" 는 호환 유지.
+    assert gr.map_status({"statusCode": "STARTED", "cancel": False}) == "IN_PROGRESS"
+    assert gr.map_status({"statusCode": "LIVE", "cancel": False}) == "IN_PROGRESS"
 
 
 def test_map_status_result_non_draw_is_finished():
