@@ -67,7 +67,9 @@ class GameControllerTest {
             "20260801LGHT02026",
             "잠실야구장",
             "LG",
+            3L,
             "KIA",
+            7L,
             3,
             5,
             LocalDateTime.of(2026, 8, 1, 18, 30, 0),
@@ -75,7 +77,7 @@ class GameControllerTest {
 
     @Test
     @DisplayName("date를 주면 200과 ApiResponse 래퍼(success:true, message:null)에 담긴 경기 배열을 "
-            + "반환하고 각 항목은 GameResponse의 8개 필드를 그대로 담는다")
+            + "반환하고 각 항목은 GameResponse의 10개 필드를 그대로 담는다")
     void getGames_returns200WithApiResponseWrappedArrayAndFields() throws Exception {
         // given
         given(gameService.getGames(LocalDate.of(2026, 8, 1))).willReturn(List.of(SAMPLE_GAME));
@@ -90,11 +92,29 @@ class GameControllerTest {
                 .andExpect(jsonPath("$.data[0].gameId").value("20260801LGHT02026"))
                 .andExpect(jsonPath("$.data[0].stadium").value("잠실야구장"))
                 .andExpect(jsonPath("$.data[0].homeTeam").value("LG"))
+                .andExpect(jsonPath("$.data[0].homeTeamId").value(3))
                 .andExpect(jsonPath("$.data[0].awayTeam").value("KIA"))
+                .andExpect(jsonPath("$.data[0].awayTeamId").value(7))
                 .andExpect(jsonPath("$.data[0].homeTeamScore").value(3))
                 .andExpect(jsonPath("$.data[0].awayTeamScore").value(5))
                 .andExpect(jsonPath("$.data[0].gameDate").value("2026-08-01T18:30:00"))
                 .andExpect(jsonPath("$.data[0].gameState").value("FINISHED"));
+    }
+
+    @Test
+    @DisplayName("[USER-GTID-1/2/5] homeTeamId/awayTeamId는 항상 non-null인 JSON 숫자로 노출된다"
+            + "(키 자체가 빠지지 않는다)")
+    void getGames_homeAwayTeamIds_alwaysPresentAndNonNull() throws Exception {
+        // given
+        given(gameService.getGames(LocalDate.of(2026, 8, 1))).willReturn(List.of(SAMPLE_GAME));
+
+        // when & then
+        mockMvc.perform(get("/games").queryParam("date", "2026-08-01"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].homeTeamId").exists())
+                .andExpect(jsonPath("$.data[0].homeTeamId").isNotEmpty())
+                .andExpect(jsonPath("$.data[0].awayTeamId").exists())
+                .andExpect(jsonPath("$.data[0].awayTeamId").isNotEmpty());
     }
 
     @Test
@@ -106,7 +126,9 @@ class GameControllerTest {
                 "20260801LGHT02026",
                 null,
                 "LG",
+                3L,
                 "KIA",
+                7L,
                 3,
                 5,
                 LocalDateTime.of(2026, 8, 1, 18, 30, 0),
@@ -125,9 +147,9 @@ class GameControllerTest {
     @DisplayName("서비스가 준 gameDate 오름차순을 컨트롤러가 재배열하지 않고 그대로 응답한다")
     void getGames_returnsServiceOrderUnchanged() throws Exception {
         // given
-        GameResponse earlyGame = new GameResponse("20260801OBSK02026", "잠실야구장", "두산", "SSG", 1, 0,
+        GameResponse earlyGame = new GameResponse("20260801OBSK02026", "잠실야구장", "두산", 1L, "SSG", 2L, 1, 0,
                 LocalDateTime.of(2026, 8, 1, 14, 0, 0), "FINISHED");
-        GameResponse lateGame = new GameResponse("20260801LGHT02026", "잠실야구장", "LG", "KIA", 3, 5,
+        GameResponse lateGame = new GameResponse("20260801LGHT02026", "잠실야구장", "LG", 3L, "KIA", 7L, 3, 5,
                 LocalDateTime.of(2026, 8, 1, 18, 30, 0), "IN_PROGRESS");
         given(gameService.getGames(LocalDate.of(2026, 8, 1))).willReturn(List.of(earlyGame, lateGame));
 
