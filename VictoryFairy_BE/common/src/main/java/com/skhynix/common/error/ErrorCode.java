@@ -24,6 +24,7 @@ public enum ErrorCode {
 
     // 403 Forbidden
     SELF_REPORT_NOT_ALLOWED(403, "자신의 메시지는 신고할 수 없습니다."),
+    CHATROOM_TEAM_MISMATCH(403, "응원하는 구단의 채팅방만 이용할 수 있습니다."),
 
     // 400 Bad Request - 응원 선택
     SUPPORT_TEAM_REQUIRED(400, "응원하는 구단을 먼저 선택해 주세요."),
