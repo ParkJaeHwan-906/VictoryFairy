@@ -84,6 +84,62 @@ def test_exception_whitelist_prevents_false_positive():
     assert _detect("보지도 못했다") is None
 
 
+# --- Bedrock 2차 검열 실측으로 추가한 규칙 ---------------------------------
+# 아래 표기 변형은 S3 validation/bedrock/failed 의 abuse 판정 중 사전이 놓친 것들이다.
+BLOCK_VARIANTS = [
+    "시팔", "씨벌", "ㅅ발",           # 시발 표기 변형
+    "ㅈ같네", "ㅈ밥", "좃같",          # 좆 초성 우회
+    "이새기", "이새낀", "투같새",       # 새끼 연음·축약
+    "씹련들아", "십련",               # 년 → 련
+    "씹창", "버러지", "아가리",
+]
+# 공백을 제거하면 욕설과 문자열이 겹치는 정상 표현 — 예외 사전이 막아야 한다.
+ALLOW_COLLISIONS = [
+    "유일한 남자",       # '한 남자' → '한남'
+    "건장한 남성",       # '한 남성' → '한남'
+    "한 남매가 나왔다",
+    "수십년 동안 봐왔다",  # '십년'
+    "십년감수 했다",
+    "마음에 새기고 타석에 들어갔다",  # '새기'
+    "미야지 관련 아쿼 소식",          # '련아'
+    "10점차 이상 뒤진 상황",          # '뒤진'
+    "결정 장애인지 뭔지",             # '장애인'
+    # 알려진 한계: "4강 간거임" 은 '강간' 으로 걸린다. 예외 사전은 등록어를
+    # preprocess() 로 정규화해 컴파일하는데('4'→'a'), '원문' 뷰는 숫자를 그대로 두므로
+    # '4강간거임' 과 예외 'a강간' 이 만나지 못한다. 실측 오탐 4건/63,859건으로 두고 간다.
+    # '쳐먹/처먹' 은 사전에 넣지 않았다. 야구 은어("이닝 좀 처먹어라", "삼진을 처먹으며")와
+    # 욕설 용법이 같은 형태라 예외로 분리되지 않는다 — 실측 검거 46 / 오탐 44.
+    "이닝 좀 처먹어라",
+    "삼진 3개를 처먹으며 1위팀 전승을 끊었다",
+]
+
+
+def test_blocks_newly_added_variants():
+    for line in BLOCK_VARIANTS:
+        assert _detect(line) is not None, f"차단 실패: {line!r}"
+
+
+def test_allows_whitespace_collision_expressions():
+    # preprocess() 가 공백을 지우기 때문에 '유일한 남자' → '유일한남자' 가 되어
+    # '한남' 과 겹친다. 예외 사전 없이는 정상 문장이 폐기된다.
+    for line in ALLOW_COLLISIONS:
+        assert _detect(line) is None, f"오탐(차단됨): {line!r} -> {_detect(line)}"
+
+
+def test_degrading_words_have_own_categories():
+    # 비하 표현은 단어마다 오탐 성향이 달라 개별 카테고리로 분리해 뒀다.
+    # 하나를 빼도 나머지 판정이 흔들리지 않아야 하므로 카테고리 키를 고정해 둔다.
+    for word, category in [
+        ("폐급", "pyegeup"),
+        ("장애인", "disabled"),
+        ("대가리", "daegari"),
+        ("정신병자", "mental"),
+        ("개씹", "gaessip"),
+        ("앰창", "aemchang"),
+    ]:
+        assert _detect(word) == (category, word), f"{word!r} -> {_detect(word)}"
+
+
 if __name__ == "__main__":
     tests = [fn for name, fn in sorted(globals().items())
              if name.startswith("test_") and callable(fn)]
