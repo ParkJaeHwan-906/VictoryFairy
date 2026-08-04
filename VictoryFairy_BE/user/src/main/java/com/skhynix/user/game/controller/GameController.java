@@ -26,18 +26,9 @@ public class GameController {
     private final GameService gameService;
 
     /**
-     * 해당 날짜의 경기 목록(경기 시각 오름차순). 경기가 없으면 200 + 빈 배열.
-     *
-     * <p>날짜는 경로변수가 아니라 <b>쿼리 파라미터</b>로 받는다:
-     * {@code GET /api/member/games?date=2026-08-01}. 형식은 ISO {@code yyyy-MM-dd} 고정이다.
-     *
-     * <p><b>{@code date} 는 선택이다 — 생략하면 한국({@code Asia/Seoul}) 기준 "오늘"의 경기를 반환한다.</b>
-     * 다만 형식이 어긋난 값({@code date=20260801})은 여전히 컨트롤러 진입 전 타입 변환에서 400 이다
-     * ("없으면 오늘"이지 "이상하면 오늘"이 아니다 — 오타를 오늘로 흡수하면 사용자가 잘못된 날짜를 봤다는 사실을
-     * 알 수 없다).
-     *
-     * <p>기본값(오늘) 해석은 컨트롤러가 하지 않고 <b>서비스로 그대로 {@code null} 을 넘긴다</b>. "오늘"은
-     * 시간대 규칙이 걸린 도메인 판단이고, 그 판단에 필요한 {@code Clock} 은 서비스가 들고 있기 때문이다.
+     * 해당 날짜의 경기 목록(경기 시각 오름차순, 없으면 200 + 빈 배열). {@code date} 는 쿼리 파라미터
+     * (ISO {@code yyyy-MM-dd})로 선택이며, 생략하면 서비스가 한국 기준 오늘로 대체한다. 형식이 어긋난
+     * 값은 컨트롤러 진입 전 타입 변환에서 400 — 오타를 오늘로 흡수하지 않는다.
      */
     @GetMapping
     public ResponseEntity<ApiResponse<List<GameResponse>>> getGames(

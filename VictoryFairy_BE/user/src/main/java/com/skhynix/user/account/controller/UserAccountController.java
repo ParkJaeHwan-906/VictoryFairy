@@ -13,9 +13,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 계정 자원({@code /api/member/users}). {@code /api/member/auth/**}가 전부 {@code permitAll}이라 탈퇴를 그쪽에 두면
- * 인증이 걸리지 않으므로, {@code SecurityConfig}의 {@code anyRequest().authenticated()}에 그대로
- * 걸리는 이 경로에 둔다(그래서 SecurityConfig 수정이 필요 없다).
+ * 계정 자원({@code /api/member/users}). {@code /api/member/auth/**} 는 전부 {@code permitAll} 이라
+ * 탈퇴를 그쪽에 두면 인증이 걸리지 않아 이 경로에 둔다.
  */
 @RestController
 @RequiredArgsConstructor
@@ -27,11 +26,7 @@ public class UserAccountController {
     private final UserProfileService userProfileService;
 
     /**
-     * 회원 탈퇴. 요청 본문이 없다(비밀번호 재확인 없음).
-     *
-     * <p>대상 계정은 경로가 아니라 access 토큰에서만 정해진다 — principal은
-     * {@code JwtAuthenticationFilter}가 토큰 subject(uid)를 해석해 넣은 내부 PK({@code Long})다.
-     * 미인증 요청은 이 메서드에 닿기 전에 엔트리포인트가 401로 응답한다.
+     * 회원 탈퇴. 요청 본문 없음(비밀번호 재확인 없음). 대상 계정은 access 토큰의 principal 로만 정해진다.
      */
     @DeleteMapping("/me")
     public ResponseEntity<Void> withdraw(@AuthenticationPrincipal Long userAccountId) {
