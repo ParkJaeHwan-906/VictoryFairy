@@ -66,7 +66,7 @@ validate는 **정책 검사 → 중복 검사** 두 단계를 순서대로 수�
 
 ### 메시지 결정성에 관한 주의 (모듈 컨텍스트 반영)
 - USER-NICK-9가 성립하려면 위반이 **항상 정확히 1개**여야 한다. 모듈 컨텍스트(`.claude/modules/user.md`, `SignupRequest` 주의)에 따라 `SignupRequest.nickname`에는 새 제약 **하나만** 걸고 `@NotBlank`·`@Size`·`@Pattern`을 겹쳐 걸지 않는다. 겹치면 동시 위반 시 `GlobalExceptionHandler`의 `Map#put` 순서 비보장으로 응답 메시지가 호출마다 달라진다(password가 이미 겪은 문제).
-- 위 표의 400 응답 형태(`data`에 위반 필드만, `message:"입력값이 올바르지 않습니다."`)와 validate의 항상-200 계약은 기존 `docs/api/user.md`의 signup/password-validate 계약과 동일하다.
+- 위 표의 400 응답 형태(`data`에 위반 필드만, `message:"입력값이 올바르지 않습니다."`)와 validate의 항상-200 계약은 기존 `docs/api/auth.md`의 signup/password-validate 계약과 동일하다.
 - **signup에서도 정책(400) → 중복(409) 순서가 이미 성립한다.** `@Valid` 정책 검증이 `AuthService`의 중복 검사보다 먼저 실행되므로, 정책 위반이면서 중복이기도 한 닉네임은 400(정책 위반)으로 응답된다. 즉 이번 변경의 실질은 **validate 엔드포인트에 signup과 같은 2단 순서를 도입하는 것**이고, signup의 흐름은 바뀌지 않는다.
 
 ## 구현 제약 (구현이 지켜야 할 사실 — 구현 방법 지시가 아님)
