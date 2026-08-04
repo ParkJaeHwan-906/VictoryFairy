@@ -1,6 +1,9 @@
 # dev 환경: 모듈을 조립하는 루트. 리소스는 여기서 직접 선언하지 않는다.
 # 모듈 구현이 끝나면 아래 블록의 주석을 해제한다.
 
+# 다른 state 가 소유한 리소스의 ARN 조립용(locals.tf 의 collector_* 참고).
+data "aws_caller_identity" "current" {}
+
 module "network" {
   source = "../../modules/network"
 
@@ -131,15 +134,20 @@ module "security" {
   github_repository   = "ParkJaeHwan-906/VictoryFairy"
   github_allowed_refs = ["main", "dev_infra"] # dev_infra 는 워크플로 테스트용 — 안정화 후 제거
 
-  ecr_repository_arns = values(module.ecr.repository_arns)
-  deploy_namespaces   = ["victoryfairy"]
+  # 수집기 리포지토리는 infra 소유가 아니지만(locals.tf 참고) CI 가 여기에도 push 한다.
+  ecr_repository_arns = concat(
+    values(module.ecr.repository_arns),
+    [local.collector_ecr_repository_arn],
+  )
+  deploy_namespaces = ["victoryfairy"]
 
-  # 정제 파이프라인 Lambda 2개는 같은 pipeline 이미지를 공유한다 — CI 가 이미지를
-  # push 한 뒤 두 함수를 함께 갱신한다(.github/workflows/deploy-ai.yml).
-  lambda_function_arns = [
+  # 이미지별로 워크플로가 하나씩 있고, 각자 자기 이미지를 쓰는 함수만 갱신한다.
+  #   victoryfairy-pipeline → refine-pattern·refine-bedrock (deploy-ai.yml)
+  #   kbo-collector         → kbo-collector·kbo-collector-db (deploy-collector.yml)
+  lambda_function_arns = concat([
     module.refine_pipeline.pattern_function_arn,
     module.refine_pipeline.bedrock_function_arn,
-  ]
+  ], local.collector_function_arns)
 }
 
 module "mysql_ec2" {

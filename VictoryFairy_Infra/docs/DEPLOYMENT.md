@@ -165,12 +165,37 @@ for FN in victoryfairy-dev-refine-pattern victoryfairy-dev-refine-bedrock; do
 done
 ```
 
-### 범위 밖 — py-collector
+## 6-1. 수집기 이미지 배포 (`deploy-collector.yml`)
 
-py-collector의 Lambda 이미지는 **이 워크플로가 다루지 않습니다.** 별도 스택
-(`VictoryFairy_AI/py-collector/deploy/lambda/terraform`)의 `null_resource`가
-`kbo_collector/**`·`config/**` 해시를 트리거로 빌드·push하며, VPC/SG 등 함수 설정과
-한 몸이라 `terraform apply` 경유를 유지합니다.
+py-collector의 `kbo-collector` 이미지는 **별도 워크플로**가 맡습니다(다른 이미지, 다른 스택).
+`kbo-collector`·`kbo-collector-db` 두 함수가 이 이미지 하나를 공유하고 payload의 `job`으로
+갈리므로, 한 번 빌드해 둘을 함께 갱신합니다.
+
+| 트리거 경로 | 왜 |
+|---|---|
+| `py-collector/kbo_collector/**` | 수집 코어 |
+| `py-collector/config/**` | `targets.yaml`이 이미지에 구워진다 — 빠뜨리면 크롤 대상만 옛 버전 |
+| `py-collector/deploy/lambda/{Dockerfile,handler.py,requirements.txt}` | 이미지 구성 |
+
+`tests/`·`docs/`·`terraform/`은 이미지에 들어가지 않으므로 트리거에서 제외했습니다.
+
+### `:latest`를 반드시 함께 push하는 이유
+
+`refine-pipeline`과 달리 이 스택은 `image_uri`를
+`data.aws_ecr_image(image_tag = "latest")`의 다이제스트에 **핀**합니다(`ignore_changes` 없음).
+SHA 태그만 올리면 `latest`가 옛 이미지를 가리킨 채 남아 **다음 `terraform apply`가 함수를
+되감습니다.** 그래서 워크플로는 `:latest`와 커밋 SHA를 **둘 다** push합니다(해당 ECR은
+`MUTABLE`이라 재push 가능). 같은 이유로, 갱신 실패 시 함수뿐 아니라 **`:latest` 태그도**
+직전 이미지로 되돌립니다.
+
+> ⚠ 뒤집어 말하면 **`terraform apply`는 최신 코드 체크아웃에서만 돌려야 합니다.** 옛
+> 체크아웃에서 apply하면 `null_resource`가 옛 소스를 빌드해 `:latest`에 덮어쓰고 함수가
+> 뒤로 감깁니다. 이 스택은 여전히 로컬 Docker 빌드를 갖고 있습니다.
+
+### 범위 밖 — 함수 설정
+
+이미지만 CI 소관입니다. VPC/SG·환경변수·EventBridge 스케줄 등 **함수 설정은 여전히**
+`VictoryFairy_AI/py-collector/deploy/lambda/terraform`의 `apply` 소관입니다(`dev_ai` 브랜치).
 
 ## 7. 관련 리소스 위치
 
@@ -178,6 +203,7 @@ py-collector의 Lambda 이미지는 **이 워크플로가 다루지 않습니다
 |---|---|
 | CI 워크플로 (BE·EKS) | `.github/workflows/deploy-eks.yml` (레포 루트) |
 | CI 워크플로 (AI·Lambda) | `.github/workflows/deploy-ai.yml` (레포 루트) |
+| CI 워크플로 (수집기·Lambda) | `.github/workflows/deploy-collector.yml` (레포 루트) |
 | 수동 배포 스크립트 | `VictoryFairy_Infra/scripts/deploy-app.sh` |
 | k8s 매니페스트 | `VictoryFairy_Infra/k8s/` |
 | CI IAM 역할 (Terraform) | `VictoryFairy_Infra/modules/security/` |
