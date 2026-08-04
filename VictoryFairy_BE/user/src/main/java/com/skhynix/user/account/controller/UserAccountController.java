@@ -36,12 +36,12 @@ public class UserAccountController {
 
     /**
      * 내 요약 프로필 조회(닉네임 · 응원 구단 · 보유 포인트 · 누적 획득 점수).
-     * 요구사항: {@code docs/requirements/user/me-profile.md}(USER-ME-7 ~ 22).
+     * 요구사항: {@code docs/requirements/user/me-profile.md}.
      *
-     * <p>탈퇴와 마찬가지로 대상 계정은 access 토큰에서만 정해진다(USER-ME-11).
+     * <p>탈퇴와 마찬가지로 대상 계정은 access 토큰에서만 정해진다.
      *
      * <p>엔티티가 아니라 {@link UserAccountResponse} 를 반환한다 — {@code UserAccount} 를 그대로 실으면
-     * {@code password} 해시·{@code uid} 가 함께 나간다(USER-ME-13).
+     * {@code password} 해시·{@code uid} 가 함께 나간다.
      */
     @GetMapping("/me")
     public ResponseEntity<ApiResponse<UserAccountResponse>> getMyProfile(

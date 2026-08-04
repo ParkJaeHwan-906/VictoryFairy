@@ -18,6 +18,11 @@ public class InMemoryPublisher implements RealtimeEventPublisher {
 
     @Override
     public void publish(String roomUid, RealtimeEvent event) {
+        // 종료 신호는 전송이 아니라 연결 종료다 — 갈라내지 않으면 구독자에게 data: 로 흘러간다.
+        if (SubscriptionCloseCommand.isCloseSignal(event)) {
+            registry.handleCloseCommand(roomUid, (SubscriptionCloseCommand) event.data());
+            return;
+        }
         registry.publish(roomUid, event);
     }
 }

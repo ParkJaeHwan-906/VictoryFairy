@@ -2,6 +2,7 @@ package com.skhynix.quiz.realtime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.lang.reflect.Field;
 import java.util.AbstractSet;
@@ -80,14 +81,25 @@ class SseEmitterRegistryTest {
     }
 
     @Test
-    @DisplayName("같은 사용자가 두 탭에서 동시에 구독하면 내부 구독 수가 2 증가한다(연결 기준 카운트 — QUIZ-CHAT-7 철회, 대응 인수 시나리오 없음)")
-    void register_sameUserTwoTabs_countsBothConnections() {
+    @DisplayName("[QUIZ-CTAC-24] 같은 사용자가 재구독하면(last-one-wins) 기존 구독이 축출(complete)되고 "
+            + "구독 수는 1→1로 유지된다(2026-08-04 계약 변경 — 과거엔 멀티탭 2연결을 허용했으나 이제 "
+            + "새 구독이 기존 구독을 끊는다. 옛 계약을 검증하던 테스트를 대체함)")
+    void register_sameUserRegistersAgain_evictsExistingSubscriptionAndCountStaysOne() {
         SseEmitterRegistry registry = new SseEmitterRegistry();
 
-        registry.register(ROOM_UID, 1L);
-        registry.register(ROOM_UID, 1L);
+        SseEmitter first = registry.register(ROOM_UID, 1L);
+        assertThat(registry.count(ROOM_UID)).isEqualTo(1);
 
-        assertThat(registry.count(ROOM_UID)).isEqualTo(2);
+        SseEmitter second = registry.register(ROOM_UID, 1L);
+
+        assertThat(registry.count(ROOM_UID)).isEqualTo(1);
+        // 축출된 first는 이미 complete() 처리됐으므로 send()가 "already set complete" 예외를 던진다
+        // (publish_deadConnection_isRemovedAndCountDecreases 테스트와 동일한 공개 API 관찰 기법).
+        assertThatThrownBy(() -> first.send(SseEmitter.event().data("x")))
+                .isInstanceOf(IllegalStateException.class);
+        // second는 살아 있어 send 시도 자체는 예외 없이 접수된다(unit 테스트에서는 실제 전송 없이 큐잉만 됨).
+        assertThatCode(() -> second.send(SseEmitter.event().comment("still-alive")))
+                .doesNotThrowAnyException();
     }
 
     @Test
@@ -172,17 +184,22 @@ class SseEmitterRegistryTest {
     }
 
     @Test
-    @DisplayName("[AC-CHAT-11-4] 발신자가 멀티탭으로 구독 중이면 두 탭 모두 fan-out에서 제외된다")
-    void publish_senderMultipleTabs_bothTabsExcluded() throws Exception {
+    @DisplayName("[QUIZ-CTAC-24/25] 재구독으로 축출된 이전 탭은 이후 발행 대상에서 완전히 빠지고, "
+            + "살아남은 새 탭과 다른 사용자에게는 정상 도달한다(2026-08-04 계약 변경 — "
+            + "과거엔 같은 사용자의 멀티탭 동시 존재를 전제로 '발신자 두 탭 모두 제외'를 검증했으나, "
+            + "last-one-wins 축출로 그 전제 자체가 성립하지 않아 새 계약으로 대체함)")
+    void publish_afterEviction_reachesSurvivingConnectionOnlyExcludingEvictedTab() throws Exception {
         SseEmitterRegistry registry = new SseEmitterRegistry();
-        SseEmitter tab1 = registry.register(ROOM_UID, 1L);
-        SseEmitter tab2 = registry.register(ROOM_UID, 1L);
+        SseEmitter oldTab = registry.register(ROOM_UID, 1L);
+        SseEmitter newTab = registry.register(ROOM_UID, 1L); // 재구독 — oldTab 축출(QUIZ-CTAC-24)
         SseEmitter other = registry.register(ROOM_UID, 2L);
 
-        registry.publish(ROOM_UID, new RealtimeEvent("message", "payload", 1L));
+        registry.publish(ROOM_UID, new RealtimeEvent("message", "payload", null));
 
-        assertThat(earlySendCount(tab1)).isZero();
-        assertThat(earlySendCount(tab2)).isZero();
+        assertThat(earlySendCount(oldTab))
+                .as("축출된 연결은 레지스트리에서 완전히 떨어져 나가 전송 시도 자체가 없어야 한다")
+                .isZero();
+        assertThat(earlySendCount(newTab)).isGreaterThan(0);
         assertThat(earlySendCount(other)).isGreaterThan(0);
     }
 
@@ -246,6 +263,111 @@ class SseEmitterRegistryTest {
         registry.heartbeat();
 
         assertThat(registry.count(ROOM_UID)).isZero();
+    }
+
+    // ---------- 명시적 퇴장(F절, QUIZ-CTAC-19/20/25) ----------
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-19] closeSubscriptions()는 지정 사용자의 그 방 구독을 종료해 "
+            + "구독 수가 1 감소하고 emitter가 complete된다")
+    void closeSubscriptions_activeSubscription_decrementsCountAndCompletesEmitter() {
+        SseEmitterRegistry registry = new SseEmitterRegistry();
+        SseEmitter emitter = registry.register(ROOM_UID, 1L);
+        assertThat(registry.count(ROOM_UID)).isEqualTo(1);
+
+        registry.closeSubscriptions(ROOM_UID, 1L);
+
+        assertThat(registry.count(ROOM_UID)).isZero();
+        assertThatThrownBy(() -> emitter.send(SseEmitter.event().data("x")))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-20] 끊을 구독이 없어도 closeSubscriptions()는 예외 없이 멱등하게 동작하고, "
+            + "연속 호출해도 상태가 바뀌지 않는다")
+    void closeSubscriptions_noExistingSubscription_isIdempotentNoop() {
+        SseEmitterRegistry registry = new SseEmitterRegistry();
+
+        assertThatCode(() -> registry.closeSubscriptions(ROOM_UID, 1L)).doesNotThrowAnyException();
+        assertThatCode(() -> registry.closeSubscriptions(ROOM_UID, 1L)).doesNotThrowAnyException();
+        assertThat(registry.count(ROOM_UID)).isZero();
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-25] 퇴장(closeSubscriptions)한 연결은 이후 메시지 fan-out 대상에서 제외되고 "
+            + "다른 연결에는 정상 도달한다")
+    void publish_afterCloseSubscriptions_excludesLeftConnection() throws Exception {
+        SseEmitterRegistry registry = new SseEmitterRegistry();
+        SseEmitter left = registry.register(ROOM_UID, 1L);
+        SseEmitter other = registry.register(ROOM_UID, 2L);
+        registry.closeSubscriptions(ROOM_UID, 1L);
+
+        registry.publish(ROOM_UID, new RealtimeEvent("message", "payload", null));
+
+        assertThat(earlySendCount(left)).isZero();
+        assertThat(earlySendCount(other)).isGreaterThan(0);
+    }
+
+    // ---------- 다중 파드 전파(handleCloseCommand, QUIZ-CTAC-28/29) ----------
+
+    @Test
+    @DisplayName("instanceId()는 null이 아니며 레지스트리 인스턴스마다 서로 다른 값이다")
+    void instanceId_isNonNullAndUniquePerRegistry() {
+        SseEmitterRegistry a = new SseEmitterRegistry();
+        SseEmitterRegistry b = new SseEmitterRegistry();
+
+        assertThat(a.instanceId()).isNotNull();
+        assertThat(a.instanceId()).isNotEqualTo(b.instanceId());
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-28/29] handleCloseCommand()는 자신이 낸(originInstanceId가 자기 instanceId와 같은) "
+            + "명령은 무시한다 — 그렇지 않으면 발행 파드가 방금 연 새 구독이 자기 축출 명령에 끊긴다")
+    void handleCloseCommand_ownInstanceOrigin_isIgnored() {
+        SseEmitterRegistry registry = new SseEmitterRegistry();
+        registry.register(ROOM_UID, 1L);
+        SubscriptionCloseCommand selfCommand = SubscriptionCloseCommand.leave(1L, registry.instanceId());
+
+        registry.handleCloseCommand(ROOM_UID, selfCommand);
+
+        assertThat(registry.count(ROOM_UID)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-28] handleCloseCommand()는 다른 인스턴스가 보낸 leave 명령이면 "
+            + "그 토픽 방의 구독만 종료한다(퇴장 요청을 받은 인스턴스가 로컬에 없어도 구독을 들고 있는 "
+            + "인스턴스에서는 실제로 종료돼야 함)")
+    void handleCloseCommand_otherInstanceLeaveCommand_closesRoomSubscription() {
+        SseEmitterRegistry registry = new SseEmitterRegistry();
+        SseEmitter emitter = registry.register(ROOM_UID, 1L);
+        SubscriptionCloseCommand remoteLeave = SubscriptionCloseCommand.leave(1L, "other-instance-id");
+
+        registry.handleCloseCommand(ROOM_UID, remoteLeave);
+
+        assertThat(registry.count(ROOM_UID)).isZero();
+        assertThatThrownBy(() -> emitter.send(SseEmitter.event().data("x")))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-29] handleCloseCommand()는 다른 인스턴스가 보낸 evict(allRooms) 명령이면 "
+            + "토픽으로 들어온 방과 무관하게 그 사용자의 구독을 방을 가리지 않고 전부 종료한다"
+            + "(두 파드에 동시에 살아 있는 연결이 남지 않아야 함)")
+    void handleCloseCommand_otherInstanceEvictCommand_closesAllRoomsForUser() {
+        SseEmitterRegistry registry = new SseEmitterRegistry();
+        SseEmitter roomAEmitter = registry.register("room-a", 1L);
+        SseEmitter roomBEmitter = registry.register("room-b", 1L);
+        SubscriptionCloseCommand remoteEvict = SubscriptionCloseCommand.evict(1L, "other-instance-id");
+
+        // 토픽은 room-a로 들어왔지만 allRooms=true라 room-b 구독까지 함께 종료된다.
+        registry.handleCloseCommand("room-a", remoteEvict);
+
+        assertThat(registry.count("room-a")).isZero();
+        assertThat(registry.count("room-b")).isZero();
+        assertThatThrownBy(() -> roomAEmitter.send(SseEmitter.event().data("x")))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> roomBEmitter.send(SseEmitter.event().data("x")))
+                .isInstanceOf(IllegalStateException.class);
     }
 
     // ---------- 고아 Set 레이스 회귀 (2026-08-01, chat.md 제약 절 9 / AC-CHAT-11-5·55-2) ----------
