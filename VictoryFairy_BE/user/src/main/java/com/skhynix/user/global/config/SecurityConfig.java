@@ -38,6 +38,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/teams").permitAll()
                         .requestMatchers(HttpMethod.GET, "/players").permitAll() // teams와 같은 이유
                         .requestMatchers(HttpMethod.GET, "/games").permitAll()   // teams와 같은 이유
+                        // 위 /games 매처는 정확 매칭이라 하위 경로를 커버하지 않는다 — 이 줄이 없으면 401.
+                        .requestMatchers(HttpMethod.GET, "/games/lineup").permitAll()
                         .anyRequest().authenticated()
                 )
                 // formLogin/httpBasic을 모두 disable하면 엔트리포인트를 등록하는 주체가 없어
