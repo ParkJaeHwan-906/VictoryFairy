@@ -116,13 +116,13 @@ function createClient(baseURL: string): AxiosInstance {
 }
 
 /**
- * user 모듈 클라이언트 — 인증·계정(`authApi`).
+ * user 모듈 클라이언트 — 인증(`auth`) · 계정(`account`).
  * 경로는 base 기준 상대 경로로 쓴다. 예) `/auth/login`
  */
 export const userClient: AxiosInstance = createClient(USER_BASE_URL);
 
 /**
- * game 모듈 클라이언트 — 구단별 채팅(`chatApi`).
+ * game 모듈 클라이언트 — 구단별 채팅(`chat`).
  * 경로는 base 기준 상대 경로로 쓴다. 예) `/chat/rooms`
  */
 export const gameClient: AxiosInstance = createClient(GAME_BASE_URL);

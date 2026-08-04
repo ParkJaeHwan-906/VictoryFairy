@@ -8,7 +8,7 @@ import '../styles/SignupPage.css';
  * Figma: SWM / [Sign In] 일반 회원가입-기본 (node 296:1486)
  *
  * 화면 구조와 입력 상태만 담당하는 프레젠테이션 컴포넌트다.
- * 실제 검증·가입(`src/api/authApi.ts` 의 validatePassword / checkNicknameDuplicate /
+ * 실제 검증·가입(`src/api/auth.ts` 의 validatePassword / checkNicknameDuplicate /
  * sendEmailCode / signup)은 흐름 설계가 필요해 아직 붙이지 않았다.
  */
 export default function SignupPage() {
@@ -28,17 +28,17 @@ export default function SignupPage() {
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    // TODO: api-agent - authApi.signup(...) 연결. 이메일 인증 단계 포함 흐름 확정 필요
+    // TODO: api-agent - auth.signup(...) 연결. 이메일 인증 단계 포함 흐름 확정 필요
   };
 
   const handleSendEmailCode = () => {
-    // TODO: api-agent - authApi.sendEmailCode({ email }) 연결.
+    // TODO: api-agent - auth.sendEmailCode({ email }) 연결.
     //       실패 코드가 409(DUPLICATE_EMAIL) / 429(EMAIL_SEND_COOLDOWN) 로 갈리고,
     //       성공 후 6자리 코드 입력 UI 가 따라와야 해서 흐름 확정 뒤 붙인다.
   };
 
   const handleNicknameDuplicateCheck = () => {
-    // TODO: api-agent - authApi.checkNicknameDuplicate({ nickname }) 연결
+    // TODO: api-agent - auth.checkNicknameDuplicate({ nickname }) 연결
   };
 
   return (
