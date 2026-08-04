@@ -16,7 +16,7 @@
 
 [구단(team)](team.md)·[선수(player)](player.md)와 같은 **공개 참조 데이터**로, GET 한정 `permitAll`·페이징 없음·빈 결과 200이라는 계약을 공유한다.
 
-**단, 자연키 노출 정책만 다르다.** `TeamResponse`가 `Team.code`를, `PlayerResponse`가 `naverPcode`/`kboPlayerId`를 감추는 것과 달리 `GameResponse.gameId`는 `Game.naverGameId`(네이버 스포츠 gameId)를 그대로 내보낸다.
+**단, 자연키 노출 정책만 다르다.** `TeamResponse`가 `Team.code`를, `PlayerResponse`가 `kboPlayerId`를 감추는 것과 달리 `GameResponse.gameId`는 `Game.naverGameId`(네이버 스포츠 gameId)를 그대로 내보낸다.
 
 **"오늘"의 정의가 코드에 고정돼 있다.** `date`를 생략하면 `ClockConfig`가 등록한 `Clock.system(ZoneId.of("Asia/Seoul"))` 기준 오늘로 조회한다 — 운영 파드가 UTC로 돌기 때문에 시간대를 배포 설정(`TZ`)이 아니라 코드에서 고정했다. 다만 아래 본문의 경고대로 **클라이언트가 날짜를 알고 있다면 항상 명시해 넘기는 편이 안전하다.**
 
@@ -47,7 +47,7 @@
 |---|---|---|
 | success | boolean | 항상 `true` |
 | data | array | 경기 배열 |
-| data[].gameId | String | `Game.naverGameId` — 네이버 스포츠 gameId(예: `"20260708LGSS02026"`). py-collector가 upsert 키로 쓰는 자연키이지만, `Team.code`/`Player.naverPcode`와 달리 이 값은 응답에 그대로 노출된다(더블헤더 구분 등 클라이언트가 식별자로 쓸 필요가 있어 보임 — `TeamResponse`/`PlayerResponse`가 자연키를 감추는 것과 다른 결정이니 주의) |
+| data[].gameId | String | `Game.naverGameId` — 네이버 스포츠 gameId(예: `"20260708LGSS02026"`). py-collector가 upsert 키로 쓰는 자연키이지만, `Team.code`/`Player.kboPlayerId`와 달리 이 값은 응답에 그대로 노출된다(더블헤더 구분 등 클라이언트가 식별자로 쓸 필요가 있어 보임 — `TeamResponse`/`PlayerResponse`가 자연키를 감추는 것과 다른 결정이니 주의) |
 | data[].stadium | String \| null | 구장 이름(`Game.stadium.name`). **`null` 가능** — `Game.stadium`이 `Game`의 연관 중 유일하게 선택적(`optional = true`, `stadium_id` nullable)이라 구장이 아직 미정인 경기(편성 전·중립구장 미확정 등)는 `null`로 나간다. `homeTeamScore`/`awayTeamScore`가 경기 전 `null`인 것과 같은 취급이며, 표기 방식은 클라이언트가 정한다(`GameResponse.from()`이 `game.getStadium() == null ? null : game.getStadium().getName()`으로 방어) |
 | data[].homeTeam | String | 홈 구단 이름(`Game.homeTeam.name`) |
 | data[].awayTeam | String | 원정 구단 이름(`Game.awayTeam.name`) |
