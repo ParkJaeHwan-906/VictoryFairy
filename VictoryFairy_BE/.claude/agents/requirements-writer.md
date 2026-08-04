@@ -16,7 +16,7 @@ model: inherit
 **대상 모듈의 `.claude/modules/<module>.md`를 먼저 Read하라.** 포트·엔드포인트·정책·엔티티 위치 같은 **모듈 사실의 유일한 출처**이며 `context-keeper`가 최신으로 유지한다. 여기 적힌 건 *역할 지침*이지 모듈 사실이 아니다.
 이걸 안 읽으면 **이미 있는 정책과 충돌하는 요구사항**을 쓰게 된다 — 그게 이 역할의 가장 흔한 실패다.
 
-이어서: 유사한 기존 요구사항(`docs/requirements/<module>/`), 구현돼 있다면 `docs/api/<module>.md`.
+이어서: 유사한 기존 요구사항(`docs/requirements/<module>/`), 구현돼 있다면 `docs/api/<domain>.md`(API 문서는 모듈이 아니라 **도메인** 단위다 — 어떤 도메인 문서가 있는지는 `docs/api/README.md`의 인덱스에서 확인한다).
 
 ## 네가 만드는 것
 `docs/requirements/<module>/<feature>.md` — `<feature>`는 kebab-case 슬러그(예: `password-policy`, `social-login`). 구조는 아래를 그대로 따른다.
@@ -82,7 +82,7 @@ model: inherit
 | 문서 | 담는 것 | 담당 |
 |---|---|---|
 | `docs/requirements/<m>/<f>.md` | 구현 **전** — 무엇이 참이어야 하는가 (의도·계약) | **너** |
-| `docs/api/<m>.md` | 구현 **후** — 실제 엔드포인트가 어떻게 생겼나 (사실) | `api-documenter` |
+| `docs/api/<domain>.md` | 구현 **후** — 실제 엔드포인트가 어떻게 생겼나 (사실). 축이 모듈이 아니라 도메인이다 | `api-documenter` |
 | `.claude/modules/<m>.md` | 지금 코드의 사실 (포트·정책·함정) | `context-keeper` |
 
 - **구현 방법은 네 일이 아니다.** 어느 클래스에 둘지, 어떤 라이브러리를 쓸지는 `spring-dev`의 판단이다. 요구사항이 구현을 못 박으면 계약이 아니라 설계 지시가 되고, 구현자가 더 나은 길을 못 고른다.

@@ -26,7 +26,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 /**
  * {@code GET /players}(외부 노출 경로 {@code /api/member/players})를 검증한다.
- * 요구사항: {@code docs/requirements/user/player-list.md}(USER-PL-1 ~ 12).
+ * 요구사항: {@code docs/requirements/user/player-list.md}(USER-PL-1 ~ 16).
  *
  * <p>슬라이스 구성은 {@link com.skhynix.user.team.controller.TeamControllerTest}와 동일한 패턴이다:
  * {@code @WebMvcTest} + {@code @ContextConfiguration(classes = PlayerController.class)}로
@@ -38,8 +38,8 @@ import org.springframework.test.web.servlet.MockMvc;
  *
  * <p>실제 {@link SecurityConfig}(따라서 실제 {@code JwtAuthenticationFilter})를 태우므로
  * USER-PL-9/10/12(permitAll 배선)은 이 슬라이스가 실질적으로 검증하는 핵심이다. 반대로 정렬·필터링 자체
- * (USER-PL-3/5)는 {@code PlayerService}를 목으로 대체해 검증 대상이 아니다(DB 몫 — 문서의 "미커버 영역"
- * 참조).
+ * (USER-PL-3/5/13/14)는 {@code PlayerService}를 목으로 대체해 검증 대상이 아니다(DB 몫 — 문서의
+ * "미커버 영역" 참조). 여기서 고정하는 것은 <b>쿼리 파라미터가 서비스 인자로 어떻게 넘어가는가</b>다.
  */
 @WebMvcTest(PlayerController.class)
 @ContextConfiguration(classes = PlayerController.class)
@@ -70,7 +70,7 @@ class PlayerControllerTest {
             + "담긴 선수 배열을 반환한다")
     void getPlayers_returns200WithApiResponseWrappedArray() throws Exception {
         // given
-        given(playerService.getPlayers(null)).willReturn(THREE_PLAYERS);
+        given(playerService.getPlayers(null, null)).willReturn(THREE_PLAYERS);
 
         // when & then
         mockMvc.perform(get("/players"))
@@ -86,7 +86,7 @@ class PlayerControllerTest {
             + "응답 어디에도 없다")
     void getPlayers_itemContainsOnlyIdAndName() throws Exception {
         // given
-        given(playerService.getPlayers(null)).willReturn(List.of(new PlayerResponse(2L, "김도영")));
+        given(playerService.getPlayers(null, null)).willReturn(List.of(new PlayerResponse(2L, "김도영")));
 
         // when & then
         mockMvc.perform(get("/players"))
@@ -104,7 +104,7 @@ class PlayerControllerTest {
             + "반환한다")
     void getPlayers_withTeamId_passesParameterToService() throws Exception {
         // given
-        given(playerService.getPlayers(6L)).willReturn(List.of(new PlayerResponse(2L, "김도영")));
+        given(playerService.getPlayers(6L, null)).willReturn(List.of(new PlayerResponse(2L, "김도영")));
 
         // when & then
         mockMvc.perform(get("/players").queryParam("teamId", "6"))
@@ -118,7 +118,7 @@ class PlayerControllerTest {
     @DisplayName("[USER-PL-4] teamId를 생략하면 서비스에 null이 넘어가 전체 목록을 반환한다")
     void getPlayers_withoutTeamId_passesNullToService() throws Exception {
         // given: teamId=null 스텁만 두었으므로, 컨트롤러가 다른 값을 넘기면 빈 목록이 나와 단언이 깨진다
-        given(playerService.getPlayers(null)).willReturn(THREE_PLAYERS);
+        given(playerService.getPlayers(null, null)).willReturn(THREE_PLAYERS);
 
         // when & then
         mockMvc.perform(get("/players"))
@@ -131,7 +131,7 @@ class PlayerControllerTest {
             + "반환한다")
     void getPlayers_unknownTeamId_returns200WithEmptyArray() throws Exception {
         // given
-        given(playerService.getPlayers(999L)).willReturn(Collections.emptyList());
+        given(playerService.getPlayers(999L, null)).willReturn(Collections.emptyList());
 
         // when & then
         mockMvc.perform(get("/players").queryParam("teamId", "999"))
@@ -158,7 +158,7 @@ class PlayerControllerTest {
             + "content/totalElements 같은 페이지 필드가 없다")
     void getPlayers_ignoresPagingParameters_returnsFullArray() throws Exception {
         // given
-        given(playerService.getPlayers(null)).willReturn(THREE_PLAYERS);
+        given(playerService.getPlayers(null, null)).willReturn(THREE_PLAYERS);
 
         // when & then
         mockMvc.perform(get("/players").queryParam("page", "1").queryParam("size", "2"))
@@ -173,7 +173,7 @@ class PlayerControllerTest {
     @DisplayName("[USER-PL-9] Authorization 헤더 없이 요청해도 401이 아니라 200과 선수 목록을 반환한다")
     void getPlayers_withoutAuthorizationHeader_returns200() throws Exception {
         // given
-        given(playerService.getPlayers(null)).willReturn(THREE_PLAYERS);
+        given(playerService.getPlayers(null, null)).willReturn(THREE_PLAYERS);
 
         // when & then: Authorization 헤더를 일부러 붙이지 않는다.
         mockMvc.perform(get("/players"))
@@ -190,13 +190,69 @@ class PlayerControllerTest {
         // given: validateToken이 false면 JwtAuthenticationFilter는 SecurityContext를 건드리지 않고
         // 그대로 통과시킨다(permitAll이라 anyRequest().authenticated()에 걸리지 않음).
         given(jwtTokenProvider.validateToken("not-a-jwt")).willReturn(false);
-        given(playerService.getPlayers(null)).willReturn(THREE_PLAYERS);
+        given(playerService.getPlayers(null, null)).willReturn(THREE_PLAYERS);
 
         // when & then
         mockMvc.perform(get("/players").header("Authorization", "Bearer not-a-jwt"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.length()").value(3))
+                .andExpect(jsonPath("$.message").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("[USER-PL-13] name 쿼리 파라미터를 주면 그 값을 서비스에 그대로 넘기고 부분일치 결과를 "
+            + "반환한다")
+    void getPlayers_withName_passesParameterToService() throws Exception {
+        // given: (null, "도영") 스텁만 두었으므로 컨트롤러가 다른 값을 넘기면 빈 목록이 나와 단언이 깨진다
+        given(playerService.getPlayers(null, "도영")).willReturn(List.of(new PlayerResponse(2L, "김도영")));
+
+        // when & then
+        mockMvc.perform(get("/players").queryParam("name", "도영"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].name").value("김도영"));
+    }
+
+    @Test
+    @DisplayName("[USER-PL-14] teamId와 name을 함께 주면 두 값을 모두 서비스에 넘긴다")
+    void getPlayers_withTeamIdAndName_passesBothToService() throws Exception {
+        // given
+        given(playerService.getPlayers(6L, "도영")).willReturn(List.of(new PlayerResponse(2L, "김도영")));
+
+        // when & then
+        mockMvc.perform(get("/players").queryParam("teamId", "6").queryParam("name", "도영"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].name").value("김도영"));
+    }
+
+    @Test
+    @DisplayName("[USER-PL-15] name을 값 없이(?name=) 붙이면 컨트롤러는 null이 아니라 빈 문자열을 넘긴다"
+            + "(검색어 없음으로 접는 것은 서비스 몫)")
+    void getPlayers_emptyNameParameter_passesEmptyStringToService() throws Exception {
+        // given: 컨트롤러 레벨의 실제 동작을 계약으로 고정한다 — 이 스텁이 (null, null)이면 테스트가 깨진다
+        given(playerService.getPlayers(null, "")).willReturn(THREE_PLAYERS);
+
+        // when & then
+        mockMvc.perform(get("/players").queryParam("name", ""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(3));
+    }
+
+    @Test
+    @DisplayName("[USER-PL-16] 일치하는 선수가 없는 name으로 요청하면 404가 아니라 200과 빈 배열을 반환한다")
+    void getPlayers_noNameMatch_returns200WithEmptyArray() throws Exception {
+        // given
+        given(playerService.getPlayers(null, "없는이름")).willReturn(Collections.emptyList());
+
+        // when & then
+        mockMvc.perform(get("/players").queryParam("name", "없는이름"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data").isArray())
+                .andExpect(jsonPath("$.data.length()").value(0))
                 .andExpect(jsonPath("$.message").doesNotExist());
     }
 

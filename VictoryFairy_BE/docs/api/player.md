@@ -1,0 +1,111 @@
+# 선수(player) API 명세
+
+> **도메인** `player` — KBO 선수 참조 데이터 및 이름 검색.
+> **모듈** user (포트 8080) · **경로 접두사** `/api/member/players` · **엔드포인트** 1개
+> **컨트롤러** `user/src/main/java/com/skhynix/user/player/controller/PlayerController.java` (`@RequestMapping("/players")`)
+> **최종 갱신** 2026-08-04 — 모듈별(`user.md`) 문서를 도메인별로 분리. 계약 변경 없음. (직전 변경: 2026-08-03 이름 부분 일치 검색 파라미터 `name` 추가)
+> 공통 규약(응답 래퍼·401 정책)은 [README.md](README.md)를 먼저 볼 것.
+
+## 엔드포인트 목록
+
+| 메서드 | 경로 | 성공 | 용도 |
+|---|---|---|---|
+| GET | [/api/member/players](#get-apimemberplayers) | 200 | 선수 목록 조회 + 구단 필터 + 이름 검색 |
+
+## 이 도메인의 특이사항
+
+[구단(team)](team.md)·[경기(game)](game.md)와 같은 **공개 참조 데이터**로, GET 한정 `permitAll`·페이징 없음·빈 결과 200이라는 계약을 공유한다.
+
+**이 도메인만 검색 기능을 갖는다.** `teamId`(구단 필터)와 `name`(이름 부분 일치)을 각각 또는 함께 줄 수 있어, 리포지토리 메서드가 조합에 따라 4가지로 갈린다. 검색이지만 관련도 순 정렬은 없고 항상 `name` 오름차순이다.
+
+여기서 반환하는 `data[].id`가 [응원(support)](support.md)의 `playerIds` 입력값이다.
+
+---
+
+## GET /api/member/players
+> 최종 변경: 2026-08-03 — 이름 부분 일치 검색 파라미터 `name` 추가(`teamId`와 AND 결합)
+
+KBO 선수 목록 조회 및 이름 검색. `PlayerController` → `PlayerService.getPlayers(Long, String)` → `PlayerRepository`의 네 메서드 중 하나.
+
+**인증 불필요.** [`GET /api/member/teams`](team.md)와 같은 성격의 참조 데이터라 `SecurityConfig`가 같은 방식으로 열었다(`.requestMatchers(HttpMethod.GET, "/players").permitAll()`). **`permitAll`은 `HttpMethod.GET`으로 좁혀져 있어** `POST /api/member/players`는 405가 아니라 **401**이다.
+
+**요청**: 쿼리 파라미터 2개(둘 다 선택).
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| teamId | Long | 아니오 | 구단 PK([`GET /api/member/teams`](team.md)의 `data[].id`). 주면 해당 구단 소속 선수만, 생략하면 구단으로 거르지 않는다 |
+| name | String | 아니오 | 선수 이름 **부분 일치** 검색어(`LIKE '%검색어%'`). 주면 이름에 이 문자열이 포함된 선수만 반환한다. 앞부분 일치가 아니라 **포함**이므로 `?name=도영`으로 `"김도영"`이 걸린다. 생략하면 이름으로 거르지 않는다 |
+
+**두 파라미터를 함께 주면 AND로 결합**된다(`?teamId=6&name=도영` → KIA 소속이면서 이름에 "도영"이 든 선수). 조합에 따라 실제로 나가는 쿼리는 다음 4가지다:
+
+| teamId | name | 리포지토리 메서드 |
+|---|---|---|
+| 없음 | 없음 | `findAllByOrderByNameAsc()` |
+| 있음 | 없음 | `findAllByTeam_IdOrderByNameAsc(teamId)` |
+| 없음 | 있음 | `findAllByNameContainingOrderByNameAsc(name)` |
+| 있음 | 있음 | `findAllByTeam_IdAndNameContainingOrderByNameAsc(teamId, name)` |
+
+**`name`의 빈 값·공백 처리**: `?name=`(값 없음), `?name=%20%20`(공백만)은 **`name`을 주지 않은 것과 동일하게** 취급한다(`LIKE '%%'`로 헛도는 쿼리를 만들지 않는다). 검색어 앞뒤 공백은 제거한 뒤 매칭하므로 `?name=%20도영%20`은 `?name=도영`과 결과가 같다.
+
+**대소문자를 구분하지 않는다** — MySQL 기본 콜레이션(`_ci`)이 흡수한다. 다만 초성 검색(`ㄱㄷㅇ`), 오타 허용, 관련도 순 정렬은 **지원하지 않는다**(단순 `LIKE` 검색이며 정렬은 아래대로 항상 `name` 오름차순 고정).
+
+`?page=`/`?size=` 등은 서버가 해석하지 않으며 **페이징이 없다** — 항상 단일 배열로 반환한다. 검색 결과가 많아도 마찬가지다.
+
+**응답 200 OK** `ApiResponse<List<PlayerResponse>>`
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| success | boolean | 항상 `true` |
+| data | array | 선수 배열 |
+| data[].id | Long | 선수 PK |
+| data[].name | String | 선수 이름 |
+| message | null | 사용되지 않음 |
+
+**`average`/`kboPlayerId`/`team`/`createdAt`/`updatedAt`는 의도적으로 응답에 없다.** `kboPlayerId`(KBO 공식 playerId, 네이버 record API의 pcode 와도 실측상 동일 값)는 py-collector가 upsert 키로 소유하는 소스 자연키라 `TeamResponse`가 `Team.code`를 감추는 것과 같은 이유로 제외한다. `team`을 담지 않는 것은 N+1 방지 목적도 겸한다(`Player.team`이 LAZY라 응답 변환에서 초기화되지 않는다).
+
+**정렬: `name` 오름차순, DB(`ORDER BY name ASC`)가 단독 수행하며 애플리케이션에서 재정렬하지 않는다.** `teamId`·`name` 유무와 무관하게 같은 정렬이다(검색 결과도 관련도 순이 아니라 이름 오름차순). 구단 목록과 마찬가지로 한국어 로케일이 아닌 MySQL 콜레이션 기준이다.
+
+**존재하지 않는 `teamId`나 일치하는 선수가 없는 `name`은 404가 아니라 200 + 빈 배열**이다. 구단 존재 여부를 따로 조회하지 않으며, [`GET /api/member/teams`](team.md)가 유효한 id의 출처라고 전제한다. `players` 테이블에 행이 없을 때도 동일하다:
+```json
+{"success":true,"data":[],"message":null}
+```
+
+**실패**
+
+| 상태 | 코드 | 조건 |
+|---|---|---|
+| 400 | (래퍼 없음) | `teamId`가 숫자가 아님(예: `?teamId=abc`). 컨트롤러 진입 전 타입 변환 실패라 `GlobalExceptionHandler`가 아니라 Spring 기본 `DefaultHandlerExceptionResolver`가 처리한다 — **이 응답만 `ApiResponse` 래퍼가 아니다** |
+| 401 | UNAUTHENTICATED | `GET` 이외의 메서드로 이 경로 요청(`permitAll`이 GET으로만 좁혀져 있음 — 405 아님) |
+
+**`name`에는 400이 없다.** 문자열이라 타입 변환이 실패할 수 없고, 길이·문자 종류 제약도 걸지 않는다. 어떤 값을 줘도 200이며 일치하는 선수가 없으면 빈 배열이다.
+
+Authorization 헤더가 있어도(만료·무효 토큰이어도) 이 경로는 `permitAll`이라 그대로 200을 반환한다.
+
+**알려진 동작(주의)**: 검색어에 든 `%`·`_`는 `LIKE` 와일드카드로 그대로 해석된다(이스케이프하지 않는다) — `?name=%25`는 전체 조회와 같아지고 `?name=_`는 아무 한 글자에나 걸린다. 선수 이름에 이 문자가 들어갈 일이 없어 실사용 영향이 없다고 보고 남겨둔 상태다(파라미터 바인딩이라 SQL 인젝션 경로는 아니다).
+
+**예시**
+```bash
+# 전체
+curl -i -X GET http://localhost:8080/api/member/players
+# 구단 필터
+curl -i -X GET "http://localhost:8080/api/member/players?teamId=6"
+# 이름 검색(부분 일치)
+curl -i -X GET "http://localhost:8080/api/member/players?name=%EB%8F%84%EC%98%81"
+# 구단 + 이름 (AND)
+curl -i -X GET "http://localhost:8080/api/member/players?teamId=6&name=%EB%8F%84%EC%98%81"
+```
+```json
+{"success":true,"data":[{"id":2,"name":"김도영"}],"message":null}
+```
+
+---
+
+## 확인 필요 / 코드 미확인
+
+- 선수 상세 조회(`GET /api/member/players/{id}`), 포지션·타율 등 기록 노출, 초성 검색·오타 허용·관련도 정렬은 모두 코드에 없다. `Player.average` 필드는 존재하지만 어떤 응답에도 실리지 않는다.
+- 검색어의 `%`·`_` 미이스케이프는 알려진 동작으로 남겨둔 상태다(위 본문 참고). 선수 이름에 이 문자가 들어갈 일이 없다는 전제이며, 전제가 깨지면 이스케이프 도입이 필요하다.
+
+## 관련 문서
+
+- [구단(team)](team.md) — `?teamId=`에 넣을 값의 출처.
+- [응원(support)](support.md) — 응원 선수 추가·취소에 이 `id`를 쓴다. **응원 선수는 응원 구단 소속이어야 하므로** 선수 선택 UI는 보통 `?teamId=<응원 구단>`으로 좁혀 호출한다.
