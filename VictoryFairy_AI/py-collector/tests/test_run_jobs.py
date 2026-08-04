@@ -383,6 +383,17 @@ class _RecordingDb:
         return {t.team_code: i + 1 for i, t in enumerate(teams)}
     def upsert_roster_players(self, players, team_id):
         self.calls.append(("players", team_id, len(players)))
+    def upsert_registrations(self, snapshot_date, players, team_id):
+        self.calls.append(("registrations", snapshot_date, team_id, len(players)))
+        return len(players)
+    def apply_trades(self, trades, team_ids_by_name):
+        self.calls.append(("trades", [t.player_name for t in trades],
+                           dict(team_ids_by_name)))
+        return {}
+
+
+def _no_trades(season, *, settings, client):
+    return []
 
 
 def test_land_registrations_current_date_upserts_by_team_pk(monkeypatch, settings):
@@ -396,10 +407,13 @@ def test_land_registrations_current_date_upserts_by_team_pk(monkeypatch, setting
                         lambda html: [dimensions.PlayerRow("p1", "N", "1", "투수", "우투우타", None, None, None)])
     db = _RecordingDb()
     synced = run.land_registrations(None, settings=settings, db=db, client=object(),
-                                    teams=["OB", "LG"])
+                                    teams=["OB", "LG"], fetch_trades=_no_trades)
     assert synced == ["OB", "LG"]
     # dimensions.TEAMS 순서상 OB=1, LG=2 -> team_id 로 upsert
     assert ("players", 1, 1) in db.calls and ("players", 2, 1) in db.calls
+    # 같은 명단이 일별 스냅샷으로도 남는다
+    assert ("registrations", "2026-07-13", 1, 1) in db.calls
+    assert ("registrations", "2026-07-13", 2, 1) in db.calls
 
 
 def test_land_registrations_backfill_uses_given_date(monkeypatch, settings):
@@ -413,7 +427,8 @@ def test_land_registrations_backfill_uses_given_date(monkeypatch, settings):
     monkeypatch.setattr(kbo_register, "parse_register",
                         lambda html: [dimensions.PlayerRow("p1", "N", "1", "투수", "우투우타", None, None, None)])
     db = _RecordingDb()
-    run.land_registrations("2026-05-01", settings=settings, db=db, client=object(), teams=["LG"])
+    run.land_registrations("2026-05-01", settings=settings, db=db, client=object(),
+                           teams=["LG"], fetch_trades=_no_trades)
     assert any(c[0] == "players" for c in db.calls)
 
 
@@ -674,6 +689,41 @@ def test_land_registrations_failed_team_skipped(monkeypatch, settings):
                         lambda html: [dimensions.PlayerRow("p1", "N", "1", "투수", "우투우타", None, None, None)])
     db = _RecordingDb()
     synced = run.land_registrations(None, settings=settings, db=db, client=object(),
-                                    teams=["LG", "OB"])
+                                    teams=["LG", "OB"], fetch_trades=_no_trades)
     assert synced == ["LG"]  # OB 실패 -> 제외
     assert ("players", 2, 1) in db.calls  # LG(=id 2)만 적재
+
+
+def test_land_registrations_applies_recent_trades_with_team_name_map(monkeypatch, settings):
+    from kbo_collector import dimensions, kbo_register
+    monkeypatch.setattr(kbo_register, "current_date", lambda s, c: "2026-08-04")
+    monkeypatch.setattr(kbo_register, "fetch_register_html",
+                        lambda code, dc, *, settings, client: "<html></html>")
+    monkeypatch.setattr(kbo_register, "parse_register", lambda html: [])
+    recent = dimensions.TradeRow("2026-08-01", "트레이드", "한화", "최근", "투수", "KIA→한화")
+    old = dimensions.TradeRow("2026-05-01", "트레이드", "한화", "옛날", "투수", "KIA→한화")
+    def fake_trades(season, *, settings, client):
+        assert season == "2026"
+        return [recent, old]
+    db = _RecordingDb()
+    run.land_registrations(None, settings=settings, db=db, client=object(),
+                           teams=["OB", "LG"], fetch_trades=fake_trades)
+    kind, names, by_name = next(c for c in db.calls if c[0] == "trades")
+    assert names == ["최근"]  # trade_days(7일) 밖 행은 제외
+    # 팀 짧은 이름 -> teams.id (dimensions.TEAMS 순서 기반 페이크 id)
+    assert by_name["KIA"] == 6 and by_name["한화"] == 7 and len(by_name) == 10
+
+
+def test_land_registrations_trade_failure_keeps_roster_success(monkeypatch, settings):
+    from kbo_collector import kbo_register
+    monkeypatch.setattr(kbo_register, "current_date", lambda s, c: "2026-08-04")
+    monkeypatch.setattr(kbo_register, "fetch_register_html",
+                        lambda code, dc, *, settings, client: "<html></html>")
+    monkeypatch.setattr(kbo_register, "parse_register", lambda html: [])
+    def boom(season, *, settings, client):
+        raise RuntimeError("kbo down")
+    db = _RecordingDb()
+    synced = run.land_registrations(None, settings=settings, db=db, client=object(),
+                                    teams=["LG"], fetch_trades=boom)
+    assert synced == ["LG"]  # 이동현황 실패는 잡 실패가 아니다
+    assert not any(c[0] == "trades" for c in db.calls)

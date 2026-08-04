@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date as date_cls
 from datetime import datetime, timedelta, timezone
 
-from . import community, dimensions, fetch, game_records, keys, kbo_register, naver
+from . import community, dimensions, fetch, game_records, keys, kbo_register, kbo_trade, naver
 from .config import get_settings
 from .journal import Journal, setup_logging
 from .sink import S3RawSink
@@ -423,10 +423,17 @@ def land_community_range(start, end, *, settings, sink, client, journal, force=F
 
 def land_registrations(date=None, *, settings, db, client,
                        teams=dimensions.TEAM_CODES,
-                       fetch_html=None, current=None) -> list[str]:
-    """KBO 공식 1군 등록명단 -> 운영 players 테이블(kbo_player_id 자연키) upsert."""
+                       fetch_html=None, current=None, fetch_trades=None,
+                       trade_days=7) -> list[str]:
+    """KBO 공식 1군 등록명단 -> players upsert + registrations 일별 스냅샷.
+
+    이후 이동현황(Trade.aspx)을 보조 반영한다: 등록명단이 못 잡는 갭(미등록
+    선수의 트레이드/개명/등번호 변경)만 메우는 역할이라, 실패해도 잡은 성공이다.
+    """
+    log = logging.getLogger("registrations")
     fetch_html = fetch_html or kbo_register.fetch_register_html
     current = current or kbo_register.current_date
+    fetch_trades = fetch_trades or kbo_trade.fetch_trades
     snapshot_date = date or current(settings, client)  # 'YYYY-MM-DD'
     date_compact = snapshot_date.replace("-", "")
 
@@ -439,7 +446,20 @@ def land_registrations(date=None, *, settings, db, client,
         except Exception:
             continue  # 팀 실패: 스킵
         db.upsert_roster_players(rows, team_ids[code])
+        db.upsert_registrations(snapshot_date, rows, team_ids[code])
         synced.append(code)
+
+    try:
+        cutoff = (date_cls.fromisoformat(snapshot_date)
+                  - timedelta(days=trade_days)).isoformat()
+        recent = [t for t in fetch_trades(snapshot_date[:4], settings=settings,
+                                          client=client) if t.date >= cutoff]
+        by_name = {t.name: team_ids[t.team_code] for t in dimensions.TEAMS
+                   if t.team_code in team_ids}
+        applied = db.apply_trades(recent, by_name)
+        log.info("trades: %d recent rows, applied %s", len(recent), applied or {})
+    except Exception:
+        log.warning("trades sync failed (registrations already landed)", exc_info=True)
     return synced
 
 
