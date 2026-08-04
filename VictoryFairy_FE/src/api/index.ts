@@ -9,7 +9,7 @@ export { USER_BASE_URL, GAME_BASE_URL } from './config';
 // 모듈별 axios 인스턴스(고급 사용/직접 요청용). 일반적으로는 아래 엔드포인트 함수를 쓴다.
 export { userClient, gameClient } from './httpClient';
 
-// 인증·계정(user 모듈) 엔드포인트 함수
+// 인증(user 모듈) 엔드포인트 함수
 export {
   validatePassword,
   validateNickname,
@@ -20,8 +20,12 @@ export {
   login,
   refresh,
   logout,
+} from './auth';
+
+// 계정(user 모듈) 엔드포인트 함수
+export {
   withdraw,
-} from './authApi';
+} from './account';
 
 // 채팅(game 모듈) 엔드포인트 함수
 export {
@@ -38,8 +42,8 @@ export {
   CHAT_ERROR_MESSAGE,
   CHAT_MESSAGE_PAGE_SIZE,
   CHAT_MESSAGE_MAX_LENGTH,
-} from './chatApi';
-export type { ChatSubscription, ChatSubscriptionHandlers } from './chatApi';
+} from './chat';
+export type { ChatSubscription, ChatSubscriptionHandlers } from './chat';
 
 // 토큰 저장 추상화 — store-agent가 setTokenStorage로 zustand persist 구현 주입
 export { setTokenStorage, getTokenStorage } from './tokenStorage';

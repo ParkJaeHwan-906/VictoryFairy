@@ -2,7 +2,7 @@
  * 라운지 채팅 더미 데이터.
  * Figma: SWM / [Lounge] 라운지-챗 (시안) (node 744:21903)
  *
- * API 연결 전까지만 쓰는 자리표시 데이터다. 서버가 붙으면 `chatApi` 의
+ * API 연결 전까지만 쓰는 자리표시 데이터다. 서버가 붙으면 `chat` 의
  * 히스토리 조회 + SSE 구독 결과를 `LoungeChatMessage[]` 로 옮겨 넣으면 된다.
  */
 import type { LoungeChatMessage } from '../types/community';

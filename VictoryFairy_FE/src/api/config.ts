@@ -18,12 +18,12 @@ function normalize(url: string): string {
   return url.trim().replace(/\/+$/, '');
 }
 
-/** user 모듈 — 인증·계정 (`authApi`) */
+/** user 모듈 — 인증(`auth`) · 계정(`account`) */
 export const USER_BASE_URL = normalize(
   import.meta.env.VITE_API_USER_BASE_URL ?? `${LOCAL_ORIGIN}/api/member`,
 );
 
-/** game 모듈 — 구단별 채팅 (`chatApi`) */
+/** game 모듈 — 구단별 채팅 (`chat`) */
 export const GAME_BASE_URL = normalize(
   import.meta.env.VITE_API_GAME_BASE_URL ?? `${LOCAL_ORIGIN}/api/game`,
 );

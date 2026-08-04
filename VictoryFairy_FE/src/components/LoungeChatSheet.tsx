@@ -25,7 +25,7 @@ type LoungeChatSheetProps = {
  * 메시지는 아직 더미 데이터이며, 보낸 글은 화면에만 덧붙는다.
  */
 export default function LoungeChatSheet({ onClose }: LoungeChatSheetProps) {
-  // TODO: api-agent - chatApi 히스토리 조회 + SSE 구독으로 교체한다.
+  // TODO: api-agent - chat 히스토리 조회 + SSE 구독으로 교체한다.
   const [messages, setMessages] = useState<LoungeChatMessage[]>(LOUNGE_CHAT_MESSAGES);
   const [draft, setDraft] = useState('');
   const listRef = useRef<HTMLOListElement>(null);

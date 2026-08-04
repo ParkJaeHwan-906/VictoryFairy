@@ -106,11 +106,3 @@ export async function refresh(body: TokenRequest): Promise<TokenResponse> {
 export async function logout(body: TokenRequest): Promise<void> {
   await userClient.post<void>('/auth/logout', body);
 }
-
-/**
- * DELETE /users/me — 회원탈퇴. 유일한 인증 필요 요청(requiresAuth).
- * 성공 시 204 무본문. 에러: 401 UNAUTHENTICATED.
- */
-export async function withdraw(): Promise<void> {
-  await userClient.delete<void>('/users/me', { requiresAuth: true });
-}
