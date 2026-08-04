@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -87,6 +89,24 @@ class RealtimeEventSubscriberTest {
 
         assertThatCode(() -> subscriber.onMessage(message("not-json"), null)).doesNotThrowAnyException();
         verifyNoInteractions(registry);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-28/29] 종료 신호(subscription-close)는 registry.publish가 아니라 handleCloseCommand로 "
+            + "위임되고, Map으로 역직렬화된 payload가 convertValue로 SubscriptionCloseCommand로 정확히 복원된다"
+            + "(종료 신호가 구독자에게 data:로 새지 않는다는 계약을 JSON 왕복까지 태워 검증)")
+    void onMessage_closeSignal_delegatesToHandleCloseCommandWithRestoredCommand() {
+        SubscriptionCloseCommand command = SubscriptionCloseCommand.leave(7L, "origin-instance-1");
+        new RedisPubSubPublisher(redisTemplate, objectMapper).publish("room-1", command.toEvent());
+        ArgumentCaptor<String> payload = ArgumentCaptor.forClass(String.class);
+        verify(redisTemplate).convertAndSend(anyString(), payload.capture());
+
+        new RealtimeEventSubscriber(registry, objectMapper).onMessage(message(payload.getValue()), null);
+
+        ArgumentCaptor<SubscriptionCloseCommand> delivered = ArgumentCaptor.forClass(SubscriptionCloseCommand.class);
+        verify(registry).handleCloseCommand(eq("room-1"), delivered.capture());
+        assertThat(delivered.getValue()).isEqualTo(command);
+        verify(registry, never()).publish(anyString(), any());
     }
 
     private Message message(String body) {
