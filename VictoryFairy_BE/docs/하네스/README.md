@@ -54,7 +54,7 @@ BE 쪽 `infra` 모듈(`.claude/modules/infra.md`)은 **EC2+compose·배포 파�
 | `test-writer` | JUnit/MockMvc 테스트 코드 작성 | 코드 | sonnet |
 | `test-data` | 목업·시드·픽스처 데이터 | 코드 | sonnet |
 | `module-verifier` | gradle 컴파일→bootRun→엔드포인트 호출→응답 검증 (domain은 포트가 없어 컴파일·테스트까지만) | ❌ 읽기전용 | sonnet |
-| `api-documenter` | `docs/api/<module>.md` 명세 생성·갱신 (domain은 엔드포인트가 없어 대상 아님) | 문서만 | sonnet |
+| `api-documenter` | `docs/api/<domain>.md` 명세 생성·갱신(도메인 단위) + 최종 수정일 표기 + Notion 동기화 (domain 모듈은 엔드포인트가 없어 대상 아님) | 문서·Notion | sonnet |
 | `spring-optimizer` | 트랜잭션 경계·open-in-view·커넥션풀·설정 | 코드 | inherit |
 | `jpa-query-tuner` | SQL/JPA 쿼리·N+1·fetch join·인덱스·페이징 | 코드 | inherit |
 | `code-commenter` | 로직 의도('왜') 주석·Javadoc | 주석만 | sonnet |
