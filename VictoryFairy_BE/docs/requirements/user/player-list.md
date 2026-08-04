@@ -1,6 +1,7 @@
 # KBO 선수 목록 조회 요구사항
 > 상태: 승인됨 (2026-07-28) · 모듈: user · 최종 수정: 2026-08-03(이름 검색 `name` 추가 — USER-PL-13~16)
 > **작성 시점 주의**: 이 문서는 구현보다 먼저가 아니라 **구현 초안을 리뷰한 뒤 사후에 계약을 고정한 것**이다(`team-list.md`는 구현 전 작성). 아래 요구사항은 현재 코드가 실제로 하는 동작과 일치하며, 리뷰에서 갈렸던 두 지점(무인증 공개 여부, 구단 필터)은 사용자가 직접 결정했다.
+> **2026-08-04 개정(USER-PL-4 한정)**: `docs/requirements/user/player-lookup-team-fallback.md`(응원 구단 폴백, 사용자 결정 2026-08-04)가 **적용 구단 결정 규칙의 단일 출처**가 되었다 — 유효한 access 토큰의 계정에 활성 응원 구단이 있으면 그 구단이 우선하고 요청의 `teamId`는 무시된다(USER-PLF-16·17). 이에 따라 **USER-PL-4를 조건부(유비쿼터스 → 예외)로 좁혔다.** 나머지 항목은 이번 개정에서 손대지 않았으나, **USER-PL-5·USER-PL-6도 같은 이유로 개정 대기 상태**다(개정 문안은 폴백 문서의 "기존 계약과의 충돌" 2·3번 참조 — 승인 전까지 이 두 문장은 "활성 응원 구단이 없는 요청"에 한해서만 유효하다고 읽을 것).
 > **2026-08-03 개정**: 이름 검색(`?name=`)은 최초 계약에서 **명시적으로 제외**했던 축이다(아래 "범위" 참조). 화면 요구가 생겨 열었으며, 열면서 지킨 원칙은 기존 필터와 같다 — 선택 파라미터이고, 필터링·정렬은 DB 가 단일 쿼리로 수행하며, 일치하는 것이 없으면 404 가 아니라 빈 배열이다.
 
 ## 배경 / 목적
@@ -31,9 +32,9 @@
 | USER-PL-1 | 이벤트 | WHEN 클라이언트가 선수 목록을 요청하면, THE 시스템 SHALL 200과 `ApiResponse` 래퍼에 담긴 선수 배열을 반환한다 | `GET /api/member/players` → 200, 본문 `{"success":true,"data":[...],"message":null}` |
 | USER-PL-2 | 유비쿼터스 | THE 시스템 SHALL 선수 항목에 `id`와 `name` 두 필드만 포함한다 | `data[0]`의 키 집합이 정확히 `{"id","name"}`. `average`·`kboPlayerId`·`team`·`createdAt`·`updatedAt` 키가 **응답 어디에도 없음** |
 | USER-PL-3 | 유비쿼터스 | THE 시스템 SHALL 선수 목록을 `name` 오름차순(DB 콜레이션 기준)으로 정렬해 반환하며, `teamId`·`name` 유무와 무관하게 같은 정렬을 적용한다 | 동일 DB 상태에서 2회 연속 호출 시 순서 동일. `?teamId=`·`?name=` 를 붙인 응답도 `name` 오름차순(관련도 순이 아님) |
-| USER-PL-4 | 유비쿼터스 | THE 시스템 SHALL `teamId` 가 없으면 `players` 테이블의 모든 행을 반환한다 | `GET /api/member/players` → `data` 길이가 `SELECT COUNT(*) FROM players` 와 일치 |
-| USER-PL-5 | 이벤트 | WHEN 요청에 `teamId` 가 있으면, THE 시스템 SHALL 그 구단 소속 선수만 반환한다 | `GET /api/member/players?teamId=6` → 반환된 모든 선수의 `players.team_id` 가 6. 6이 아닌 구단 소속은 한 건도 없음 |
-| USER-PL-6 | 예외 | IF `teamId` 가 존재하지 않는 구단이거나 소속 선수가 없으면, THEN THE 시스템 SHALL 404가 아니라 200과 빈 배열을 반환한다 | `GET /api/member/players?teamId=999999` → 200, `{"success":true,"data":[],"message":null}` |
+| USER-PL-4 | 예외 | **(2026-08-04 개정)** IF 적용 구단이 결정되지 않으면(=`teamId` 미전달 **이고** 요청 계정에 활성 응원 구단도 없음), THEN THE 시스템 SHALL `players` 테이블의 모든 행을 반환한다 | 헤더 없이 `GET /api/member/players` → `data` 길이가 `SELECT COUNT(*) FROM players` 와 일치. **응원 구단이 있는 계정의 토큰을 실으면 이 요구사항이 적용되지 않는다**(그 구단으로 좁혀짐 — `player-lookup-team-fallback.md` USER-PLF-1) |
+| USER-PL-5 | 복합 | **(2026-08-04 개정)** WHILE 적용 구단이 요청의 `teamId` 로 결정되는 상태(=활성 응원 구단이 없음)에서, WHEN 요청에 `teamId` 가 있으면, THE 시스템 SHALL 그 구단 소속 선수만 반환한다. 활성 응원 구단이 있으면 `teamId` 는 무시된다(USER-PLF-16·17 우선) | `GET /api/member/players?teamId=6`(무인증 또는 응원 구단 없는 계정) → 반환된 모든 선수의 `players.team_id` 가 6. 6이 아닌 구단 소속은 한 건도 없음. 응원 구단이 9인 계정 토큰으로 같은 요청 → `team_id` 가 9(이 요구사항 미적용) |
+| USER-PL-6 | 예외 | IF `teamId` 가 존재하지 않는 구단이거나 소속 선수가 없으면, THEN THE 시스템 SHALL 404가 아니라 200과 빈 배열을 반환한다. **(2026-08-04 단서 추가)** 활성 응원 구단이 있는 인증 요청에서는 `teamId` 자체가 무시되므로 이 요구사항이 적용되지 않는다(USER-PLF-18) | `GET /api/member/players?teamId=999999`(무인증) → 200, `{"success":true,"data":[],"message":null}`. 응원 구단이 6인 계정 토큰으로 같은 요청 → 빈 배열이 아니라 `team_id=6` 목록 |
 | USER-PL-7 | 예외 | IF `teamId` 가 정수로 변환되지 않으면, THEN THE 시스템 SHALL 400을 반환하고 조회를 수행하지 않는다 | `GET /api/member/players?teamId=abc` → 400. 서비스·리포지토리 호출 없음. **이 응답만 `ApiResponse` 래퍼가 아니다**(아래 "표기 근거" 참조) |
 | USER-PL-8 | 유비쿼터스 | THE 시스템 SHALL 페이징 파라미터를 해석하지 않고 조회 결과 전체를 단일 배열로 반환한다 | `GET /api/member/players?page=1&size=5` → 200, `data` 길이는 `page`/`size` 와 무관. `data`는 배열이며 `content`/`totalElements` 같은 페이지 필드가 없음 |
 | USER-PL-9 | 이벤트 | WHEN `Authorization` 헤더 없이 선수 목록 요청이 들어오면, THE 시스템 SHALL 200과 선수 목록을 반환한다 | 헤더 없이 `GET /api/member/players` → 200 (401 `"인증이 필요합니다."` 가 아님) |
