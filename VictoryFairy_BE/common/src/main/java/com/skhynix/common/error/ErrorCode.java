@@ -35,6 +35,7 @@ public enum ErrorCode {
     CHAT_MESSAGE_NOT_FOUND(404, "존재하지 않는 메시지입니다."),
     TEAM_NOT_FOUND(404, "존재하지 않는 구단입니다."),
     PLAYER_NOT_FOUND(404, "존재하지 않는 선수입니다."),
+    GAME_NOT_FOUND(404, "존재하지 않는 경기입니다."),
 
     // 429 Too Many Requests - 이메일 인증
     EMAIL_SEND_COOLDOWN(429, "인증번호를 방금 발송했습니다. 잠시 후 다시 시도해 주세요.");

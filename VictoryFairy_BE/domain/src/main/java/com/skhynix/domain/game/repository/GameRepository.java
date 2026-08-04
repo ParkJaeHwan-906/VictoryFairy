@@ -3,6 +3,7 @@ package com.skhynix.domain.game.repository;
 import com.skhynix.domain.game.entity.Game;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 
@@ -15,4 +16,10 @@ public interface GameRepository extends JpaRepository<Game, Long> {
     @EntityGraph(attributePaths = {"homeTeam", "awayTeam", "stadium", "gameStatus"})
     List<Game> findAllByGameDateGreaterThanEqualAndGameDateLessThanOrderByGameDateAsc(
             LocalDateTime startInclusive, LocalDateTime endExclusive);
+
+    // naver_game_id는 py-collector 소유 자연키이자 외부에 노출된 유일한 경기 식별자다(GameResponse.gameId).
+    // 위 목록 조회와 달리 @EntityGraph를 붙이지 않는다 — 라인업 조회는 이 결과에서 내부 PK만 꺼내 쓰고
+    // 구단·구장·상태를 읽지 않으므로, 연관을 끌고 오면 쓰지도 않는 조인 4개가 매 요청 붙는다.
+    // 없는 값이면 빈 Optional → 호출부가 GAME_NOT_FOUND(404)로 바꾼다(빈 문자열도 같은 경로로 흡수).
+    Optional<Game> findByNaverGameId(String naverGameId);
 }

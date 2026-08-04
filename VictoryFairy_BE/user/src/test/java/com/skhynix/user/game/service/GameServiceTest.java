@@ -25,6 +25,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 /**
  * {@code GameService.getGames(LocalDate)} 단위 테스트.
@@ -59,6 +60,14 @@ class GameServiceTest {
 
     private Team teamOf(String name) {
         return Team.builder().name(name).code(name).build();
+    }
+
+    // GameResponse.homeTeamId()/awayTeamId() 단언에는 실제 PK 값이 필요하다. Team.id는
+    // @GeneratedValue라 빌더에 없어 TeamServiceTest와 같은 패턴(ReflectionTestUtils)으로 채운다.
+    private Team teamOf(Long id, String name) {
+        Team team = teamOf(name);
+        ReflectionTestUtils.setField(team, "id", id);
+        return team;
     }
 
     private GameStatus statusOf(String name) {
@@ -170,6 +179,40 @@ class GameServiceTest {
         assertThat(response.awayTeamScore()).isEqualTo(5);
         assertThat(response.gameDate()).isEqualTo(gameDateTime);
         assertThat(response.gameState()).isEqualTo("FINISHED");
+    }
+
+    @Test
+    @DisplayName("[USER-GTID-1/2/5] homeTeamId/awayTeamId가 실제 구단 PK로 채워지고 절대 null이 아니다"
+            + "(homeTeam/awayTeam은 optional=false)")
+    void getGames_mapsHomeAwayTeamIds_toActualTeamPksNeverNull() {
+        // given
+        LocalDate date = LocalDate.of(2026, 8, 1);
+        LocalDateTime gameDateTime = LocalDateTime.of(2026, 8, 1, 18, 30, 0);
+        Team home = teamOf(3L, "LG");
+        Team away = teamOf(7L, "KIA");
+        Game game = Game.builder()
+                .gameDate(gameDateTime)
+                .homeTeam(home)
+                .awayTeam(away)
+                .stadium(stadiumOf("잠실야구장"))
+                .homeScore(3)
+                .awayScore(5)
+                .gameStatus(statusOf("FINISHED"))
+                .naverGameId("20260801LGHT02026")
+                .build();
+        given(gameRepository.findAllByGameDateGreaterThanEqualAndGameDateLessThanOrderByGameDateAsc(
+                date.atStartOfDay(), date.plusDays(1).atStartOfDay())).willReturn(List.of(game));
+
+        // when
+        List<GameResponse> result = gameService.getGames(date);
+
+        // then
+        assertThat(result).hasSize(1);
+        GameResponse response = result.get(0);
+        assertThat(response.homeTeamId()).isNotNull().isEqualTo(3L);
+        assertThat(response.awayTeamId()).isNotNull().isEqualTo(7L);
+        assertThat(response.homeTeam()).isEqualTo("LG");
+        assertThat(response.awayTeam()).isEqualTo("KIA");
     }
 
     @Test
