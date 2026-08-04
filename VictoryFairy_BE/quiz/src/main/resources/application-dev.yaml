@@ -8,7 +8,7 @@ spring:
   jpa:
     hibernate:
       # 로컬은 엔티티 기준으로 누락 테이블/컬럼을 자동 생성(additive)한다. 빈 볼륨으로 시작해도
-      # 스키마가 만들어지고, 그 위에 아래 sql.init 시드가 얹혀 기동 한 번으로 개발 환경이 선다.
+      # 스키마 자체는 만들어진다(데이터는 아래 참고).
       # ⚠ update 는 추가만 반영한다 — 컬럼 삭제·타입 변경·인덱스 제거는 그대로 남는다. 엔티티에서
       #   무언가를 없앴는데 로컬만 이상하면 스키마가 낡은 것이니 DB 를 지우고 다시 띄울 것.
       #   (종전 validate 는 이런 드리프트를 즉시 잡아줬지만, 대신 사람이 손으로 DDL 을 맞춰야 했다.)
@@ -17,25 +17,12 @@ spring:
     properties:
       hibernate:
         format_sql: true
-    # 시드 스크립트(아래 sql.init)를 Hibernate 초기화 '이후'에 돌리기 위한 스위치.
-    # 기본값(false)이면 EntityManagerFactory 준비 전에 실행돼 순서가 뒤집힌다.
-    defer-datasource-initialization: true
 
-  # 로컬 자동 시드 — 비어 있으면 채우고, 있으면 건너뛴다.
-  #   teams-init.sql : 10개 구단
-  #   chat-init.sql  : (chatrooms/chats DDL) + SYSTEM 계정 + 구단별 채팅방 10개
-  # 두 파일 모두 배포 선행 SQL 원본(infra/sql)이며 build.gradle 이 클래스패스로 복사한다.
-  # 전부 INSERT ... WHERE NOT EXISTS / CREATE TABLE IF NOT EXISTS 라 **재실행 안전**이다
-  # → 매 기동마다 돌아도 중복 행이 생기지 않는다(그래서 mode: always 로 둔다).
-  # ⚠ encoding 을 지정하지 않으면 플랫폼 기본 인코딩으로 읽어 한글 팀명이 깨진 채 저장된다.
-  # ⚠ dev 전용이다. prod 는 ddl-auto=none + 수동 적용이 규칙이라 앱이 스키마·데이터를 건드리지 않는다.
-  sql:
-    init:
-      mode: always
-      encoding: UTF-8
-      data-locations:
-        - classpath:sql/teams-init.sql
-        - classpath:sql/chat-init.sql
+# 로컬 시드(구단 10개·SYSTEM 계정·구단별 채팅방)는 이 앱이 넣지 않는다 — user-app 이 dev 기동 시
+# 넣는다(user/src/main/resources/application-dev.yaml 의 spring.sql.init). 테이블을 만드는 앱과
+# 기본 데이터를 넣는 앱을 하나로 모으려고 옮겼다(prod 에서 DDL 을 내는 앱도 user 뿐이다).
+# ⚠ 그래서 빈 DB 에 quiz 만 띄우면 테이블은 있어도 채팅방이 0행이다. 채팅방 목록이 비어 있으면
+#   설정을 의심하기 전에 user-app 을 한 번 띄울 것.
 
 # dev 는 Redis 를 쓰지 않는다(fan-out 은 InMemoryPublisher). spring-boot-starter-data-redis 가
 # 클래스패스에 있다는 이유만으로 액추에이터가 redis 인디케이터를 켜서, 로컬에 Redis 가 없으면
