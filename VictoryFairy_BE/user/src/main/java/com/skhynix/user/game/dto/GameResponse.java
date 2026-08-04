@@ -15,11 +15,9 @@ public record GameResponse(String gameId,
                            String gameState) {
 
     /**
-     * {@code stadium} 은 {@code Game} 에서 유일하게 선택적인 연관이다({@code optional = true},
-     * {@code stadium_id} 가 nullable). 구장이 미정인 경기(예: 편성 전·중립구장 미확정)가 들어오면
-     * {@code getStadium()} 이 {@code null} 이므로 그대로 {@code .getName()} 을 부르면 응답 전체가 500 이 된다.
-     * 점수({@code homeTeamScore}/{@code awayTeamScore})가 경기 전에는 {@code null} 인 것과 같은 방식으로
-     * {@code null} 을 그대로 내보내고, 표기는 클라이언트가 정한다.
+     * {@code stadium} 은 {@code Game} 에서 유일하게 선택적인 연관({@code stadium_id} nullable)이라
+     * {@code game.getStadium().getName()} 을 그대로 부르면 구장 미정 경기에서 NPE(500)가 난다. 점수와
+     * 같은 방식으로 {@code null} 을 그대로 내보내고 표기는 클라이언트가 정한다.
      */
     public static GameResponse from(Game game) {
         return new GameResponse(game.getNaverGameId(),

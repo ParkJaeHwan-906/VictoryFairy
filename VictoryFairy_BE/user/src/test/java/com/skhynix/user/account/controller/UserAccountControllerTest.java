@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.skhynix.domain.user.repository.UserAccountRepository;
 import com.skhynix.user.account.service.UserAccountService;
+import com.skhynix.user.account.service.UserProfileService;
 import com.skhynix.user.global.config.SecurityConfig;
 import com.skhynix.websupport.error.GlobalExceptionHandler;
 import com.skhynix.websupport.jwt.JwtTokenProvider;
@@ -51,6 +52,11 @@ class UserAccountControllerTest {
 
     @MockitoBean
     private UserAccountService userAccountService;
+
+    // 컨트롤러가 GET /me용 UserProfileService도 생성자로 받아, 없으면 컨텍스트 로딩이 실패한다
+    // (이 클래스 테스트는 withdraw만 다뤄 상호작용은 없음).
+    @MockitoBean
+    private UserProfileService userProfileService;
 
     @MockitoBean
     private JwtTokenProvider jwtTokenProvider;

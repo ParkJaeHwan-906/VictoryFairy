@@ -32,9 +32,8 @@ public class EmailVerificationService {
     private final EmailSender emailSender;
 
     /**
-     * 인증번호 발송. 이미 가입된 이메일은 409로 사전 차단(USER-EMV-14), 쿨다운(60초) 내 재요청은
-     * 429로 거부한다(USER-EMV-5). 재발송 시 이전 코드·시도 카운터를 무효화하고 새 코드를 저장·발송한다
-     * (USER-EMV-1/2/3/6).
+     * 인증번호 발송. 이미 가입된 이메일은 409, 쿨다운(60초) 내 재요청은 429로 거부한다. 재발송 시
+     * 이전 코드·시도 카운터를 무효화하고 새 코드를 저장·발송한다.
      */
     public void sendCode(String email) {
         if (userRepository.existsByEmail(email)) {
@@ -53,44 +52,37 @@ public class EmailVerificationService {
     }
 
     /**
-     * 인증번호 검증. 유효 코드 없음(미발송/만료/사용됨)은 {@code EXPIRED_VERIFICATION_CODE}, 불일치는
+     * 인증번호 검증. 유효 코드 없음은 {@code EXPIRED_VERIFICATION_CODE}, 불일치는
      * {@code INVALID_VERIFICATION_CODE}, 5회 초과 시도는 {@code VERIFICATION_ATTEMPTS_EXCEEDED}로
-     * 던진다. 성공 시 코드를 즉시 무효화(1회용)하고 인증완료 상태를 30분 TTL로 저장한다
-     * (USER-EMV-8/9/10/11/12/15).
+     * 던진다. 성공 시 코드를 1회용으로 무효화하고 인증완료 상태를 저장한다.
      */
     public void verify(String email, String code) {
         String stored = store.findCode(email)
                 .orElseThrow(() -> new BusinessException(ErrorCode.EXPIRED_VERIFICATION_CODE));
 
-        // 직전까지 누적된 실패가 한도에 도달했으면 정답이라도 차단하고 코드를 무효화한다(USER-EMV-12).
+        // 직전까지 누적된 실패가 한도에 도달했으면 정답이라도 차단하고 코드를 무효화한다.
         if (store.getAttempts(email) >= MAX_ATTEMPTS) {
             store.invalidateCode(email);
             throw new BusinessException(ErrorCode.VERIFICATION_ATTEMPTS_EXCEEDED);
         }
 
         if (!stored.equals(code)) {
-            // 실패 시 시도 카운터만 올린다. 한도 도달 후 차단은 다음 시도의 상단 사전 체크가 담당한다
-            // (5회까지는 INVALID로 응답하고, 6번째 시도부터 EXCEEDED) — 5회째 실패를 곧바로 차단하지 않는다(USER-EMV-12).
+            // 실패 시 시도 카운터만 올린다 — 5회까지는 INVALID, 6번째 시도부터 EXCEEDED로 응답한다
+            // (5회째 실패를 곧바로 차단하지 않는다).
             store.incrementAttempts(email);
             throw new BusinessException(ErrorCode.INVALID_VERIFICATION_CODE);
         }
 
-        // 성공: 코드/시도 카운터 소비 후 인증완료 상태 저장.
         store.invalidateCode(email);
         store.markVerified(email);
     }
 
-    /**
-     * signup 선행 조건 조회 — 이메일이 인증완료 상태(USER-EMV-15)인지 여부. 키 부재(미인증·만료)는
-     * 동일하게 false로 흡수된다(USER-EMV-16/17).
-     */
+    /** signup 선행 조건 조회 — 이메일 인증완료 여부. 키 부재(미인증·만료)는 동일하게 false. */
     public boolean isEmailVerified(String email) {
         return store.isVerified(email);
     }
 
-    /**
-     * 인증완료 상태 소비(USER-EMV-18) — 가입 성공 시 1회용으로 제거한다.
-     */
+    /** 인증완료 상태 소비 — 가입 성공 시 1회용으로 제거한다. */
     public void consumeVerified(String email) {
         store.consumeVerified(email);
     }

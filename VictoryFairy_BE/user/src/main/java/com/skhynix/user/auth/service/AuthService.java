@@ -2,8 +2,10 @@ package com.skhynix.user.auth.service;
 
 import com.skhynix.domain.user.entity.User;
 import com.skhynix.domain.user.entity.UserAccount;
+import com.skhynix.domain.user.entity.UserBq;
 import com.skhynix.domain.user.entity.UserRefreshToken;
 import com.skhynix.domain.user.repository.UserAccountRepository;
+import com.skhynix.domain.user.repository.UserBqRepository;
 import com.skhynix.domain.user.repository.UserRefreshTokenRepository;
 import com.skhynix.domain.user.repository.UserRepository;
 import com.skhynix.common.error.BusinessException;
@@ -29,6 +31,7 @@ public class AuthService {
     private final UserRepository userRepository;
     private final UserAccountRepository userAccountRepository;
     private final UserRefreshTokenRepository userRefreshTokenRepository;
+    private final UserBqRepository userBqRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider tokenProvider;
     private final EmailVerificationService emailVerificationService;
@@ -63,6 +66,12 @@ public class AuthService {
                 .password(passwordEncoder.encode(request.password()))
                 .build());
 
+        // 계정과 같은 트랜잭션에서 bq 행을 만든다(USER-ME-23/24) — 별도 커밋·비동기로 빼면 "계정은
+        // 있는데 bq 행이 없는" 상태가 생긴다(USER-ME-25/30).
+        userBqRepository.save(UserBq.builder()
+                .userAccount(account)
+                .build());
+
         // 가입 성공 시 인증완료 상태를 소비(1회용) — 같은 이메일 재가입 시 재인증을 강제한다(USER-EMV-18).
         emailVerificationService.consumeVerified(request.email());
 
@@ -70,13 +79,8 @@ public class AuthService {
     }
 
     /**
-     * 닉네임 사전 검사(2단 파이프라인). <b>정책 검사 → 중복 검사</b> 순서로 수행하며, 세 결과 모두
-     * 예외 없이 {@link NicknameValidationResponse}로 반환한다(컨트롤러가 항상 200으로 응답).
-     *
-     * <p>단계는 각각 독립된 판정 메서드로 분리돼 있고({@link #findNicknamePolicyViolation(String)},
-     * {@link #isNicknameDuplicated(String)}), 이 메서드는 그 둘을 순서대로 호출하는 오케스트레이션만
-     * 담당한다. <b>정책이 위반이면 즉시 반환하고 중복(DB) 검사는 수행하지 않는다</b>(우선순위:
-     * 길이 → 문자 → 중복). 정책을 통과했을 때만 중복 검사로 넘어간다.
+     * 닉네임 사전 검사(2단 파이프라인: 정책 → 중복). 정책 위반이면 중복(DB) 검사를 생략하고 즉시
+     * 반환한다. 항상 예외 없이 {@link NicknameValidationResponse}로 반환한다(컨트롤러가 200 고정).
      */
     public NicknameValidationResponse validateNickname(String nickname) {
         Optional<String> policyViolation = findNicknamePolicyViolation(nickname);
@@ -90,15 +94,9 @@ public class AuthService {
     }
 
     /**
-     * 닉네임 중복 <b>단독</b> 검사. {@link #validateNickname(String)}와 달리 정책(길이·문자) 검사 없이
-     * {@link #isNicknameDuplicated(String)}만 호출한다 — 프론트에서 정책 검사를 이미 통과한 뒤 "중복
-     * 확인" 버튼처럼 중복만 다시 확인하는 용도다.
-     *
-     * <p><b>주의</b>: 정책을 보지 않으므로 정책 위반이지만 미점유인 닉네임(예: {@code "hi!"})에도
-     * {@link NicknameValidationResponse#passed()}(valid:true)를 반환한다 — 이 응답의 "사용 가능"은
-     * <b>중복이 아니라는 뜻</b>일 뿐 가입 가능 보장이 아니다. 정책까지 함께 판정하려면
-     * {@link #validateNickname(String)}를 쓴다. 중복 판정은 signup과 동일한 {@code existsByNickname}
-     * 재사용이라 탈퇴 닉네임도 점유로 잡는다. 컨트롤러는 이 결과를 항상 200으로 응답한다.
+     * 닉네임 중복 <b>단독</b> 검사. {@link #validateNickname(String)}와 달리 정책 검사 없이
+     * {@link #isNicknameDuplicated(String)}만 호출한다 — 정책 위반이지만 미점유인 닉네임에도
+     * {@code valid:true}를 반환할 수 있다("사용 가능"은 중복 아님을 뜻할 뿐 가입 가능 보장이 아니다).
      */
     public NicknameValidationResponse checkNicknameDuplicate(String nickname) {
         if (isNicknameDuplicated(nickname)) {
@@ -127,9 +125,8 @@ public class AuthService {
 
     @Transactional
     public TokenResponse login(LoginRequest request) {
-        // login은 permitAll이라 JwtAuthenticationFilter를 타지 않으므로 탈퇴 여부를 여기서 판정한다.
-        // 조회 자체가 활성 계정만 대상으로 하므로 탈퇴 계정은 미가입 이메일과 동일한 경로(비밀번호
-        // 검사 없이 INVALID_CREDENTIALS)로 흡수된다 — 가입 이력을 노출하지 않기 위한 의도된 동작이다.
+        // login은 permitAll이라 필터를 안 타 탈퇴 여부를 여기서 판정한다. exit_at is null 조건으로
+        // 탈퇴 계정을 미가입 이메일과 같은 경로(INVALID_CREDENTIALS)로 흡수해 가입 이력을 노출하지 않는다.
         UserAccount account = userAccountRepository.findByUser_EmailAndExitAtIsNull(request.email())
                 .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_CREDENTIALS));
 
@@ -153,11 +150,10 @@ public class AuthService {
             throw new BusinessException(ErrorCode.EXPIRED_REFRESH_TOKEN);
         }
 
-        // refresh는 permitAll이라 JwtAuthenticationFilter를 타지 않으므로 탈퇴 여부를 여기서 판정한다.
-        // 탈퇴가 유효 토큰을 모두 만료시키므로 보통은 위 만료 검사에 먼저 걸리지만, 탈퇴와 로그인이
-        // 동시에 일어나면 탈퇴 직후 발급된 토큰이 살아남을 수 있어 계정 상태로 한 번 더 막는다.
-        // account는 아래 issueTokens가 어차피 초기화하므로 이 검사로 추가 조회가 생기지는 않는다.
-        // 만료와 응답이 같아야 하므로(계정 상태를 노출하지 않는다) 같은 EXPIRED_REFRESH_TOKEN을 쓴다.
+        // refresh는 permitAll이라 필터를 안 타 탈퇴 여부를 여기서 판정한다. 탈퇴가 유효 토큰을 모두
+        // 만료시키므로 보통 위 만료 검사에 먼저 걸리지만, 탈퇴와 로그인이 동시에 일어나면 탈퇴 직후
+        // 발급된 토큰이 살아남을 수 있어 계정 상태로 한 번 더 막는다(계정 상태 비노출을 위해 같은
+        // EXPIRED_REFRESH_TOKEN을 쓴다).
         UserAccount account = stored.getUserAccount();
         if (account.isWithdrawn()) {
             throw new BusinessException(ErrorCode.EXPIRED_REFRESH_TOKEN);

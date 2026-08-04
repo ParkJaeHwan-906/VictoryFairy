@@ -29,16 +29,11 @@ public class Team {
     private String name;
 
     /**
-     * KBO 구단 코드(LG, OB, SS …). py-collector 가 재실행해도 중복 없이 upsert 하기 위한
-     * 소스 자연키(UNIQUE)로, 서비스 로직에서는 몰라도 된다.
+     * KBO 구단 코드(LG, OB, SS …) — py-collector가 upsert 판별에 쓰는 소스 자연키(UNIQUE).
      *
-     * <p>이 {@code unique = true} 하나로 (code, id) 커버링 인덱스까지 끝난다 —
-     * {@code @Table(indexes = ...)} 로 복합 인덱스를 따로 만들지 말 것. InnoDB 보조 인덱스는
-     * 리프에 PK 값을 행 포인터로 항상 함께 저장하므로, 여기서 생기는 유니크 인덱스는 물리적으로
-     * 이미 (code, id) 다. 즉 {@code SELECT id FROM teams WHERE code = ?} 는 클러스터드 인덱스를
-     * 타지 않는 index-only scan 이다. 반대 방향(id → code)은 PK 클러스터드 인덱스에 전 컬럼이
-     * 들어 있어 애초에 보조 인덱스가 필요 없다. (id, code) 복합 인덱스를 추가하면 완전히 중복된
-     * 인덱스가 하나 더 생겨 쓰기 비용·저장 공간만 늘고 조회 이득은 0 이다.
+     * <p>InnoDB 보조 인덱스는 리프에 PK를 항상 함께 저장하므로 이 unique 인덱스는 이미 물리적으로
+     * (code, id)다 — {@code @Table(indexes = ...)}로 (id, code) 복합 인덱스를 따로 만들지 말 것
+     * (완전 중복이라 쓰기 비용만 늘고 조회 이득은 없다).
      */
     @Column(name = "code", length = 4, unique = true)
     private String code;

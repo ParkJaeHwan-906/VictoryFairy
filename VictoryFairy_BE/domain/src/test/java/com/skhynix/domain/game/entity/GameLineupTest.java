@@ -35,12 +35,13 @@ class GameLineupTest {
         Game game = newGame(home, away);
 
         // when
+        Position center = Position.builder().name("CF").build();
         GameLineup lineup = GameLineup.builder()
                 .game(game)
                 .team(away)
                 .player(batter)
                 .batOrder(1)
-                .position("중")
+                .position(center)
                 .isStarter(true)
                 .build();
 
@@ -49,7 +50,7 @@ class GameLineupTest {
         assertThat(lineup.getTeam()).isSameAs(away);
         assertThat(lineup.getPlayer()).isSameAs(batter);
         assertThat(lineup.getBatOrder()).isEqualTo(1);
-        assertThat(lineup.getPosition()).isEqualTo("중");
+        assertThat(lineup.getPosition().getName()).isEqualTo("CF");
         assertThat(lineup.isStarter()).isTrue();
         assertThat(lineup.getDecision()).isNull();
     }
@@ -67,15 +68,36 @@ class GameLineupTest {
                 .game(newGame(home, away))
                 .team(home)
                 .player(pitcher)
-                .position("투")
+                .position(Position.builder().name("P").build())
                 .isStarter(false)
                 .decision("W")
                 .build();
 
         // then
         assertThat(lineup.getBatOrder()).isNull();
-        assertThat(lineup.getPosition()).isEqualTo("투");
+        assertThat(lineup.getPosition().getName()).isEqualTo("P");
         assertThat(lineup.isStarter()).isFalse();
         assertThat(lineup.getDecision()).isEqualTo("W");
+    }
+
+    @Test
+    @DisplayName("position=null 허용: FK가 nullable이라 포지션 미상인 라인업도 build된다")
+    void builder_withNullPosition_isAllowed() {
+        // given
+        Team home = Team.builder().name("삼성").code("SS").build();
+        Team away = Team.builder().name("LG").code("LG").build();
+        Player player = Player.builder().team(home).name("김민").average(0).build();
+
+        // when
+        GameLineup lineup = GameLineup.builder()
+                .game(newGame(home, away))
+                .team(home)
+                .player(player)
+                .position(null)
+                .isStarter(false)
+                .build();
+
+        // then
+        assertThat(lineup.getPosition()).isNull();
     }
 }
