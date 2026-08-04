@@ -6,4 +6,7 @@ export const ROUTES = {
   login: '/login',
   signup: '/signup',
   community: '/community',
+  main: '/main',
+  game: '/game',
+  my: '/my',
 } as const;

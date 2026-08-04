@@ -1,0 +1,232 @@
+/**
+ * NavBar(하단 내비게이션) 스타일.
+ * Figma: SWM / Bar/Bottom (node 554:4503), 기준 프레임 402 x 874.
+ *
+ * 402 기준 가로 배치는 24 / 80 / 12 / 79 / 12 / 80 / 12 / 79 / 24 이므로
+ * 좌우 24, 항목 사이 12, 항목 4개를 균등 분할한 것과 같다(79.5 ≈ 80).
+ * 세로는 흰 바가 60, 선택된 탭의 마름모가 그 위로 24 더 솟아 전체 84 다.
+ *
+ * 선택 표시(마름모)와 흰 바탕이 파인 자국은 각각 도형 하나뿐이고, 가로 위치를
+ * `--nav-bar-center` 하나에서만 가져온다. 그래서 아래 `@property` 로 활성 탭 번호를
+ * 보간해 주면 둘이 어긋나지 않고 같은 속도로 미끄러진다.
+ */
+
+@property --nav-bar-active-index {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0;
+}
+
+.nav-bar {
+  /* 활성 탭 번호. 컴포넌트가 인라인으로 덮어쓴다. */
+  --nav-bar-active-index: 0;
+  --nav-bar-side: var(--layout-gutter);
+  --nav-bar-gap: 12px;
+  /*
+   * 폭 계산에 % 를 쓰면 SVG 안의 transform 에서 기준이 달라진다.
+   * 바는 화면 폭(최대 402)에 딱 맞으므로 vw 로 길이를 확정한다.
+   */
+  --nav-bar-width: min(100vw, var(--layout-app-width));
+  --nav-bar-item-width: calc(
+    (var(--nav-bar-width) - var(--nav-bar-side) * 2 - var(--nav-bar-gap) * 3) / 4
+  );
+  /* 활성 탭 한가운데. 마름모도 파인 자국도 이 값만 보고 자리를 잡는다. */
+  --nav-bar-center: calc(
+    var(--nav-bar-side) + var(--nav-bar-active-index) *
+      (var(--nav-bar-item-width) + var(--nav-bar-gap)) + var(--nav-bar-item-width) / 2
+  );
+  --nav-bar-diamond-size: 68px;
+  --nav-bar-safe-area: env(safe-area-inset-bottom, 0px);
+  /*
+   * 건너가는 칸 수. 컴포넌트가 인라인으로 덮어쓴다.
+   * 시간을 칸 수에 그대로 비례시키면 끝에서 끝(3칸)이 1초에 가까워 느리게 느껴지므로,
+   * 고정분에 칸당 0.09s 만 더한다(1칸 0.35s · 2칸 0.44s · 3칸 0.53s).
+   */
+  --nav-bar-slide-distance: 1;
+  --nav-bar-slide-duration: calc(0.26s + 0.09s * var(--nav-bar-slide-distance));
+  --nav-bar-slide-easing: cubic-bezier(0.32, 0.72, 0, 1);
+
+  position: fixed;
+  z-index: 5;
+  bottom: 0;
+  left: 50%;
+  width: 100%;
+  max-width: var(--layout-app-width);
+  height: calc(84px + var(--nav-bar-safe-area));
+  transform: translateX(-50%);
+  /* 번호가 이어서 변하면 그 값을 쓰는 자리들이 매 프레임 함께 다시 계산된다. */
+  transition: --nav-bar-active-index var(--nav-bar-slide-duration) var(--nav-bar-slide-easing);
+}
+
+/* ------------------------------------------------------------------ *
+ * Bar — 흰 바탕. 활성 탭 자리는 mask 로 도려낸다.
+ * 그림자가 파인 윤곽을 따라야 하므로 box-shadow 가 아닌 drop-shadow 로 준다.
+ * ------------------------------------------------------------------ */
+.nav-bar__bar {
+  position: absolute;
+  right: 0;
+  bottom: var(--nav-bar-safe-area);
+  left: 0;
+  display: block;
+  width: 100%;
+  height: var(--layout-navbar-height);
+  fill: var(--color-white);
+  filter: drop-shadow(0 -2px 2.5px var(--color-gray-200));
+}
+
+.nav-bar__notch {
+  transform: translateX(var(--nav-bar-center));
+}
+
+/* 활성 탭이 없으면 파인 자국도 선택 표시도 없는 평평한 바가 된다. */
+.nav-bar--flat .nav-bar__notch,
+.nav-bar--flat .nav-bar__pill {
+  opacity: 0;
+}
+
+/* 홈 인디케이터가 차지하는 만큼 흰 바탕을 아래로 이어 준다. */
+.nav-bar__safe-area {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: var(--nav-bar-safe-area);
+  background-color: var(--color-white);
+}
+
+/* ------------------------------------------------------------------ *
+ * Items — 탭 4개. 네 칸 모두 생김새가 같고, 선택 표시만 따로 떠다닌다.
+ * ------------------------------------------------------------------ */
+.nav-bar__list {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: var(--nav-bar-gap);
+  height: 84px;
+  margin: 0;
+  padding-inline: var(--nav-bar-side);
+  list-style: none;
+}
+
+.nav-bar__item {
+  display: flex;
+  flex: 1 0 0;
+  min-width: 0;
+}
+
+.nav-bar__link {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  height: var(--layout-navbar-height);
+  padding: 0;
+}
+
+/* 아직 화면이 없는 탭. 모양은 그대로 두고 커서만 되돌린다. */
+.nav-bar__link:disabled {
+  cursor: default;
+}
+
+/* 아이콘 SVG 는 검정 단색이라 mask 로 오려내고 색만 입힌다. */
+.nav-bar__icon,
+.nav-bar__pill-icon {
+  width: 20px;
+  height: 20px;
+  -webkit-mask: var(--nav-bar-icon) no-repeat center / contain;
+  mask: var(--nav-bar-icon) no-repeat center / contain;
+}
+
+.nav-bar__icon {
+  background-color: var(--color-label-assistive);
+}
+
+.nav-bar__label {
+  color: var(--color-label-assistive);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+  white-space: nowrap;
+}
+
+/*
+ * 활성 탭의 회색 아이콘·글자는 마름모에 가려야 하는데, 글자는 마름모 아래로
+ * 삐져나오므로 지운다. 지우는 시점은 마름모가 도착할 때에 맞춘다.
+ * 반대로 비활성으로 바뀐 칸은 마름모가 떠나기 시작할 때 바로 되살린다.
+ */
+.nav-bar__icon,
+.nav-bar__label {
+  transition: opacity 0.18s ease;
+}
+
+.nav-bar__link--active .nav-bar__icon,
+.nav-bar__link--active .nav-bar__label {
+  opacity: 0;
+  transition-delay: calc(var(--nav-bar-slide-duration) - 0.18s);
+}
+
+/* ------------------------------------------------------------------ *
+ * Pill — 선택 표시. 탭마다 두지 않고 하나를 옮겨 다닌다.
+ * ------------------------------------------------------------------ */
+.nav-bar__pill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: var(--nav-bar-diamond-size);
+  height: var(--nav-bar-diamond-size);
+  /* 밑에 깔린 링크가 눌려야 하므로 클릭을 받지 않는다. */
+  pointer-events: none;
+  transform: translateX(calc(var(--nav-bar-center) - var(--nav-bar-diamond-size) / 2));
+}
+
+.nav-bar__diamond {
+  position: absolute;
+  inset: 0;
+  fill: var(--color-primary-normal);
+  filter: drop-shadow(0 -2px 2.5px var(--color-gray-200));
+}
+
+/* 마름모는 절대 배치라 그냥 두면 아이콘·글자를 덮는다. 흐름 요소를 위로 올린다. */
+.nav-bar__pill-icon,
+.nav-bar__pill-label {
+  position: relative;
+}
+
+.nav-bar__pill-icon {
+  background-color: var(--color-white);
+}
+
+.nav-bar__pill-label {
+  color: var(--color-white);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------ *
+ * 반응형 · 접근성
+ * ------------------------------------------------------------------ */
+@media (max-width: 359px) {
+  .nav-bar {
+    --nav-bar-side: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-bar,
+  .nav-bar__icon,
+  .nav-bar__label {
+    transition: none;
+  }
+}
