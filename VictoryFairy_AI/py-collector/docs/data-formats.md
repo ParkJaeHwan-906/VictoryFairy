@@ -76,14 +76,20 @@
 
 ### 경기 상태 판정
 
-| 판정 | 근거 |
-|------|------|
-| **예정** | `statusCode == "BEFORE"` |
-| **진행중** | `statusCode == "LIVE"` |
-| **완료** | `statusCode == "RESULT"` |
-| **취소** | `cancel == true` (`statusInfo`가 `"경기취소"`) |
-| **서스펜디드** | `suspended == true` |
-| **일정 없음** | `result.games == []` (그날 경기 없음) |
+| 상태 | 판정 (우선순위 순) | DB `game_statuses.name` |
+|---|---|---|
+| 취소 | `cancel == true` — **최우선.** `statusCode`는 `"BEFORE"`, `winner`는 `"DRAW"` 껍데기로 옴(2026-07-08 `20260708NCHH02026` 실측) | `CANCELED` |
+| 예정 | `statusCode == "BEFORE"` | `SCHEDULED` |
+| 진행중 | `statusCode == "LIVE"` | `IN_PROGRESS` |
+| 완료 | `statusCode == "RESULT"`, 양팀 동점이면 무승부 | `FINISHED` / `DRAW` |
+
+> ⚠️ **판정 시 함정 4가지** (`game_records.py`의 `map_status`, `run.py`의 `job_games_sync` 실측 근거)
+> ① **`winner` 필드로 무승부·취소를 판정하지 말 것** — 취소 경기도 `winner:"DRAW"` 껍데기로 옴.
+> ② **schedule API 광범위 조회 금지** — `fromDate`~`toDate`를 2개월로 걸어 조회한 실측에서 경기 **4건만** 반환됨. 하루 단위(`fromDate=toDate=date`) 조회가 정석.
+> ③ `suspended`(서스펜디드)는 아직 `map_status`에 미반영 — 관측되면 상태 판정 실패로 **skip + warning 로그**.
+> ④ 취소·예정 경기의 점수는 0-0 **껍데기**이므로 `games_sync` 적재 시 DB에는 `NULL`로 넣는다(점수는 진행중/완료일 때만 채움).
+
+일정 없음(`result.games == []`, 그날 경기 없음)은 위 표와 별개로 스케줄 자체가 비는 경우다.
 
 > **gameId 포맷**: `YYYYMMDD(8) + away(2) + home(2) + dh(1) + year(4)`
 > 예) `20260708 LG SS 0 2026` → `20260708LGSS02026`. 더블헤더 순번은 13번째 문자(index 12).
@@ -248,13 +254,22 @@ schedule의 상태 필드(`gameId`, `statusCode`, `cancel`, `suspended`, 점수 
 | 필드 | 예시 | 설명 |
 |------|------|------|
 | `playerCode` / `name` | `"65653"` / `"김호령"` | 선수코드 / 이름 |
-| `batOrder`,`pos` | `1`, `"중"` | 타순, 포지션(중=중견수, 지=지명, 포 …) |
+| `batOrder`,`pos` | `1`, `"중"` | 타순, 포지션(중=중견수, 지=지명, 포 …) — DB(`positions.name`)에는 원문이 아니라 자체 영문 약어로 적재된다(아래 매핑표). 매핑에 없는 미지 표기는 warning 로그 후 원문 그대로 적재(수집이 깨지지 않게, 매핑 추가는 후속) |
+
+| 네이버 원문 | 약어 | 의미 | 네이버 원문 | 약어 | 의미 |
+|---|---|---|---|---|---|
+| 투 | `P` | 투수 | 좌 | `LF` | 좌익수 |
+| 포 | `C` | 포수 | 중 | `CF` | 중견수 |
+| 一 | `1B` | 1루수 | 우 | `RF` | 우익수 |
+| 二 | `2B` | 2루수 | 지 | `DH` | 지명타자 |
+| 三 | `3B` | 3루수 | 타 | `PH` | 대타(출전 형태) |
+| 유 | `SS` | 유격수 | 주 | `PR` | 대주자(출전 형태) |
 | `ab`,`run`,`hit` | `4`,`1`,`0` | 타수·득점·안타 |
 | `hr`,`rbi`,`bb` | `0`,`0`,`1` | 홈런·타점·볼넷 |
 | `sb`,`kk`,`hra` | `0`,`1`,`0.200` | 도루·삼진·시즌타율 |
 | `inn1`~`inn25` | `"삼진"`,`"1땅"`,`"좌비"` … | 타석별 결과 서술(연장 대비 25칸) |
 
-> **선수코드 주의**: 노드마다 키 이름이 다릅니다 — `pcode`(투수) / `playerCode`(타자) / `pCode`(pitchingResult) / `aPCode`·`hPCode`(gameInfo 선발). 파서에서 모두 정규화합니다. 이 `pcode`는 KBO 공식 `playerId`와 **다른 체계**라, 운영 `players` 테이블에 `naver_pcode`/`kbo_player_id` 두 컬럼으로 각각 매핑합니다(해소 순서: pcode → 이름+팀 유일매칭 → 신규 행).
+> **선수코드 주의**: 노드마다 키 이름이 다릅니다 — `pcode`(투수) / `playerCode`(타자) / `pCode`(pitchingResult) / `aPCode`·`hPCode`(gameInfo 선발). 파서에서 모두 정규화합니다. 이 `pcode`는 실측상 KBO 공식 `playerId`와 **같은 값**(2026-07 교집합 228명 전수 일치)이라 `players.kbo_player_id` 단일 컬럼으로 통합(해소: kbo_player_id 일괄 조회 → 없으면 신규 행. DB 이름과 API 이름이 다르면 동치 전제 훼손 신호로 warning).
 
 ---
 

@@ -102,7 +102,7 @@ flowchart TD
 
 운영 서비스 스키마(원천: domain 모듈 JPA 엔티티)에 직접 쓴다.
 PK 는 서비스 소유 AUTO_INCREMENT id, 수집기는 **소스 자연키**(teams.code /
-players.kbo_player_id·naver_pcode / games.naver_game_id)로 upsert 한다.
+players.kbo_player_id / games.naver_game_id)로 upsert 한다.
 
 ```mermaid
 flowchart TD
@@ -116,7 +116,7 @@ flowchart TD
       CA["land_game_records(date)"] --> CB["schedule(date) → 완료·표준팀 경기만"]
       CB --> CC["각 gameId: /record fetch"]
       CC --> CD["parse_record → Game·Pitching·Batting·PlayerRef"]
-      CD --> CE["resolve_players: pcode→players.id<br/>(①pcode ②이름+팀 유일매칭 백필 ③신규 INSERT)"]
+      CD --> CE["resolve_players: kbo_player_id→players.id<br/>(일괄 조회 → 없으면 신규 INSERT, 이름 불일치는 warning)"]
       CE --> CF["upsert games (FINISHED/DRAW·구장·시각)"]
       CF --> CG["build_lineups → upsert game_lineups<br/>(출전 전체·is_starter·타순·포지션·투수 decision)"]
       CG -. "한 경기 실패" .-> CH["경고 로그 + 실패 gameId만 수집(계속)"]

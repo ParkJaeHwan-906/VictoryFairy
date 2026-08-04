@@ -11,6 +11,10 @@
 `kbo-collector-db` (DB 잡, VPC 안 — `db_subnet_ids` 설정 시에만 생성):
 - **records** — `cron(30 18 * * ? *)`(03:30 KST) → `{"job":"records"}` : 완료 경기 → games/game_lineups
 - **registrations** — `cron(0 2 * * ? *)`(11:00 KST) → `{"job":"registrations"}` : KBO 1군 등록명단 → players
+- **games_sync** — `{"job":"games_sync"}` : 당일 KBO 경기 전부의 상태(SCHEDULED/LIVE/종료/취소) →
+  games 동기화. 스케줄 제안(**테라폼 미적용 — 아래 두 줄은 문서 기록용, infra 반영 보류**):
+  - 아침 동기화: `cron(0 23 * * ? *)`(08:00 KST) — 당일 SCHEDULED 선반영
+  - 경기 시간대: `cron(0/10 8-14 * * ? *)`(17:00~23:50 KST, 10분 간격) — LIVE/종료/취소 반영
 
 함수를 나눈 이유: 운영 MySQL(데이터 EC2)은 VPC 안에서만 접근되므로 DB 잡 함수만
 프라이빗 서브넷에 배치하고(외부 API는 기존 NAT로 아웃바운드), S3 잡 함수는 VPC 밖에
@@ -39,6 +43,16 @@ terraform apply       # ECR 생성 -> 이미지 빌드/푸시(local-exec) -> Lam
 # 수동 1회 실행
 terraform output -raw invoke_community_now | bash
 terraform output -raw invoke_game_now | bash        # 오늘(UTC) 경기; 백필은 payload에 "date" 추가
+
+# DB 잡
+aws lambda invoke --function-name kbo-collector-db \
+  --payload '{"job":"registrations"}' --cli-binary-format raw-in-base64-out /dev/stdout
+# 시즌 백필 (구간이 길면 타임아웃 840s — 보름~한 달 단위로 나눠 호출)
+aws lambda invoke --function-name kbo-collector-db \
+  --payload '{"job":"records","from":"2026-03-28","to":"2026-04-15"}' \
+  --cli-binary-format raw-in-base64-out --cli-read-timeout 900 /dev/stdout
+aws lambda invoke --function-name kbo-collector-db \
+  --payload '{"job":"games_sync"}' --cli-binary-format raw-in-base64-out /dev/stdout  # 백필은 "date" 추가
 
 # 적재 확인
 aws s3 ls s3://victoryfairy-crawl-local/community/ --recursive | tail
