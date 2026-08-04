@@ -1,10 +1,11 @@
 # 퀴즈 생성기 routine 실행 지침
 
-> **실행체 안내 (2026-08-03)**: 이 문서는 이제 Bedrock 러너
-> (`runner/entrypoint-quiz.sh` + `runner/runner/`)의 스펙 문서다. 셸 블록은
-> entrypoint가, "이 세션이 직접 수행" 단계는 러너의 C1(작문)·C2(심사) Bedrock
-> 콜이 구현한다. 러너와 이 문서가 어긋나면 이 문서를 먼저 고치고 구현을 맞춘다
-> (스펙: docs/superpowers/specs/2026-08-03-bedrock-quiz-runner-design.md).
+> **실행체 안내 (2026-08-04)**: 실행체는 Claude Code 클라우드 루틴으로 확정됐다
+> (스펙: docs/superpowers/specs/2026-08-04-claude-routine-s3-direct-design.md —
+> 2026-08-03 Bedrock 러너 스펙을 대체). 루틴 세션이 이 문서를 그대로 따르되,
+> 결정적 단계(템플릿 선택·바인딩·evidence 대조·선별·quizId 부여)는 `runner/`
+> 패키지의 catalog/binding/finalize 모듈을 우선 사용한다. 구현과 이 문서가
+> 어긋나면 이 문서를 먼저 고치고 구현을 맞춘다.
 
 Claude Code 클라우드 스케줄 잡(routine)이 실행마다 그대로 따르는 절차다. 이 routine
 자신이 "① 템플릿 선택·③ 문구 생성·검증 엔진"이므로, 그 세 단계는 별도 프로세스를
@@ -32,10 +33,13 @@ Claude Code 클라우드 스케줄 잡(routine)이 실행마다 그대로 따르
 - routine 전용 최소 권한 IAM 자격증명(`question-source/`·`kbo-records/`·`wiki/` 읽기,
   `wiki/`·`quiz-candidates/` 쓰기) — 발급·배포는 Task 11 소관, 이 문서는 자격증명이
   이미 환경에 주입돼 있다고 가정한다
-- `aws` CLI (자격증명 확인: `aws sts get-caller-identity`)
-- Python 실행기: `py-collector/.venv/bin/python` (PyYAML 기설치). `question-gen/
-  requirements.txt`는 PyYAML만 요구하므로 이 venv를 그대로 재사용한다(boto3 불필요 —
-  S3는 aws CLI로만 접근)
+- `aws` CLI (자격증명 확인: `aws sts get-caller-identity`). 클라우드 세션 VM에
+  없으면 `python3 -m pip install --quiet awscli`로 설치한다(환경 setup script에
+  넣어두면 캐시되어 더 빠르다)
+- Python 실행기: `py-collector/.venv/bin/python` (PyYAML 기설치). 클라우드 세션처럼
+  venv가 없으면 `python3 -m venv py-collector/.venv &&
+  py-collector/.venv/bin/pip install --quiet PyYAML`로 생성한다. `question-gen/
+  requirements.txt`는 PyYAML만 요구한다(boto3 불필요 — S3는 aws CLI로만 접근)
 - 작업 디렉토리: `VictoryFairy_AI/`. 아래 모든 명령은 이 디렉토리를 cwd로 실행하고,
   파일 참조는 항상 `question-gen/` 프리픽스를 붙인다(`question-gen/config/...`,
   `question-gen/scripts/...`, `question-gen/prompts/...`). 임시 작업물은 `.work/`에
