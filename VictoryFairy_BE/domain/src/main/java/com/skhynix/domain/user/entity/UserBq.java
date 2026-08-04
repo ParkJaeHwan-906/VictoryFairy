@@ -61,3 +61,5 @@ public class UserBq {
         this.bqScore = 0L;
     }
 }
+
+

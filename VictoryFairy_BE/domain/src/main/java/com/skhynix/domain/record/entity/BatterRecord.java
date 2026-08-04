@@ -11,6 +11,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.Builder;
@@ -19,9 +20,16 @@ import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
+import org.hibernate.annotations.UpdateTimestamp;
 
+/**
+ * 타자 경기 기록(경기×선수 1행 집계). 원천은 네이버 record API 박스스코어(battersBoxscore)이며
+ * py-collector 가 멱등 upsert 한다(백필 재실행으로 갱신될 수 있어 updated_at 보유).
+ * 스탯 컬럼은 API 결측 대비 전부 nullable. 타순·포지션·선발 여부는 game_lineups 소관(중복 저장 금지).
+ */
 @Entity
-@Table(name = "batter_records")
+@Table(name = "batter_records", uniqueConstraints = @UniqueConstraint(
+        name = "uk_batter_records_game_player", columnNames = {"game_id", "player_id"}))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class BatterRecord {
@@ -41,19 +49,35 @@ public class BatterRecord {
     @OnDelete(action = OnDeleteAction.CASCADE)
     private Game game;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "bat_result_id", nullable = false)
-    @OnDelete(action = OnDeleteAction.CASCADE)
-    private BatResult batResult;
+    @Column(name = "at_bats", nullable = true)     private Integer atBats;
+    @Column(name = "runs", nullable = true)        private Integer runs;
+    @Column(name = "hits", nullable = true)        private Integer hits;
+    @Column(name = "home_runs", nullable = true)   private Integer homeRuns;
+    @Column(name = "rbi", nullable = true)         private Integer rbi;
+    @Column(name = "walks", nullable = true)       private Integer walks;
+    @Column(name = "strikeouts", nullable = true)  private Integer strikeouts;
+    @Column(name = "stolen_bases", nullable = true) private Integer stolenBases;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
+    @UpdateTimestamp
+    @Column(name = "updated_at", nullable = false)
+    private LocalDateTime updatedAt;
+
     @Builder
-    private BatterRecord(Player player, Game game, BatResult batResult) {
+    private BatterRecord(Player player, Game game, Integer atBats, Integer runs, Integer hits,
+            Integer homeRuns, Integer rbi, Integer walks, Integer strikeouts, Integer stolenBases) {
         this.player = player;
         this.game = game;
-        this.batResult = batResult;
+        this.atBats = atBats;
+        this.runs = runs;
+        this.hits = hits;
+        this.homeRuns = homeRuns;
+        this.rbi = rbi;
+        this.walks = walks;
+        this.strikeouts = strikeouts;
+        this.stolenBases = stolenBases;
     }
 }
