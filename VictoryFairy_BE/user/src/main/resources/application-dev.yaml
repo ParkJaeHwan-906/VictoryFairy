@@ -27,14 +27,17 @@ spring:
   # UserApplication 이 @EntityScan("com.skhynix") 로 domain 엔티티를 전부 스캔해 채팅 테이블까지
   # 만드는 주체가 user 다. 만드는 쪽과 채우는 쪽이 갈라져 있으면 어느 앱을 먼저 띄우느냐에 따라
   # 결과가 달라진다.
-  # 두 파일 모두 배포 선행 SQL 원본(infra/sql)이며 build.gradle 이 클래스패스로 복사한다.
+  # 두 파일 모두 배포 선행 SQL 원본(infra/sql)이며 build.gradle 의 processResources 가 클래스패스로
+  # 복사한다. ⚠ 이미지 빌드에서는 Dockerfile 이 infra 를 빌드 컨텍스트에 넣어줘야 한다 — Gradle 의
+  # from() 은 없는 디렉터리를 조용히 무시해 sql 만 빠진 jar 가 만들어지고, 그 이미지는 아래 명시
+  # 경로를 못 찾아 기동 자체가 실패한다(2026-08-04 운영 롤아웃 실패의 원인).
   # 전부 INSERT ... WHERE NOT EXISTS / CREATE TABLE IF NOT EXISTS 라 **재실행 안전**이다
   # → 매 기동마다 돌아도 중복 행이 생기지 않는다(그래서 mode: always 로 둔다).
   # ⚠ 적용 순서가 있다: teams-init 이 먼저다. teams 가 0행이면 chat-init 의 구단별 채팅방 생성이
   #   에러 없이 0행만 넣고 끝난다(팀 이름으로 조인하므로). data-locations 순서를 바꾸지 말 것.
   # ⚠ encoding 을 지정하지 않으면 플랫폼 기본 인코딩으로 읽어 한글 팀명이 깨진 채 저장된다.
-  # ⚠ dev 전용이다. prod 프로파일에는 sql.init 이 없어 앱이 데이터를 건드리지 않는다
-  #   — 운영은 infra/sql 을 사람이 직접 적용하는 규칙 그대로다.
+  # ⚠ 이 블록은 dev 전용이 아니다 — prod 프로파일도 같은 두 파일을 같은 순서로 실행한다
+  #   (application-prod.yaml). 한쪽만 고치면 환경 사이에 시드가 갈리니 함께 볼 것.
   sql:
     init:
       mode: always

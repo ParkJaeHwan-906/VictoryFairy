@@ -60,6 +60,11 @@ jobs:
               - ".github/workflows/deploy-eks.yml"
             user:
               - "VictoryFairy_BE/user/**"
+              # 시드 SQL 은 user 이미지 안에 구워진다(user/build.gradle processResources →
+              # user prod 의 spring.sql.init). 이 경로가 빠지면 SQL 만 고쳤을 때 재빌드가 걸리지
+              # 않아 이미지 속 시드가 낡은 채로 남는다. quiz 는 더 이상 이 파일을 싣지 않으므로
+              # shared 가 아니라 user 에만 넣는다.
+              - "VictoryFairy_BE/infra/sql/**"
             quiz:
               - "VictoryFairy_BE/quiz/**"
 
