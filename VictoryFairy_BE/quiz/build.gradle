@@ -25,14 +25,3 @@ dependencies {
     testImplementation 'org.springframework.boot:spring-boot-starter-security-test'
     testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
 }
-
-// 배포 선행 SQL(infra/sql)을 그대로 클래스패스에 실어 dev 기동 시 자동 시드에 쓴다
-// (application-dev.yaml 의 spring.sql.init.data-locations 참고).
-// 복사해 쓰는 이유: 시드 SQL 의 단일 출처는 infra/sql 이고, 운영은 같은 파일을 사람이 직접 적용한다.
-// 여기에 사본을 따로 두면 두 벌이 갈라진다.
-processResources {
-    from("${rootDir}/infra/sql") {
-        into 'sql'
-        include '*.sql'
-    }
-}

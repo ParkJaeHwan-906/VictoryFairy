@@ -32,6 +32,34 @@ spring:
       hibernate:
         format_sql: false
     open-in-view: false
+    # 시드 스크립트(아래 sql.init)를 Hibernate 초기화 '이후'에 돌리기 위한 스위치.
+    # 기본값(false)이면 EntityManagerFactory 준비 전에 실행돼, 위 ddl-auto 가 만들기도 전의
+    # 테이블에 INSERT 를 시도한다.
+    defer-datasource-initialization: true
+
+  # 기본 데이터 시드 — dev 와 같은 파일, 같은 순서다(단일 출처는 infra/sql).
+  #   teams-init.sql : 10개 구단
+  #   chat-init.sql  : (chatrooms/chats DDL) + SYSTEM 계정 + 구단별 채팅방 10개
+  # 종전 운영 규칙은 "사람이 infra/sql 을 직접 적용"이었으나, 테이블을 만드는 주체가 이미 이 앱
+  # (ddl-auto=update)이라 만드는 쪽과 채우는 쪽이 갈라져 있었다. 둘 다 user 가 갖도록 모은다.
+  # 두 파일은 INSERT ... WHERE NOT EXISTS / CREATE TABLE IF NOT EXISTS 뿐이라 재실행 안전이다
+  # (빈 스키마 기동 후 두 파일을 다시 돌려 행 수가 그대로임을 실측) — 그래서 mode: always 다.
+  # ⚠ 순서 고정: teams-init 이 먼저다. teams 가 0행이면 chat-init 의 구단별 채팅방 생성이 팀 이름
+  #   조인에서 걸러져 에러 없이 0행만 넣고 끝난다.
+  # ⚠ data-locations 에 infra/sql 의 마이그레이션 파일(migrate-*.sql)을 절대 추가하지 말 것.
+  #   그쪽은 DROP TABLE/DROP COLUMN 을 포함한 1회성 파일이라 매 기동 실행되면 데이터가 사라진다.
+  #   재실행 안전한 시드만 이 목록에 올린다.
+  # ⚠ 파드 여러 개가 '완전히 비어 있는' DB 에 동시에 뜨면 WHERE NOT EXISTS 가 서로를 못 봐
+  #   UNIQUE(teams.code 등) 충돌로 한쪽 기동이 실패할 수 있다. 이미 시드된 DB 에서는 전부 no-op
+  #   이라 롤링 업데이트에서는 문제가 되지 않는다. 초기 구축 때만 파드 1개로 먼저 띄울 것.
+  sql:
+    init:
+      mode: always
+      encoding: UTF-8
+      data-locations:
+        - classpath:sql/teams-init.sql
+        - classpath:sql/chat-init.sql
+
   web:
     error:
       include-stacktrace: never

@@ -5,6 +5,9 @@ spring:
     password: ${DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
+  # 스키마도 기본 데이터도 이 앱은 만들지 않는다. 테이블은 user 앱의 ddl-auto=update 가,
+  # 시드(구단·SYSTEM 계정·채팅방)는 user 앱의 spring.sql.init 이 넣는다 — 채팅 테이블까지 그렇다
+  # (UserApplication 이 @EntityScan("com.skhynix") 로 domain 엔티티를 전부 스캔하므로).
   jpa:
     hibernate:
       ddl-auto: none
