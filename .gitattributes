@@ -1,0 +1,18 @@
+# 줄바꿈은 저장소(index)에 항상 LF 로 저장한다.
+# Windows·macOS 양쪽에서 같은 파일을 만지므로, 이 규칙이 없으면 한쪽에서 저장할 때마다
+# 내용이 그대로여도 전체 라인이 diff 로 잡힌다.
+* text=auto eol=lf
+
+# Windows 배치 파일만 예외 — CRLF 가 아니면 라벨·goto 처리가 깨질 수 있다.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 바이너리는 줄바꿈 변환 대상이 아니다.
+*.jar binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.p12 binary
+*.keystore binary
