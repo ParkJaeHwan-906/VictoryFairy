@@ -8,13 +8,41 @@ spring:
   jpa:
     hibernate:
       # ⚠ 종전 create 였다 — 기동할 때마다 스키마를 **드롭 후 재생성**해 로컬 데이터가 전부 날아갔다.
-      #   quiz 가 dev 기동 시 채우는 시드(구단·SYSTEM 계정·채팅방)도 user-app 을 한 번 띄우면
-      #   같이 사라진다(두 앱이 같은 로컬 DB 를 본다). additive 한 update 로 바꿔 그 파괴를 없앤다.
+      #   아래 sql.init 이 넣는 시드(구단·SYSTEM 계정·채팅방)도, 같은 로컬 DB 를 보는 quiz 의 데이터도
+      #   함께 사라진다. additive 한 update 로 바꿔 그 파괴를 없앤다.
       ddl-auto: update
     show-sql: true
     properties:
       hibernate:
         format_sql: true
+    # 시드 스크립트(아래 sql.init)를 Hibernate 초기화 '이후'에 돌리기 위한 스위치.
+    # 기본값(false)이면 EntityManagerFactory 준비 전에 실행돼 순서가 뒤집힌다.
+    defer-datasource-initialization: true
+
+  # 로컬 자동 시드 — 비어 있으면 채우고, 있으면 건너뛴다.
+  #   teams-init.sql : 10개 구단
+  #   chat-init.sql  : (chatrooms/chats DDL) + SYSTEM 계정 + 구단별 채팅방 10개
+  # 종전에는 quiz 가 들고 있었으나, **테이블을 만드는 앱과 기본 데이터를 넣는 앱을 하나로 모으려고**
+  # user 로 옮겼다 — prod 에서 DDL 을 내는 앱은 user 뿐이고(quiz 는 ddl-auto=none), dev 에서도
+  # UserApplication 이 @EntityScan("com.skhynix") 로 domain 엔티티를 전부 스캔해 채팅 테이블까지
+  # 만드는 주체가 user 다. 만드는 쪽과 채우는 쪽이 갈라져 있으면 어느 앱을 먼저 띄우느냐에 따라
+  # 결과가 달라진다.
+  # 두 파일 모두 배포 선행 SQL 원본(infra/sql)이며 build.gradle 이 클래스패스로 복사한다.
+  # 전부 INSERT ... WHERE NOT EXISTS / CREATE TABLE IF NOT EXISTS 라 **재실행 안전**이다
+  # → 매 기동마다 돌아도 중복 행이 생기지 않는다(그래서 mode: always 로 둔다).
+  # ⚠ 적용 순서가 있다: teams-init 이 먼저다. teams 가 0행이면 chat-init 의 구단별 채팅방 생성이
+  #   에러 없이 0행만 넣고 끝난다(팀 이름으로 조인하므로). data-locations 순서를 바꾸지 말 것.
+  # ⚠ encoding 을 지정하지 않으면 플랫폼 기본 인코딩으로 읽어 한글 팀명이 깨진 채 저장된다.
+  # ⚠ dev 전용이다. prod 프로파일에는 sql.init 이 없어 앱이 데이터를 건드리지 않는다
+  #   — 운영은 infra/sql 을 사람이 직접 적용하는 규칙 그대로다.
+  sql:
+    init:
+      mode: always
+      encoding: UTF-8
+      data-locations:
+        - classpath:sql/teams-init.sql
+        - classpath:sql/chat-init.sql
+
   web:
     error:
       include-stacktrace: always
