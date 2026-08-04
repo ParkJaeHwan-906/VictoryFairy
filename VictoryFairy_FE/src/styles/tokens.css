@@ -132,6 +132,8 @@
   --layout-app-width: 402px;
   --layout-gutter: 24px;
   --layout-sheet-height: 600px;
+  /* 하단 NavBar 의 흰 바 높이. 선택된 탭의 마름모는 이 위로 떠 있다. */
+  --layout-navbar-height: 60px;
   /* 라운지 채팅 바텀시트 높이(874 프레임 기준 694px) */
   --layout-chat-sheet-height: 694px;
 }

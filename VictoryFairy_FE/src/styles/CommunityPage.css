@@ -6,6 +6,7 @@
  * 차이를 그대로 margin 으로 환산해 시각적 결과를 보존한다.
  *   예) 랭킹 목록(top 403) - 헤더 카드 하단(381) = margin-top 22px
  * 디자인 최상단의 iOS 상태 바(47px)는 단말 크롬이라 옮기지 않았다(LoginPage 와 동일).
+ * 화면 높이와 하단 NavBar 자리는 AppLayout 이 잡아 준다.
  */
 
 .community-page {
@@ -14,7 +15,6 @@
   flex-direction: column;
   width: 100%;
   max-width: var(--layout-app-width);
-  min-height: 100dvh;
   margin-inline: auto;
   padding-bottom: 24px;
   background-color: var(--color-background-basic);
@@ -224,7 +224,8 @@
 .community-page__chat-fab {
   position: fixed;
   right: max(var(--layout-gutter), calc(50% - var(--layout-app-width) / 2 + var(--layout-gutter)));
-  bottom: 24px;
+  /* Figma: 버튼 하단(762)이 NavBar 흰 바 위끝(786)보다 24px 위다. */
+  bottom: calc(var(--layout-navbar-height) + env(safe-area-inset-bottom, 0px) + 24px);
   display: flex;
   align-items: center;
   justify-content: center;

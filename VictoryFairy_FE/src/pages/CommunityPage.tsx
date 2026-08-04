@@ -37,8 +37,6 @@ function RankingRow({ entry, isMine = false }: { entry: RankingEntry; isMine?: b
  *
  * 오른쪽 아래 채팅 버튼을 누르면 라운지 채팅 바텀시트가 올라온다.
  * 랭킹·채팅 모두 아직 더미 데이터를 그린다(API 연결 예정).
- *
- * 디자인 하단의 NavBar 는 요청에 따라 구현하지 않았다.
  */
 export default function CommunityPage() {
   const [isChatOpen, setIsChatOpen] = useState(false);
