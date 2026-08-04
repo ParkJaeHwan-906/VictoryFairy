@@ -3,6 +3,8 @@ package com.skhynix.domain.player.entity;
 import com.skhynix.domain.team.entity.Team;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -50,6 +52,21 @@ public class Player {
     @Column(name = "kbo_player_id", length = 16, unique = true)
     private String kboPlayerId;
 
+    /**
+     * 등번호. KBO 등록명단발로 py-collector 가 매일 최신화한다. 미배정(일부 육성선수)이
+     * 있고 시즌 중 변경도 잦아 nullable. '0'·'00' 구분과 선행 0 보존을 위해 문자열이다.
+     */
+    @Column(name = "uniform_number", length = 4)
+    private String uniformNumber;
+
+    /**
+     * KBO 공식 포지션 구분(4그룹). 등록명단발이라 1군 이력이 없는 행은 null 일 수 있다.
+     * STRING 매핑은 py-collector 와의 계약 — {@link PositionGroup} javadoc 참고.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "position_group", length = 16)
+    private PositionGroup positionGroup;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -59,10 +76,13 @@ public class Player {
     private LocalDateTime updatedAt;
 
     @Builder
-    private Player(Team team, String name, double average, String kboPlayerId) {
+    private Player(Team team, String name, double average, String kboPlayerId,
+                   String uniformNumber, PositionGroup positionGroup) {
         this.team = team;
         this.name = name;
         this.average = average;
         this.kboPlayerId = kboPlayerId;
+        this.uniformNumber = uniformNumber;
+        this.positionGroup = positionGroup;
     }
 }
