@@ -245,6 +245,35 @@ class ChatControllerSendMessageTest {
     }
 
     @Test
+    @DisplayName("[QUIZ-CTAC-11] 내 응원 구단 방이 아니면 전송은 403 CHATROOM_TEAM_MISMATCH를 반환하고 저장하지 않는다")
+    void sendMessage_teamMismatch_returns403WithoutSaving() throws Exception {
+        given(chatService.sendMessage(eq("other-team-uid"), eq(USER_ID), eq("안녕")))
+                .willThrow(new BusinessException(ErrorCode.CHATROOM_TEAM_MISMATCH));
+
+        mockMvc.perform(post("/chat/rooms/{roomUid}/messages", "other-team-uid")
+                        .with(authenticatedAs(USER_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestJson("안녕")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.data").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.message").value(ErrorCode.CHATROOM_TEAM_MISMATCH.getMessage()));
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CTAC-15] 응원 구단이 없으면 전송은 400 SUPPORT_TEAM_REQUIRED를 반환하고 저장하지 않는다")
+    void sendMessage_noSupportTeam_returns400WithoutSaving() throws Exception {
+        given(chatService.sendMessage(eq(ROOM_UID), eq(USER_ID), eq("안녕")))
+                .willThrow(new BusinessException(ErrorCode.SUPPORT_TEAM_REQUIRED));
+
+        mockMvc.perform(post("/chat/rooms/{roomUid}/messages", ROOM_UID)
+                        .with(authenticatedAs(USER_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestJson("안녕")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(ErrorCode.SUPPORT_TEAM_REQUIRED.getMessage()));
+    }
+
+    @Test
     @DisplayName("[AC-CHAT-14-3] 방 미존재 + content 501자 위반이 동시에 발생하면 400이 우선한다"
             + "(@Valid가 바인딩 단계에서 먼저 판정돼 서비스는 호출조차 되지 않는다)")
     void sendMessage_nonexistentRoomAndInvalidContent_400TakesPriorityOver404() throws Exception {

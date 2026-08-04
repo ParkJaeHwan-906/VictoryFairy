@@ -21,7 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 응원 구단·선수 선택 서비스. 요구사항: {@code docs/requirements/user/support-selection.md}(USER-SP-1~29).
+ * 응원 구단·선수 선택 서비스. 요구사항: {@code docs/requirements/user/support-selection.md}.
  * 지켜야 할 불변식 4개는 모듈 문서 참고 — 이 서비스가 그 강제 주체다.
  *
  * <p><b>재응원을 새 행으로 만들면 안 된다.</b> {@code (user_account_id, team_id)}/{@code (…, player_id)}

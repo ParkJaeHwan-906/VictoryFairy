@@ -1,6 +1,6 @@
 # API 명세 — 도메인별 문서
 
-> 최종 업데이트: 2026-08-04 — `GET /api/member/users/me`(내 프로필 요약 조회) 신규 추가 + `POST /api/member/auth/signup`에 `users_bq` 행 생성 부수 효과 반영.
+> 최종 업데이트: 2026-08-04 — `GET /api/member/players` 구단 조건이 응원 구단 우선(토큰 오버라이딩)으로 변경 + `quiz` 채팅에 구단 접근 제어(403 `CHATROOM_TEAM_MISMATCH`) 도입 및 `DELETE /api/game/chat/rooms/{roomUid}/subscribe` 신규 추가. (직전: `GET /api/member/users/me`(내 프로필 요약 조회) 신규 추가 + `POST /api/member/auth/signup`에 `users_bq` 행 생성 부수 효과 반영.)
 
 이 디렉터리는 **도메인 단위**로 나뉜다. 이전에는 Gradle 모듈 단위(`user.md`, `quiz.md`) 두 문서에 모든 엔드포인트가 들어 있었으나, 한 문서가 900줄을 넘고 서로 무관한 도메인(인증·구단·선수·경기·응원)이 뒤섞여 찾기 어려워졌다. **모듈은 배포 단위일 뿐 API 계약의 경계가 아니라는 판단**으로 문서 축을 도메인으로 바꿨다.
 
@@ -11,14 +11,14 @@
 | 인증 | [auth.md](auth.md) | user | `/api/member/auth` | 9 | 전부 불필요 | 2026-08-04 | [🔗](https://app.notion.com/p/3b278fa9b0f981b39166c408778394e9) |
 | 계정 | [account.md](account.md) | user | `/api/member/users` | 2 | 필수 | 2026-08-04 | [🔗](https://app.notion.com/p/3b278fa9b0f981f8b5bcf163fc897b12) |
 | 구단 | [team.md](team.md) | user | `/api/member/teams` | 1 | 불필요(GET 한정) | 2026-07-28 (추정) | [🔗](https://app.notion.com/p/3b278fa9b0f981859999f42bfc4dd56b) |
-| 선수 | [player.md](player.md) | user | `/api/member/players` | 1 | 불필요(GET 한정) | 2026-08-03 | [🔗](https://app.notion.com/p/3b278fa9b0f981afb501f9e94e1f32f4) |
+| 선수 | [player.md](player.md) | user | `/api/member/players` | 1 | 불필요(GET 한정, 단 로그인 시 결과가 달라짐) | 2026-08-04 | [🔗](https://app.notion.com/p/3b278fa9b0f981afb501f9e94e1f32f4) |
 | 경기 | [game.md](game.md) | user | `/api/member/games` | 1 | 불필요(GET 한정) | 2026-08-01 | [🔗](https://app.notion.com/p/3b278fa9b0f981938659cb3681750105) |
 | 응원 | [support.md](support.md) | user | `/api/member/support` | 3 | 필수 | 2026-07-28 (추정) | [🔗](https://app.notion.com/p/3b278fa9b0f981f5ae03ff5df8489a63) |
-| 채팅 | [chat.md](chat.md) | quiz | `/api/game/chat` | 6 | 필수 | 2026-08-01 (추정) | [🔗](https://app.notion.com/p/3b278fa9b0f98165a655fd5cced543d5) |
+| 채팅 | [chat.md](chat.md) | quiz | `/api/game/chat` | 7 | 필수 | 2026-08-04 | [🔗](https://app.notion.com/p/3b278fa9b0f98165a655fd5cced543d5) |
 
-`최종 업데이트`는 **계약이 마지막으로 바뀐 날**이지 문서를 손댄 날이 아니다. 2026-08-04의 도메인 분리는 계약을 바꾸지 않았으므로 어느 행에도 찍지 않았다. `(추정)`은 도메인 분리 이전에 엔드포인트별 이력이 없어 해당 컨트롤러의 마지막 커밋 날짜로 역산했다는 뜻이다.
+`최종 업데이트`는 **계약이 마지막으로 바뀐 날**이지 문서를 손댄 날이 아니다. `(추정)`은 도메인 분리 이전에 엔드포인트별 이력이 없어 해당 컨트롤러의 마지막 커밋 날짜로 역산했다는 뜻이다.
 
-**총 23개 엔드포인트.** 도메인 이름은 코드의 패키지 구조(`com.skhynix.user.<domain>`, `com.skhynix.quiz.<domain>`)와 1:1로 대응한다 — 새 도메인 패키지가 생기면 이 디렉터리에도 같은 이름의 문서가 하나 생긴다.
+**총 24개 엔드포인트.** 도메인 이름은 코드의 패키지 구조(`com.skhynix.user.<domain>`, `com.skhynix.quiz.<domain>`)와 1:1로 대응한다 — 새 도메인 패키지가 생기면 이 디렉터리에도 같은 이름의 문서가 하나 생긴다.
 
 ## base URL과 context-path
 
@@ -106,7 +106,7 @@ JWT HS256. `JwtTokenProvider`가 access(3h, 10800000ms)/refresh(14d, 1209600000m
 
 발생 경로는 둘로 나뉜다: `UNAUTHENTICATED`는 `RestAuthenticationEntryPoint`가 필터 단계(`DispatcherServlet` 바깥)에서 직접 직렬화하고, 나머지 3개는 컨트롤러가 던진 `BusinessException`을 `GlobalExceptionHandler`가 잡아 변환한다. 클라이언트 입장에서 이 구분이 중요한 이유: `UNAUTHENTICATED`는 "로그인하거나(토큰이 아예 없거나 계정이 사라짐) `/api/member/auth/refresh`로 access 토큰을 새로 받으라"는 신호이고, 나머지 셋은 각각 로그인 폼 재입력, refresh 자체의 재로그인 유도로 이어져야 한다는 뜻이다.
 
-**403은 인증 실패로는 발생하지 않는다.** `AccessDeniedHandler`는 의도적으로 미도입 — `JwtAuthenticationFilter`가 인증된 principal의 권한을 항상 `Collections.emptyList()`로 채워 authority 기반 403이 발생할 경로 자체가 없다. 이 API 전체에서 유일한 403은 [chat](chat.md)의 `SELF_REPORT_NOT_ALLOWED`(자기 메시지 신고)로, 인증이 아니라 도메인 규칙에서 나온다.
+**403은 인증 실패로는 발생하지 않는다.** `AccessDeniedHandler`는 의도적으로 미도입 — `JwtAuthenticationFilter`가 인증된 principal의 권한을 항상 `Collections.emptyList()`로 채워 authority 기반 403이 발생할 경로 자체가 없다. 이 API 전체의 403은 [chat](chat.md)의 `SELF_REPORT_NOT_ALLOWED`(자기 메시지 신고)와 `CHATROOM_TEAM_MISMATCH`(2026-08-04 신규, 응원 구단이 다른 채팅방 접근) 둘뿐이며, 둘 다 인증이 아니라 도메인 규칙에서 나온다.
 
 ---
 
