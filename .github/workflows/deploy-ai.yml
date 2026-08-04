@@ -10,9 +10,7 @@ name: Deploy AI pipeline image
 #   지정 Lambda 함수의 UpdateFunctionCode 로 제한.
 #
 # ⚠ 이 워크플로가 다루는 이미지는 victoryfairy-pipeline **하나뿐이다.**
-#   py-collector 의 Lambda 이미지는 별도 스택(py-collector/deploy/lambda/terraform)의
-#   null_resource 가 소스 해시를 트리거로 빌드·push 한다 — 그쪽은 terraform apply 소관이며
-#   VPC/SG 등 함수 설정과 한 몸이라 의도적으로 CI 로 옮기지 않았다.
+#   py-collector 의 kbo-collector 이미지는 deploy-collector.yml 이 맡는다(별도 이미지·별도 스택).
 
 on:
   push:
