@@ -14,7 +14,12 @@ from validation.core.patterns import (
     EXCEPTION_PATTERN,
     KEYBOARD_PATTERNS,
 )
-from validation.core.preprocess import build_match_views, keyboard_to_hangul
+from validation.core.preprocess import (
+    build_match_views,
+    fold_compat,
+    keyboard_to_hangul,
+    preprocess,
+)
 
 
 def _detect(line: str):
@@ -138,6 +143,40 @@ def test_degrading_words_have_own_categories():
         ("앰창", "aemchang"),
     ]:
         assert _detect(word) == (category, word), f"{word!r} -> {_detect(word)}"
+
+
+# --- 유니코드 호환 문자 접기 (fold_compat) ---------------------------------
+
+def test_compat_fold_catches_unicode_lookalikes():
+    # 겉보기가 같고 코드포인트만 다른 표기. 수기 맵에 없던 프락투르가 실제로 통과했었다.
+    for line in ["𝖘𝖘𝖎𝖇𝖆𝖑", "ｓｉｂａｌ", "ⓢⓘⓑⓐⓛ", "𝓼𝓲𝓫𝓪𝓵", "ˢⁱᵇᵃˡ"]:
+        assert _detect(line) is not None, f"차단 실패: {line!r}"
+
+
+def test_compat_fold_preserves_hangul():
+    # NFKC 는 호환 자모 'ㅅ'(U+3145)을 조합용 자모 'ᄉ'(U+1109)로 바꾼다. 그대로 두면
+    # 특수문자 제거 단계에서 삭제돼 초성 욕설이 전부 무력화된다.
+    assert fold_compat("ㅅㅂ") == "ㅅㅂ"
+    assert _detect("ㅅㅂ") is not None
+    assert _detect("ㅄ") is not None
+    assert _detect("ㅗ") is not None
+    # NFD 는 한글 음절까지 분해한다('시'→'ㅅㅣ'). NFC 로 복구돼야 한다.
+    assert fold_compat("시발") == "시발"
+    assert fold_compat("안녕하세요 오늘 경기") == "안녕하세요 오늘 경기"
+    assert fold_compat("ㅋㅋㅋ") == "ㅋㅋㅋ"
+
+
+def test_compat_fold_strips_diacritics():
+    assert fold_compat("éàü") == "eau"
+
+
+def test_leet_substitution_still_handled_by_map():
+    # 숫자·기호 leet 은 유니코드 호환 문자가 아니라 NFKC 가 건드리지 않는다.
+    # normalization.json 의 치환 맵이 계속 담당해야 한다.
+    assert preprocess("씨@발") == "씨a발"
+    assert preprocess("＠") == "a"        # 전각 @ → 접기 후 '@' → 맵이 'a' 로
+    for line in ["s1b4l", "씨@발", "시8발", "시$발"]:
+        assert _detect(line) is not None, f"차단 실패: {line!r}"
 
 
 if __name__ == "__main__":
