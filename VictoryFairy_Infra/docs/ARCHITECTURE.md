@@ -168,20 +168,23 @@ kbo-collector (Lambda)  ──▶ S3 community/{source}/{date}/{postId}.json
   `var.refine_image_tag` 는 이제 **최초 생성용 부트스트랩 값**일 뿐이며, 실제 배포된 코드는
   코드가 아니라 런타임(`aws lambda get-function`)에 물어봐야 안다. 인프라 코드만 읽고
   "지금 무슨 이미지가 도는지" 알 수 없게 된 것이 이 결정의 비용이다.
-- **CI 역할 권한**: `modules/security` 가 두 함수 ARN 에 한정해 `UpdateFunctionCode` +
+- **CI 역할 권한**: `modules/security` 가 대상 함수 ARN 에 한정해 `UpdateFunctionCode` +
   `GetFunction*` 을 부여한다(목록이 비면 statement 자체를 만들지 않는다).
-- **py-collector 는 이 경로 밖**이다. 자체 스택의 `null_resource` 가 소스 해시로 재빌드하며
-  VPC/SG 등 함수 설정과 한 몸이라 `apply` 경유를 유지한다 — 한 파이프라인이 두 관리 체계에
-  걸치는 상태가 여기서도 이어진다(아래 한계 참고).
+- **py-collector 도 같은 경로로 들어왔다**(2026-08-05). `kbo-collector` 이미지는
+  `.github/workflows/deploy-collector.yml` 이 굽고 두 수집 함수를 갱신한다. 다만 **정제와
+  방식이 하나 다르다** — 그쪽 스택은 `image_uri` 를 `latest` 다이제스트에 핀하므로
+  `ignore_changes` 로 소유권을 넘기는 대신 **CI 가 `:latest` 를 함께 갱신해 핀을 맞춘다.**
+  함수 설정(VPC/SG·스케줄)은 여전히 그쪽 `apply` 소관이다.
 
 ### 한계 — 알고 들어간다
 
 - **Lambda 15분 상한**: 이벤트당 처리량이 작아 정상 경로는 문제없다. 다만 **백필(누적분 순회)은
   대량 반복이라 이 모델에 맞지 않는다** — Step Functions + Map 이나 별도 처리가 필요하다. 미결정.
 - **콜드 스타트**: 정제 이미지가 274MB 컨테이너다. 야간 일괄이라 지연 자체는 문제가 아니다.
-- **`kbo-collector` 는 Terraform 관리 밖**이다(콘솔/스크립트 배포). EventBridge 규칙도 마찬가지다.
-  정제 Lambda 는 Terraform 으로 관리하므로 **한 파이프라인이 두 관리 체계에 걸친다.** 크롤러도
-  Terraform 으로 흡수할지는 미결정.
+- **`kbo-collector` 는 이 레포의 Terraform 밖**이다 — 없는 게 아니라 **`dev_ai` 트리의 자체
+  스택**(`py-collector/deploy/lambda/terraform`)이 함수·EventBridge 규칙·ECR 을 소유한다.
+  정제 Lambda 는 이 레포가 관리하므로 **한 파이프라인이 두 state 에 걸친다.** 이미지 배포만
+  2026-08-05 에 CI 로 통일됐고(§ 위), 스택 흡수 여부는 미결정.
 - **`batch` 노드그룹(Spot, min 0)은 정제에 쓰이지 않게 됐다.** 제거하지 않고 **문제 생성 단계용으로
   보류**한다 — 그 단계는 Claude API + **MySQL(VPC 안)** 저장이라 Lambda 를 VPC 에 붙여야 하고,
   NAT 경유·ENI 콜드스타트가 붙는다. EKS 가 유리할 수 있다. `k8s/40~42-*.yaml` 도 같은 이유로 남긴다.
@@ -190,7 +193,7 @@ kbo-collector (Lambda)  ──▶ S3 community/{source}/{date}/{postId}.json
 
 - **Terraform(`.tf`, 이 레포)**: VPC·서브넷·NAT, EKS 클러스터, 노드그룹 2개(app/batch), MySQL EC2·EBS·SG·IAM, S3, **ECR 리포지토리**, 그리고 **정제 파이프라인 일체**(Lambda 2개·SQS+DLQ·DynamoDB·S3 이벤트 알림·IAM 실행 롤). **클러스터와 노드그룹까지 + 서버리스 정제 전부.**
   - ⚠️ **정제는 EKS 를 쓰지 않으므로 IRSA 가 아니라 Lambda 실행 롤**이다(§4). IRSA 는 문제 생성 단계가 EKS 로 갈 때 다시 본다.
-  - ⚠️ **`kbo-collector` Lambda 와 EventBridge 규칙은 Terraform 관리 밖**이다. 한 파이프라인이 두 관리 체계에 걸친다 — 흡수 여부는 미결정.
+  - ⚠️ **`kbo-collector` Lambda 와 EventBridge 규칙은 `dev_ai` 트리의 자체 Terraform 스택 소유**다(이 레포 밖·state 분리). 한 파이프라인이 두 state 에 걸친다 — 흡수 여부는 미결정.
 - **Kubernetes(YAML/Helm, `VictoryFairy_Infra/k8s/`)**: Deployment(user/quiz), HPA(user/quiz), taint↔toleration/nodeSelector, Kubernetes Dashboard(학습용). Spring `SPRING_PROFILES_ACTIVE=prod`. (앱 코드는 별도 레포/브랜치지만, 배포 매니페스트는 결합도가 큰 Terraform과 **같은 인프라 레포에 co-locate** — 도구/레이어 경계는 유지)
   - `40~42-batch-*.yaml` 은 **정제에 쓰이지 않는다.** 문제 생성 단계용으로 보류된 뼈대다(§4 한계).
 - **애플리케이션 코드(`VictoryFairy_AI/`, `dev_ai` 브랜치)**: 판정 로직과 **Lambda 핸들러**. 인프라는 그것을 **띄우는 함수 정의·트리거 배선·권한**을 맡는다. 트리거 판단 로직(구 컨트롤러)은 **S3 이벤트와 SQS 가 대신하므로 앱에서 사라진다.**
@@ -215,13 +218,12 @@ kbo-collector (Lambda)  ──▶ S3 community/{source}/{date}/{postId}.json
 
 - [ ] **백필을 어떻게 돌릴 것인가**: 누적분 순회는 대량 반복이라 Lambda 15분 상한에 맞지 않는다.
       Step Functions + Map / EKS Job / 로컬 실행 중 택일. **정제 본류와 분리해 판단할 것.**
-- [ ] **`kbo-collector` 를 Terraform 으로 흡수할 것인가**: 지금은 크롤(콘솔 관리)과 정제(Terraform)가
+- [ ] **`kbo-collector` 스택을 이 레포로 흡수할 것인가**: 크롤(`dev_ai` 자체 스택)과 정제(이 레포)가
       한 파이프라인에 걸쳐 있다. 흡수하면 일관되지만 기존 배포 절차를 바꿔야 한다.
-      ⚠️ **근거가 하나 더 있다** — `kbo-collector` 리포지토리는 `modules/ecr` 를 타지 않아
-      `IMMUTABLE` 태그·`scan_on_push` 가 걸려 있지 않고, 실제로 **`latest` 태그 하나뿐**이다.
-      함수는 다이제스트(`@sha256:…`)로 고정돼 있어 당장 위험하진 않지만, **지금 도는 이미지가
-      어느 커밋인지 역추적할 수 없다.** 새로 만드는 `victoryfairy-pipeline` 은 모듈을 타므로
-      같은 규약이 자동 적용된다 — 한 파이프라인 안에서 규약이 갈린다.
+      ⚠️ **역추적 문제는 2026-08-05 에 절반 닫혔다** — `deploy-collector.yml` 이 커밋 SHA 태그를
+      함께 push 하므로 이제 도는 이미지가 어느 커밋인지 알 수 있다. 다만 그 리포지토리는
+      여전히 `modules/ecr` 를 타지 않아 `IMMUTABLE`·`scan_on_push` 가 없고, `:latest` 핀
+      구조상 **`MUTABLE` 이어야만 한다**(DEPLOYMENT.md §6-1) — 한 파이프라인 안에서 규약이 갈린다.
 - [ ] **크롤 주기를 유지할 것인가**: 현재 `rate(10 minutes)` 상시 수집이다. 이벤트 구동이라
       야간 일괄로 바꿀 이유가 사라졌지만, **정제 비용이 하루 종일 발생**하게 된다(총액은 같다).
       예산 상한을 일 단위로 보는 지금 설계와 어긋나는지 확인 필요.
