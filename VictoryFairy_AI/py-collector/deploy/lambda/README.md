@@ -37,6 +37,9 @@ terraform apply       # ECR 생성 -> 이미지 빌드/푸시(local-exec) -> Lam
 ```
 > `terraform apply`가 `build_and_push.sh`를 자동 실행해 이미지를 빌드·푸시합니다(Docker 필요).
 > Apple Silicon이면 `architecture = "arm64"`(기본)로 네이티브 빌드 + 저렴.
+>
+> 이건 **최초 부트스트랩** 경로입니다. 이후 이미지 갱신은 CI 소관이니
+> 아래 "코드 바꾼 뒤 재배포" 절을 보세요.
 
 ## 즉시 한 번 돌려보기 / 확인
 ```bash
@@ -95,15 +98,35 @@ mysql ... -e 'SELECT COUNT(*) FROM games; SELECT COUNT(*) FROM game_lineups;'
 > 백필 구간이 길면 Lambda 타임아웃(기본 840s)을 넘을 수 있다 — 한 달 단위 정도로 나눠 호출.
 > 적재는 자연키 upsert 라 재실행·중복 호출이 무해하다.
 
-## 코드 바꾼 뒤 재배포
+## 코드 바꾼 뒤 재배포 — **CI가 합니다 (2026-08-05~)**
+
+`dev_ai`가 main에 머지되면 `.github/workflows/deploy-collector.yml`이 이미지를 굽고
+`kbo-collector`·`kbo-collector-db`를 함께 갱신합니다. **손으로 할 일은 없습니다.**
+
+트리거 경로는 이미지에 실제로 구워지는 것만입니다 — `kbo_collector/**`, `config/**`,
+`deploy/lambda/`의 `Dockerfile`·`handler.py`·`requirements.txt`. `tests/`·`docs/`·
+`terraform/`만 고쳤다면 워크플로는 돌지 않습니다(맞는 동작입니다).
+
 ```bash
-terraform apply    # 핸들러/코어/의존성 변경 감지 -> 이미지 재빌드·푸시 -> Lambda 갱신
+# 지금 도는 이미지가 어느 커밋인지
+aws lambda get-function --function-name kbo-collector \
+  --query 'Code.{tag:ImageUri,digest:ResolvedImageUri}'
 ```
-> `apply` **한 번**으로 끝납니다. `image_uri`를 `:latest` 태그가 아니라 방금 푸시한
-> 이미지의 **다이제스트**(`@sha256:...`, `data.aws_ecr_image`로 조회)에 고정하므로,
-> 코드가 바뀌면 다이제스트가 바뀌어 같은 apply 안에서 Lambda가 새 이미지로 갱신됩니다.
-> (`:latest`로 고정하면 문자열이 안 바뀌어 Terraform이 갱신을 건너뛰고 옛 이미지가
-> 계속 돕니다 — 그래서 다이제스트 핀을 씁니다. 수동 `update-function-code` 불필요.)
+
+### ⚠ apply는 최신 체크아웃에서만
+
+`terraform apply`는 이제 **함수 설정(VPC/SG·환경변수·스케줄)** 담당이지만,
+`null_resource.image`는 그대로 남아 있어 소스 해시가 바뀌었으면 **여전히 로컬에서
+이미지를 굽고 `:latest`에 덮어씁니다.** 옛 체크아웃에서 apply하면 옛 코드가 `:latest`가
+되고, `image_uri`가 그 다이제스트에 핀돼 있으므로 **함수가 뒤로 감깁니다.**
+
+apply 전에 `git pull` 하세요. 되감겼다면 GitHub Actions에서 `deploy-collector.yml`을
+`workflow_dispatch`로 한 번 돌리면 복구됩니다.
+
+> `image_uri`를 `:latest` 태그가 아니라 그 태그가 가리키는 **다이제스트**
+> (`@sha256:...`, `data.aws_ecr_image`로 조회)에 고정합니다. `:latest` 문자열로 고정하면
+> 값이 안 바뀌어 Terraform이 갱신을 건너뛰기 때문입니다. CI가 SHA 태그와 함께 `:latest`도
+> 갱신하는 이유가 이 핀을 맞춰 두기 위함입니다.
 
 ## 내리기 (과금 중단)
 ```bash
