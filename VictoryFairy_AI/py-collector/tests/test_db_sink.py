@@ -3,8 +3,9 @@ from types import SimpleNamespace
 from kbo_collector.db import (
     DbSink, TEAMS_UPSERT, ROSTER_PLAYER_UPSERT, GAME_UPSERT, LINEUP_UPSERT,
     PLAYER_INSERT, BATTER_UPSERT, PITCHER_UPSERT, POSITION_SELECT, POSITION_CODES,
+    REGISTRATION_UPSERT, PLAYER_SET_TEAM, PLAYER_SET_NAME, PLAYER_SET_UNIFORM_NUMBER,
 )
-from kbo_collector.dimensions import PlayerRow, TeamRow
+from kbo_collector.dimensions import PlayerRow, TeamRow, TradeRow
 from kbo_collector.game_records import LineupRow, PlayerRef, BattingRow, PitchingRow
 
 
@@ -78,8 +79,70 @@ def test_upsert_roster_players_uses_kbo_id_and_team_pk():
     DbSink(None, connection=conn).upsert_roster_players([_roster_player()], 2)
     kind, sql, rows = conn.log[0]
     assert kind == "executemany" and sql == ROSTER_PLAYER_UPSERT
-    assert rows == [("60123", "손주영", 2)]
+    assert rows == [("60123", "손주영", 2, "1", "PITCHER")]
     assert conn.commits == 1
+
+
+def test_upsert_roster_players_nulls_blank_uniform_number_and_unknown_position():
+    conn = FakeConn()
+    row = PlayerRow("70001", "육성선수", "", "야수", "우투우타", None, None, None)
+    DbSink(None, connection=conn).upsert_roster_players([row], 2)
+    _, _, rows = conn.log[0]
+    assert rows == [("70001", "육성선수", 2, None, None)]
+
+
+def test_upsert_registrations_resolves_player_ids_and_skips_missing():
+    conn = FakeConn(fetch_results=[[("60123", 11)]])  # 70001 은 players 미존재
+    n = DbSink(None, connection=conn).upsert_registrations(
+        "2026-08-04",
+        [_roster_player(), PlayerRow("70001", "미해소", "9", "포수", "", None, None, None)],
+        2)
+    assert n == 1
+    kind, sql, rows = conn.log[1]  # [0]=SELECT ids
+    assert kind == "executemany" and sql == REGISTRATION_UPSERT
+    assert rows == [("2026-08-04", 2, 11)]
+
+
+def test_upsert_registrations_empty_noop():
+    conn = FakeConn()
+    assert DbSink(None, connection=conn).upsert_registrations("2026-08-04", [], 2) == 0
+    assert conn.log == []
+
+
+_TEAM_IDS = {"KIA": 6, "한화": 7, "롯데": 9, "KT": 4}
+
+
+def test_apply_trades_moves_traded_player_between_teams():
+    trade = TradeRow("2026-07-24", "트레이드", "한화", "이형범", "투수", "KIA→한화")
+    conn = FakeConn(fetch_results=[[(33,)]])  # (이형범, KIA) 유일 매칭
+    applied = DbSink(None, connection=conn).apply_trades([trade], _TEAM_IDS)
+    assert applied == {"트레이드": 1}
+    assert ("execute", PLAYER_SET_TEAM, (7, 33)) in conn.log
+
+
+def test_apply_trades_rename_and_uniform_number():
+    trades = [
+        TradeRow("2026-07-16", "개명", "롯데", "박하늘", "외야수", "개명전:박건"),
+        TradeRow("2026-08-04", "등번호 변경", "롯데", "김한결", "투수", "140→62"),
+    ]
+    conn = FakeConn(fetch_results=[[(41,)], [(52,)]])
+    applied = DbSink(None, connection=conn).apply_trades(trades, _TEAM_IDS)
+    assert applied == {"개명": 1, "등번호 변경": 1}
+    assert ("execute", PLAYER_SET_NAME, ("박하늘", 41)) in conn.log
+    assert ("execute", PLAYER_SET_UNIFORM_NUMBER, ("62", 52)) in conn.log
+
+
+def test_apply_trades_skips_ambiguous_missing_and_other_categories():
+    trades = [
+        TradeRow("2026-07-24", "트레이드", "한화", "동명이인", "투수", "KIA→한화"),
+        TradeRow("2026-07-24", "트레이드", "한화", "이군선수", "투수", "KIA→한화"),
+        TradeRow("2026-07-30", "웨이버", "KT", "사우어", "투수", ""),
+        TradeRow("2026-07-24", "트레이드", "상무", "군인선수", "투수", "상무→한화"),
+    ]
+    conn = FakeConn(fetch_results=[[(1,), (2,)], []])  # 동명이인 2건 / 미존재 0건
+    applied = DbSink(None, connection=conn).apply_trades(trades, _TEAM_IDS)
+    assert applied == {}
+    assert not any(sql == PLAYER_SET_TEAM for _, sql, _ in conn.log)
 
 
 def test_status_id_lookup_hits_existing_row():

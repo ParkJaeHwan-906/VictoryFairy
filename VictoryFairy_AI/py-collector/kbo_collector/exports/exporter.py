@@ -112,8 +112,8 @@ def read_game_results(db, date=None, sink=None):
         )
 
 
-# 운영 players 는 상세정보(등번호·포지션·투타·생년월일) 없이 이름/팀만 가진다.
-# 상세가 다시 필요해지면 players 테이블 확장이 선행돼야 한다.
+# 운영 players 는 이름/팀에 더해 uniform_number·position_group 을 가진다(등록명단발).
+# 투타·생년월일 등 나머지 상세는 미저장 — 필요해지면 players 확장이 선행돼야 한다.
 _PLAYERS_SQL = (
     "SELECT p.kbo_player_id, p.id, p.name, t.code, t.name "
     "FROM players p JOIN teams t ON t.id=p.team_id "
