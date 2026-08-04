@@ -1,6 +1,6 @@
 # API 명세 — 도메인별 문서
 
-> 최종 업데이트: 2026-08-04 — `GET /api/member/players` 구단 조건이 응원 구단 우선(토큰 오버라이딩)으로 변경 + `quiz` 채팅에 구단 접근 제어(403 `CHATROOM_TEAM_MISMATCH`) 도입 및 `DELETE /api/game/chat/rooms/{roomUid}/subscribe` 신규 추가. (직전: `GET /api/member/users/me`(내 프로필 요약 조회) 신규 추가 + `POST /api/member/auth/signup`에 `users_bq` 행 생성 부수 효과 반영.)
+> 최종 업데이트: 2026-08-04 — `GET /api/member/games` 응답에 `homeTeamId`/`awayTeamId` 추가 + `GET /api/member/games/lineup`(경기별 선발 라인업) 신규 추가. (직전: `GET /api/member/players` 구단 조건이 응원 구단 우선(토큰 오버라이딩)으로 변경 + `quiz` 채팅에 구단 접근 제어(403 `CHATROOM_TEAM_MISMATCH`) 도입 및 `DELETE /api/game/chat/rooms/{roomUid}/subscribe` 신규 추가.)
 
 이 디렉터리는 **도메인 단위**로 나뉜다. 이전에는 Gradle 모듈 단위(`user.md`, `quiz.md`) 두 문서에 모든 엔드포인트가 들어 있었으나, 한 문서가 900줄을 넘고 서로 무관한 도메인(인증·구단·선수·경기·응원)이 뒤섞여 찾기 어려워졌다. **모듈은 배포 단위일 뿐 API 계약의 경계가 아니라는 판단**으로 문서 축을 도메인으로 바꿨다.
 
@@ -12,13 +12,13 @@
 | 계정 | [account.md](account.md) | user | `/api/member/users` | 2 | 필수 | 2026-08-04 | [🔗](https://app.notion.com/p/3b278fa9b0f981f8b5bcf163fc897b12) |
 | 구단 | [team.md](team.md) | user | `/api/member/teams` | 1 | 불필요(GET 한정) | 2026-07-28 (추정) | [🔗](https://app.notion.com/p/3b278fa9b0f981859999f42bfc4dd56b) |
 | 선수 | [player.md](player.md) | user | `/api/member/players` | 1 | 불필요(GET 한정, 단 로그인 시 결과가 달라짐) | 2026-08-04 | [🔗](https://app.notion.com/p/3b278fa9b0f981afb501f9e94e1f32f4) |
-| 경기 | [game.md](game.md) | user | `/api/member/games` | 1 | 불필요(GET 한정) | 2026-08-01 | [🔗](https://app.notion.com/p/3b278fa9b0f981938659cb3681750105) |
+| 경기 | [game.md](game.md) | user | `/api/member/games` | 2 | 불필요(GET 한정) | 2026-08-04 | [🔗](https://app.notion.com/p/3b278fa9b0f981938659cb3681750105) |
 | 응원 | [support.md](support.md) | user | `/api/member/support` | 3 | 필수 | 2026-07-28 (추정) | [🔗](https://app.notion.com/p/3b278fa9b0f981f5ae03ff5df8489a63) |
 | 채팅 | [chat.md](chat.md) | quiz | `/api/game/chat` | 7 | 필수 | 2026-08-04 | [🔗](https://app.notion.com/p/3b278fa9b0f98165a655fd5cced543d5) |
 
 `최종 업데이트`는 **계약이 마지막으로 바뀐 날**이지 문서를 손댄 날이 아니다. `(추정)`은 도메인 분리 이전에 엔드포인트별 이력이 없어 해당 컨트롤러의 마지막 커밋 날짜로 역산했다는 뜻이다.
 
-**총 24개 엔드포인트.** 도메인 이름은 코드의 패키지 구조(`com.skhynix.user.<domain>`, `com.skhynix.quiz.<domain>`)와 1:1로 대응한다 — 새 도메인 패키지가 생기면 이 디렉터리에도 같은 이름의 문서가 하나 생긴다.
+**총 25개 엔드포인트.** 도메인 이름은 코드의 패키지 구조(`com.skhynix.user.<domain>`, `com.skhynix.quiz.<domain>`)와 1:1로 대응한다 — 새 도메인 패키지가 생기면 이 디렉터리에도 같은 이름의 문서가 하나 생긴다.
 
 ## base URL과 context-path
 
@@ -53,7 +53,7 @@
 
 - 비즈니스 예외(`BusinessException`) → `{ "success": false, "data": null, "message": "<ErrorCode 메시지>" }`, 상태코드는 `ErrorCode.getStatus()`.
 - Bean Validation 실패(`MethodArgumentNotValidException`) → `{ "success": false, "data": {"필드명":"메시지", ...}, "message": "입력값이 올바르지 않습니다." }`, 400. `data`에는 **위반한 필드만** 담긴다.
-- **예외: 쿼리 파라미터 타입 변환 실패는 `ApiResponse` 래퍼가 아니다.** `?teamId=abc`(player), `?date=20260801`(game)처럼 컨트롤러 진입 전 바인딩 단계에서 깨지면 `GlobalExceptionHandler`가 아니라 Spring 기본 `DefaultHandlerExceptionResolver`가 400을 만든다.
+- **예외: 쿼리 파라미터 바인딩 실패는 `ApiResponse` 래퍼가 아니다.** `?teamId=abc`(player)·`?date=20260801`(game)처럼 타입 변환이 깨지거나, `gameId` 없이 `GET /api/member/games/lineup`을 호출해 **필수 파라미터 자체가 없는** 경우처럼 컨트롤러 진입 전 바인딩 단계에서 깨지면 `GlobalExceptionHandler`가 아니라 Spring 기본 `DefaultHandlerExceptionResolver`가 400을 만든다.
 
 quiz 모듈은 `SecurityConfig`가 `web-support`의 `GlobalExceptionHandler`를 `@Import`로 **명시 등록**해 이 변환이 이루어진다(좁은 컴포넌트 스캔 범위 밖이라 자동 감지되지 않는다 — 이 import가 빠지면 `BusinessException`이 스프링 기본 500으로 나간다).
 
@@ -66,7 +66,7 @@ JWT HS256. `JwtTokenProvider`가 access(3h, 10800000ms)/refresh(14d, 1209600000m
 | 경로 | 범위 |
 |---|---|
 | `/api/member/auth/**` | 메서드 무관 전체 `permitAll` |
-| `GET /api/member/teams`·`/players`·`/games` | **GET만** `permitAll` |
+| `GET /api/member/teams`·`/players`·`/games`·`/games/lineup` | **GET만** `permitAll` |
 | quiz의 `/`, `/error`, `GET /health` | 문서화 대상 아님 |
 
 그 외 전부 `anyRequest().authenticated()`다. **GET 한정 `permitAll` 경로에 비-GET으로 요청하면 405가 아니라 401이다**(컨트롤러에 도달하지 못하고 인증 단계에서 걸림).
