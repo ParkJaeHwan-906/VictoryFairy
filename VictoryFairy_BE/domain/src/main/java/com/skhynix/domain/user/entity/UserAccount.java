@@ -15,6 +15,7 @@ import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.ColumnDefault;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
@@ -53,6 +54,16 @@ public class UserAccount {
     @Column(name = "exit_at")
     private LocalDateTime exitAt;
 
+    /**
+     * 보유 포인트. 신규 계정은 항상 0에서 시작한다.
+     *
+     * <p>이미 행이 있는 테이블에 붙는 NOT NULL 컬럼이라 {@code @ColumnDefault}(기존 행)와 자바 필드
+     * 초기값(신규 행)이 각각 다른 경로의 0 보장을 맡는다 — 하나만 있으면 한쪽이 깨진다.
+     */
+    @Column(name = "point", nullable = false)
+    @ColumnDefault("0")
+    private long point = 0L;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -63,12 +74,13 @@ public class UserAccount {
 
     @Builder
     private UserAccount(User user, String nickname, String password) {
-        // uid·exitAt은 호출자가 지정할 수 없도록 @Builder 파라미터로 받지 않는다. uid는 여기서 생성하고,
-        // exitAt은 null(활성)로 시작해 withdraw()로만 전이한다 — 탈퇴 상태로 태어나는 계정을 막는다.
+        // uid·exitAt·point는 호출자가 지정할 수 없도록 @Builder 파라미터로 받지 않는다. uid는 여기서
+        // 생성하고, exitAt은 null(활성)로 시작해 withdraw()로만 전이한다 — 탈퇴 상태로 태어나는 계정을 막는다.
         this.uid = UUID.randomUUID().toString();
         this.user = user;
         this.nickname = nickname;
         this.password = password;
+        this.point = 0L;
     }
 
     /**
