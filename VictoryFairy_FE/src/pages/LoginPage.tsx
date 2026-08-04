@@ -78,12 +78,11 @@ export default function LoginPage() {
     try {
       const tokens = await login({ email: email.trim(), password });
 
-      // ── store-agent hand-off ──────────────────────────────────────────
-      // 토큰 영속화는 store-agent 소관이므로 API 계층이 노출한 TokenStorage 시임에만 의존한다.
-      // zustand persist 구현이 `setTokenStorage()` 로 주입되면 이 호출이 그대로 그쪽에 꽂힌다.
+      // 이 페이지는 저장 위치를 알 필요가 없다. API 계층의 TokenStorage 시임에만 의존하고,
+      // 실제 구현(zustand persist)은 부트스트랩에서 주입된다 — `src/stores/auth.ts` 참고.
       getTokenStorage().setTokens(tokens);
-      // TODO: store-agent - 로그인 성공 후 이동할 라우트가 아직 없다(ROUTES 에 login/signup 만 존재).
-      //       홈 라우트가 생기면 여기서 navigate 로 연결한다.
+      // TODO: store-agent - 로그인 성공 후 홈(ROUTES.main)으로 navigate 연결.
+      //       라우트는 생겼고 토큰 저장도 붙었으므로 이동만 남았다.
     } catch (error) {
       setMessages(toFieldMessages(error));
     } finally {
