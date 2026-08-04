@@ -112,8 +112,12 @@ jobs:
         run: |
           FNS=""
           for FN in "$S3_FN" "$DB_FN"; do
+            # ⚠ ImageUri 가 아니라 ResolvedImageUri 다. ImageUri 는 갱신할 때 넘긴 문자열을
+            #   그대로 되돌려주므로, CI 가 태그로 갱신한 뒤에는 ":<sha>" 가 나와 아래
+            #   다이제스트 추출이 빈손이 된다(태그 복원이 조용히 죽는다).
+            #   ResolvedImageUri 는 항상 "@sha256:…" 이고 롤백 --image-uri 로도 유효하다.
             if ! URI=$(aws lambda get-function --function-name "$FN" \
-              --query 'Code.ImageUri' --output text 2>/dev/null); then
+              --query 'Code.ResolvedImageUri' --output text 2>/dev/null); then
               echo "::warning::$FN 함수 없음 — 건너뜀(py-collector 스택의 db_subnet_ids 미설정 상태)"
               continue
             fi
