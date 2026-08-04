@@ -16,12 +16,9 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
- * 토큰의 subject(외부 노출용 {@code uid})를 내부 PK({@code id})로 바꿔주는 경계.
- *
- * <p>외부에는 {@code uid}만 오가고, 인증 이후 서비스·컨트롤러가 보는 principal은
- * 종전과 동일하게 {@code Long userAccountId}다. 이 변환 때문에 요청당 조회 1회가 발생하지만,
- * {@code id}를 토큰 claim에 함께 실어 조회를 없애는 것은 PK 노출과 같으므로 의도적으로 감수한다.
- * 대신 필터가 쓰는 값이 {@code id} 하나뿐이므로 엔티티가 아니라 {@code id}만 조회한다.
+ * 토큰의 subject(외부 노출용 {@code uid})를 내부 PK({@code id})로 바꿔주는 경계. 인증 이후 principal은
+ * 종전과 동일하게 {@code Long userAccountId}다. {@code id}를 claim에 실어 조회를 없애는 건 PK 노출과
+ * 같으므로, 요청당 조회 1회를 의도적으로 감수한다(엔티티가 아니라 {@code id}만 조회).
  */
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
@@ -42,12 +39,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         String token = resolveToken(request);
         if (token != null && tokenProvider.validateToken(token) && !tokenProvider.isRefreshToken(token)) {
-            // uid에 해당하는 활성 계정이 없으면(탈퇴/삭제 등) 인증하지 않고 통과시킨다.
-            // SecurityContext가 빈 채로 남으면 authorizeHttpRequests의 authenticated() 규칙이
-            // AuthenticationException을 던지고, 이를 받은 ExceptionTranslationFilter가
-            // SecurityConfig에 등록된 AuthenticationEntryPoint를 호출해 401을 내린다.
-            // access 토큰은 stateless(3h)라 서버가 폐기할 수 없으므로, 탈퇴 계정이 남은 유효 기간
-            // 동안 인증되는 것을 막는 지점이 바로 이 조회다.
+            // access 토큰은 stateless라 서버가 폐기할 수 없다 — 탈퇴한 계정이 남은 유효기간 동안
+            // 인증되는 걸 막는 지점이 이 조회다(계정 없으면 SecurityContext를 비워 401로 이어진다).
             Optional<Long> accountId = userAccountRepository.findActiveIdByUid(tokenProvider.getUid(token));
             if (accountId.isPresent()) {
                 UsernamePasswordAuthenticationToken authentication =
