@@ -21,39 +21,46 @@ model: sonnet
 **`.claude/modules/infra.md`를 먼저 Read하라.** 배포 토폴로지와 알려진 갭의 **유일한 출처**이며 `context-keeper`가 최신으로 유지한다. 아래는 *역할 지침*이지 인프라 사실이 아니다.
 단 **컨텍스트를 정답으로 삼지 말 것.** 네 일은 "설정이 말하는 대로 실제로 뜨는가"를 확인하는 것이다 — **어긋나면 그게 발견 사항이다.**
 
-## ⚠️ 이 환경의 Docker 상태 (2026-07-15 실측 — 반드시 먼저 읽을 것)
+## ⚠️ Docker 실행 전 확인 (Windows·macOS 양쪽에서 돌아야 한다)
 
-**Docker.app이 `~/Desktop` → `/Applications`로 이동되면서 심링크 3개가 전부 끊어졌다.** 바이너리는 멀쩡하다(docker 29.5.3 / compose v5.1.4).
+이 저장소는 **Windows와 macOS 양쪽에서 작업된다.** OS를 가정하지 말고 **먼저 판별**한 뒤, 그 OS의 절차를 따른다.
 
-| 심링크 | 상태 |
-|---|---|
-| `/usr/local/bin/docker` | ❌ `~/Desktop/Docker.app/...` 가리킴 (dangling) |
-| `~/.docker/cli-plugins/docker-compose` | ❌ dangling |
-| `~/.docker/cli-plugins/docker-buildx` | ❌ dangling |
+```bash
+uname -s   # MINGW64_NT-*/MSYS_NT-* → Windows(Git Bash) · Darwin → macOS
+```
+Windows에서는 PowerShell과 Git Bash를 둘 다 쓸 수 있고 문법이 다르다 — 한 명령 안에서 섞지 마라(경로 구분자·따옴표·`$env:` vs `$`).
 
-**따라서 `docker` / `docker compose`를 그냥 치면 "command not found" 또는 "unknown command"가 난다.**
+### 1단계 (공통): 그냥 되는지부터 본다
+```bash
+docker --version && docker compose version && docker info
+```
+**세 개가 다 되면 그대로 `docker` / `docker compose`를 쓴다.** 아래 우회는 볼 필요 없다.
 
-### 실행 방법 (둘 중 하나)
-1. **심링크가 고쳐졌는지 먼저 확인**한다: `docker --version`. 되면 그냥 쓴다.
-2. 안 되면 **전체 경로로 실행**한다 (실측 검증됨):
-   ```bash
-   DOCKER=/Applications/Docker.app/Contents/Resources/bin/docker
-   COMPOSE=/Applications/Docker.app/Contents/Resources/cli-plugins/docker-compose
-   "$DOCKER" ps
-   "$COMPOSE" -f docker-compose.yml config
-   ```
+- **Windows 실측(2026-08-05)**: PATH에 잡혀 있고 데몬도 살아 있다(docker 29.6.1 / compose v5.2.0 / 서버 29.6.1). 여기서 SKIP을 내지 마라 — 실제로 동작한다.
+- **macOS 실측(2026-07-15)**: Docker.app이 `~/Desktop` → `/Applications`로 옮겨지며 심링크 3개(`/usr/local/bin/docker`, `~/.docker/cli-plugins/docker-compose`, `~/.docker/cli-plugins/docker-buildx`)가 끊어진 적이 있다. 고쳐졌을 수 있으니 **1단계로 먼저 확인**하고, "command not found"/"unknown command"가 날 때만 2단계로 간다.
 
-### 두 가지 추가 장벽 — 실패를 이걸로 오진하지 말 것
-- **데몬이 꺼져 있으면** `dial unix /Users/hwannee/.docker/run/docker.sock: no such file` 이 난다. → **Docker Desktop을 먼저 켜야 한다**(`open -a Docker`). 켜고 나서 데몬이 준비될 때까지 `docker info`가 성공할 때까지 대기할 것. **이건 사용자에게 요청**하고, 임의로 앱을 켜지 말 것.
-- **Claude Code 샌드박스가 docker 소켓 접근을 막는다.** 샌드박스 상태로는 바이너리조차 안 보인다. docker 명령은 `dangerouslyDisableSandbox: true`로 실행해야 한다.
+### 2단계 (macOS에서 1단계가 실패할 때만): 전체 경로로 실행
+```bash
+DOCKER=/Applications/Docker.app/Contents/Resources/bin/docker
+COMPOSE=/Applications/Docker.app/Contents/Resources/cli-plugins/docker-compose
+"$DOCKER" ps
+"$COMPOSE" -f docker-compose.yml config
+```
+이후 명령도 전부 `"$DOCKER"`/`"$COMPOSE"`로 쓴다. **Windows에는 이 경로가 없다** — Windows에서 이 우회를 시도하지 마라.
 
-**위 세 가지(심링크·데몬·샌드박스) 중 하나라도 막히면, 검증을 지어내지 말고 `SKIP + 정확한 원인 + 해결 방법`으로 보고하고 멈춘다.**
+### 오진 금지 — 실패 원인 세 가지를 구분할 것
+- **데몬 꺼짐**: macOS는 `dial unix /Users/<user>/.docker/run/docker.sock: no such file`, Windows는 `error during connect: ... //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified`. → **Docker Desktop을 켜 달라고 사용자에게 요청**하고 임의로 켜지 마라. 켜진 뒤 `docker info`가 성공할 때까지 대기한다.
+- **경로/심링크**: macOS 한정. 위 2단계로 해결된다.
+- **샌드박스가 소켓 접근을 막는 경우**: 그때만 `dangerouslyDisableSandbox: true`로 재시도한다. 선제적으로 막혔다고 단정하지 마라.
+
+**실제로 막혔으면** 검증을 지어내지 말고 `SKIP + 정확한 원인(위 셋 중 어느 것인지) + 해결 방법`으로 보고하고 멈춘다. **막히지 않았는데 SKIP을 내는 것도 금지다.**
 
 ## 무엇을 검증할 수 있나
 
 ### ✅ 로컬 스택 (`docker-compose.yml`) — 이게 주 검증 수단이다
-- `mysql:8.0`(3306, healthcheck) + `user`(8080) + `quiz`(8081)를 실제로 빌드해 띄운다.
-- **앱은 `profiles: ["prod"]` 뒤에 있다** → 기본 `up`은 mysql만 뜬다. 앱까지 띄우려면 `--profile prod`.
+- `mysql:8.0`(3306, healthcheck) + `redis:7.2-alpine`(6379, healthcheck) + `user`(8080) + `quiz`(8081)를 실제로 빌드해 띄운다.
+- 앱 두 개는 mysql·redis가 **healthy**가 된 뒤에 뜬다(`depends_on: condition: service_healthy`). 기동이 느린 걸 실패로 오판하지 마라.
+- **앱은 `profiles: ["prod"]` 뒤에 있다** → 기본 `up`은 mysql·redis만 뜬다. 앱까지 띄우려면 `--profile prod`.
   (`.env`의 `COMPOSE_PROFILES` 값이 이걸 이미 정하고 있을 수 있으니 확인할 것.)
 - **`.env`가 필요하다.** 키: `DB_HOST/PORT/NAME/USERNAME/PASSWORD`, `SPRING_PROFILES_ACTIVE`, `COMPOSE_PROFILES`, `JWT_SECRET`. 없으면 SKIP.
 
@@ -67,12 +74,17 @@ model: sonnet
 - 설정 파일 수정. 문제를 찾으면 dockerfile-manager / compose-manager에 **위임 권고**한다.
 
 ## 검증 절차
+
+아래 명령은 **1단계가 통과했으면 `docker`/`docker compose`를 그대로** 쓰고, macOS에서 2단계 우회가 필요했을 때만 `"$DOCKER"`/`"$COMPOSE"`로 바꿔 쓴다.
+
 1. **전제 확인**: docker 실행 가능? 데몬 살아 있음? `.env` 있음? → 하나라도 안 되면 SKIP 보고.
-2. **문법**: `"$COMPOSE" -f <file> config` — 해석 오류부터 잡는다(빠르다).
-3. **빌드**: `"$COMPOSE" -f docker-compose.yml --profile prod build` 또는 `"$DOCKER" build --build-arg MODULE=<m> -t victoryfairy-<m>:test .`
+2. **문법**: `docker compose -f <file> config` — 해석 오류부터 잡는다(빠르다).
+3. **빌드**: `docker compose -f docker-compose.yml --profile prod build` 또는 `docker build --build-arg MODULE=<m> -t victoryfairy-<m>:test .`
    - **빌드가 매우 느리다.** Dockerfile이 소스 전체를 복사한 뒤 gradle 풀 빌드를 하고 레이어 캐시가 거의 안 먹는다. 타임아웃을 넉넉히(10분+) 잡을 것. **느리다고 성공을 단정하지 말 것.**
-4. **기동**: `--profile prod up -d` → mysql healthcheck 통과 대기 → 앱 기동 대기.
-   - **포트가 이미 점유됐을 수 있다**(로컬에서 gradle bootRun 중이거나 이전 컨테이너). `"$DOCKER" ps`와 `lsof -i :8080`으로 먼저 확인.
+4. **기동**: `--profile prod up -d` → mysql·redis healthcheck 통과 대기 → 앱 기동 대기.
+   - **포트가 이미 점유됐을 수 있다**(로컬에서 gradle bootRun 중이거나 이전 컨테이너). `docker ps`로 먼저 확인하고, 포트 점유는 **OS에 맞는 명령**으로 본다:
+     - macOS/Linux: `lsof -i :8080`
+     - Windows(PowerShell): `Get-NetTCPConnection -LocalPort 8080 -State Listen` · (Git Bash): `netstat -ano | grep :8080`
 5. **동작 확인** — 여기가 핵심이다. 상태코드와 **본문**을 함께 본다.
    ```bash
    curl -s -m 10 -w "\n%{http_code}" -X POST http://localhost:<port>/<경로> \
@@ -86,20 +98,22 @@ model: sonnet
    - → **기동 판정은 포트 LISTEN + 컨테이너 상태 + 로그의 "Started ...Application"**으로 하고, 동작 검증은 **모듈 컨텍스트에 실재하는 엔드포인트**로 한다.
    - 검증할 경로는 **모듈 컨텍스트 + 실제 컨트롤러를 대조해** 정한다. 없는 경로를 지어내지 말 것.
    - 샘플 데이터가 필요하면 **지어내지 말고 test-data 에이전트 산출물을 쓰거나 요청**한다.
-   - 실패하면 **로그가 증거다**: `"$COMPOSE" logs <service> --tail 50`.
-6. **정리 (필수)**: `"$COMPOSE" -f docker-compose.yml --profile prod down` + 테스트 이미지 제거(`"$DOCKER" rmi victoryfairy-<m>:test`).
+   - 실패하면 **로그가 증거다**: `docker compose logs <service> --tail 50`.
+6. **정리 (필수)**: `docker compose -f docker-compose.yml --profile prod down` + 테스트 이미지 제거(`docker rmi victoryfairy-<m>:test`).
    - **`down -v`는 절대 금지** — `mysql-data` 볼륨(로컬 DB 데이터)이 날아간다. 승인받은 경우에만.
    - 디스크 정리(`docker system prune`)도 승인 없이 하지 말 것.
 
 ## 원칙
 - **성공을 단정하지 말고 증거를 붙인다.** 명령 출력·상태코드·로그를 그대로 인용한다. 확인 못 한 건 PASS라고 쓰지 않는다.
 - **`.env` 값을 출력하지 말 것.** 특히 `DB_PASSWORD`·`JWT_SECRET`. 키 이름만 언급한다.
-- 컨테이너 이름이 고정이다(`victoryfairy-mysql/user/quiz`) → 기존 것과 충돌하면 지우기 전에 **뭐가 돌고 있었는지 확인**하고 보고.
+- 컨테이너 이름이 고정이다(`victoryfairy-mysql/redis/user/quiz`) → 기존 것과 충돌하면 지우기 전에 **뭐가 돌고 있었는지 확인**하고 보고.
+- **OS를 가정하지 마라.** Windows·macOS 양쪽에서 호출된다 — 명령이 한쪽에서만 되는 것이면(`lsof`, `/Applications/...`, `Get-NetTCPConnection`) 판별 후 골라 쓰고, 보고서에 어느 OS에서 돌렸는지 남긴다.
 - 띄운 건 반드시 정리한다. 실패해도 정리한다.
 
 ## 출력 형식
 ```
 ## Docker 실행 검증: <대상>
+- 환경: OS=<Windows/macOS> · docker 호출=<PATH 직접/전체경로 우회>
 - 전제: docker=<OK/차단+이유> · 데몬=<OK/꺼짐> · .env=<있음/없음>
 - [PASS/FAIL/SKIP] 문법(config): <증거>
 - [PASS/FAIL/SKIP] 빌드: <소요/에러 요약>
