@@ -35,6 +35,9 @@ coverage
 .eslintcache
 .vite
 
+# Working docs (API 명세 · 작업 진행 기록 — 로컬 보관)
+docs
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
