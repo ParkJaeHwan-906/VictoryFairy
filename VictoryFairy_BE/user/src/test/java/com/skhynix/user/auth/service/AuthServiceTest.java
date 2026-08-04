@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -15,8 +16,10 @@ import com.skhynix.common.error.ErrorCode;
 import com.skhynix.domain.user.entity.Gender;
 import com.skhynix.domain.user.entity.User;
 import com.skhynix.domain.user.entity.UserAccount;
+import com.skhynix.domain.user.entity.UserBq;
 import com.skhynix.domain.user.entity.UserRefreshToken;
 import com.skhynix.domain.user.repository.UserAccountRepository;
+import com.skhynix.domain.user.repository.UserBqRepository;
 import com.skhynix.domain.user.repository.UserRefreshTokenRepository;
 import com.skhynix.domain.user.repository.UserRepository;
 import com.skhynix.user.auth.dto.LoginRequest;
@@ -28,6 +31,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -35,7 +39,9 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
  * {@link AuthService}를 협력 객체 전부 목으로 대체해 단위로 검증한다. 특히 탈퇴 계정이 login·reissue·
- * signup 세 지점에서 어떻게 취급되는지(요구사항 {@code docs/requirements/user/withdraw.md})에 집중한다.
+ * signup 세 지점에서 어떻게 취급되는지(요구사항 {@code docs/requirements/user/withdraw.md})와, signup이
+ * {@code users_bq} 행을 함께 만드는지(요구사항 {@code docs/requirements/user/me-profile.md}
+ * USER-ME-23~25)에 집중한다.
  */
 @ExtendWith(MockitoExtension.class)
 class AuthServiceTest {
@@ -48,6 +54,9 @@ class AuthServiceTest {
 
     @Mock
     private UserRefreshTokenRepository userRefreshTokenRepository;
+
+    @Mock
+    private UserBqRepository userBqRepository;
 
     @Mock
     private PasswordEncoder passwordEncoder;
@@ -353,5 +362,70 @@ class AuthServiceTest {
                 .isEqualTo(ErrorCode.EMAIL_NOT_VERIFIED);
 
         verify(emailVerificationService, never()).consumeVerified(anyString());
+    }
+
+    // ---------- signup: users_bq 행 생성 (USER-ME-23 ~ 25) ----------
+
+    @Test
+    @DisplayName("[USER-ME-23] 회원가입에 성공하면 users_bq 행을 방금 저장된 계정 인스턴스를 참조하는 "
+            + "UserBq로, bqScore=0인 채로 정확히 1회 저장한다")
+    void signup_allUnique_savesUsersBqRowReferencingSavedAccountWithZeroScore() {
+        // given
+        SignupRequest request = signupRequest();
+        given(emailVerificationService.isEmailVerified(request.email())).willReturn(true);
+        given(userRepository.existsByEmail(request.email())).willReturn(false);
+        given(userRepository.existsByTel(request.tel())).willReturn(false);
+        given(userAccountRepository.existsByNickname(request.nickname())).willReturn(false);
+        given(passwordEncoder.encode(request.password())).willReturn("encoded-password");
+        given(userRepository.save(any(User.class))).willAnswer(invocation -> invocation.getArgument(0));
+        given(userAccountRepository.save(any(UserAccount.class))).willAnswer(invocation -> invocation.getArgument(0));
+
+        // when
+        authService.signup(request);
+
+        // then: 저장된 계정 인스턴스와 users_bq 행이 참조하는 계정 인스턴스가 동일해야 한다
+        ArgumentCaptor<UserAccount> accountCaptor = ArgumentCaptor.forClass(UserAccount.class);
+        verify(userAccountRepository).save(accountCaptor.capture());
+        UserAccount savedAccount = accountCaptor.getValue();
+
+        ArgumentCaptor<UserBq> bqCaptor = ArgumentCaptor.forClass(UserBq.class);
+        verify(userBqRepository, times(1)).save(bqCaptor.capture());
+        UserBq savedBq = bqCaptor.getValue();
+
+        assertThat(savedBq.getUserAccount()).isSameAs(savedAccount);
+        assertThat(savedBq.getBqScore()).isEqualTo(0L);
+    }
+
+    @Test
+    @DisplayName("[USER-ME-25] 중복 이메일로 가입이 DUPLICATE_EMAIL로 실패하면 users_bq 저장은 시도되지 않는다")
+    void signup_duplicateEmail_doesNotSaveUsersBqRow() {
+        // given
+        SignupRequest request = signupRequest();
+        given(emailVerificationService.isEmailVerified(request.email())).willReturn(true);
+        given(userRepository.existsByEmail(request.email())).willReturn(true);
+
+        // when & then
+        assertThatThrownBy(() -> authService.signup(request))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.DUPLICATE_EMAIL);
+
+        verify(userBqRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("[USER-ME-25] 이메일 미인증으로 가입이 EMAIL_NOT_VERIFIED로 실패하면 users_bq 저장은 시도되지 않는다")
+    void signup_emailNotVerified_doesNotSaveUsersBqRow() {
+        // given
+        SignupRequest request = signupRequest();
+        given(emailVerificationService.isEmailVerified(request.email())).willReturn(false);
+
+        // when & then
+        assertThatThrownBy(() -> authService.signup(request))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.EMAIL_NOT_VERIFIED);
+
+        verify(userBqRepository, never()).save(any());
     }
 }
