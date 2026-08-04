@@ -46,6 +46,9 @@ def export(doc_type: str, *, settings, db, sink, date=None) -> int:
     raise KeyError(f"unknown docType '{doc_type}' (known: {', '.join(known)})")
 
 
+# 종료 경기만 export — games_sync 가 만드는 SCHEDULED/IN_PROGRESS/CANCELED 행이
+# 섞이면 점수 NULL 경기가 draw 판정(NULL==NULL)에 걸려 "무승부로 끝났다" 가짜
+# envelope 이 나간다. 이 필터가 games_sync 크론 등록의 선행 조건이었다.
 _GAMES_SQL = (
     "SELECT g.id, g.naver_game_id, DATE(g.game_date), "
     " TIME_FORMAT(g.game_date, '%%H:%%i'), s.name, "
@@ -54,7 +57,8 @@ _GAMES_SQL = (
     " JOIN teams th ON th.id=g.home_team_id "
     " JOIN game_statuses gs ON gs.id=g.game_status_id "
     " LEFT JOIN stadiums s ON s.id=g.stadium_id "
-    "WHERE g.naver_game_id IS NOT NULL AND (%s IS NULL OR DATE(g.game_date)=%s)"
+    "WHERE g.naver_game_id IS NOT NULL AND gs.name IN ('FINISHED','DRAW') "
+    " AND (%s IS NULL OR DATE(g.game_date)=%s)"
 )
 _DECISION_SQL = (
     "SELECT gl.decision, p.name FROM game_lineups gl "
