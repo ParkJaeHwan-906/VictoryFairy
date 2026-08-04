@@ -23,9 +23,7 @@ export {
 } from './auth';
 
 // 계정(user 모듈) 엔드포인트 함수
-export {
-  withdraw,
-} from './account';
+export { getMyProfile, withdraw } from './account';
 
 // 채팅(game 모듈) 엔드포인트 함수
 export {
@@ -75,6 +73,7 @@ export type {
   TokenResponse,
 } from '../types/auth';
 export type { ApiResponse, FieldErrors, ApiErrorResponse } from '../types/api';
+export type { MyProfile, SupportTeam } from '../types/account';
 export type {
   ChatRoom,
   ChatMessage,

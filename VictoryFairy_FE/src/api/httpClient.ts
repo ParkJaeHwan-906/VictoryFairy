@@ -7,8 +7,8 @@ import { isUnauthenticated, normalizeError } from './errors';
 /**
  * axios 요청 설정 확장.
  * - requiresAuth: 요청 인터셉터가 Authorization: Bearer <accessToken>를 주입할지 여부.
- *   user 모듈에서는 DELETE /users/me 하나뿐이지만, game 모듈(채팅)은 전 엔드포인트가
- *   인증 필수라 플래그 기반으로 일반화한다.
+ *   user 모듈에서는 /users/me(조회·탈퇴)만 해당하고 /auth/* 는 필요 없지만,
+ *   game 모듈(채팅)은 전 엔드포인트가 인증 필수라 플래그 기반으로 일반화한다.
  * - _retry: refresh 회전 재시도 1회 제한용 내부 플래그(무한루프 방지).
  */
 declare module 'axios' {
