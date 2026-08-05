@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-start.sh\"",
+            "shell": "bash",
+            "statusMessage": "모듈 선택 컨텍스트 로드"
+          }
+        ]
+      }
+    ]
+  }
+}

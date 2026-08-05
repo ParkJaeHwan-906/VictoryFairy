@@ -42,3 +42,28 @@ out/
 
 .DS_Store
 .idea/
+
+### Terraform ###
+# 로컬 .terraform 디렉토리 (프로바이더 플러그인, 모듈 캐시)
+**/.terraform/*
+
+# State 파일: 민감정보 포함 가능 + 협업 충돌 → 원격 백엔드(S3)로 관리
+*.tfstate
+*.tfstate.*
+
+# Crash 로그
+crash.log
+crash.*.log
+
+# 변수 파일: 시크릿이 들어갈 수 있으므로 커밋 금지 (*.example 은 허용)
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+
+# CLI 설정 / plan 산출물
+.terraformrc
+terraform.rc
+*.tfplan
+
+# 프로바이더 lock 파일은 커밋합니다 (버전 고정 → 팀 재현성)
+!.terraform.lock.hcl

@@ -1,0 +1,39 @@
+# 모듈별 컨테이너 오케스트레이션
+#   docker compose up validation analysis     # 두 API 서버 기동
+#   docker compose --profile batch run --rm pipeline   # 배치 파이프라인 1회 실행
+services:
+  validation:
+    build:
+      context: .
+      dockerfile: validation/Dockerfile
+    image: victoryfairy-validation
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  analysis:
+    build:
+      context: .
+      dockerfile: analysis/Dockerfile
+    image: victoryfairy-analysis
+    ports:
+      - "8001:8001"
+    restart: unless-stopped
+
+  # 배치 러너: 상시 기동이 아니라 필요 시 실행(profile). CMD는 run_validation 단독(S3 in/out,
+  # PIPE-S3IO-28) — 로컬 data/ 볼륨 불필요(S3 전용, 로컬 폴백 없음). AWS 자격증명·설정은
+  # 호스트 .env 에서 주입(값은 여기 하드코딩하지 않음, PIPE-S3IO-15).
+  pipeline:
+    build:
+      context: .
+      dockerfile: pipeline/Dockerfile
+    image: victoryfairy-pipeline
+    environment:
+      - S3_BUCKET=${S3_BUCKET}
+      - AWS_REGION=${AWS_REGION}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}
+    profiles:
+      - batch
