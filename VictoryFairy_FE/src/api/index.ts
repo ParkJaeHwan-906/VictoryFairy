@@ -28,6 +28,9 @@ export { getMyProfile, withdraw } from './account';
 // 구단(user 모듈) 엔드포인트 함수 — 인증 없이 호출한다
 export { getTeamList } from './team';
 
+// 경기(user 모듈) 엔드포인트 함수 — 인증 없이 호출한다
+export { getGameList, getLineUp, isGameNotFound, GAME_ERROR_MESSAGE } from './game';
+
 // 채팅(game 모듈) 엔드포인트 함수
 export {
   getChatRooms,
@@ -78,6 +81,14 @@ export type {
 export type { ApiResponse, FieldErrors, ApiErrorResponse } from '../types/api';
 export type { MyProfile, SupportTeam } from '../types/account';
 export type { Team } from '../types/team';
+export type {
+  Game,
+  GameState,
+  PositionName,
+  TeamLineUp,
+  LineUpPitcher,
+  LineUpBatter,
+} from '../types/game';
 export type {
   ChatRoom,
   ChatMessage,
