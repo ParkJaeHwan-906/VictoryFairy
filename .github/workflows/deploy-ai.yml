@@ -1,0 +1,142 @@
+name: Deploy AI pipeline image
+
+# 정제 파이프라인 Lambda 이미지 배포 (BE 의 deploy-eks.yml 과 짝을 이루는 AI 경로)
+#
+#   push(main) → 변경 감지 → arm64 빌드 → ECR push(커밋 SHA 태그, IMMUTABLE)
+#   → 두 Lambda 함수 update-function-code → 실패 시 직전 이미지로 자동 롤백
+#
+# 인증: GitHub OIDC → victoryfairy-dev-github-actions AssumeRole (시크릿 없음).
+#   역할 권한은 terraform modules/security 가 관리한다 — ECR push(지정 리포지토리) +
+#   지정 Lambda 함수의 UpdateFunctionCode 로 제한.
+#
+# ⚠ 이 워크플로가 다루는 이미지는 victoryfairy-pipeline **하나뿐이다.**
+#   py-collector 의 kbo-collector 이미지는 deploy-collector.yml 이 맡는다(별도 이미지·별도 스택).
+
+on:
+  push:
+    branches: [main]
+    # ⚠ Dockerfile 이 있는 pipeline/ 만 걸면 안 된다. 이미지는 세 디렉터리를 함께 굽는다
+    #   (pipeline/Dockerfile 의 COPY 참고). 특히 validation/ 에는 검열 사전
+    #   core/data/*.json 이 들어가서, 빠뜨리면 사전만 옛 버전인 이미지가 배포된다.
+    paths:
+      - "VictoryFairy_AI/pipeline/**"
+      - "VictoryFairy_AI/validation/**"
+      - "VictoryFairy_AI/bedrock/**"
+      - ".github/workflows/deploy-ai.yml"
+  workflow_dispatch:
+
+permissions:
+  id-token: write # OIDC 토큰 발급 (AWS AssumeRole)
+  contents: read
+
+env:
+  AWS_REGION: ap-northeast-2
+  # = terraform output github_actions_role_arn
+  ROLE_ARN: arn:aws:iam::555209622409:role/victoryfairy-dev-github-actions
+  REPO: victoryfairy-pipeline
+  # 두 함수가 이 이미지 하나를 공유하고 image_config.command 로 핸들러만 갈린다.
+  PATTERN_FN: victoryfairy-dev-refine-pattern
+  BEDROCK_FN: victoryfairy-dev-refine-bedrock
+
+jobs:
+  build-deploy:
+    # ⚠ arm64 네이티브 러너. pipeline/Dockerfile 이 `FROM --platform=linux/arm64` 이고
+    #   Terraform 의 architectures = ["arm64"] 와 반드시 같아야 한다(다르면 함수가 죽는다).
+    #   퍼블릭 레포라 ARM 러너가 무료다 — QEMU 크로스 빌드가 필요 없다.
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # 기본 docker 드라이버는 --push / attestation 제어를 지원하지 않는다.
+      # docker-container 드라이버가 있어야 아래 --provenance=false 가 실제로 먹는다.
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Resolve image tag
+        id: img
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          TAG="${GITHUB_SHA::7}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "uri=$REGISTRY/$REPO:$TAG" >> "$GITHUB_OUTPUT"
+          # IMMUTABLE 리포지토리: 같은 태그 재push 는 실패한다. 재실행 대비로 미리 확인.
+          if aws ecr describe-images --repository-name "$REPO" --image-ids imageTag="$TAG" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "태그 $TAG 이미 존재 — 빌드 생략하고 배포만 진행"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ⚠ --provenance=false --sbom=false 가 빠지면 buildx 가 매니페스트를
+      #   OCI image index(멀티아치 목록)로 만든다 — 안에 arm64 하나뿐이어도 그렇다.
+      #   Lambda 는 단일 아키텍처 매니페스트만 받으므로 함수 갱신이 거부된다.
+      #   빌드 로그로는 드러나지 않아 아래 검증 단계에서 명시적으로 확인한다.
+      - name: Build & push image
+        if: steps.img.outputs.exists == 'false'
+        run: |
+          docker buildx build \
+            --platform linux/arm64 \
+            --provenance=false --sbom=false \
+            -f VictoryFairy_AI/pipeline/Dockerfile \
+            -t "${{ steps.img.outputs.uri }}" \
+            --push \
+            VictoryFairy_AI
+
+      - name: Verify single-arch manifest
+        run: |
+          MEDIA=$(aws ecr describe-images --repository-name "$REPO" \
+            --image-ids imageTag="${{ steps.img.outputs.tag }}" \
+            --query 'imageDetails[0].imageManifestMediaType' --output text)
+          echo "manifest mediaType: $MEDIA"
+          case "$MEDIA" in
+            *index.v1+json|*manifest.list.v2+json)
+              echo "::error::멀티아치 인덱스 매니페스트다 — Lambda 가 거부한다. --provenance=false --sbom=false 확인"
+              exit 1 ;;
+          esac
+
+      # 직전 이미지를 기록해 둔다 — 롤백 단계가 이 값을 쓴다.
+      - name: Capture current images (for rollback)
+        id: prev
+        run: |
+          for FN in "$PATTERN_FN" "$BEDROCK_FN"; do
+            URI=$(aws lambda get-function --function-name "$FN" \
+              --query 'Code.ImageUri' --output text)
+            echo "$FN 직전 이미지: $URI"
+            echo "${FN}=${URI}" >> "$GITHUB_OUTPUT"
+          done
+
+      # 컨테이너 Lambda 는 태그를 digest 로 고정해 들고 있다. ECR push 만으로는
+      # 절대 반영되지 않으므로 함수마다 코드 교체를 호출한다.
+      - name: Update Lambda functions
+        run: |
+          for FN in "$PATTERN_FN" "$BEDROCK_FN"; do
+            echo "::group::$FN"
+            aws lambda update-function-code --function-name "$FN" \
+              --image-uri "${{ steps.img.outputs.uri }}" >/dev/null
+            aws lambda wait function-updated-v2 --function-name "$FN"
+            aws lambda get-function --function-name "$FN" \
+              --query '{image:Code.ImageUri,state:Configuration.State,last:Configuration.LastUpdateStatus}'
+            echo "::endgroup::"
+          done
+
+      - name: Rollback on failure
+        if: failure() && steps.prev.outcome == 'success'
+        run: |
+          echo "::warning::Lambda 갱신 실패 — 직전 이미지로 자동 롤백"
+          for FN in "$PATTERN_FN" "$BEDROCK_FN"; do
+            PREV=$(echo '${{ toJSON(steps.prev.outputs) }}' | jq -r --arg k "$FN" '.[$k] // empty')
+            [ -n "$PREV" ] || { echo "$FN 직전 이미지 미기록 — 건너뜀"; continue; }
+            aws lambda update-function-code --function-name "$FN" --image-uri "$PREV" >/dev/null || true
+            aws lambda wait function-updated-v2 --function-name "$FN" || true
+          done

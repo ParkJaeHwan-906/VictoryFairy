@@ -1,0 +1,171 @@
+name: Deploy KBO collector image
+
+# 수집기 Lambda 이미지 배포 (deploy-ai.yml 의 자매 워크플로 — 다른 이미지, 다른 스택)
+#
+#   push(main) → 변경 감지 → arm64 빌드 → ECR push(:latest + 커밋 SHA)
+#   → Lambda 두 함수 update-function-code → 실패 시 직전 이미지로 자동 롤백
+#
+# 이 이미지의 리소스(ECR/Lambda/EventBridge)는 infra 스택이 아니라
+# VictoryFairy_AI/py-collector/deploy/lambda/terraform 이 소유한다(state 가 다르다).
+# 여기서 쓰는 ARN 은 그래서 modules/security 에 리터럴로 박혀 있다.
+#
+# ⚠ :latest 를 반드시 함께 push 해야 한다. 저쪽 스택은 image_uri 를
+#   data.aws_ecr_image(image_tag = "latest") 의 다이제스트로 핀하므로, SHA 태그만
+#   올리면 latest 가 옛 이미지를 가리킨 채 남아 다음 terraform apply 가 함수를 되감는다.
+
+on:
+  push:
+    branches: [main]
+    # deploy/lambda/Dockerfile 의 COPY 대상 = 이미지에 실제로 구워지는 것만 건다.
+    # config/ 는 targets.yaml 이 이미지에 들어가므로 필수(빠뜨리면 크롤 대상만 옛 버전).
+    # tests/·docs/·terraform/ 은 이미지와 무관해 일부러 뺐다.
+    paths:
+      - "VictoryFairy_AI/py-collector/kbo_collector/**"
+      - "VictoryFairy_AI/py-collector/config/**"
+      - "VictoryFairy_AI/py-collector/deploy/lambda/Dockerfile"
+      - "VictoryFairy_AI/py-collector/deploy/lambda/handler.py"
+      - "VictoryFairy_AI/py-collector/deploy/lambda/requirements.txt"
+      - ".github/workflows/deploy-collector.yml"
+  workflow_dispatch:
+
+permissions:
+  id-token: write # OIDC 토큰 발급 (AWS AssumeRole)
+  contents: read
+
+env:
+  AWS_REGION: ap-northeast-2
+  # = terraform output github_actions_role_arn
+  ROLE_ARN: arn:aws:iam::555209622409:role/victoryfairy-dev-github-actions
+  REPO: kbo-collector
+  # 두 함수가 이 이미지 하나를 공유하고 payload 의 job 으로 갈린다.
+  S3_FN: kbo-collector
+  # DB 잡 함수는 저쪽 스택의 db_subnet_ids 가 비면 생성되지 않는다 — 없으면 건너뛴다.
+  DB_FN: kbo-collector-db
+
+jobs:
+  build-deploy:
+    # ⚠ arm64 네이티브 러너. 저쪽 스택의 architecture 기본값이 arm64 이고,
+    #   이미지 아키텍처가 함수와 다르면 갱신이 거부된다. 퍼블릭 레포라 ARM 러너가 무료다.
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # 기본 docker 드라이버는 --push / attestation 제어를 지원하지 않는다.
+      # docker-container 드라이버가 있어야 아래 --provenance=false 가 실제로 먹는다.
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Resolve image tags
+        id: img
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          TAG="${GITHUB_SHA::7}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "uri=$REGISTRY/$REPO:$TAG" >> "$GITHUB_OUTPUT"
+          echo "latest=$REGISTRY/$REPO:latest" >> "$GITHUB_OUTPUT"
+
+      # ⚠ --provenance=false --sbom=false 가 빠지면 buildx 가 매니페스트를
+      #   OCI image index(멀티아치 목록)로 만든다 — 안에 arm64 하나뿐이어도 그렇다.
+      #   Lambda 는 단일 아키텍처 매니페스트만 받으므로 함수 갱신이 거부된다.
+      #   빌드 로그로는 드러나지 않아 아래 검증 단계에서 명시적으로 확인한다.
+      #
+      # 빌드 컨텍스트는 py-collector/ — Dockerfile 이 kbo_collector/·config/ 를
+      # 그 기준 상대경로로 COPY 한다.
+      - name: Build & push image
+        run: |
+          docker buildx build \
+            --platform linux/arm64 \
+            --provenance=false --sbom=false \
+            -f VictoryFairy_AI/py-collector/deploy/lambda/Dockerfile \
+            -t "${{ steps.img.outputs.uri }}" \
+            -t "${{ steps.img.outputs.latest }}" \
+            --push \
+            VictoryFairy_AI/py-collector
+
+      - name: Verify single-arch manifest
+        run: |
+          MEDIA=$(aws ecr describe-images --repository-name "$REPO" \
+            --image-ids imageTag="${{ steps.img.outputs.tag }}" \
+            --query 'imageDetails[0].imageManifestMediaType' --output text)
+          echo "manifest mediaType: $MEDIA"
+          case "$MEDIA" in
+            *index.v1+json|*manifest.list.v2+json)
+              echo "::error::멀티아치 인덱스 매니페스트다 — Lambda 가 거부한다. --provenance=false --sbom=false 확인"
+              exit 1 ;;
+          esac
+
+      # 갱신 대상 목록을 여기서 확정한다(DB 함수는 없을 수 있다).
+      # 직전 이미지도 같이 기록해 둔다 — 롤백 단계가 이 값을 쓴다.
+      - name: Capture current images (for rollback)
+        id: prev
+        run: |
+          FNS=""
+          for FN in "$S3_FN" "$DB_FN"; do
+            # ⚠ ImageUri 가 아니라 ResolvedImageUri 다. ImageUri 는 갱신할 때 넘긴 문자열을
+            #   그대로 되돌려주므로, CI 가 태그로 갱신한 뒤에는 ":<sha>" 가 나와 아래
+            #   다이제스트 추출이 빈손이 된다(태그 복원이 조용히 죽는다).
+            #   ResolvedImageUri 는 항상 "@sha256:…" 이고 롤백 --image-uri 로도 유효하다.
+            if ! URI=$(aws lambda get-function --function-name "$FN" \
+              --query 'Code.ResolvedImageUri' --output text 2>/dev/null); then
+              echo "::warning::$FN 함수 없음 — 건너뜀(py-collector 스택의 db_subnet_ids 미설정 상태)"
+              continue
+            fi
+            echo "$FN 직전 이미지: $URI"
+            echo "${FN}=${URI}" >> "$GITHUB_OUTPUT"
+            FNS="$FNS $FN"
+            # 두 함수는 같은 이미지를 쓴다 — 먼저 찾은 것의 다이제스트가 곧 직전 :latest.
+            [ -n "${DIGEST:-}" ] || DIGEST="${URI##*@}"
+          done
+          [ -n "$FNS" ] || { echo "::error::갱신할 함수가 하나도 없다"; exit 1; }
+          echo "functions=${FNS# }" >> "$GITHUB_OUTPUT"
+          echo "digest=${DIGEST:-}" >> "$GITHUB_OUTPUT"
+
+      # 컨테이너 Lambda 는 태그를 digest 로 고정해 들고 있다. ECR push 만으로는
+      # 절대 반영되지 않으므로 함수마다 코드 교체를 호출한다.
+      - name: Update Lambda functions
+        run: |
+          for FN in ${{ steps.prev.outputs.functions }}; do
+            echo "::group::$FN"
+            aws lambda update-function-code --function-name "$FN" \
+              --image-uri "${{ steps.img.outputs.uri }}" >/dev/null
+            aws lambda wait function-updated-v2 --function-name "$FN"
+            aws lambda get-function --function-name "$FN" \
+              --query '{image:Code.ImageUri,state:Configuration.State,last:Configuration.LastUpdateStatus}'
+            echo "::endgroup::"
+          done
+
+      - name: Rollback on failure
+        if: failure() && steps.prev.outcome == 'success'
+        run: |
+          echo "::warning::Lambda 갱신 실패 — 직전 이미지로 자동 롤백"
+          for FN in ${{ steps.prev.outputs.functions }}; do
+            PREV=$(echo '${{ toJSON(steps.prev.outputs) }}' | jq -r --arg k "$FN" '.[$k] // empty')
+            [ -n "$PREV" ] || { echo "$FN 직전 이미지 미기록 — 건너뜀"; continue; }
+            aws lambda update-function-code --function-name "$FN" --image-uri "$PREV" >/dev/null || true
+            aws lambda wait function-updated-v2 --function-name "$FN" || true
+          done
+
+      # 함수만 되돌리면 :latest 는 실패한 이미지를 가리킨 채 남는다 — 그 상태로
+      # terraform apply 가 돌면 다이제스트 핀이 함수를 다시 앞으로 감는다.
+      # 매니페스트를 그대로 다시 올려 태그를 직전 이미지에 재부착한다.
+      - name: Restore :latest tag on failure
+        if: failure() && steps.prev.outputs.digest != ''
+        run: |
+          MANIFEST=$(aws ecr batch-get-image --repository-name "$REPO" \
+            --image-ids imageDigest="${{ steps.prev.outputs.digest }}" \
+            --query 'images[0].imageManifest' --output text) || exit 0
+          [ -n "$MANIFEST" ] && [ "$MANIFEST" != "None" ] || exit 0
+          aws ecr put-image --repository-name "$REPO" --image-tag latest \
+            --image-manifest "$MANIFEST" >/dev/null || true
+          echo "::warning::ECR :latest 를 ${{ steps.prev.outputs.digest }} 로 되돌렸다"
