@@ -1,0 +1,273 @@
+/**
+ * TeamSelectPage(온보딩 - 선호 구단 선택) 스타일.
+ * Figma: SWM / [Onboarding] 선호 구단 선택-기본 (node 296:1536)
+ *              [Onboarding] 선호 구단 선택-선택완료 (node 406:3387)
+ * 기준 프레임 402 x 874.
+ *
+ * Figma 의 절대 좌표(카드 줄이 top 235 / 356 / 477 / 598)는 흐름 레이아웃으로 옮겼다.
+ * 줄 간격 12px 은 그 121px 간격에서 카드 높이(109px)를 뺀 값이다.
+ */
+
+.team-select-page {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--layout-app-width);
+  min-height: 100dvh;
+  margin-inline: auto;
+  padding-bottom: 48px;
+  background-color: var(--color-background-basic);
+}
+
+/* ------------------------------------------------------------------ *
+ * Bar/Top — 뒤로가기 · 타이틀
+ * 오른쪽은 디자인상 opacity 0 인 빈 버튼 → 타이틀 중앙 정렬용 스페이서로 둔다.
+ * ------------------------------------------------------------------ */
+.team-select-page__topbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.team-select-page__back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 60px;
+  padding: 10px;
+  border-radius: var(--radius-10);
+  overflow: clip;
+}
+
+.team-select-page__back-icon {
+  width: 20px;
+  height: 20px;
+  background-color: var(--color-label-assistive);
+  -webkit-mask: url('../assets/arrow_l.svg') center / contain no-repeat;
+  mask: url('../assets/arrow_l.svg') center / contain no-repeat;
+}
+
+.team-select-page__topbar-title {
+  margin: 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  text-align: center;
+}
+
+.team-select-page__topbar-spacer {
+  width: 60px;
+  height: 60px;
+}
+
+/* ------------------------------------------------------------------ *
+ * Title/Title1 — "응원하고 있는 구단을 / 선택해주세요"
+ * ------------------------------------------------------------------ */
+.team-select-page__heading {
+  flex: 0 0 auto;
+  margin: 20px 0 0;
+  padding-inline: var(--layout-gutter);
+  color: var(--color-label-normal);
+  font-size: var(--font-size-title1);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title1);
+}
+
+/* ------------------------------------------------------------------ *
+ * 구단 카드 그리드
+ *
+ * 3장짜리 줄은 116 * 3 + 8 * 2 = 364px 로 24px 거터(354px)보다 살짝 넓다.
+ * 디자인도 거터를 넘겨 가운데 정렬하므로 여기서도 거터를 주지 않는다.
+ * ------------------------------------------------------------------ */
+.team-select-page__body {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+  margin-top: 40px;
+}
+
+/* fieldset 기본 테두리·여백 제거(라디오 그룹 의미만 쓴다) */
+.team-select-page__grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+/* 그룹 이름은 스크린 리더에만 노출한다 */
+.team-select-page__legend {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.team-select-page__row {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+/* ------------------------------------------------------------------ *
+ * Btn/Teamcard
+ *
+ * 테두리는 선택했을 때만 보이지만, 선택 순간 1px 만큼 밀리지 않도록
+ * 평소에도 투명한 테두리를 깔아 자리를 잡아둔다.
+ * ------------------------------------------------------------------ */
+.team-select-page__card {
+  /* 감춘 라디오(position: absolute)가 카드 밖으로 새어나가지 않게 기준을 잡는다 */
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  padding: 12px 8px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-10);
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease-in-out,
+    border-color 0.15s ease-in-out;
+}
+
+/* 라디오는 의미(단일 선택 · 키보드 조작)만 쓰고 화면에서는 감춘다 */
+.team-select-page__radio {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* 감춘 라디오 대신 카드에 포커스 링을 그린다 */
+.team-select-page__card:has(.team-select-page__radio:focus-visible) {
+  outline: 2px solid var(--color-primary-400);
+  outline-offset: 2px;
+}
+
+.team-select-page__logo-box {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 100px;
+  height: 60px;
+  overflow: clip;
+  transition: opacity 0.15s ease-in-out;
+}
+
+/* 로고마다 비율이 달라 60px 높이에 맞춰 넣는다(잘리지 않게 contain) */
+.team-select-page__logo {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.team-select-page__name {
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body4);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body4);
+  text-align: center;
+  word-break: break-word;
+  transition: color 0.15s ease-in-out;
+}
+
+/* 선택된 카드 — Background/Ivory + Primary/Normal 테두리, 이름도 Primary/Normal */
+.team-select-page__card--selected {
+  border-color: var(--color-primary-normal);
+  background-color: var(--color-background-ivory);
+}
+
+.team-select-page__card--selected .team-select-page__name {
+  color: var(--color-primary-normal);
+  font-weight: var(--font-weight-medium);
+}
+
+/* 고르지 않은 카드 — 로고 50%, 이름 Label/Assistive */
+.team-select-page__card--dimmed .team-select-page__logo-box {
+  opacity: 0.5;
+}
+
+.team-select-page__card--dimmed .team-select-page__name {
+  color: var(--color-label-assistive);
+}
+
+/* ------------------------------------------------------------------ *
+ * 목록 로딩 · 실패 안내 (디자인에는 없는 상태 — 토큰만 써서 최소한으로 둔다)
+ * ------------------------------------------------------------------ */
+.team-select-page__status {
+  margin: 0;
+  padding-inline: var(--layout-gutter);
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-body4);
+  line-height: var(--line-height-body4);
+  text-align: center;
+}
+
+.team-select-page__status--error {
+  color: var(--color-error-strong);
+}
+
+/* ------------------------------------------------------------------ *
+ * CTA — 화면 하단에 붙인다
+ * ------------------------------------------------------------------ */
+.team-select-page__submit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 60px;
+  margin-top: auto;
+  margin-inline: var(--layout-gutter);
+  padding-inline: 16px;
+  border-radius: var(--radius-15);
+  background-color: var(--color-primary-normal);
+  color: var(--color-white);
+  font-size: var(--font-size-button2);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  transition: background-color 0.15s ease-in-out;
+}
+
+.team-select-page__submit:disabled {
+  background-color: var(--color-action-disabled);
+  color: var(--color-label-disable);
+  cursor: not-allowed;
+}
+
+/* ------------------------------------------------------------------ *
+ * 반응형 — 3장짜리 줄(364px)이 들어가지 않는 소형 단말에서 카드를 줄인다
+ * ------------------------------------------------------------------ */
+@media (max-width: 379px) {
+  .team-select-page__logo-box {
+    width: 88px;
+  }
+
+  .team-select-page__heading,
+  .team-select-page__status {
+    padding-inline: 16px;
+  }
+
+  .team-select-page__submit {
+    margin-inline: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .team-select-page__card,
+  .team-select-page__logo-box,
+  .team-select-page__name,
+  .team-select-page__submit {
+    transition: none;
+  }
+}
