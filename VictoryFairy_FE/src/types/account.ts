@@ -1,4 +1,12 @@
+<<<<<<< HEAD
+/**
+ * 응원 구단. 프로필에서는 아직 고르지 않았을 수 있어 nullable 로 들어간다.
+ *
+ * `types/team.ts` 의 `Team` 과 형태가 같지만 별개 계약이라 별도로 둔다.
+ */
+=======
 /** 응원 구단. 프로필에서는 아직 고르지 않았을 수 있어 nullable 로 들어간다. */
+>>>>>>> cec34b275b3d5a57b5aea96505a82dd82c076ebd
 export interface SupportTeam {
   id: number;
   name: string;

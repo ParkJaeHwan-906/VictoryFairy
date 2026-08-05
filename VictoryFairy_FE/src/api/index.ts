@@ -25,6 +25,9 @@ export {
 // 계정(user 모듈) 엔드포인트 함수
 export { getMyProfile, withdraw } from './account';
 
+// 구단(user 모듈) 엔드포인트 함수 — 인증 없이 호출한다
+export { getTeamList } from './team';
+
 // 채팅(game 모듈) 엔드포인트 함수
 export {
   getChatRooms,
@@ -74,6 +77,7 @@ export type {
 } from '../types/auth';
 export type { ApiResponse, FieldErrors, ApiErrorResponse } from '../types/api';
 export type { MyProfile, SupportTeam } from '../types/account';
+export type { Team } from '../types/team';
 export type {
   ChatRoom,
   ChatMessage,
