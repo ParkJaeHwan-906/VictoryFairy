@@ -6,8 +6,30 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-POINTS = {"EASY": 30, "MEDIUM": 50, "HARD": 80, "EXPERT": 120}
-RATIO = [("EASY", 3), ("MEDIUM", 4), ("HARD", 2), ("EXPERT", 1)]
+import yaml
+
+#: 점수·비율의 정본. 이 모듈은 숫자를 직접 적지 않는다 — 값을 바꿀 때는
+#: scoring.yaml 하나만 고치면 된다.
+SCORING_PATH = (Path(__file__).resolve().parents[2]
+                / "question-gen" / "config" / "scoring.yaml")
+
+
+def load_scoring(path=SCORING_PATH):
+    """`scoring.yaml` → `(points dict, ratio list)`.
+
+    `dailyRatio`는 파일에 적힌 순서를 그대로 선별 우선순위로 쓴다. 값이 비면
+    예외를 낸다 — 기본값으로 조용히 되돌아가면 정본과 실제 동작이 갈라진다."""
+    with open(path, "r", encoding="utf-8") as f:
+        doc = yaml.safe_load(f) or {}
+    points = doc.get("points") or {}
+    ratio = doc.get("dailyRatio") or {}
+    if not points or not ratio:
+        raise ValueError(f"scoring.yaml에 points/dailyRatio가 비어 있음: {path}")
+    return ({str(k): int(v) for k, v in points.items()},
+            [(str(k), int(v)) for k, v in ratio.items()])
+
+
+POINTS, RATIO = load_scoring()
 KST = timezone(timedelta(hours=9))
 
 

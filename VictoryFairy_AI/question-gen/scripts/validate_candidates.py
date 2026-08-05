@@ -24,8 +24,10 @@ import yaml
 
 # ── 상수 ────────────────────────────────────────────────
 
-#: 기능명세서 포인트 기준표. pointReward는 difficulty로 결정된다(check 6).
-POINTS = {"EASY": 30, "MEDIUM": 50, "HARD": 80, "EXPERT": 120}
+#: 포인트 기준표. pointReward는 difficulty로 결정된다(check 6). 값의 정본은
+#: `question-gen/config/scoring.yaml` 하나뿐이며 여기서는 숫자를 적지 않는다 —
+#: import 시 그 파일에서 채운다(`--scoring`으로 다른 파일 지정 가능).
+POINTS: dict = {}
 
 #: BE가 RDB로 정산 가능한 예측 지표만 허용(check 4). 스펙 6. 리스크 참조 —
 #: 선수 퍼포먼스 등 상세 스탯 예측은 정산 불가라 카탈로그에도 없음.
@@ -45,6 +47,19 @@ REQUIRED_FIELDS = (
 
 
 # ── 로더 ────────────────────────────────────────────────
+
+def load_scoring(path) -> dict:
+    """`scoring.yaml`의 `points`를 `{difficulty: 점수}`로 반환한다.
+
+    파일이 없거나 `points`가 비면 예외를 낸다 — 기본값으로 조용히 되돌아가면
+    정본 파일과 실제 검사 기준이 갈라지기 때문이다(fail-closed)."""
+    with open(path, "r", encoding="utf-8") as f:
+        doc = yaml.safe_load(f) or {}
+    points = doc.get("points") or {}
+    if not points:
+        raise ValueError(f"scoring.yaml에 points가 비어 있음: {path}")
+    return {str(k): int(v) for k, v in points.items()}
+
 
 def load_catalog(path) -> dict:
     """질문 템플릿 카탈로그 YAML(리스트)을 읽어 `{id: 항목dict}`로 반환한다.
@@ -238,6 +253,11 @@ def _default_config_path(name: str) -> str:
     return str(Path(__file__).resolve().parent.parent / "config" / name)
 
 
+#: 포인트 기준표를 import 시점에 정본(scoring.yaml)에서 채운다 — 이 모듈을 CLI가
+#: 아니라 직접 import해 쓰는 경로(테스트 등)에서도 같은 값이 보이도록.
+POINTS.update(load_scoring(_default_config_path("scoring.yaml")))
+
+
 def _build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description="quiz-candidates JSON 디렉토리를 결정적으로 검사한다"
@@ -248,6 +268,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
                        "question-templates.yaml)")
     p.add_argument("--banned", default=None,
                    help="banned-topics.txt 경로(기본: question-gen/config/banned-topics.txt)")
+    p.add_argument("--scoring", default=None,
+                   help="점수 기준표 YAML 경로(기본: question-gen/config/scoring.yaml)")
     return p
 
 
@@ -262,6 +284,9 @@ def main(argv=None) -> None:
     banned_path = args.banned or _default_config_path("banned-topics.txt")
     catalog = load_catalog(catalog_path)
     banned = load_banned(banned_path)
+    if args.scoring:
+        POINTS.clear()
+        POINTS.update(load_scoring(args.scoring))
 
     files = sorted(Path(args.dir).glob("*.json"))
     file_violations = {}

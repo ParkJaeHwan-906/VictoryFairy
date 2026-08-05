@@ -78,18 +78,18 @@ format·needs·intent·distractor·settlement·difficulty)을 정하고, 이 문
 
 기능명세서 기준 난이도 정의(대략): EASY = 단순 승패·기본 사실 확인, MEDIUM = 최근
 경기·시즌 통계 비교, HARD = 추세·순위 변동 등 계산이 필요한 사실, EXPERT = 역대 기록·
-마니아급 지식. 카탈로그의 `difficulty` 값을 그대로 쓰고, `pointReward`는 아래 표로
-고정 매핑한다(임의 값 부여 금지):
+마니아급 지식.
 
-| difficulty | pointReward |
-|---|---|
-| EASY | 30 |
-| MEDIUM | 50 |
-| HARD | 80 |
-| EXPERT | 120 |
+카탈로그의 `difficulty` 값을 그대로 쓰고, `pointReward`는
+**`question-gen/config/scoring.yaml`의 `points` 표**를 그대로 옮겨 적는다
+(임의 값 부여 금지, 이 문서에 숫자를 다시 적지 않는다 — 정본은 그 파일 하나다).
+실행 시 그 파일을 열어 현재 값을 확인하고 쓴다. 값이 바뀌어도 이 문서는
+고치지 않는다.
 
-일일 출제 비율은 30/40/20/10(EASY/MEDIUM/HARD/EXPERT) — 검증 패스 5단계에서
+일일 출제 비율도 같은 파일의 `dailyRatio`를 따른다 — 검증 패스 5단계에서
 최종 선별 시 이 비율에 맞춘다(생성 단계는 넉넉히 만들어 두면 된다).
+업로드 직전 게이트(`validate_candidates.py`)와 최종화 모듈(`runner/finalize.py`)도
+같은 파일을 읽으므로, 여기서 다른 숫자를 쓰면 게이트에서 걸린다.
 
 ## 6. all-time-records.yaml 소비 규칙 — rankBasis (혼용 금지)
 
