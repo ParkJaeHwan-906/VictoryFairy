@@ -5,6 +5,15 @@ routine으로 운영에 올리는 절차. IAM 사용자 발급부터 routine 등
 다룬다. **2025 시즌 백필은 이번 작업에서 보류**했다 — 아래 "4. 2025 백필
 절차" 참고.
 
+> **프롬프트 정본** (2026-08-05): 두 routine의 프롬프트 본문은 이 디렉토리의
+> `vf-quiz-daily.prompt.md`·`vf-wiki-builder.prompt.md`가 정본이다. claude.ai
+> 콘솔은 복사본이므로 **콘솔에서 직접 고치지 않는다** — 파일을 PR로 바꾸고
+> 나서 콘솔에 붙여 넣는다. 프롬프트가 곧 실행 코드인데 콘솔에만 두면 이력도
+> 리뷰도 남지 않는다.
+>
+> 전체 스케줄 목록(크롤 Lambda 6개 + routine 2개 + wiki-sync)은
+> `VictoryFairy_AI/docs/SCHEDULES.md` 참고.
+
 ## 1. IAM 사용자 생성 · 정책 attach · access key 발급
 
 routine 2개는 같은 S3 버킷의 서로 겹치는 prefix만 쓰므로 IAM 사용자 1개를
