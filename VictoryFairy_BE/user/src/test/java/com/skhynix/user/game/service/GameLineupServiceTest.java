@@ -182,10 +182,10 @@ class GameLineupServiceTest {
         given(gameRepository.findByNaverGameId("20260801LGSS02026")).willReturn(Optional.of(game));
         // 리포지토리가 낮은/높은 팀 순서를 보장하지 않는다고 가정 — 높은 팀을 먼저 준다.
         given(gameLineupRepository.findStarterPitchers(1L)).willReturn(List.of(
-                pitcherOf(game, teamHigh, "투수높은", positionOf("P")),
-                pitcherOf(game, teamLow, "투수낮은", positionOf("P"))));
+                pitcherOf(game, teamHigh, "투수높은", positionOf("투수")),
+                pitcherOf(game, teamLow, "투수낮은", positionOf("투수"))));
         given(gameLineupRepository.findStarterBatters(1L)).willReturn(List.of(
-                batterOf(game, teamHigh, "타자높은", 1, positionOf("CF")),
+                batterOf(game, teamHigh, "타자높은", 1, positionOf("중견수")),
                 batterOf(game, teamLow, "타자낮은", 1, positionOf("SS"))));
 
         // when
@@ -205,11 +205,11 @@ class GameLineupServiceTest {
         given(gameRepository.findByNaverGameId("20260801LGSS02026")).willReturn(Optional.of(game));
         // 투수 이름 오름차순으로 이미 정렬돼 온다고 가정(리포지토리 계약)
         given(gameLineupRepository.findStarterPitchers(1L)).willReturn(List.of(
-                pitcherOf(game, team, "가나다", positionOf("P")),
-                pitcherOf(game, team, "마바사", positionOf("P"))));
+                pitcherOf(game, team, "가나다", positionOf("투수")),
+                pitcherOf(game, team, "마바사", positionOf("투수"))));
         // 타순 오름차순으로 이미 정렬돼 온다고 가정(리포지토리 계약)
         given(gameLineupRepository.findStarterBatters(1L)).willReturn(List.of(
-                batterOf(game, team, "일번타자", 1, positionOf("CF")),
+                batterOf(game, team, "일번타자", 1, positionOf("중견수")),
                 batterOf(game, team, "이번타자", 2, positionOf("2B")),
                 batterOf(game, team, "삼번타자", 3, positionOf("SS"))));
 
@@ -235,9 +235,9 @@ class GameLineupServiceTest {
         Team loadedTeam = teamOf(3L, "삼성");
         given(gameRepository.findByNaverGameId("20260801LGSS02026")).willReturn(Optional.of(game));
         given(gameLineupRepository.findStarterPitchers(1L)).willReturn(List.of(
-                pitcherOf(game, loadedTeam, "원태인", positionOf("P"))));
+                pitcherOf(game, loadedTeam, "원태인", positionOf("투수"))));
         given(gameLineupRepository.findStarterBatters(1L)).willReturn(List.of(
-                batterOf(game, loadedTeam, "김지찬", 1, positionOf("CF"))));
+                batterOf(game, loadedTeam, "김지찬", 1, positionOf("중견수"))));
 
         // when
         List<GameLineupResponse> result = gameLineupService.getLineup("20260801LGSS02026");
@@ -257,9 +257,9 @@ class GameLineupServiceTest {
         Team batterOnlyTeam = teamOf(9L, "타자만있는팀");
         given(gameRepository.findByNaverGameId("20260801LGSS02026")).willReturn(Optional.of(game));
         given(gameLineupRepository.findStarterPitchers(1L)).willReturn(List.of(
-                pitcherOf(game, pitcherOnlyTeam, "투수만", positionOf("P"))));
+                pitcherOf(game, pitcherOnlyTeam, "투수만", positionOf("투수"))));
         given(gameLineupRepository.findStarterBatters(1L)).willReturn(List.of(
-                batterOf(game, batterOnlyTeam, "타자만", 1, positionOf("CF"))));
+                batterOf(game, batterOnlyTeam, "타자만", 1, positionOf("중견수"))));
 
         // when
         List<GameLineupResponse> result = gameLineupService.getLineup("20260801LGSS02026");
