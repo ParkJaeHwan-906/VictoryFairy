@@ -103,7 +103,8 @@ TTL 기반 휘발성 데이터라 영속 볼륨이 필요 없다. `user`에 `SPR
   DNS Name`). 영영 못 만들어 매 루프 재시도한다. DNS는 정상이라 실질 피해는 로그 노이즈뿐. 위 SPF 건과 같은 방법으로 해소된다.
 - **k8s probe가 전부 `tcpSocket`이다** — 포트가 열렸는지만 보고 앱이 건강한지는 안 본다. actuator readiness가
   생겼으니 `httpGet`으로 올릴 수 있다(`VictoryFairy_Infra/k8s/20-user-app.yaml`·`21-quiz-app.yaml`).
-- **`game_statuses` 시드 0행** — `Game.gameStatus`가 non-null FK라 시드 전에는 `Game` 저장 자체가 불가능하다.
+- ~~**`game_statuses` 시드 0행**~~ — 해소(2026-08-05). `infra/sql/game-statuses-init.sql`을 `user` 앱이 dev·prod 모두
+  기동 시 실행한다(`spring.sql.init`). 배포 전 수동 SQL 불필요. 상세는 `.claude/modules/domain.md`.
 - **CI에 테스트 단계가 없다** — 빌드만 하고 배포한다. 테스트는 32개 있으므로 넣을 명분이 있다.
 - **EKS 1.30 연장 지원 과금 구간** — 버전 업그레이드 필요.
 
