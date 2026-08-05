@@ -71,3 +71,34 @@ def test_assign_and_write_orders_by_template_entity(work):
     first = json.loads(paths[0].read_text(encoding="utf-8"))
     assert first["templateId"] == "AAA"            # 사전순 → AAA가 001
     assert first["deadlineAt"] == "2026-08-03T14:59:00Z"
+
+
+def test_select_final_applies_per_game_quota_independently():
+    """경기 문항은 gameId별로 슬롯이 따로 돈다 — 한 경기 재료가 넘쳐도 다른
+    경기 몫을 잡아먹지 않고, 초과분만 그 경기 사유로 폐기된다."""
+    from runner.finalize import VOLUME
+    per_easy = dict(VOLUME["perGame"])["EASY"]
+    cands, verdicts = [], {}
+    for i in range(per_easy + 2):                  # G1: 슬롯보다 2개 많게
+        c = _cand(i, "A"); c["gameId"] = "G1"; cands.append(c)
+        verdicts[c["quizId"]] = _ok(fun=5 - (i % 2))
+    for i in range(per_easy + 2, per_easy + 4):    # G2: 2개만
+        c = _cand(i, "A"); c["gameId"] = "G2"; cands.append(c)
+        verdicts[c["quizId"]] = _ok()
+
+    final, reasons = select_final(cands, verdicts, {})
+    by_game = {}
+    for c in final:
+        by_game.setdefault(c["gameId"], []).append(c)
+    assert len(by_game["G1"]) == per_easy          # 슬롯만큼만
+    assert len(by_game["G2"]) == 2                 # 모자라면 있는 만큼
+    assert sum("경기(G1)" in r for r in reasons) == 2
+    assert not any("경기(G2)" in r for r in reasons)
+
+
+def test_select_final_explicit_quota_overrides_grouping():
+    cands = [_cand(1, "A"), _cand(2, "A")]
+    verdicts = {"RAW-01": _ok(fun=5), "RAW-02": _ok(fun=4)}
+    final, reasons = select_final(cands, verdicts, {}, quota=[("EASY", 1)])
+    assert [c["quizId"] for c in final] == ["RAW-01"]
+    assert len(reasons) == 1 and "물량 슬롯 초과" in reasons[0]

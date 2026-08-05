@@ -107,3 +107,73 @@ routine은 매일 08:50 KST에 도는데 그 시각은 UTC로 전날 23:50이라
 "PREDICTION = 경기 시작(KST) 2시간 전" 규칙대로 이 경기의 18:30 KST 시작 기준
 16:30 KST(= `07:30:00Z`)로 계산됐다 — `createdAt`(생성 시점)보다 미래이면서
 경기 당일(KST) 안에 들어온다.
+
+## 4. CAREER_PATH (지식 · 위키 커리어 이력) — 2026-08-01 실행 5점 사례
+
+```json
+{
+  "quizId": "QZ-20260801-002",
+  "gameId": null,
+  "kind": "KNOWLEDGE",
+  "type": "CAREER",
+  "templateId": "CAREER_PATH",
+  "format": "MULTI4",
+  "question": "하주석이 올해 7월 트레이드로 합류한 팀은?",
+  "options": [
+    { "id": "A", "text": "KIA" }, { "id": "B", "text": "삼성" },
+    { "id": "C", "text": "롯데" }, { "id": "D", "text": "NC" }
+  ],
+  "answer": "A",
+  "evidence": {
+    "source": "wiki/players/62700.md#커리어 이력",
+    "quote": "2026년 7월 말 한화 이글스에서 KIA 타이거즈로 트레이드 이적(상대는 투수 이형범)"
+  },
+  "settlement": null,
+  "difficulty": "HARD",
+  "pointReward": 80,
+  "status": "PENDING",
+  "createdAt": "2026-08-01T12:05:00Z",
+  "deadlineAt": "2026-08-01T14:59:00Z",
+  "createdBy": "AI_ENGINE"
+}
+```
+
+**좋은 이유**: 위키 빌더가 그 주의 커뮤니티 화제(트레이드 직후)를 커리어 이력으로
+병합해 두면, 퀴즈 생성기가 그 문서를 근거로 시의성 있는 문제를 만들 수 있음을 보여주는
+파이프라인 관통 사례다. evidence가 위키 문서의 해당 섹션 원문을 글자 그대로 인용했고,
+오답 보기(같은 리그 타 구단)도 형식·길이가 정답과 균일하다.
+
+## 5. RELATION_LINK (지식 · 그래프 관계) — 2026-08-01 실행 5점 사례
+
+```json
+{
+  "quizId": "QZ-20260801-007",
+  "gameId": null,
+  "kind": "KNOWLEDGE",
+  "type": "MEME",
+  "templateId": "RELATION_LINK",
+  "format": "MULTI4",
+  "question": "두산 곽빈이 삼성 페덱에게 받은 도움은?",
+  "options": [
+    { "id": "A", "text": "커브 구종 조언" }, { "id": "B", "text": "웨이트 프로그램" },
+    { "id": "C", "text": "영어 회화 과외" }, { "id": "D", "text": "배트 선물" }
+  ],
+  "answer": "A",
+  "evidence": {
+    "source": "wiki/players/68220.md#커리어 이력",
+    "quote": "NC 라일리와 삼성 페덱에게 커브 구종에 대한 도움을 받았다고 본인이 밝혔다"
+  },
+  "settlement": null,
+  "difficulty": "EXPERT",
+  "pointReward": 120,
+  "status": "PENDING",
+  "createdAt": "2026-08-01T12:05:00Z",
+  "deadlineAt": "2026-08-01T14:59:00Z",
+  "createdBy": "AI_ENGINE"
+}
+```
+
+**좋은 이유**: graph.json의 `커리어교차` 엣지(곽빈↔페덱)를 실제로 소비한 첫 사례.
+관계의 근거 문장이 위키 문서에 각주와 함께 존재해 evidence 대조가 한 번에 통과했고,
+`사건연루` 엣지가 아닌 안전한 엣지만 썼다(생성 규칙 §4). 팀을 넘나드는 의외의
+연결고리라 EXPERT 난이도에 걸맞은 "아는 사람만 아는" 재미가 있다.

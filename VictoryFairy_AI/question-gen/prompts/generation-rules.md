@@ -86,8 +86,9 @@ format·needs·intent·distractor·settlement·difficulty)을 정하고, 이 문
 실행 시 그 파일을 열어 현재 값을 확인하고 쓴다. 값이 바뀌어도 이 문서는
 고치지 않는다.
 
-일일 출제 비율도 같은 파일의 `dailyRatio`를 따른다 — 검증 패스 5단계에서
-최종 선별 시 이 비율에 맞춘다(생성 단계는 넉넉히 만들어 두면 된다).
+출제 물량도 같은 파일의 `volume`을 따른다 — `perGame`은 경기 하나당, `common`은
+하루 전체 슬롯이다. 검증 패스 5단계에서 최종 선별 시 이 슬롯에 맞춘다(생성
+단계는 `candidateMultiplier`배로 넉넉히 만들어 두면 된다).
 업로드 직전 게이트(`validate_candidates.py`)와 최종화 모듈(`runner/finalize.py`)도
 같은 파일을 읽으므로, 여기서 다른 숫자를 쓰면 게이트에서 걸린다.
 
@@ -119,7 +120,7 @@ format·needs·intent·distractor·settlement·difficulty)을 정하고, 이 문
 ## 7. quizId 결정적 부여
 
 - 형식: `QZ-{YYYYMMDD}-{NNN}` (`YYYYMMDD`는 출제 대상 날짜, `NNN`은 001부터 3자리).
-- **부여 시점은 검증 통과 후다.** ③ 문구 생성 단계(넉넉히 15개 내외)에서는 아직
+- **부여 시점은 검증 통과 후다.** ③ 문구 생성 단계(슬롯 × candidateMultiplier만큼 넉넉히)에서는 아직
   quizId를 확정하지 않는다 — 검증 패스(다음 문서)가 evidence 대조·중복·안전·재미·
   난이도비율 검사를 마쳐 **그날 실제로 채택되는 최종 목록**이 정해진 뒤에야
   번호를 매긴다(폐기될 후보에 먼저 번호를 박아두면 재실행 시 폐기 결과가 살짝만

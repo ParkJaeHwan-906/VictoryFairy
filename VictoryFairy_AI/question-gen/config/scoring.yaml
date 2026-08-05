@@ -5,6 +5,7 @@
 #   - question-gen/scripts/validate_candidates.py  (업로드 직전 결정적 게이트)
 #   - runner/runner/finalize.py                    (최종 선별·포인트 부여)
 #   - question-gen/prompts/generation-rules.md §5  (표 대신 이 파일을 참조)
+#   - question-gen/ROUTINE.md ③⑥단계               (생성·선별 물량)
 #
 # ⚠️ 소급 적용 안 됨 — pointReward는 발행 시점 값이 quiz-candidates JSON에
 #    기록되어 RDB로 넘어간다. 표를 고치면 그 이후 발행분부터 바뀌고, 이미
@@ -24,14 +25,30 @@ points:
   HARD: 80
   EXPERT: 120
 
-# ── 일일 최종 출제 비율 ─────────────────────────────────
-# 목표 10문항 기준 난이도별 문항 수. 검증 패스 5단계(최종 선별)에서 쓴다.
+# ── 출제 물량 ───────────────────────────────────────────
+# 난이도별 최종 채택 문항 수. 검증 패스 5단계(최종 선별)에서 슬롯으로 쓴다 —
 # 통과분이 모자라면 있는 만큼만, 남으면 재미 점수 내림차순으로 채운다.
-dailyRatio:
-  EASY: 3
-  MEDIUM: 4
-  HARD: 2
-  EXPERT: 1
+#
+# perGame은 **경기 하나당**, common은 **하루 전체**에 적용된다. 오늘 5경기면
+# 하루 총량은 perGame 합계 × 5 + common 합계 = 12×5 + 20 = 80문항.
+#
+# 2026-08-05 수동 생성 실측: 재료(위키 10명·KBO 공식 표·최근 경기·트렌딩)로
+# 경기당 19~25문항, 공통 53문항까지 근거 대조를 통과시킬 수 있었다. 아래 값은
+# 그 60~70% 수준이라 재료 여유가 있다. 물량을 더 늘리려면 값을 키우기 전에
+# 재료부터 늘려야 한다(위키 등재 선수 수, game_result 신선도가 실질 상한).
+volume:
+  perGame:            # 경기 문항 — gameId·teamCodes가 붙는 문항, 경기 하나당
+    EASY: 4
+    MEDIUM: 5
+    HARD: 2
+    EXPERT: 1
+  common:             # 공통 문항 — gameId 없는 문항, 하루 전체
+    EASY: 6
+    MEDIUM: 8
+    HARD: 4
+    EXPERT: 2
+  # 생성 단계에서 만들 후보 배수(검증 폐기율 흡수). 12문항 슬롯이면 18개 생성.
+  candidateMultiplier: 1.5
 
 # ── 운영 메모 ───────────────────────────────────────────
 # 점수 체계를 바꾸는 절차:
