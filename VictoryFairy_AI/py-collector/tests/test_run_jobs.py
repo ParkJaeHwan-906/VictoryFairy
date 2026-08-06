@@ -383,6 +383,17 @@ class _RecordingDb:
         return {t.team_code: i + 1 for i, t in enumerate(teams)}
     def upsert_roster_players(self, players, team_id):
         self.calls.append(("players", team_id, len(players)))
+    def upsert_registrations(self, snapshot_date, players, team_id):
+        self.calls.append(("registrations", snapshot_date, team_id, len(players)))
+        return len(players)
+    def apply_trades(self, trades, team_ids_by_name):
+        self.calls.append(("trades", [t.player_name for t in trades],
+                           dict(team_ids_by_name)))
+        return {}
+
+
+def _no_trades(season, *, settings, client):
+    return []
 
 
 def test_land_registrations_current_date_upserts_by_team_pk(monkeypatch, settings):
@@ -396,10 +407,13 @@ def test_land_registrations_current_date_upserts_by_team_pk(monkeypatch, setting
                         lambda html: [dimensions.PlayerRow("p1", "N", "1", "투수", "우투우타", None, None, None)])
     db = _RecordingDb()
     synced = run.land_registrations(None, settings=settings, db=db, client=object(),
-                                    teams=["OB", "LG"])
+                                    teams=["OB", "LG"], fetch_trades=_no_trades)
     assert synced == ["OB", "LG"]
     # dimensions.TEAMS 순서상 OB=1, LG=2 -> team_id 로 upsert
     assert ("players", 1, 1) in db.calls and ("players", 2, 1) in db.calls
+    # 같은 명단이 일별 스냅샷으로도 남는다
+    assert ("registrations", "2026-07-13", 1, 1) in db.calls
+    assert ("registrations", "2026-07-13", 2, 1) in db.calls
 
 
 def test_land_registrations_backfill_uses_given_date(monkeypatch, settings):
@@ -413,8 +427,254 @@ def test_land_registrations_backfill_uses_given_date(monkeypatch, settings):
     monkeypatch.setattr(kbo_register, "parse_register",
                         lambda html: [dimensions.PlayerRow("p1", "N", "1", "투수", "우투우타", None, None, None)])
     db = _RecordingDb()
-    run.land_registrations("2026-05-01", settings=settings, db=db, client=object(), teams=["LG"])
+    run.land_registrations("2026-05-01", settings=settings, db=db, client=object(),
+                           teams=["LG"], fetch_trades=_no_trades)
     assert any(c[0] == "players" for c in db.calls)
+
+
+class _RecordingRecordsDb:
+    """운영 스키마 DbSink 흉내: land_game_records 배선(호출 순서/인자) 검증용."""
+    def __init__(self, player_map, team_ids):
+        self.calls = []
+        self._player_map = player_map
+        self._team_ids = team_ids
+
+    def upsert_teams(self, teams):
+        return self._team_ids
+
+    def resolve_players(self, refs, team_ids):
+        return self._player_map
+
+    def stadium_id(self, name):
+        return 9
+
+    def status_id(self, name):
+        return 7
+
+    def upsert_game(self, game, *, team_ids, stadium_id, status_id):
+        self.calls.append(("game", game.game_id))
+        return 501
+
+    def upsert_lineups(self, game_pk, lineups, player_map, team_ids):
+        self.calls.append(("lineups", game_pk, player_map))
+
+    def upsert_batting(self, game_pk, rows, player_map):
+        self.calls.append(("batting", game_pk, rows, player_map))
+
+    def upsert_pitching(self, game_pk, rows, player_map):
+        self.calls.append(("pitching", game_pk, rows, player_map))
+
+
+def test_land_game_records_upserts_batting_and_pitching_after_lineups(monkeypatch, settings):
+    # records 잡: db.upsert_lineups 바로 다음 줄에서 upsert_batting/upsert_pitching이
+    # 호출돼야 한다. player_map에 없는 pcode("PX")는 run.py가 필터링하지 않고 그대로
+    # DbSink에 넘긴다 — 실제 스킵은 DbSink.upsert_batting/pitching 쪽 책임(db 단 테스트로 검증).
+    from kbo_collector import dimensions
+    from kbo_collector.game_records import GameRow, BattingRow, PitchingRow
+
+    fixed_game = GameRow(
+        game_id="g1", game_date="2026-07-10", game_type="regular", round_no=1,
+        stadium="잠실", start_time="18:30", away_team_code="LG", home_team_code="OB",
+        away_score=3, home_score=5, away_hits=8, home_hits=10,
+        away_errors=0, home_errors=1, away_bb=2, home_bb=3,
+        winner="home", away_starter_pcode="P9", home_starter_pcode="P8",
+        inn_scores={"away": [], "home": []},
+        pitching=[
+            PitchingRow(pcode="P1", team_code="OB", is_home=True, seq=0, decision="W",
+                       ip_display="6", ip_outs=18, batters_faced=25, at_bats=22, hits=5,
+                       runs=2, earned_runs=2, home_runs=1, walks_hbp=1, strikeouts=7),
+            PitchingRow(pcode="PX", team_code="LG", is_home=False, seq=0, decision="L",
+                       ip_display="5", ip_outs=15, batters_faced=20, at_bats=18, hits=6,
+                       runs=3, earned_runs=3, home_runs=0, walks_hbp=2, strikeouts=4),
+        ],
+        batting=[
+            BattingRow(pcode="P2", team_code="OB", is_home=True, bat_order=3, position="중",
+                      at_bats=4, runs=1, hits=2, home_runs=1, rbi=2, walks=0, strikeouts=1,
+                      stolen_bases=0),
+            BattingRow(pcode="PX", team_code="LG", is_home=False, bat_order=4, position="포",
+                      at_bats=3, runs=0, hits=1, home_runs=0, rbi=0, walks=1, strikeouts=0,
+                      stolen_bases=0),
+        ],
+        players=[],
+    )
+    player_map = {"P1": 11, "P2": 12}  # "PX" 미해소
+
+    class _FakeResp:
+        def json(self):
+            return {"result": {"recordData": {"dummy": True}}}
+
+    monkeypatch.setattr(run.fetch, "fetch", lambda *a, **k: _FakeResp())
+    monkeypatch.setattr(run.game_records, "list_finished_games", lambda js: [{"gameId": "g1"}])
+    monkeypatch.setattr(run.game_records, "parse_record", lambda gid, record: fixed_game)
+
+    db = _RecordingRecordsDb(player_map, team_ids={"OB": 1, "LG": 2})
+    loaded, failed = run.land_game_records("2026-07-10", settings=settings, db=db, client=object())
+
+    assert loaded == ["g1"] and failed == []
+    assert [c[0] for c in db.calls] == ["game", "lineups", "batting", "pitching"]
+    _, game_pk, rows, pm = next(c for c in db.calls if c[0] == "batting")
+    assert game_pk == 501 and rows == fixed_game.batting and pm == player_map
+    _, game_pk2, rows2, pm2 = next(c for c in db.calls if c[0] == "pitching")
+    assert game_pk2 == 501 and rows2 == fixed_game.pitching and pm2 == player_map
+
+
+class _RecordingSyncDb:
+    """운영 스키마 DbSink 흉내: job_games_sync 배선(호출 인자) 검증용."""
+    def __init__(self, team_ids):
+        self.calls = []
+        self._team_ids = team_ids
+        self._status_ids = {"SCHEDULED": 1, "IN_PROGRESS": 2, "FINISHED": 3,
+                            "DRAW": 4, "CANCELED": 5}
+
+    def upsert_teams(self, teams):
+        return self._team_ids
+
+    def status_id(self, name):
+        return self._status_ids[name]
+
+    def sync_game(self, *, naver_game_id, game_dt, home_team_id, away_team_id,
+                  home_score, away_score, status_id):
+        self.calls.append(dict(
+            naver_game_id=naver_game_id, game_dt=game_dt, home_team_id=home_team_id,
+            away_team_id=away_team_id, home_score=home_score, away_score=away_score,
+            status_id=status_id))
+
+
+def _games_sync_schedule_games():
+    return [
+        {"gameId": "finished", "categoryId": "kbo", "statusCode": "RESULT", "cancel": False,
+         "homeTeamCode": "OB", "awayTeamCode": "LG",
+         "homeTeamScore": 7, "awayTeamScore": 3, "gameDateTime": "2026-07-10T18:30:00"},
+        {"gameId": "draw", "categoryId": "kbo", "statusCode": "RESULT", "cancel": False,
+         "homeTeamCode": "OB", "awayTeamCode": "LG",
+         "homeTeamScore": 4, "awayTeamScore": 4, "gameDateTime": "2026-07-10T18:30:00"},
+        {"gameId": "live", "categoryId": "kbo", "statusCode": "LIVE", "cancel": False,
+         "homeTeamCode": "OB", "awayTeamCode": "LG",
+         "homeTeamScore": 2, "awayTeamScore": 1, "gameDateTime": "2026-07-10T18:30:00"},
+        {"gameId": "scheduled", "categoryId": "kbo", "statusCode": "BEFORE", "cancel": False,
+         "homeTeamCode": "OB", "awayTeamCode": "LG",
+         "homeTeamScore": 0, "awayTeamScore": 0, "gameDateTime": "2026-07-10T18:30:00"},
+        {"gameId": "cancelled", "categoryId": "kbo", "statusCode": "BEFORE", "cancel": True,
+         "winner": "DRAW", "homeTeamCode": "OB", "awayTeamCode": "LG",
+         "homeTeamScore": 0, "awayTeamScore": 0, "gameDateTime": "2026-07-10T18:30:00"},
+        {"gameId": "no_dt", "categoryId": "kbo", "statusCode": "LIVE", "cancel": False,
+         "homeTeamCode": "OB", "awayTeamCode": "LG",
+         "homeTeamScore": 1, "awayTeamScore": 0},  # gameDateTime 키 자체가 결측
+        {"gameId": "unknown", "categoryId": "kbo", "statusCode": "READY", "cancel": False,
+         "homeTeamCode": "OB", "awayTeamCode": "LG"},
+    ]
+
+
+class _FakeScheduleResp:
+    def json(self):
+        return {"result": {"games": _games_sync_schedule_games()}}
+
+
+def test_job_games_sync_scores_live_or_done_only_and_skips_unknown(monkeypatch, settings, caplog):
+    import contextlib
+    monkeypatch.setattr(run.fetch, "build_client", lambda settings: contextlib.nullcontext(object()))
+    monkeypatch.setattr(run.fetch, "fetch", lambda *a, **k: _FakeScheduleResp())
+    db = _RecordingSyncDb(team_ids={"OB": 1, "LG": 2})
+
+    with caplog.at_level("WARNING", logger="games_sync"):
+        synced = run.job_games_sync(settings, db, "2026-07-10")
+
+    assert synced == 6  # "unknown" 은 skip
+    by_id = {c["naver_game_id"]: c for c in db.calls}
+    assert set(by_id) == {"finished", "draw", "live", "scheduled", "cancelled", "no_dt"}
+
+    assert by_id["finished"]["status_id"] == 3
+    assert (by_id["finished"]["home_score"], by_id["finished"]["away_score"]) == (7, 3)
+    # gameDateTime "2026-07-10T18:30:00" -> "T"를 공백으로 치환해 DATETIME 리터럴로
+    assert by_id["finished"]["game_dt"] == "2026-07-10 18:30:00"
+
+    assert by_id["draw"]["status_id"] == 4
+    assert (by_id["draw"]["home_score"], by_id["draw"]["away_score"]) == (4, 4)
+
+    assert by_id["live"]["status_id"] == 2
+    assert (by_id["live"]["home_score"], by_id["live"]["away_score"]) == (2, 1)
+
+    # SCHEDULED/CANCELED 의 0-0 은 껍데기 -> None 으로 적재(0:0 무승부처럼 보이면 안 됨)
+    assert by_id["scheduled"]["status_id"] == 1
+    assert (by_id["scheduled"]["home_score"], by_id["scheduled"]["away_score"]) == (None, None)
+
+    assert by_id["cancelled"]["status_id"] == 5
+    assert (by_id["cancelled"]["home_score"], by_id["cancelled"]["away_score"]) == (None, None)
+
+    # gameDateTime 결측 -> f"{date} 00:00:00" 폴백
+    assert by_id["no_dt"]["game_dt"] == "2026-07-10 00:00:00"
+
+    assert by_id["finished"]["home_team_id"] == 1 and by_id["finished"]["away_team_id"] == 2
+
+    assert "unknown status" in caplog.text and "READY" in caplog.text
+
+
+def test_job_games_sync_game_dt_falls_back_for_empty_string_datetime(monkeypatch, settings):
+    # gameDateTime이 빈 문자열("")로 오는 경우도 결측과 동일하게 취급해 date 자정으로
+    # 폴백해야 한다 (None 결측과는 별개 분기: `(g.get(...) or "").replace(...) or fallback`).
+    import contextlib
+
+    class _EmptyDtResp:
+        def json(self):
+            return {"result": {"games": [
+                {"gameId": "empty_dt", "categoryId": "kbo", "statusCode": "LIVE",
+                 "cancel": False, "homeTeamCode": "OB", "awayTeamCode": "LG",
+                 "homeTeamScore": 0, "awayTeamScore": 0, "gameDateTime": ""},
+            ]}}
+
+    monkeypatch.setattr(run.fetch, "build_client", lambda settings: contextlib.nullcontext(object()))
+    monkeypatch.setattr(run.fetch, "fetch", lambda *a, **k: _EmptyDtResp())
+    db = _RecordingSyncDb(team_ids={"OB": 1, "LG": 2})
+
+    run.job_games_sync(settings, db, "2026-07-11")
+
+    assert db.calls[0]["game_dt"] == "2026-07-11 00:00:00"
+
+
+def test_main_games_sync_lazily_creates_db_and_calls_job(monkeypatch, settings):
+    calls = []
+
+    class _FakeDbSink:
+        def __init__(self, settings):
+            calls.append(("db_created",))
+
+        def close(self):
+            calls.append(("db_closed",))
+
+    monkeypatch.setattr("kbo_collector.db.DbSink", _FakeDbSink)
+
+    def fake_job(settings, db, date):
+        calls.append(("job", date))
+        assert isinstance(db, _FakeDbSink)
+        return 3
+
+    monkeypatch.setattr(run, "job_games_sync", fake_job)
+    rc = run.main(["games_sync", "--date", "2026-07-10"])
+    assert rc == 0
+    assert calls == [("db_created",), ("job", "2026-07-10"), ("db_closed",)]
+
+
+def test_main_games_sync_defaults_date_to_today_like_records(monkeypatch, settings):
+    # records 잡과 동일 규약: --date 미지정 시 UTC 오늘(_today()) 사용 (community 만 KST).
+    class _FakeDbSink:
+        def __init__(self, settings):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("kbo_collector.db.DbSink", _FakeDbSink)
+    seen = {}
+
+    def fake_job(settings, db, date):
+        seen["date"] = date
+        return 0
+
+    monkeypatch.setattr(run, "job_games_sync", fake_job)
+    monkeypatch.setattr(run, "_today", lambda: "2026-07-27")
+    rc = run.main(["games_sync"])
+    assert rc == 0
+    assert seen["date"] == "2026-07-27"
 
 
 def test_land_registrations_failed_team_skipped(monkeypatch, settings):
@@ -429,6 +689,41 @@ def test_land_registrations_failed_team_skipped(monkeypatch, settings):
                         lambda html: [dimensions.PlayerRow("p1", "N", "1", "투수", "우투우타", None, None, None)])
     db = _RecordingDb()
     synced = run.land_registrations(None, settings=settings, db=db, client=object(),
-                                    teams=["LG", "OB"])
+                                    teams=["LG", "OB"], fetch_trades=_no_trades)
     assert synced == ["LG"]  # OB 실패 -> 제외
     assert ("players", 2, 1) in db.calls  # LG(=id 2)만 적재
+
+
+def test_land_registrations_applies_recent_trades_with_team_name_map(monkeypatch, settings):
+    from kbo_collector import dimensions, kbo_register
+    monkeypatch.setattr(kbo_register, "current_date", lambda s, c: "2026-08-04")
+    monkeypatch.setattr(kbo_register, "fetch_register_html",
+                        lambda code, dc, *, settings, client: "<html></html>")
+    monkeypatch.setattr(kbo_register, "parse_register", lambda html: [])
+    recent = dimensions.TradeRow("2026-08-01", "트레이드", "한화", "최근", "투수", "KIA→한화")
+    old = dimensions.TradeRow("2026-05-01", "트레이드", "한화", "옛날", "투수", "KIA→한화")
+    def fake_trades(season, *, settings, client):
+        assert season == "2026"
+        return [recent, old]
+    db = _RecordingDb()
+    run.land_registrations(None, settings=settings, db=db, client=object(),
+                           teams=["OB", "LG"], fetch_trades=fake_trades)
+    kind, names, by_name = next(c for c in db.calls if c[0] == "trades")
+    assert names == ["최근"]  # trade_days(7일) 밖 행은 제외
+    # 팀 짧은 이름 -> teams.id (dimensions.TEAMS 순서 기반 페이크 id)
+    assert by_name["KIA"] == 6 and by_name["한화"] == 7 and len(by_name) == 10
+
+
+def test_land_registrations_trade_failure_keeps_roster_success(monkeypatch, settings):
+    from kbo_collector import kbo_register
+    monkeypatch.setattr(kbo_register, "current_date", lambda s, c: "2026-08-04")
+    monkeypatch.setattr(kbo_register, "fetch_register_html",
+                        lambda code, dc, *, settings, client: "<html></html>")
+    monkeypatch.setattr(kbo_register, "parse_register", lambda html: [])
+    def boom(season, *, settings, client):
+        raise RuntimeError("kbo down")
+    db = _RecordingDb()
+    synced = run.land_registrations(None, settings=settings, db=db, client=object(),
+                                    teams=["LG"], fetch_trades=boom)
+    assert synced == ["LG"]  # 이동현황 실패는 잡 실패가 아니다
+    assert not any(c[0] == "trades" for c in db.calls)

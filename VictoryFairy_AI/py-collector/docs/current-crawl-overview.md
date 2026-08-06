@@ -73,10 +73,11 @@
 | **all** | schedule → result → relay → community 전체 | S3 |
 | **teams** | 10개 구단 시드 upsert (`db.upsert_teams`) | MySQL |
 | **registrations** | KBO Register.aspx 1군 등록명단 → `players` / `player_registrations` (`land_registrations`) | MySQL |
-| **records** | 네이버 record API 박스스코어 → `games`/`game_innings`/`game_pitching`/`game_batting`/`game_players`. `--from/--to`로 시즌 백필 (`land_game_records`) | MySQL |
+| **records** | 네이버 record API 박스스코어(종료 경기) → `games`/`game_lineups`/`batter_records`/`pitcher_records`. `--from/--to`로 시즌 백필 (`land_game_records`) | MySQL |
+| **games_sync** | 하루치 스케줄 전체(취소·예정·진행·완료 포함) 상태를 `games`에 동기화 — 점수는 진행중/완료일 때만 채우고 취소·예정은 `NULL` (`job_games_sync`) | MySQL |
 
 > `schedule`은 result/relay·game·all 앞에서 항상 선행 실행되어 gameId를 공급.
-> `records`·`registrations`는 일자 단위(`--date`) 또는 구간(`--from/--to`) 실행. `records` 백필 마지막에 `game_players.kbo_player_id`를 로스터와 이름+팀 유일매칭으로 링크.
+> `records`·`registrations`는 일자 단위(`--date`) 또는 구간(`--from/--to`) 실행. `records`는 박스스코어 선수를 `players.kbo_player_id`로 즉시 해소한다(이름+팀 백필 없음 — 4-3 참고).
 
 ### 커뮤니티 job 옵션(신규)
 
@@ -137,11 +138,11 @@ flowchart TD
 | 승자 판정 | `scoreBoard.rheb.away.r` vs `home.r` → away/home/draw |
 | 경기 유형 | `gameInfo.gameFlag` `0`=regular / `1`=preseason |
 
-### 선수 식별 체계 (독자 매핑)
+### 선수 식별 체계 (kbo_player_id 단일 자연키)
 
-네이버 `pcode`에 종속되지 않도록 **자체 `player_uid`(surrogate)** 발급.
-- `game_players.naver_pcode` = 소스 매핑키 → `upsert_game_players`가 pcode→uid 부여
-- `game_players.kbo_player_id` = 기존 1군 로스터(`players`)와 이름+팀 **유일매칭** best-effort 링크(동명이인은 미링크)
+네이버 `pcode`는 실측상 KBO 공식 `playerId`와 **같은 값**(2026-07 박스스코어·로스터 교집합 228명 전수 일치)이라, 별도 surrogate 없이 `players.kbo_player_id` 단일 컬럼으로 직접 해소한다.
+- `resolve_players`(`db.py`): `kbo_player_id` 일괄 조회 → 매칭되면 그 `players.id` 사용, 없으면 신규 행 INSERT.
+- DB에 있는 이름과 API가 준 이름이 다르면 동치 전제가 깨졌다는 신호라 warning 로그만 남기고 계속 진행(과거의 이름+팀 백필 매칭은 폐기).
 
 ## 4-4. 커뮤니티 HTML 파싱
 
@@ -189,8 +190,14 @@ flowchart TD
 ## 5-2. MySQL 스키마 (구버전 스냅샷 — 현행 구조는 domain JPA 엔티티)
 
 > **[구버전 스냅샷]** 아래 5-2절은 collector 소유 스키마 시절 기록이다. 현재는 **운영
-> 서비스 스키마**(teams/players/stadiums/game_statuses/games/**game_lineups**, BIGINT PK)에
-> 직접 적재한다 — 최신 구조는 domain 모듈 JPA 엔티티·`crawl-flow.md` 4절 참고.
+> 서비스 스키마**(teams/players/stadiums/game_statuses/**positions**/games/**game_lineups**/
+> **batter_records**/**pitcher_records**, BIGINT PK)에 직접 적재한다. `batter_records`·
+> `pitcher_records`는 `game_id`+`player_id` UNIQUE의 경기×선수 1행 집계이고, `positions`는
+> 포지션 lookup 테이블(name에 DB UNIQUE 없음 — lookup-or-insert가 SELECT 후 INSERT하는
+> 크론 단일 실행 전제, `game_lineups.position_id`가 참조) — 최신 구조는 domain
+> 모듈 JPA 엔티티·`crawl-flow.md` 4절 참고. `positions.name`은 네이버 원문(중/포/一…)이
+> 아니라 자체 영문 약어(P/C/1B/2B/3B/SS/LF/CF/RF/DH/PH/PR)로 적재된다 — 매핑 표는
+> `data-formats.md` `battersBoxscore` 절 참고, 미지 표기는 warning 후 원문 적재.
 
 ### 로스터 (소스: KBO 공식)
 

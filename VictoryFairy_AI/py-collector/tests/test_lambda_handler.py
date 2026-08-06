@@ -234,3 +234,44 @@ def test_handler_export_job_uses_db_function(monkeypatch, settings):
     assert captured["db"] is db
     assert captured["sink"] is not None
     assert db.closed
+
+
+# --- games_sync job (경기 상태 동기화) — kbo-collector-db 함수 경로 ---
+
+def test_handler_games_sync_job(monkeypatch, settings):
+    db = _isolate_db(monkeypatch, settings)
+    captured = {}
+
+    def fake_games_sync(s, d, date):
+        captured["settings"] = s
+        captured["db"] = d
+        captured["date"] = date
+        return 12
+
+    monkeypatch.setattr(handler.run, "job_games_sync", fake_games_sync)
+    monkeypatch.setattr(handler.run, "land_registrations", _boom("land_registrations"))
+    monkeypatch.setattr(handler.run, "land_game_records_range", _boom("land_game_records_range"))
+    out = handler.handler({"job": "games_sync", "date": "2026-07-31"}, None)
+    assert captured["settings"] is settings
+    assert captured["db"] is db
+    assert captured["date"] == "2026-07-31"
+    assert out["gamesSynced"] == 12
+    assert db.closed
+
+
+def test_handler_games_sync_defaults_to_kst_today_not_utc(monkeypatch, settings):
+    # "당일 경기 상태"를 다루는 잡이라 KST-오늘이어야 한다 — _today() (UTC) 로
+    # 잘못 배선되면 이 테스트가 실패한다.
+    db = _isolate_db(monkeypatch, settings)
+    monkeypatch.setattr(handler, "_kst_today", lambda: "2026-08-01")
+    monkeypatch.setattr(handler, "_today", _boom("_today"))
+    captured = {}
+
+    def fake_games_sync(s, d, date):
+        captured["date"] = date
+        return 0
+
+    monkeypatch.setattr(handler.run, "job_games_sync", fake_games_sync)
+    handler.handler({"job": "games_sync"}, None)
+    assert captured["date"] == "2026-08-01"
+    assert db.closed

@@ -42,6 +42,12 @@ def _db():
                    "FROM game_lineups": [(d, n) for d, n in DECISIONS if n]})
 
 
+def test_games_sql_exports_only_finished_or_draw():
+    # games_sync 가 만드는 SCHEDULED/IN_PROGRESS/CANCELED 행이 envelope 로
+    # 새지 않게 하는 계약 — 점수 NULL 경기는 draw 오판정("무승부로 끝났다")된다.
+    assert "gs.name IN ('FINISHED','DRAW')" in exporter._GAMES_SQL
+
+
 def test_read_game_results_renders_content():
     envs = list(exporter.read_game_results(_db(), date="2026-03-28"))
     assert len(envs) == 1

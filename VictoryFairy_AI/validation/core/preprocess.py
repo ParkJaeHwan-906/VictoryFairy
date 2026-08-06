@@ -2,6 +2,7 @@
 텍스트 전처리(정규화) 파이프라인.
 
 처리 순서:
+    0. 유니코드 호환 문자 접기 (전각·수학기호·원문자·악센트 → 표준 문자)
     1. 소문자화
     2. 다중 문자 치환 (여러 글자 → 한 글자)   ← 단일 치환보다 먼저
     3. 단일 문자 치환 (숫자/유사문자 → 표준 문자)
@@ -10,8 +11,41 @@
 """
 
 import re
+import unicodedata
 
 from validation.core.resources import load_normalization_maps
+
+# --- 0단계: 유니코드 호환 문자 접기 ---
+#
+# 유니코드에는 겉보기가 같고 코드포인트만 다른 글자가 많다.
+#   전각 'ｓｉｂａｌ' · 수학 볼드 '𝘀𝗶𝗯𝗮𝗹' · 프락투르 '𝖘𝖘𝖎𝖇𝖆𝖑' · 원문자 'ⓢⓘⓑⓐⓛ'
+# 이런 표기를 손으로 맵에 나열하면 새 변형이 나올 때마다 뚫린다(실제로 프락투르
+# '𝖘𝖘𝖎𝖇𝖆𝖑' 이 정규화 맵에 없어 통과했다). NFKC 는 유니코드 표준이 정의한
+# 호환 문자 → 표준 문자 매핑이라, 아직 관측되지 않은 변형까지 함께 접는다.
+#
+# ⚠️ 그냥 적용하면 검열이 통째로 죽는다. 두 가지를 막아야 한다.
+#   1) NFKC 는 호환 자모 'ㅅ'(U+3145)을 조합용 자모 'ᄉ'(U+1109)로 바꾼다.
+#      U+1109 는 아래 _SPECIAL_CHAR_PATTERN 의 ㄱ-ㅎ 범위 밖이라 통째로 삭제되고,
+#      초성 욕설(ㅅㅂ·ㅄ·ㅗ)이 전부 무력화된다. → 호환 자모는 접기 대상에서 뺀다.
+#   2) 악센트 제거용 NFD 는 한글 음절까지 자모로 분해한다('시'→'ㅅㅣ').
+#      → 제거 후 NFC 로 되돌려 완성형 음절을 복구한다.
+#
+# 숫자·기호 leet('s1b4l'·'씨@발')은 유니코드 호환 문자가 아니라 시각적 속임수다.
+# NFKC 가 건드리지 않으므로 normalization.json 의 치환 맵이 계속 담당한다.
+_COMPAT_JAMO = frozenset(chr(code) for code in range(0x3131, 0x3164))  # ㄱ-ㅎ, ㅏ-ㅣ
+
+
+def fold_compat(text: str) -> str:
+    """유니코드 호환 문자를 표준 문자로 접는다(한글 자모·음절은 보존)."""
+    folded = "".join(
+        ch if ch in _COMPAT_JAMO else unicodedata.normalize("NFKC", ch) for ch in text
+    )
+    # 결합 분음부호 제거: 'é' → 'e'
+    stripped = "".join(
+        ch for ch in unicodedata.normalize("NFD", folded) if not unicodedata.combining(ch)
+    )
+    # NFD 가 분해한 한글 음절을 완성형으로 되돌린다.
+    return unicodedata.normalize("NFC", stripped)
 
 # 정규화 맵은 외부 JSON(core/data/normalization.json)에서 로드한다.
 #   - SINGLE_CHAR_NORMALIZATION_MAP: 숫자/유사문자 → 표준 문자 (한 글자)
@@ -35,6 +69,10 @@ _NON_LATIN_PATTERN = re.compile(r"[^a-z]")  # 라틴 소문자만 남김
 
 def preprocess(text: str) -> str:
     """입력 문장을 정규화한 문자열로 반환한다."""
+    # 0) 유니코드 호환 문자 접기 — 소문자화보다 먼저.
+    #    'Ⓢ' 같은 호환 문자는 접어야 대문자 'S' 가 드러나 lower() 가 먹는다.
+    text = fold_compat(text)
+
     # 1) 소문자화
     text = text.lower()
 

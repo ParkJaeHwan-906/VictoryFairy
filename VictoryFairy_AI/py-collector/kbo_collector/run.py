@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date as date_cls
 from datetime import datetime, timedelta, timezone
 
-from . import community, dimensions, fetch, game_records, keys, kbo_register, naver
+from . import community, dimensions, fetch, game_records, keys, kbo_register, kbo_trade, naver
 from .config import get_settings
 from .journal import Journal, setup_logging
 from .sink import S3RawSink
@@ -423,10 +423,17 @@ def land_community_range(start, end, *, settings, sink, client, journal, force=F
 
 def land_registrations(date=None, *, settings, db, client,
                        teams=dimensions.TEAM_CODES,
-                       fetch_html=None, current=None) -> list[str]:
-    """KBO 공식 1군 등록명단 -> 운영 players 테이블(kbo_player_id 자연키) upsert."""
+                       fetch_html=None, current=None, fetch_trades=None,
+                       trade_days=7) -> list[str]:
+    """KBO 공식 1군 등록명단 -> players upsert + registrations 일별 스냅샷.
+
+    이후 이동현황(Trade.aspx)을 보조 반영한다: 등록명단이 못 잡는 갭(미등록
+    선수의 트레이드/개명/등번호 변경)만 메우는 역할이라, 실패해도 잡은 성공이다.
+    """
+    log = logging.getLogger("registrations")
     fetch_html = fetch_html or kbo_register.fetch_register_html
     current = current or kbo_register.current_date
+    fetch_trades = fetch_trades or kbo_trade.fetch_trades
     snapshot_date = date or current(settings, client)  # 'YYYY-MM-DD'
     date_compact = snapshot_date.replace("-", "")
 
@@ -439,7 +446,20 @@ def land_registrations(date=None, *, settings, db, client,
         except Exception:
             continue  # 팀 실패: 스킵
         db.upsert_roster_players(rows, team_ids[code])
+        db.upsert_registrations(snapshot_date, rows, team_ids[code])
         synced.append(code)
+
+    try:
+        cutoff = (date_cls.fromisoformat(snapshot_date)
+                  - timedelta(days=trade_days)).isoformat()
+        recent = [t for t in fetch_trades(snapshot_date[:4], settings=settings,
+                                          client=client) if t.date >= cutoff]
+        by_name = {t.name: team_ids[t.team_code] for t in dimensions.TEAMS
+                   if t.team_code in team_ids}
+        applied = db.apply_trades(recent, by_name)
+        log.info("trades: %d recent rows, applied %s", len(recent), applied or {})
+    except Exception:
+        log.warning("trades sync failed (registrations already landed)", exc_info=True)
     return synced
 
 
@@ -472,12 +492,47 @@ def land_game_records(date, *, settings, db, client, team_ids=None) -> tuple[lis
                 status_id=db.status_id(status))
             db.upsert_lineups(game_pk, game_records.build_lineups(game),
                               player_map, team_ids)
+            db.upsert_batting(game_pk, game.batting, player_map)
+            db.upsert_pitching(game_pk, game.pitching, player_map)
             loaded.append(gid)
         except Exception as exc:  # 한 경기 실패가 백필 전체를 막지 않도록
             log.warning("record fail %s: %s", gid, exc)
             failed.append(gid)
     log.info("%s: loaded=%d failed=%d", date, len(loaded), len(failed))
     return loaded, failed
+
+
+def job_games_sync(settings, db, date):
+    """당일 KBO 경기 전부의 상태를 games 테이블에 동기화 (취소·예정 포함).
+
+    점수는 LIVE/RESULT 에서만 채운다 — SCHEDULED/CANCELED 의 0-0 은 껍데기라
+    NULL 로 적재해야 미시작 경기가 0:0 무승부처럼 보이지 않는다.
+    """
+    log = logging.getLogger("games_sync")
+    with fetch.build_client(settings) as client:
+        resp = fetch.fetch(client, game_records.schedule_url(settings, date),
+                           settings=settings, referer=settings.naver_referer)
+    games = game_records.list_kbo_games(resp.json())
+    team_ids = db.upsert_teams(dimensions.TEAMS)
+    synced, skipped = 0, 0
+    for g in games:
+        status = game_records.map_status(g)
+        if status is None:
+            log.warning("unknown status %s: %s", g.get("gameId"), g.get("statusCode"))
+            skipped += 1
+            continue
+        live_or_done = status in ("IN_PROGRESS", "FINISHED", "DRAW")
+        dt = (g.get("gameDateTime") or "").replace("T", " ") or f"{date} 00:00:00"
+        db.sync_game(
+            naver_game_id=g["gameId"], game_dt=dt,
+            home_team_id=team_ids[g["homeTeamCode"]],
+            away_team_id=team_ids[g["awayTeamCode"]],
+            home_score=g.get("homeTeamScore") if live_or_done else None,
+            away_score=g.get("awayTeamScore") if live_or_done else None,
+            status_id=db.status_id(status))
+        synced += 1
+    log.info("%s: synced=%d skipped=%d", date, synced, skipped)
+    return synced
 
 
 def land_game_records_range(start, end, *, settings, db, client, sleep=time.sleep) -> dict:
@@ -503,7 +558,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="kbo_collector")
     parser.add_argument("job", choices=["schedule", "result", "relay", "game",
                                         "community", "all", "teams", "registrations",
-                                        "records", "collect", "export"])
+                                        "records", "games_sync", "collect", "export"])
     parser.add_argument("--target", default=None,
                         help="collect: source_id / export: docType")
     parser.add_argument("--date", default=None, help="YYYY-MM-DD (default: today UTC)")
@@ -571,19 +626,24 @@ def main(argv=None) -> int:
                 db.close()
         return 0
 
-    if args.job in ("teams", "registrations", "records"):
+    if args.job in ("teams", "registrations", "records", "games_sync"):
         from .db import DbSink
         db = DbSink(settings)
         try:
-            with fetch.build_client(settings) as client:
-                if args.job == "teams":
-                    db.upsert_teams(dimensions.TEAMS)
-                elif args.job == "registrations":
-                    land_registrations(args.date, settings=settings, db=db, client=client)
-                else:  # records
-                    start = args.from_date or date
-                    end = args.to_date or start
-                    land_game_records_range(start, end, settings=settings, db=db, client=client)
+            if args.job == "games_sync":
+                # job_games_sync 는 fetch 클라이언트를 자체 관리한다(Task 9 Lambda
+                # 핸들러가 settings/db/date 세 인자만으로 직접 호출하는 것과 동일 경로).
+                job_games_sync(settings, db, date)
+            else:
+                with fetch.build_client(settings) as client:
+                    if args.job == "teams":
+                        db.upsert_teams(dimensions.TEAMS)
+                    elif args.job == "registrations":
+                        land_registrations(args.date, settings=settings, db=db, client=client)
+                    else:  # records
+                        start = args.from_date or date
+                        end = args.to_date or start
+                        land_game_records_range(start, end, settings=settings, db=db, client=client)
         finally:
             db.close()
         return 0

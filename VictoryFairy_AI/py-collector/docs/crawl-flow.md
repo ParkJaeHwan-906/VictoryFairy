@@ -102,7 +102,7 @@ flowchart TD
 
 운영 서비스 스키마(원천: domain 모듈 JPA 엔티티)에 직접 쓴다.
 PK 는 서비스 소유 AUTO_INCREMENT id, 수집기는 **소스 자연키**(teams.code /
-players.kbo_player_id·naver_pcode / games.naver_game_id)로 upsert 한다.
+players.kbo_player_id / games.naver_game_id)로 upsert 한다.
 
 ```mermaid
 flowchart TD
@@ -116,7 +116,7 @@ flowchart TD
       CA["land_game_records(date)"] --> CB["schedule(date) → 완료·표준팀 경기만"]
       CB --> CC["각 gameId: /record fetch"]
       CC --> CD["parse_record → Game·Pitching·Batting·PlayerRef"]
-      CD --> CE["resolve_players: pcode→players.id<br/>(①pcode ②이름+팀 유일매칭 백필 ③신규 INSERT)"]
+      CD --> CE["resolve_players: kbo_player_id→players.id<br/>(일괄 조회 → 없으면 신규 INSERT, 이름 불일치는 warning)"]
       CE --> CF["upsert games (FINISHED/DRAW·구장·시각)"]
       CF --> CG["build_lineups → upsert game_lineups<br/>(출전 전체·is_starter·타순·포지션·투수 decision)"]
       CG -. "한 경기 실패" .-> CH["경고 로그 + 실패 gameId만 수집(계속)"]
@@ -126,11 +126,11 @@ flowchart TD
 
 **포인트**
 - 둘 다 **upsert 멱등** — 재실행/재백필 안전. 자연키 `ON DUPLICATE KEY UPDATE`.
-- `registrations`는 하루 1회 현재 로스터를 players 에 반영(이름·소속팀). 상세정보(등번호 등)는 운영 스키마 결정에 따라 저장하지 않음.
+- `registrations`는 하루 1회 현재 로스터를 players 에 반영(이름·소속팀·등번호·포지션그룹)하고, 같은 명단을 `registrations` 테이블에 일별 스냅샷으로 남긴다(`(registration_date, player_id)` 자연키). 이어서 이동현황(Trade.aspx)으로 미등록 선수의 트레이드/개명/등번호 변경을 보조 반영한다 — playerId 없는 피드라 (이름, 팀) 유일 매칭일 때만. 투타·생년월일 등 나머지 상세는 저장하지 않음.
 - `records`는 종료 경기의 games + **game_lineups**(교체 포함 출전 명단, `is_starter=TRUE` 가 선발 라인업). 과거 시즌 백필 가능.
 - 선발 판정: 타자는 (팀, 타순)별 첫 등장 행, 투수는 gameInfo 의 선발 pcode(aPCode/hPCode).
 - 스케줄 조회는 날짜에 **대시 필수**(`fromDate=2026-03-28`).
-- 운영 실행: **VPC 안 Lambda** `kbo-collector-db`(records 03:30 KST, registrations 11:00 KST — 테라폼 정의는 dev_infra 의 `VictoryFairy_Infra/collector-lambda/lambda_db.tf`). S3 잡 함수와 같은 이미지, DB 자격증명은 이 함수에만.
+- 운영 실행: **VPC 안 Lambda** `kbo-collector-db`(`deploy/lambda/terraform/lambda_db.tf` — records 03:30 KST, registrations 11:00 KST). S3 잡 함수와 같은 이미지, DB 자격증명은 이 함수에만.
 
 ---
 

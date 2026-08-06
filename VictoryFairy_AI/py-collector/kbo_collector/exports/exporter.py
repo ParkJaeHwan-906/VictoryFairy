@@ -57,6 +57,9 @@ def export(doc_type: str, *, settings, db, sink, date=None) -> int:
     raise KeyError(f"unknown docType '{doc_type}' (known: {', '.join(known)})")
 
 
+# 종료 경기만 export — games_sync 가 만드는 SCHEDULED/IN_PROGRESS/CANCELED 행이
+# 섞이면 점수 NULL 경기가 draw 판정(NULL==NULL)에 걸려 "무승부로 끝났다" 가짜
+# envelope 이 나간다. 이 필터가 games_sync 크론 등록의 선행 조건이었다.
 _GAMES_SQL = (
     "SELECT g.id, g.naver_game_id, DATE(g.game_date), "
     " TIME_FORMAT(g.game_date, '%%H:%%i'), s.name, "
@@ -65,7 +68,8 @@ _GAMES_SQL = (
     " JOIN teams th ON th.id=g.home_team_id "
     " JOIN game_statuses gs ON gs.id=g.game_status_id "
     " LEFT JOIN stadiums s ON s.id=g.stadium_id "
-    "WHERE g.naver_game_id IS NOT NULL AND (%s IS NULL OR DATE(g.game_date)=%s)"
+    "WHERE g.naver_game_id IS NOT NULL AND gs.name IN ('FINISHED','DRAW') "
+    " AND (%s IS NULL OR DATE(g.game_date)=%s)"
 )
 _DECISION_SQL = (
     "SELECT gl.decision, p.name FROM game_lineups gl "
@@ -119,8 +123,8 @@ def read_game_results(db, date=None, sink=None):
         )
 
 
-# 운영 players 는 상세정보(등번호·포지션·투타·생년월일) 없이 이름/팀만 가진다.
-# 상세가 다시 필요해지면 players 테이블 확장이 선행돼야 한다.
+# 운영 players 는 이름/팀에 더해 uniform_number·position_group 을 가진다(등록명단발).
+# 투타·생년월일 등 나머지 상세는 미저장 — 필요해지면 players 확장이 선행돼야 한다.
 _PLAYERS_SQL = (
     "SELECT p.kbo_player_id, p.id, p.name, t.code, t.name "
     "FROM players p JOIN teams t ON t.id=p.team_id "
