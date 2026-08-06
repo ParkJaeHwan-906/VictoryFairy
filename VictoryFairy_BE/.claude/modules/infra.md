@@ -107,6 +107,7 @@ TTL 기반 휘발성 데이터라 영속 볼륨이 필요 없다. `user`에 `SPR
   기동 시 실행한다(`spring.sql.init`). 배포 전 수동 SQL 불필요. 상세는 `.claude/modules/domain.md`.
 - **CI에 테스트 단계가 없다** — 빌드만 하고 배포한다. 테스트는 32개 있으므로 넣을 명분이 있다.
 - **EKS 1.30 연장 지원 과금 구간** — 버전 업그레이드 필요.
+- **`docker-compose.yml`의 `user`/`quiz` `environment:`에 `JWT_SECRET`이 없다**(2026-08-06 실측) — `.env`에 값이 있어도 컨테이너로 전달되지 않고 `application.yaml`의 하드코드 기본값(65바이트, jjwt가 HS512 선택)으로 조용히 폴백한다. 그 결과 로컬 `docker compose --profile prod`에서 발급된 refresh 토큰이 `users_refreshtoken.refreshtoken`(`length=255`)를 넘겨 `POST /auth/login`이 항상 500(`Data too long for column`)이 난다. EKS는 Secret 주입 경로가 달라 이 증상이 있는지 미확인.
 
 ## 미결정 사항
 - [x] 클러스터 방식: **EKS 채택** (managed control plane, `victoryfairy-dev`)
