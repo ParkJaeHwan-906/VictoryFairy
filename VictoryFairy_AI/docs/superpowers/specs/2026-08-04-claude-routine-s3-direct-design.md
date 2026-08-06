@@ -123,27 +123,37 @@ BE 퀴즈 테이블 신설 시 `difficulty`·`points` 칼럼과 정답/오답 �
 
 - **문항**: S3 `quiz-candidates/{KST날짜}/*.json` (기존 경로·envelope 유지 +
   §5.3 필드). 소비: BE 임포터가 RDB 적재 — 적재 방식·주기는 BE 소유.
-- **위키**: S3 `wiki/` (기존 계약 그대로 — players/*.md, graph.json,
-  trending.md, _meta/).
-- **위키 원본 = git (확정·구축 완료 2026-08-04)**: 위키의 진실의 원천은 전용
-  리포 [VictoryFairy_WIKI](https://github.com/ParkJaeHwan-906/VictoryFairy_WIKI)의
-  **dev 브랜치**다 (main은 워크플로 전용 — schedule은 기본 브랜치에서만 발화).
-  루틴(무인) 세션의 GitHub 쓰기는 리포 종류와 무관하게 차단됨이 3회 실측(메인
-  리포 push·Contents API·전용 리포 push 전부 무산출)으로 확정됐으므로, 흐름을
-  다음처럼 구성한다 (E2E 검증 완료):
+- **위키 = git 단일 원본 (2026-08-06 개정)**: 위키의 진실의 원천은 전용 리포
+  [VictoryFairy_WIKI](https://github.com/ParkJaeHwan-906/VictoryFairy_WIKI)의
+  **dev 브랜치**뿐이다. S3에 위키 사본을 두지 않는다.
 
   | 단계 | 주체 | 내용 |
   |---|---|---|
-  | 읽기 | 위키 빌더 루틴 | `git clone -b dev` 로 기존 위키 읽음 (public 리포 전제) |
-  | 쓰기 | 위키 빌더 루틴 | 갱신분을 S3 `wiki-outbox/` 에 상대경로 그대로 업로드 (유일한 반출 통로) |
-  | 반영 | Actions `wiki-sync` (화·금 07:30 KST) | outbox → dev 커밋 → dev `wiki/` → S3 `wiki/` 역동기화(퀴즈 루틴 읽기 캐시) → outbox 비움 |
-  | 사람 편집 | dev 직접 커밋/PR | 덮어써지지 않음 — 빌더가 다음 실행 때 그 위에서 작업 |
+  | 읽기 | 빌더·퀴즈 루틴 | `git clone --depth 1 -b dev` (public 리포 전제) |
+  | 쓰기 | 빌더 루틴 | `wiki/players/`·`graph.json`·`stats/trending.md`·`_meta/builder-runs/` → dev 커밋·푸시 |
+  | 쓰기 | 퀴즈 루틴 | `wiki/stats/`(season·kbo-official)·`_meta/casebook/`·`_meta/template-proposals/` → dev 커밋·푸시 |
+  | 사람 편집 | dev 직접 커밋/PR | 덮어써지지 않음 — 루틴이 다음 실행 때 그 위에서 작업 |
 
-  IAM 롤 `vf-wiki-mirror-gha`(OIDC 무키): `wiki/*`·`wiki-outbox/*` 한정
-  읽기/쓰기. S3 `wiki/`는 원본이 아니라 **파생 캐시**로 지위가 바뀐다. 주의:
-  리포가 private로 전환되면 루틴의 public clone이 깨지므로, 전환 시 읽기 전용
-  PAT를 환경변수로 주입하는 방식으로 교체해야 한다. 기존 dev_wiki 브랜치는
+  주의: 리포가 private로 전환되면 루틴의 public clone이 깨지므로, 전환 시 읽기
+  전용 PAT를 환경변수로 주입하는 방식으로 교체해야 한다. 기존 dev_wiki 브랜치는
   폐기 — 삭제는 룰셋 제한으로 관리자 소관.
+
+- **폐기된 outbox 우회로 (2026-08-04 ~ 08-06)**: 원래는 "루틴 세션의 GitHub
+  쓰기가 리포 종류와 무관하게 차단된다"고 3회 실측으로 결론짓고, 빌더가 S3
+  `wiki-outbox/`로 반출하면 Actions `wiki-sync`가 대신 커밋하고 S3 `wiki/`를
+  읽기 캐시로 역동기화하는 구조를 썼다.
+
+  **그 진단이 틀렸다.** 막힌 것은 권한 종류가 아니라 **claude.ai 계정에 연결된
+  GitHub 자격증명에 write가 없었던 것**이고, `/web-setup`으로 로컬 gh 토큰을
+  계정에 동기화하자 해소됐다(2026-08-06 실측: `git push` 성공). 증상이 헷갈린
+  이유는 리포가 public이라 clone이 무자격으로도 되기 때문이다 — 세션이 코드는
+  멀쩡히 읽고 push에서만 403이 나서 "read-only 권한"처럼 보였다. 거부 지점도
+  단서였다: `git-receive-pack` 광고 단계의 403은 GitHub이 ref 이름을 보기도 전에
+  끊은 것으로, 브랜치 보호 문제였다면 훨씬 뒤에 GH013이 떴을 것이다.
+
+  따라서 `wiki-outbox/`·`wiki-sync` 워크플로·S3 `wiki/` 읽기 캐시·IAM 롤
+  `vf-wiki-mirror-gha`·배포 키를 전부 폐기했다. 사본이 사라지면서 "S3 `wiki/`에
+  직접 쓰면 다음 `--delete` 동기화에 지워진다"는 함정도 함께 없어졌다.
 
 ## 7. 스케줄
 

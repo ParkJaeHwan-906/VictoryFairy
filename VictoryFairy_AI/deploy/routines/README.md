@@ -11,7 +11,7 @@ routine으로 운영에 올리는 절차. IAM 사용자 발급부터 routine 등
 > 나서 콘솔에 붙여 넣는다. 프롬프트가 곧 실행 코드인데 콘솔에만 두면 이력도
 > 리뷰도 남지 않는다.
 >
-> 전체 스케줄 목록(크롤 Lambda 6개 + routine 2개 + wiki-sync)은
+> 전체 스케줄 목록(크롤 Lambda 6개 + routine 2개)은
 > `VictoryFairy_AI/docs/SCHEDULES.md` 참고.
 
 ## 1. IAM 사용자 생성 · 정책 attach · access key 발급
@@ -20,6 +20,10 @@ routine 2개는 같은 S3 버킷의 서로 겹치는 prefix만 쓰므로 IAM 사
 공유한다(`iam-policy-routines.json`, S3 전용 최소 권한 — 읽기
 `question-source/*`·`kbo-records/*`·`validation/bedrock/success/*`, 읽기+쓰기
 `wiki/*`·`quiz-candidates/*`, 조건부 `ListBucket`).
+
+> **2026-08-06**: 위키가 S3에서 git으로 옮겨가 `wiki/*` 권한은 더 이상 쓰이지
+> 않는다(정책에는 남아 있다 — 좁히는 건 별건). 위키 리포 쓰기는 IAM이 아니라
+> claude.ai 계정에 연결된 GitHub 자격증명이 담당한다.
 
 실버킷명은 여기에 하드코딩하지 않는다 — `py-collector/.env`의
 `COLLECTOR_S3_BUCKET` 값을 그대로 쓴다. 현재 값은 이 문서에 적지 않는다

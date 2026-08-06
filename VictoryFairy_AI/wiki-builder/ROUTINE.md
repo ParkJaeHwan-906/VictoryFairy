@@ -11,17 +11,32 @@ routine 자신이 "LLM 병합 엔진"이므로, 3단계(LLM 병합)·4단계(tre
 - **모델**: Sonnet 5
 - **소요 상한**: 1회 실행 60분(그 시점까지 처리 못 한 선수·게시글은 스킵 목록에
   남기고 다음 실행이 이어서 처리 — 아래 "실패 처리" 참고)
-- **재실행 안전성**: 문서 단위로 독립적으로 S3에 덮어쓴다(멱등). 실행이 중단돼도
-  이미 업로드된 선수 문서는 그대로 유효하고, 다음 실행이 `wiki/_meta/builder-runs/`의
+- **재실행 안전성**: 문서 단위로 독립적으로 덮어쓴다(멱등). 실행이 중단돼도
+  이미 커밋된 선수 문서는 그대로 유효하고, 다음 실행이 `wiki/_meta/builder-runs/`의
   마지막 성공 시각부터 이어서 처리한다 — 처음부터 다시 돌 필요 없음(스펙 §5)
+
+## 위키의 원본은 git이다
+
+**위키의 유일한 원본은 `VictoryFairy_WIKI` 리포의 `dev` 브랜치**이고, 이 routine은
+그 리포를 클론해 고친 뒤 직접 커밋·푸시한다. S3에 위키 사본을 두지 않는다.
+
+2026-08-06 이전에는 루틴 세션이 GitHub에 푸시할 수 없어서 S3 `wiki-outbox/`로
+갱신분을 반출하고 GitHub Actions(`wiki-sync`)가 대신 커밋하는 구조였다. 원인은
+권한이 아니라 **claude.ai 계정에 연결된 GitHub 자격증명에 write가 없었던 것**이고,
+`/web-setup`으로 그 자격증명을 교체해 해소됐다. 리포가 public이라 clone은 무자격으로도
+되기 때문에 "읽기는 되는데 쓰기만 막힌다"처럼 보였을 뿐이다. outbox·`wiki-sync`·
+S3 `wiki/` 읽기 캐시는 그 우회로였으므로 전부 폐기했다.
 
 ## 사전 조건
 
-- 환경변수 `S3_BUCKET` (예: `victoryfairy-crawl-dev`)
-- routine 전용 최소 권한 IAM 자격증명(`question-source/`·`kbo-records/` 읽기,
-  `wiki/` 읽기+쓰기) — 발급·배포는 Task 11 소관, 이 문서는 자격증명이 이미 환경에
-  주입돼 있다고 가정한다
+- 환경변수 `S3_BUCKET` (예: `victoryfairy-crawl-dev`) — **입력**(크롤 게시글·선수
+  프로필·밈 시드)을 읽는 용도로만 쓴다. 위키 산출물은 S3로 가지 않는다
+- routine 전용 최소 권한 IAM 자격증명(`question-source/`·`validation/` 읽기) —
+  이 문서는 자격증명이 이미 환경에 주입돼 있다고 가정한다
+- GitHub 쓰기 자격증명 — claude.ai 계정에 연결된 것을 세션이 자동으로 쓴다.
+  프롬프트나 이 문서에 토큰을 적지 않는다
 - `aws` CLI (자격증명 확인: `aws sts get-caller-identity`)
+- `git` (커밋 주체는 세션 기본값 `Claude <noreply@anthropic.com>`)
 - Python 실행기: `py-collector/.venv/bin/python` (PyYAML·boto3 기설치 — 이
   venv를 그대로 쓴다. `question-gen/requirements.txt`는 PyYAML만 요구하므로
   `pip install -r question-gen/requirements.txt`로 새 venv를 구성해도 되지만,
@@ -29,10 +44,22 @@ routine 자신이 "LLM 병합 엔진"이므로, 3단계(LLM 병합)·4단계(tre
   `py-collector/.venv`에 이미 설치돼 있으므로 이 routine은 별도 설치 단계 없이
   그 venv를 그대로 재사용한다)
 - 작업 디렉토리: `VictoryFairy_AI/`. 아래 모든 명령은 이 디렉토리를 cwd로 실행한다.
-  임시 작업물은 `.work/`에 모으고(로컬 클론된 routine 워크스페이스, git 추적 대상
-  아님), 실행 끝에 `.work/wiki/`만 S3로 올린다.
+  임시 작업물은 `.work/`에 모은다(이 리포의 git 추적 대상 아님). 위키는
+  `.work/wiki-repo/`에 클론하고, 그 안의 `wiki/`가 모든 편집 대상이다
 
 ## 절차
+
+### 0. 위키 클론
+
+```bash
+rm -rf .work/wiki-repo
+git clone --depth 1 -b dev \
+  https://github.com/ParkJaeHwan-906/VictoryFairy_WIKI.git .work/wiki-repo
+```
+
+`--depth 1`이면 충분하다 — 이 routine은 이력을 읽지 않고 최신 상태 위에 덮어쓴다.
+클론이 실패하면 **여기서 중단한다**: 기존 문서를 못 읽은 채 진행하면 3단계 병합이
+빈 문서에서 시작해 누적된 위키를 통째로 날린다.
 
 ### 1. 증분 파악
 
@@ -43,8 +70,9 @@ routine 자신이 "LLM 병합 엔진"이므로, 3단계(LLM 병합)·4단계(tre
 : "${S3_BUCKET:?S3_BUCKET 환경변수를 설정하라}"
 mkdir -p .work/posts
 
-LAST_RUN_KEY=$(aws s3 ls "s3://$S3_BUCKET/wiki/_meta/builder-runs/" 2>/dev/null \
-  | awk '{print $4}' | sort | tail -1)
+# 마커는 위키 리포 안에 있다(0단계에서 클론됨) — S3가 아니다.
+LAST_RUN_KEY=$(ls .work/wiki-repo/wiki/_meta/builder-runs/ 2>/dev/null \
+  | sort | tail -1)
 
 if [ -n "$LAST_RUN_KEY" ]; then
   LAST_RUN_ISO="${LAST_RUN_KEY%.json}"
@@ -75,11 +103,11 @@ done
 
 ### 2. 참조 데이터 동기화
 
-`player_profile`(선수 명단, 최신 파티션만), `player_meme`(밈 시드, 전체),
-기존 `wiki/players/`(병합 대상 기존 문서)를 `.work/`로 내려받는다.
+`player_profile`(선수 명단, 최신 파티션만)과 `player_meme`(밈 시드, 전체)을
+`.work/`로 내려받는다.
 
 ```bash
-mkdir -p .work/player_profile .work/player_meme .work/wiki/players
+mkdir -p .work/player_profile .work/player_meme
 
 LATEST_PROFILE_DATE=$(aws s3 ls "s3://$S3_BUCKET/question-source/player_profile/" \
   2>/dev/null | awk '{print $2}' | tr -d '/' | sort | tail -1)
@@ -94,9 +122,9 @@ fi
 
 aws s3 sync "s3://$S3_BUCKET/question-source/player_meme/" .work/player_meme/ \
   --exclude "*" --include "*.json"
-aws s3 sync "s3://$S3_BUCKET/wiki/players/" .work/wiki/players/ \
-  --exclude "*" --include "*.md"
 ```
+
+기존 `wiki/players/`는 따로 내려받지 않는다 — 0단계 클론에 이미 들어 있다.
 
 `player_profile` 파티션이 비어 있으면(2026-07-30 기준 실측: 운영 버킷에 아직
 0건) 이번 실행은 선수 매칭이 전혀 안 되므로, 로그에 그 사실을 남기고 3~4단계를
@@ -156,14 +184,14 @@ PY
 **3-2. 선수별 병합(LLM, 이 세션이 직접 수행)** — `.work/groups/`에 후보가 생긴
 `kboPlayerId`마다 반복한다:
 
-1. `.work/wiki/players/{kboPlayerId}.md`를 Read(없으면
+1. `.work/wiki-repo/wiki/players/{kboPlayerId}.md`를 Read(없으면
    `wiki-builder/templates/player-doc.md`를 시작점으로 Read)
 2. `.work/groups/{kboPlayerId}.txt`에 나열된 게시글 파일을 모두 Read
 3. `.work/player_meme/`의 밈 시드 envelope 중 이 선수(`entities.playerUids[0]`
    또는 이름 매칭)에 해당하는 것을 모두 Read(선택 입력 — 스텝 2에서 이미 동기화됨)
 4. `wiki-builder/prompts/merge-rules.md` 전문을 규칙으로 적용해 병합 — 매칭
    확신 없는 게시글은 그 선수의 스킵 목록에 사유와 함께 남긴다(규칙 6)
-5. 결과를 `.work/wiki/players/{kboPlayerId}.md`에 Write(덮어쓰기)
+5. 결과를 `.work/wiki-repo/wiki/players/{kboPlayerId}.md`에 Write(덮어쓰기)
 
 이 서브루틴을 로컬에서 오프라인으로 재현/검증할 때는(운영 실행에서는 쓰지 않음,
 드라이런 전용) 이 세션 대신 하위 프로세스로 `claude -p`를 호출해 같은 입력을
@@ -172,7 +200,7 @@ PY
 ```bash
 MERGE_RULES=$(cat wiki-builder/prompts/merge-rules.md) || {
   echo "wiki-builder/prompts/merge-rules.md를 열 수 없음 — 중단" >&2; exit 1; }
-EXISTING_DOC=$(cat ".work/wiki/players/$KBO_ID.md" 2>/dev/null) || true
+EXISTING_DOC=$(cat ".work/wiki-repo/wiki/players/$KBO_ID.md" 2>/dev/null) || true
 if [ -z "$EXISTING_DOC" ]; then
   EXISTING_DOC=$(cat wiki-builder/templates/player-doc.md) || {
     echo "wiki-builder/templates/player-doc.md를 열 수 없음 — 중단" >&2; exit 1; }
@@ -190,7 +218,7 @@ $(for f in $(cat ".work/groups/$KBO_ID.txt"); do cat "$f"; echo; done)
 $(cat ".work/player_profile/player_profile:$KBO_ID.json" 2>/dev/null)
 
 위 규칙을 지켜 이 선수의 위키 문서 전문(front-matter 포함)을 갱신해 출력하라." \
-  --model sonnet > ".work/wiki/players/$KBO_ID.md"
+  --model sonnet > ".work/wiki-repo/wiki/players/$KBO_ID.md"
 ```
 
 `cat`이 조용히 실패해 규칙 없이(또는 빈 템플릿 없이) 프롬프트가 조립되는 것을
@@ -201,16 +229,16 @@ $(cat ".work/player_profile/player_profile:$KBO_ID.json" 2>/dev/null)
 ### 4. trending.md
 
 이번 실행에서 읽은(`.work/posts/`) 정제 게시글만으로 급증 키워드·화제 선수
-top 10을 뽑아 `.work/wiki/stats/trending.md`로 요약한다. 이전 실행 결과를
+top 10을 뽑아 `.work/wiki-repo/wiki/stats/trending.md`로 요약한다. 이전 실행 결과를
 누적하지 않는다(이번 실행분 전용 — `최근 여론` 섹션과 같은 원칙). 이 세션이
 직접 `.work/posts/`를 훑고 `question-gen/config/banned-topics.txt`에 걸리는
 토픽(음주·폭행·마약·도박·승부조작·사생활·병역·학폭·건강 문제 등)은 후보에서
 제외한 뒤 작성한다.
 
 ```bash
-mkdir -p .work/wiki/stats
+mkdir -p .work/wiki-repo/wiki/stats
 cat question-gen/config/banned-topics.txt   # 제외 목록 확인(이 세션이 직접 대조)
-# -> .work/wiki/stats/trending.md 작성(Write 도구)
+# -> .work/wiki-repo/wiki/stats/trending.md 작성(Write 도구)
 ```
 
 ### 5. all-time-records.md 렌더
@@ -265,7 +293,7 @@ for category in categories:
         lines.append(f"| {entry.get('rank', '')} | {entry.get('name', '')} | {entry.get('value', '')} |")
     lines.append("")
 
-out = Path(".work/wiki/stats/all-time-records.md")
+out = Path(".work/wiki-repo/wiki/stats/all-time-records.md")
 out.parent.mkdir(parents=True, exist_ok=True)
 out.write_text("\n".join(lines), encoding="utf-8")
 print(f"렌더 완료: {out}")
@@ -280,58 +308,50 @@ PY
 
 ### 6. 그래프 컴파일
 
-전체 `.work/wiki/players/*.md`의 front-matter(`relations` + 팀 소속)를 훑어
+전체 `.work/wiki-repo/wiki/players/*.md`의 front-matter(`relations` + 팀 소속)를 훑어
 `graph.json`을 재컴파일한다(Task 7 산출물, 결정적).
 
 ```bash
 if py-collector/.venv/bin/python wiki-builder/scripts/compile_graph.py \
-     --players-dir .work/wiki/players --out .work/wiki/graph.json.tmp; then
-  mv .work/wiki/graph.json.tmp .work/wiki/graph.json
-  echo "그래프 컴파일 성공 — .work/wiki/graph.json 갱신"
+     --players-dir .work/wiki-repo/wiki/players --out .work/wiki-repo/wiki/graph.json.tmp; then
+  mv .work/wiki-repo/wiki/graph.json.tmp .work/wiki-repo/wiki/graph.json
+  echo "그래프 컴파일 성공 — .work/wiki-repo/wiki/graph.json 갱신"
 else
   COMPILE_EXIT=$?
-  echo "그래프 컴파일 실패(exit=$COMPILE_EXIT) — .work/wiki/graph.json.tmp 폐기, 업로드 대상에서 제외" >&2
-  rm -f .work/wiki/graph.json.tmp
+  echo "그래프 컴파일 실패(exit=$COMPILE_EXIT) — .work/wiki-repo/wiki/graph.json.tmp 폐기, 업로드 대상에서 제외" >&2
+  rm -f .work/wiki-repo/wiki/graph.json.tmp
 fi
 ```
 
 **exit code를 반드시 확인한다** — `compile_graph.py`가 예외로 죽거나 도중에
-강제 종료되면(타임아웃 등) `.work/wiki/graph.json.tmp`만 불완전한 상태로 남고
-`.work/wiki/graph.json`은 손대지 않는다(동일 파일시스템에서 `mv`는 원자적
+강제 종료되면(타임아웃 등) `.work/wiki-repo/wiki/graph.json.tmp`만 불완전한 상태로 남고
+`.work/wiki-repo/wiki/graph.json`은 손대지 않는다(동일 파일시스템에서 `mv`는 원자적
 rename이라, 컴파일이 성공해 exit code 0을 반환한 뒤에만 최종 경로로
-옮겨진다). 이 패턴이 없으면 `--out .work/wiki/graph.json`에 직접 쓰다가
-중간에 끊긴 손상된 JSON이 파일로는 "존재"하게 되어, 7단계의 존재 여부 검사만
-통과해 S3의 정상 이전 버전을 덮어쓸 수 있다 — 임시 파일 경유가 그 위험을
-차단하는 핵심 장치다. `compile_graph.py` 자체는 수정하지 않는다(문서 레벨
+옮겨진다). 이 패턴이 없으면 `--out .work/wiki-repo/wiki/graph.json`에 직접 쓰다가
+중간에 끊긴 손상된 JSON이 그대로 커밋돼 `dev`의 정상 이전 버전을 덮어쓸 수 있다 —
+임시 파일 경유가 그 위험을 차단하는 핵심 장치다(실패하면 클론된 원본이 그대로 남아
+git이 변경 없음으로 본다). `compile_graph.py` 자체는 수정하지 않는다(문서 레벨
 가드로 충분).
 
-### 7. 업로드
+### 7. 커밋·푸시
 
-`.work/wiki/`를 그대로 `s3://$S3_BUCKET/wiki/`에 동기화한다(문서별 멱등
-덮어쓰기). 이번 실행의 처리 게시글 수·갱신 문서 수·스킵 목록을 실행 로그로
-남긴다.
+편집한 `.work/wiki-repo/wiki/`를 `dev`에 커밋해 푸시한다. 실행 로그(마커)도 같은
+커밋에 넣는다 — 산출물과 마커가 한 커밋으로 원자적으로 올라가야 "마커는 올라갔는데
+문서는 안 올라간" 상태가 생기지 않는다(예전 S3 경로에서는 업로드 순서로 이 문제를
+막았지만, git은 커밋 하나로 끝난다).
 
 ```bash
-# 6단계가 exit code 0으로 mv까지 끝냈을 때만 .work/wiki/graph.json이 존재한다
-# (임시 파일 경유 원자적 쓰기 — 6단계 참고). 없으면 업로드 대상에서 제외해
-# S3의 이전 버전을 보존한다. *.tmp는 정리에 실패한 잔여물이 있어도 절대
-# 업로드하지 않도록 항상 제외한다.
-if [ ! -f .work/wiki/graph.json ]; then
-  echo "graph.json 컴파일 실패/스킵 — 이전 버전 유지, 이번 업로드에서 제외" >&2
-  EXCLUDE_GRAPH=(--exclude "graph.json" --exclude "*.tmp")
-else
-  EXCLUDE_GRAPH=(--exclude "*.tmp")
-fi
+cd .work/wiki-repo
 
-# .md는 Content-Type에 charset=utf-8을 명시한다 — 없으면 파일 바이트는 멀쩡해도
-# S3 콘솔/브라우저 미리보기가 라틴 인코딩으로 렌더해 한글이 깨져 보인다(2026-08-01
-# 실측). 사람이 콘솔에서 위키를 검수하는 경로라 md만 두 번째 패스로 나눠 올린다.
-aws s3 sync .work/wiki/ "s3://$S3_BUCKET/wiki/" "${EXCLUDE_GRAPH[@]}" \
-  --exclude "*" --include "*.md" --content-type "text/markdown; charset=utf-8"
-aws s3 sync .work/wiki/ "s3://$S3_BUCKET/wiki/" "${EXCLUDE_GRAPH[@]}" --exclude "*.md"
+# 6단계가 exit code 0으로 mv까지 끝냈을 때만 wiki/graph.json이 갱신돼 있다(임시
+# 파일 경유 원자적 쓰기 — 6단계 참고). 실패했으면 파일이 클론된 이전 버전 그대로라
+# git이 변경 없음으로 보고 자연히 커밋에서 빠진다. *.tmp 잔여물은 절대 커밋하지
+# 않는다.
+rm -f wiki/*.tmp wiki/**/*.tmp
 
 RUN_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-cat > ".work/run-log.json" <<JSON
+mkdir -p wiki/_meta/builder-runs
+cat > "wiki/_meta/builder-runs/$RUN_ISO.json" <<JSON
 {
   "runAt": "$RUN_ISO",
   "postsProcessed": <이번 실행에서 읽은 게시글 수>,
@@ -339,24 +359,44 @@ cat > ".work/run-log.json" <<JSON
   "skipped": [<선수 매칭 보류/거부 목록 — 사유 포함>]
 }
 JSON
-aws s3 cp ".work/run-log.json" "s3://$S3_BUCKET/wiki/_meta/builder-runs/$RUN_ISO.json"
+
+git add -A wiki/
+if git diff --cached --quiet; then
+  echo "갱신된 문서 없음 — 커밋 생략"
+else
+  git commit -m "wiki: builder run $RUN_ISO"
+  # 퀴즈 루틴도 같은 브랜치에 쓴다(stats·casebook) — 그 사이 올라온 커밋이 있으면
+  # rebase 후 재시도한다. 서로 건드리는 파일이 달라 충돌은 사실상 없다.
+  git push origin dev || {
+    git pull --rebase origin dev && git push origin dev
+  }
+fi
+cd -
 ```
 
-마커(`builder-runs/{ISO}.json`)는 **문서·그래프 업로드가 끝난 뒤 마지막에** 쓴다
-— 먼저 쓰면 산출물 없이 완결로 보여 다음 실행이 그 구간을 재처리하지 않게 된다.
+**푸시 실패는 실패로 보고한다.** 예전 outbox 구조에서는 반출만 하면 나중에 Actions가
+재시도해줬지만, 이제 푸시가 곧 반영이라 실패하면 그 실행의 산출물은 사라진다. 다음
+실행이 같은 증분 구간을 다시 훑으므로 데이터가 영구히 유실되지는 않는다(마커도 같은
+커밋에 있어 함께 롤백된다).
 
 ## 실패 처리
 
-- **부분 실패(일부 선수만 갱신 성공)**: 성공한 문서만 업로드하고, 실패/스킵한
+- **0단계 클론 실패**: 즉시 중단한다. 기존 문서를 못 읽은 채 병합하면 빈 문서에서
+  시작해 누적된 위키를 통째로 날린다 — 이 routine에서 유일하게 회복 불가능한
+  실패 모드다.
+- **부분 실패(일부 선수만 갱신 성공)**: 성공한 문서만 커밋하고, 실패/스킵한
   선수는 실행 로그의 `skipped`에 사유와 함께 남긴다. 다음 실행이 증분 기준
   (1단계)에 따라 같은 날짜 구간을 다시 훑으므로 자연히 이어서 처리된다.
 - **그래프 컴파일 실패**: 6단계의 임시 파일(`.tmp`) + exit code 확인 + `mv`
-  패턴 덕에 실패 시 `.work/wiki/graph.json`이 아예 존재하지 않는다 — 7단계가
-  이를 감지해 업로드를 생략하고 S3의 이전 버전을 그대로 유지한다(퀴즈
+  패턴 덕에 실패 시 `wiki/graph.json`이 클론된 이전 버전 그대로 남는다 — git이
+  변경 없음으로 보고 커밋에서 자연히 빠지므로 `dev`의 이전 버전이 유지된다(퀴즈
   생성기는 stale 그래프로도 동작 가능 — 스펙 §5).
 - **`player_profile` 파티션 부재**: 2단계에서 감지되면 3~4단계를 건너뛰고
   빈 실행 로그만 남긴 채 종료한다(운영 갭 — Task 11에서 다룰 스케줄링 이슈,
   이 routine의 책임이 아니다).
-- **60분 소요 상한 초과**: 그 시점까지 처리한 선수까지만 업로드하고 남은
-  후보는 스킵 목록에 남긴다 — 강제 종료해도 이미 업로드된 문서는 안전하다
-  (문서 단위 독립 커밋).
+- **푸시 실패**: 그 실행의 산출물은 반영되지 않는다. 마커가 같은 커밋에 있으므로
+  증분 기준도 함께 롤백돼, 다음 실행이 같은 구간을 다시 훑는다 — 데이터 유실은
+  없고 한 주기 늦어질 뿐이다. 실패 지점과 에러 전문을 보고한다.
+- **60분 소요 상한 초과**: 그 시점까지 처리한 선수까지만 커밋하고 남은
+  후보는 스킵 목록에 남긴다 — 강제 종료돼 커밋조차 못 했으면 다음 실행이
+  증분 기준에 따라 같은 구간을 다시 처리한다.

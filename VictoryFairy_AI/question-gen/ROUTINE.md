@@ -27,15 +27,18 @@ Claude Code 클라우드 스케줄 잡(routine)이 실행마다 그대로 따르
   공통 문항은 마지막에 만든다(응원팀 경기 문제가 서비스 가치의 핵심).
 - **재실행 안전성**: `quizId`가 `(templateId, 대상 엔티티)` 사전순으로 결정적으로
   부여되므로(`generation-rules.md` §7), 같은 날 재실행해도 같은 문제는 같은
-  `quizId`로 멱등 덮어쓰기된다 — S3 `quiz-candidates/{date}/`가 유일한 산출 대상이고
-  리포 커밋은 하지 않는다(routine은 S3 전용)
+  `quizId`로 멱등 덮어쓰기된다. 산출 대상은 둘이다 — 문항은 S3
+  `quiz-candidates/{date}/`, 통계·casebook·템플릿 제안은 `VictoryFairy_WIKI` 리포의
+  `dev` 브랜치(8단계에서 한 번에 커밋). **이 리포(VictoryFairy)에는 커밋하지 않는다**
 
 ## 사전 조건
 
 - 환경변수 `S3_BUCKET` (예: `victoryfairy-crawl-dev`)
-- routine 전용 최소 권한 IAM 자격증명(`question-source/`·`kbo-records/`·`wiki/` 읽기,
-  `wiki/`·`quiz-candidates/` 쓰기) — 발급·배포는 Task 11 소관, 이 문서는 자격증명이
-  이미 환경에 주입돼 있다고 가정한다
+- routine 전용 최소 권한 IAM 자격증명(`question-source/`·`kbo-records/`·
+  `quiz-candidates/` 읽기, `quiz-candidates/` 쓰기) — 이 문서는 자격증명이
+  이미 환경에 주입돼 있다고 가정한다. **위키는 S3가 아니라 git에서 읽는다**
+- GitHub 쓰기 자격증명 — claude.ai 계정에 연결된 것을 세션이 자동으로 쓴다
+  (통계·casebook을 위키 리포에 커밋). 프롬프트나 이 문서에 토큰을 적지 않는다
 - `aws` CLI (자격증명 확인: `aws sts get-caller-identity`). 클라우드 세션 VM에
   없으면 `python3 -m pip install --quiet awscli`로 설치한다(환경 setup script에
   넣어두면 캐시되어 더 빠르다)
@@ -46,8 +49,9 @@ Claude Code 클라우드 스케줄 잡(routine)이 실행마다 그대로 따르
 - 작업 디렉토리: `VictoryFairy_AI/`. 아래 모든 명령은 이 디렉토리를 cwd로 실행하고,
   파일 참조는 항상 `question-gen/` 프리픽스를 붙인다(`question-gen/config/...`,
   `question-gen/scripts/...`, `question-gen/prompts/...`). 임시 작업물은 `.work/`에
-  모으고(git 추적 대상 아님), 실행 끝에 `.work/quiz-candidates/{date}/`(업로드 대상)만
-  S3로 올린다
+  모으고(이 리포의 git 추적 대상 아님), 실행 끝에
+  `.work/quiz-candidates/{date}/`(업로드 대상)만 S3로 올린다. 위키 리포는
+  `.work/wiki-repo/`에 클론하고 그 안의 `wiki/`를 읽는다(통계·casebook은 그리로 커밋)
 
 ## 절차
 
@@ -67,13 +71,13 @@ Claude Code 클라우드 스케줄 잡(routine)이 실행마다 그대로 따르
 경기만 대상 — `game_schedule` export는 KST-오늘 날짜로 호출되고 C1 수정 이후 그
 날짜가 그대로 파티션 키가 되므로 `$TODAY`를 KST로 잡기만 하면 항상 일치한다),
 `question-source/player_profile/`는 **가장 최신 파티션 하나만**(명단은 스냅샷
-성격, 날짜 창이 필요 없음), `wiki/`는 **전체**(위키 빌더 산출물 — 문서·그래프·통계
-축적 층)를 `.work/`로 내려받는다.
+성격, 날짜 창이 필요 없음)을 `.work/`로 내려받는다. 위키(문서·그래프·통계 축적
+층)는 S3가 아니라 **`VictoryFairy_WIKI` 리포 `dev` 브랜치를 클론**해서 읽는다.
 
 ```bash
 : "${S3_BUCKET:?S3_BUCKET 환경변수를 설정하라}"
 mkdir -p .work/game_result .work/game_schedule .work/player_profile \
-  .work/kbo-records .work/wiki .work/quiz-candidates .work/stats
+  .work/kbo-records .work/quiz-candidates .work/stats
 
 # 이 routine의 "오늘"은 KST다(리뷰 I1) — game_schedule 오늘 파티션, quiz-candidates
 # 업로드 경로, casebook/템플릿 제안 파일명 등 아래 모든 $TODAY 파생 경로가 KST
@@ -110,9 +114,17 @@ if [ -n "$LATEST_PROFILE_DATE" ]; then
     .work/player_profile/ --exclude "*" --include "*.json"
 fi
 
-aws s3 sync "s3://$S3_BUCKET/wiki/" .work/wiki/
 aws s3 sync "s3://$S3_BUCKET/kbo-records/" .work/kbo-records/
+
+# 위키는 S3가 아니라 git이 원본이다. public 리포라 자격증명 없이 클론된다.
+rm -rf .work/wiki-repo
+git clone --depth 1 -b dev \
+  https://github.com/ParkJaeHwan-906/VictoryFairy_WIKI.git .work/wiki-repo \
+  || echo "경고: 위키 클론 실패 — wiki.*·graph·stats.trending needs 템플릿은 오늘 제외" >&2
 ```
+
+위키 클론이 실패해도 이 routine은 계속 진행한다(그 needs를 쓰는 템플릿만
+빠진다) — 빌더와 달리 퀴즈는 위키 없이도 만들 수 있는 템플릿이 많다.
 
 `wiki/players/`·`wiki/graph.json`·`wiki/stats/trending.md`가 아직 비어 있으면(위키
 빌더가 아직 그 산출물을 올리지 않은 상태) 3단계에서 `wiki.*`·`graph`·`stats.trending`
@@ -126,23 +138,27 @@ py-collector/.venv/bin/python question-gen/scripts/aggregate_stats.py \
   --envelopes-dir .work/game_result --kbo-dir .work/kbo-records \
   --out-dir .work/stats --date "$TODAY"
 
-# .md는 charset=utf-8 명시(없으면 S3 콘솔 미리보기에서 한글 mojibake —
-# wiki-builder/ROUTINE.md 7단계와 같은 이유), .json은 기본 추론으로 충분해 나눠 올린다.
-aws s3 sync .work/stats/ "s3://$S3_BUCKET/wiki/stats/" \
-  --exclude "*" --include "season.md" --include "kbo-official.md" \
-  --content-type "text/markdown; charset=utf-8"
-aws s3 sync .work/stats/ "s3://$S3_BUCKET/wiki/stats/" \
-  --exclude "*" --include "season.json" --include "kbo-official.json"
+# 위키 클론이 있으면 그 안의 stats/ 에 반영한다(커밋·푸시는 8단계에서 한 번에).
+# 4개 파일만 이름으로 지정해 복사한다 — trending.md·all-time-records.md 는 위키
+# 빌더 소관이라 절대 건드리지 않는다.
+if [ -d .work/wiki-repo/wiki ]; then
+  mkdir -p .work/wiki-repo/wiki/stats
+  for f in season.json season.md kbo-official.json kbo-official.md; do
+    [ -f ".work/stats/$f" ] && cp ".work/stats/$f" ".work/wiki-repo/wiki/stats/$f"
+  done
+fi
 ```
 
-`season.json`·`season.md`·`kbo-official.json`·`kbo-official.md` 4개 파일만 갱신한다
-— `trending.md`·`all-time-records.md`는 위키 빌더 소관이라 이 단계에서 건드리지
-않는다(`--include` 화이트리스트로 실수로 다른 파일을 지우지 않게 방어).
+`season.json`·`season.md`·`kbo-official.json`·`kbo-official.md` 4개 파일만 갱신한다.
+파일명을 하나씩 지정해 복사하므로 `stats/`의 다른 파일은 손대지 않는다.
+
+이 단계에서 만든 통계는 **이번 실행이 곧바로 소비**한다(4단계 바인딩). 커밋은
+8단계로 미루므로, 도중에 실패하면 위키에는 아무것도 반영되지 않는다.
 
 ### 3. ① 템플릿 선택 (이 세션이 직접 수행)
 
 `question-gen/config/question-templates.yaml`을 로드해 `enabled: false`인 템플릿은
-제외하고, 오늘 `.work/game_schedule/$TODAY/`의 매치업, `.work/wiki/stats/
+제외하고, 오늘 `.work/game_schedule/$TODAY/`의 매치업, `.work/wiki-repo/wiki/stats/
 trending.md`(있으면), 최근 7일 `.work/quiz-candidates/`의 `templateId`·대상 엔티티
 분포를 보고 오늘 쓸 템플릿과 대상 엔티티를 정한다. 같은 템플릿이 최근 이력에서
 과다하게 반복됐으면 후순위로 미룬다. `needs`가 가리키는 데이터가 이번 동기화에
@@ -238,31 +254,46 @@ aws s3 cp --recursive "$VALIDATE_DIR/" "s3://$S3_BUCKET/quiz-candidates/$TODAY/"
 문항별 독립 파일이라 부분 실패 시에도 이미 올라간 파일은 유효하다(멱등 원칙 —
 동일 `quizId`는 재실행 시 그대로 덮어쓴다).
 
-### 8. casebook 갱신 + 신규 템플릿 제안
+### 8. 위키 리포 커밋 (통계 + casebook + 템플릿 제안)
+
+2단계에서 복사한 통계 4개 파일, 이번 실행에서 갱신한 casebook, 오늘의 템플릿 제안을
+**한 커밋으로** `VictoryFairy_WIKI`의 `dev`에 올린다.
+
+- casebook `good.md`/`bad.md`는 이 세션이 검증 패스 4단계(재미 채점) 결과로 직접
+  갱신한다 — 5점 사례는 `good.md`에, 2점 이하 사례는 사유와 함께 `bad.md`에 추가
+- 템플릿 제안은 오늘 데이터에서 가능해 보이는 새 아이디어 1~2개(카탈로그에 없어
+  못 만든 흥미로운 조합 등)를 이 세션이 직접 작성한다
 
 ```bash
-# good.md/bad.md는 이 세션이 검증 패스 4단계(재미 채점) 결과로 직접 갱신
-# (5점 사례 → good.md에 추가, 2점 이하 사례 → 사유와 함께 bad.md에 추가)
-aws s3 cp question-gen/casebook/good.md "s3://$S3_BUCKET/wiki/_meta/casebook/good.md" \
-  --content-type "text/markdown; charset=utf-8"
-aws s3 cp question-gen/casebook/bad.md "s3://$S3_BUCKET/wiki/_meta/casebook/bad.md" \
-  --content-type "text/markdown; charset=utf-8"
+if [ -d .work/wiki-repo/wiki ]; then
+  mkdir -p .work/wiki-repo/wiki/_meta/casebook \
+           .work/wiki-repo/wiki/_meta/template-proposals
+  cp question-gen/casebook/good.md .work/wiki-repo/wiki/_meta/casebook/good.md
+  cp question-gen/casebook/bad.md  .work/wiki-repo/wiki/_meta/casebook/bad.md
+  # 템플릿 제안은 없을 수도 있다(제안할 게 없으면 생략)
+  [ -f .work/template-proposals.md ] && cp .work/template-proposals.md \
+    ".work/wiki-repo/wiki/_meta/template-proposals/$TODAY.md"
+
+  cd .work/wiki-repo
+  git add -A wiki/
+  if git diff --cached --quiet; then
+    echo "위키에 반영할 변경 없음 — 커밋 생략"
+  else
+    git commit -m "wiki: quiz routine $TODAY (stats/casebook/proposals)"
+    # 위키 빌더(화·금 06:00)도 같은 브랜치에 쓴다 — 그 사이 커밋이 있으면 rebase
+    # 후 재시도. 서로 건드리는 파일이 달라 충돌은 사실상 없다.
+    git push origin dev || { git pull --rebase origin dev && git push origin dev; }
+  fi
+  cd -
+fi
 ```
 
-routine은 리포에 커밋하지 않는다(클라우드 세션, S3 전용) — 갱신본은 S3에만
-올리고, 주기적으로 사람이 `wiki/_meta/casebook/`의 최신본을 리포의
-`question-gen/casebook/`에 반영한다.
+casebook은 **리포 정본(`question-gen/casebook/`)이 아니라 위키 쪽 사본만** 갱신된다.
+주기적으로 사람이 위키의 최신본을 이 리포의 `question-gen/casebook/`에 반영한다
+(이 routine은 VictoryFairy 리포에 커밋하지 않는다).
 
-실행 말미에 오늘 데이터에서 가능해 보이는 새 템플릿 아이디어 1~2개(예: 이번 실행에서
-카탈로그에 없어 못 만든 흥미로운 조합)를 `wiki/_meta/template-proposals/$TODAY.md`로
-남긴다.
-
-```bash
-# (제안 내용은 이 세션이 오늘 실행 경험을 바탕으로 직접 작성)
-aws s3 cp .work/template-proposals.md \
-  "s3://$S3_BUCKET/wiki/_meta/template-proposals/$TODAY.md" \
-  --content-type "text/markdown; charset=utf-8" 2>/dev/null || true
-```
+푸시가 실패해도 **문항 업로드(7단계)는 이미 끝났으므로 그날 퀴즈는 유효하다** —
+실패 지점을 보고하고 종료한다. 통계·casebook은 다음 실행이 다시 만들어 올린다.
 
 **카탈로그 반영은 사람 승인 후 수동**이다 — 이 routine은 절대 `question-templates.yaml`
 을 스스로 수정하지 않는다(무검수 자동 추가 금지, 카탈로그가 안전·정산 정책의

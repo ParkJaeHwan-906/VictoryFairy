@@ -11,18 +11,22 @@
 ```
 03:00  game            크롤 → 오늘/어제 경기 일정·결과·중계
 03:30  records         완료 경기 → games / game_lineups (RDB)
-06:00  vf-wiki-builder 위키 갱신분 → S3 wiki-outbox/   (화·금)
+06:00  vf-wiki-builder 위키 갱신 → WIKI 리포 dev 커밋   (화·금)
 07:00  kbo-records     KBO 기록실 스냅샷 → S3
-07:30  wiki-sync       outbox → WIKI dev 커밋 → S3 캐시 (화·금)
 08:30  game-schedule   당일 예정경기 → S3
-08:50  vf-quiz-daily   퀴즈 후보 생성 → S3 quiz-candidates/
+08:50  vf-quiz-daily   퀴즈 후보 → S3 quiz-candidates/ + 통계·casebook → WIKI dev
 11:00  registrations   KBO 1군 등록명단 → players (RDB)
   ―    community       커뮤니티 증분 크롤
 ```
 
 순서에 의미가 있다. `vf-quiz-daily`(08:50)는 `game-schedule`(08:30)이 오늘
-경기를 올려둔 뒤라야 예측 문항을 만들 수 있고, `wiki-sync`(07:30)는
-`vf-wiki-builder`(06:00)가 outbox에 반출한 뒤라야 커밋할 게 있다.
+경기를 올려둔 뒤라야 예측 문항을 만들 수 있고, `vf-wiki-builder`(06:00)보다
+뒤에 있어야 그날 갱신된 위키를 읽는다.
+
+두 루틴 모두 `VictoryFairy_WIKI`의 `dev`에 커밋한다. 건드리는 파일이 다르고
+(빌더는 `players/`·`graph.json`, 퀴즈는 `stats/`·`_meta/`) 시각도 겹치지 않아
+충돌은 사실상 없지만, 양쪽 절차 모두 푸시 거부 시 `pull --rebase` 후 1회
+재시도한다.
 
 ## 등록 위치
 
@@ -36,25 +40,14 @@
 | `registrations` | 1군 등록명단 → RDB | Lambda | 〃 |
 | `vf-quiz-daily` | 퀴즈 후보 생성 | Claude Code 루틴 | `VictoryFairy_AI/deploy/routines/vf-quiz-daily.prompt.md` |
 | `vf-wiki-builder` | 위키 문서 갱신 | Claude Code 루틴 | `VictoryFairy_AI/deploy/routines/vf-wiki-builder.prompt.md` |
-| `wiki-sync` | outbox → 위키 커밋·캐시 | GitHub Actions | `.github/workflows/wiki-sync.yml` (**`main` 브랜치**) |
 
-전부 이 리포에서 관리한다 — 위키 리포에는 위키 문서만 둔다(2026-08-06 이관,
-PR #153).
+전부 이 리포에서 관리한다 — 위키 리포에는 위키 문서만 둔다.
 
-`wiki-sync`만 `main` 브랜치에 있는 이유는 **GitHub Actions `schedule`이 기본
-브랜치의 워크플로만 발화**하기 때문이다. `dev_ai`나 feature 브랜치에 두면
-크론이 돌지 않는다. 이 워크플로를 고칠 때는 `main` 대상 PR을 따로 올려야 한다.
-
-남의 리포(`VictoryFairy_WIKI`)에 커밋해야 하므로 인증이 두 겹이다:
-
-| 대상 | 인증 |
-|---|---|
-| AWS S3 | OIDC — `vf-wiki-mirror-gha` 역할, 신뢰 정책이 이 리포 `main` sub 허용 |
-| 위키 리포 쓰기 | 배포 키 `secrets.WIKI_DEPLOY_KEY` (기본 `GITHUB_TOKEN`은 자기 리포 전용) |
-
-배포 키를 쓴 이유는 PAT와 달리 리포 하나에만 묶이고, 만료 관리가 없고,
-개인 계정에 종속되지 않기 때문이다. 키를 교체할 때는 `VictoryFairy_WIKI`
-Settings → Deploy keys(write 허용)와 이 리포의 시크릿을 함께 바꾼다.
+**GitHub Actions 스케줄은 없다.** 루틴 세션이 GitHub에 직접 푸시할 수 있으므로
+(2026-08-06 `/web-setup`으로 계정 GitHub 자격증명에 write 확보) 위키 갱신은
+루틴이 곧바로 커밋한다. 그 전까지 있던 `wiki-sync` 워크플로 — S3 `wiki-outbox/`를
+`dev`에 대신 커밋하고 S3 `wiki/` 읽기 캐시를 역동기화하던 다리 — 는 함께 폐기했다.
+S3에 위키 사본을 두지 않으므로 `vf-wiki-mirror-gha` IAM 역할과 배포 키도 필요 없다.
 
 ## 루틴 프롬프트를 고칠 때
 
