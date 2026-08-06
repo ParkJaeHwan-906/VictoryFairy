@@ -6,6 +6,7 @@ export const ROUTES = {
   login: '/login',
   signup: '/signup',
   teamSelect: '/team-select',
+  playerSelect: '/player-select',
   community: '/community',
   main: '/main',
   game: '/game',

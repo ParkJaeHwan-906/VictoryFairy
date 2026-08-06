@@ -31,6 +31,9 @@ export { getTeamList } from './team';
 // 경기(user 모듈) 엔드포인트 함수 — 인증 없이 호출한다
 export { getGameList, getLineUp, isGameNotFound, GAME_ERROR_MESSAGE } from './game';
 
+// 선수(user 모듈) 엔드포인트 함수 — 인증 없이 호출한다
+export { getPlayerList } from './player';
+
 // 채팅(game 모듈) 엔드포인트 함수
 export {
   getChatRooms,
@@ -89,6 +92,7 @@ export type {
   LineUpPitcher,
   LineUpBatter,
 } from '../types/game';
+export type { Player, PlayerPosition, PlayerListParams } from '../types/player';
 export type {
   ChatRoom,
   ChatMessage,
