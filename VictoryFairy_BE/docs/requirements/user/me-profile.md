@@ -4,6 +4,7 @@
 > **2026-08-04 개정**: 사용자 답변 반영 — `users_bq`는 계정과 **1:1**, 행은 **회원가입 시 함께 생성**(초안의 lazy 생성 가정을 뒤집음), 응원 구단은 제품상 필수, 백필은 **운영자 수동 실행**(`infra/sql/users-bq-backfill.sql`). 이 결정으로 **기존 계정 백필이 범위 밖에서 범위 안으로 들어왔다**(USER-ME-26~29).
 > **2026-08-06 개정**: 사용자 요청으로 **현재 응원 중인 선수 목록(`supportPlayers`)** 노출이 추가·구현됐다 — 아래 "제외"가 예고했던 그 개정이다. 노출 키가 **4개에서 5개**로 늘고(USER-ME-13), USER-ME-31~35가 추가됐으며, USER-ME-20~22가 함께 조정됐다. **이 개정분은 구현 후 사후 작성**이다(2026-08-04분과 성격이 다르다).
 > **2026-08-06 2차 개정**: ①미해결 질문 1건(응원 선수 개수 상한)이 **C안(응원 API 쪽에 상한, 4명)으로 확정**돼 닫혔다 — USER-ME-36 신설, `support-selection.md` USER-SP-30~37 이 강제 주체다. ②응원 선수 조회가 **fetch join 1쿼리**로 바뀌어 USER-ME-22 의 SELECT 횟수가 **5회 고정**으로 정정됐다. ③"테스트 대응" 절을 신설했다(2026-08-06 실측). **미해결 질문은 0건이다.**
+> **2026-08-06 3차 개정(참조만)**: 응원 쓰기 경로에 계정 행 비관적 락이 도입됐다(`support-selection.md` USER-SP-38~46). **이 엔드포인트의 계약은 바뀌지 않는다** — `/me`는 읽기라 락을 타지 않는다(USER-SP-44). 그 사실을 "제약"과 "테스트 대응"에 한 줄씩 참조로만 추가했다. **USER-ME-* 번호는 신설되지 않았고 미해결 질문도 여전히 0건이다.**
 
 ## 배경 / 목적
 `/api/member/users/me`는 지금 `DELETE`(탈퇴) 하나뿐이고, `docs/api/account.md`가 "프로필 조회·수정 엔드포인트는 아직 없다 — 이 도메인에 생길 자리다"라고 적어 둔 자리를 채운다.
@@ -181,6 +182,7 @@ WHERE NOT EXISTS (SELECT 1 FROM users_bq b WHERE b.user_account_id = ua.id);
 - **동명이인의 상대 순서는 정해져 있지 않다.** USER-ME-33의 정렬 키는 `playerName` 하나뿐이라 이름이 같은 선수 둘의 순서는 비결정적이다(2차 정렬 키 없음). 응원 선수 규모상 실사용 영향이 없다고 보고 두었으나, **동명이인을 포함한 순서 단언 테스트를 쓰면 불안정해진다.**
 - **`UserSupportTeam.team`·`UserSupportPlayer.player`·`Player.team`은 모두 LAZY다.** 응답에 구단명·선수 표현이 들어가므로 세 연관 모두 트랜잭션 안에서 초기화돼야 한다(USER-ME-21). 현재는 **두 조회가 각각 필요한 연관을 함께 끌고 온다** — 응원 구단 행은 구단까지(`@EntityGraph`, USER-ME-22 내역 3번), 응원 선수 행은 선수와 그 소속 구단까지(fetch join, 내역 4번). **둘 중 어느 쪽이든 "함께 가져오기"를 되돌리면 SELECT가 늘어 USER-ME-22가 깨진다**(선수 쪽은 1회가 아니라 **행 수만큼** 늘어 N+1이 된다). prod는 `open-in-view: false`(`user/src/main/resources/application-prod.yaml`)라 **컨트롤러가 DTO를 만들면 늦다** — USER-ME-21은 이 함정을 계약으로 고정한 것이다. dev에는 이 설정이 없어(기본 `true`) **dev에서만 우연히 통과하는 코드가 나올 수 있다.**
 - **USER-ME-22의 고정 횟수는 더 이상 "응원 선수는 응원 구단 소속"이라는 불변식에 기대지 않는다.** 직전 개정까지는 선수의 소속 구단이 응원 구단과 같아 1차 캐시에 이미 올라와 있다는 전제였고, 그 불변식이 깨진 데이터(소속 구단이 다름, 또는 응원 구단 없이 선수 행만 남음)에서는 서로 다른 구단 수만큼 SELECT가 더 나갔다. **fetch join 도입으로 소속 구단을 쿼리가 보장하면서 이 조건부가 사라졌다** — 깨진 데이터에서도 5회다. 그래도 그 불변식 자체는 쓰기 경로(`support-selection.md` USER-SP-10/17)가 계속 지켜야 한다. 달라진 것은 **더 이상 SELECT 횟수가 불변식 위반의 신호가 되지 못한다**는 점이다.
+- **이 경로는 계정 행에 락을 잡지 않는다**(2026-08-06 추가). `SupportService`의 쓰기 경로 3개는 `user_account` 행을 비관적 쓰기 락으로 먼저 잡지만(`support-selection.md` USER-SP-38), `/me`가 위임하는 `currentSupportedPlayers`는 **읽기 전용이라 락을 타지 않는다**(USER-SP-44). 이것은 구현 편의가 아니라 지켜야 할 계약이다 — 프로필 조회에 쓰기 락이 붙으면 **`/me` 호출끼리 서로를 막고**, USER-ME-22의 SELECT 5회도 6회로 늘어난다. 대가는 명시해 둔다: `/me`는 쓰기 트랜잭션 커밋 **직전** 상태를 읽을 수 있으며, "그 시점에 커밋된 값"까지만 보장한다.
 - **`findByUserAccount_IdAndOpposeIsNull`은 `Optional`이고, 정책이 깨진 데이터(활성 구단 행 2개 이상)에서는 예외를 던진다.** USER-ME-16은 "행이 0개"만 다루며, 2개 이상은 `support-selection.md` USER-SP-12가 쓰기 경로에서 막아야 하는 불변식이다 — 이 조회 엔드포인트가 조용히 첫 행을 고르는 식으로 덮지 않는다.
 - **`users_bq`는 테이블명이 사용자 확정값이다.** `.claude/modules/domain.md`의 "클래스 단수 / 테이블 복수형" 컨벤션과 `user_support_team`·`user_support_player` 2건의 명시적 예외 목록에 이어지는 **세 번째 확정 이름**이다(임의로 `user_bqs` 등으로 바꾸지 말 것).
 - **기존 데이터가 있는 테이블에 NOT NULL 컬럼을 붙이는 변경이다.** `users_account`에는 이미 계정 행이 적재돼 있다. MySQL은 `ALTER TABLE ... ADD COLUMN point BIGINT NOT NULL`에서 기존 행을 암묵 기본값(0)으로 채우므로 실패하지 않지만, **DDL에 `DEFAULT 0`을 남기려면 컬럼 정의에 기본값을 명시해야 한다**(USER-ME-1의 인수 기준이 `Default=0`까지 요구하는 이유). 사용자가 "기본값이 0이라 추가에 문제 없다"고 판단한 지점이며, USER-ME-2가 그 판단을 인수 기준으로 고정한다.
@@ -194,7 +196,7 @@ WHERE NOT EXISTS (SELECT 1 FROM users_bq b WHERE b.user_account_id = ua.id);
 
 ## 테스트 대응 (2026-08-06 실측 기준)
 
-`UserProfileServiceTest` 10건 · `UserAccountControllerMeTest` 11건. `supportPlayers` 관련만 옮긴다(그 외 ID 는 각 테스트의 `@DisplayName` 이 `[USER-ME-n]` 으로 달고 있다).
+`UserProfileServiceTest` **11건**(2026-08-06 락 회귀 1건 추가) · `UserAccountControllerMeTest` 11건. `supportPlayers` 관련만 옮긴다(그 외 ID 는 각 테스트의 `@DisplayName` 이 `[USER-ME-n]` 으로 달고 있다).
 
 | ID | 테스트 |
 |---|---|
@@ -204,6 +206,7 @@ WHERE NOT EXISTS (SELECT 1 FROM users_bq b WHERE b.user_account_id = ua.id);
 | USER-ME-31 · USER-ME-33 | **직접 검증 없음** — 아래 참조 |
 | USER-ME-36 | **전용 테스트 없음** — 아래 참조 |
 | USER-ME-22 | 부분 — `UserProfileServiceTest.getMyProfile_looksUpSupportTeamUsingOpposeIsNullMethodOnly`(내역 3번의 조회 메서드 선택). 아래 참조 |
+| (`support-selection.md` USER-SP-44) | `UserProfileServiceTest.getMyProfile_neverLocksAccount` — `/me` 가 계정 행 락(`findWithLockById`)을 절대 타지 않는다는 회귀. 계약의 주인은 `support-selection.md` 지만 **검증 지점이 이 엔드포인트**라 여기 적어 둔다 |
 
 **미커버 영역(정직하게 기록)**
 - **USER-ME-31(활성만)·USER-ME-33(`playerName` 오름차순)**: `/me` 테스트는 `SupportService` 를 목으로 세워 **받은 목록을 그대로 싣는지**만 본다. 두 조항의 실제 보장은 `findAllActiveWithPlayerAndTeam` 쿼리의 `oppose is null` + `order by p.name` 이고, 그것을 검증하는 테스트는 `support-selection.md` USER-SP-29(`SupportServiceTest.currentSupportedPlayers_returnsNameAscWithSingleBatchQuery`)다. **위임 구조 덕에 중복 검증을 안 하는 것이지 검증이 빠진 것은 아니다** — 다만 `/me` 가 위임을 풀면 이 커버리지도 함께 사라진다("제약" 참조).
