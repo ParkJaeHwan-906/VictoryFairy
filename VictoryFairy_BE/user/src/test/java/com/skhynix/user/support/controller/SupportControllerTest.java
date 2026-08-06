@@ -191,6 +191,29 @@ class SupportControllerTest {
     }
 
     @Test
+    @DisplayName("[USER-SP-30, USER-SP-32] 4개짜리 일괄 본문으로 선수를 추가하면 200과 4건짜리 응답 배열을 반환한다"
+            + "(상한과 같은 크기의 정상 일괄 경로)")
+    void addPlayers_batchOfFourAtLimit_returns200WithFourItems() throws Exception {
+        // given
+        String token = stubAuthenticatedToken();
+        List<Long> requestIds = List.of(2L, 3L, 4L, 5L);
+        given(supportService.addPlayers(ACCOUNT_ID, requestIds)).willReturn(List.of(
+                responseOf(2L, "선수2"), responseOf(3L, "선수3"),
+                responseOf(4L, "선수4"), responseOf(5L, "선수5")));
+
+        // when & then
+        mockMvc.perform(post("/support/players")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"playerIds\":[2,3,4,5]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.length()").value(4));
+
+        verify(supportService).addPlayers(ACCOUNT_ID, requestIds);
+    }
+
+    @Test
     @DisplayName("[USER-SP-21] playerIds가 빈 배열이어도 400이 아니라 200이다")
     void addPlayers_emptyArray_returns200() throws Exception {
         // given
@@ -274,6 +297,28 @@ class SupportControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.message").value("응원 선수는 최대 4명까지 선택할 수 있습니다."));
+    }
+
+    @Test
+    @DisplayName("[USER-SP-33] 5개짜리 일괄 본문으로 선수를 추가하면 400과 상한 안내 메시지를 반환한다"
+            + "(프론트가 실제로 보내는 일괄 추가 형태)")
+    void addPlayers_batchOfFiveExceedsLimit_returns400() throws Exception {
+        // given
+        String token = stubAuthenticatedToken();
+        List<Long> requestIds = List.of(1L, 2L, 3L, 4L, 5L);
+        given(supportService.addPlayers(ACCOUNT_ID, requestIds))
+                .willThrow(new BusinessException(ErrorCode.SUPPORT_PLAYER_LIMIT_EXCEEDED));
+
+        // when & then
+        mockMvc.perform(post("/support/players")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"playerIds\":[1,2,3,4,5]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("응원 선수는 최대 4명까지 선택할 수 있습니다."));
+
+        verify(supportService).addPlayers(ACCOUNT_ID, requestIds);
     }
 
     @Test

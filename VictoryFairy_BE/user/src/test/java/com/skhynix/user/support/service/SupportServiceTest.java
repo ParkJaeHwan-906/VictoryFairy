@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -27,9 +28,11 @@ import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -77,6 +80,17 @@ class SupportServiceTest {
 
     @InjectMocks
     private SupportService supportService;
+
+    /**
+     * 쓰기 경로 3개(selectTeam·addPlayers·opposePlayers)가 첫 줄에서 {@code lockAccount()}를 호출한다 —
+     * 스텁하지 않으면 이 클래스의 거의 모든 테스트가 {@code UNAUTHENTICATED}로 깨진다. 읽기 경로
+     * ({@link SupportService#currentSupportedPlayers})는 이 락을 타지 않는다 — 해당 테스트가 개별적으로
+     * {@code never()}로 확인한다({@code LENIENT} 설정이라 그 테스트에서는 이 스텁이 그냥 미사용으로 남는다).
+     */
+    @BeforeEach
+    void stubAccountLock() {
+        given(userAccountRepository.findWithLockById(ACCOUNT_ID)).willReturn(Optional.of(account()));
+    }
 
     private static final Team KIA = teamOf(6L, "KIA", "HT");
     private static final Team LG = teamOf(8L, "LG", "LG");
@@ -484,7 +498,142 @@ class SupportServiceTest {
         // when
         List<PlayerResponse> result = supportService.addPlayers(ACCOUNT_ID, ids);
 
-        // then: 정확히 상한과 같은 4명은 거부되지 않는다
+        // then: 정확히 상한과 같은 4명은 거부되지 않고 4건 전부 반영된다
+        assertThat(result).hasSize(4);
+        verify(userSupportPlayerRepository, times(4)).save(any(UserSupportPlayer.class));
+        // 각 id 마다 재활성 조회(→ 신규 저장)가 정확히 한 번씩만 탔는지 개별 확인 — 일괄 4건이 뭉뚱그려
+        // 세지 않고 id 별로 저장 경로를 정확히 한 번씩 탔다는 증거
+        for (Long id : ids) {
+            verify(userSupportPlayerRepository).findByUserAccount_IdAndPlayer_Id(ACCOUNT_ID, id);
+        }
+    }
+
+    @Test
+    @DisplayName("[USER-SP-30, USER-SP-33, USER-SP-34] 응원 선수가 0명인 상태에서 5명을 한 번에 요청하면 "
+            + "SUPPORT_PLAYER_LIMIT_EXCEEDED이며 저장·재활성 조회가 한 건도 일어나지 않는다")
+    void addPlayers_zeroActiveRequestFiveAtOnce_throwsLimitExceededAndTouchesNoRows() {
+        // given: 상한(4)을 하나 넘는 5명을 한 요청에 담는다 — 프론트가 실제로 쓰는 일괄 추가 형태
+        List<Long> ids = List.of(2L, 3L, 4L, 5L, 6L);
+        List<Player> players = ids.stream().map(id -> playerOf(id, "선수" + id, KIA)).toList();
+        given(userSupportTeamRepository.findByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(Optional.of(supportTeamOf(KIA)));
+        given(playerRepository.findAllById(ids)).willReturn(players);
+        given(userSupportPlayerRepository.findAllByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(Collections.emptyList());
+
+        // when & then
+        assertThatThrownBy(() -> supportService.addPlayers(ACCOUNT_ID, ids))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.SUPPORT_PLAYER_LIMIT_EXCEEDED);
+
+        // 5건 중 어느 것도 개별적으로 처리되지 않는다(부분 반영 없음)
+        verify(userSupportPlayerRepository, never()).findByUserAccount_IdAndPlayer_Id(any(), any());
+        verify(userSupportPlayerRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("[USER-SP-30, USER-SP-33] 활성 1명 + 신규 4명을 한 번에 요청하면 합집합이 5라 거부된다")
+    void addPlayers_oneActivePlusFourNewAtOnce_throwsLimitExceeded() {
+        // given: 2번을 응원 중인 상태에서 [6,7,8,9] 4명을 일괄 추가 요청 — 합집합 {2,6,7,8,9} = 5
+        List<UserSupportPlayer> activeOne = activeSupportPlayersOf(List.of(2L), KIA);
+        List<Long> newIds = List.of(6L, 7L, 8L, 9L);
+        List<Player> newPlayers = newIds.stream().map(id -> playerOf(id, "선수" + id, KIA)).toList();
+        given(userSupportTeamRepository.findByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(Optional.of(supportTeamOf(KIA)));
+        given(playerRepository.findAllById(newIds)).willReturn(newPlayers);
+        given(userSupportPlayerRepository.findAllByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(activeOne);
+
+        // when & then
+        assertThatThrownBy(() -> supportService.addPlayers(ACCOUNT_ID, newIds))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.SUPPORT_PLAYER_LIMIT_EXCEEDED);
+
+        verify(userSupportPlayerRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("[USER-SP-32] 활성 1명을 포함한 4명을 한 번에 요청하면 합집합이 그대로 4라 성공한다")
+    void addPlayers_oneActivePlusThreeNewIncludingActiveAtOnce_succeeds() {
+        // given: 2번은 이미 응원 중이고, 일괄 요청 [2,6,7,8]의 합집합은 {2,6,7,8} = 4
+        List<UserSupportPlayer> activeOne = activeSupportPlayersOf(List.of(2L), KIA);
+        List<Long> requestIds = List.of(2L, 6L, 7L, 8L);
+        List<Player> requestPlayers = requestIds.stream().map(id -> playerOf(id, "선수" + id, KIA)).toList();
+        given(userSupportTeamRepository.findByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(Optional.of(supportTeamOf(KIA)));
+        given(playerRepository.findAllById(requestIds)).willReturn(requestPlayers);
+        given(userSupportPlayerRepository.findAllByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(activeOne);
+        given(userSupportPlayerRepository.findByUserAccount_IdAndPlayer_Id(ACCOUNT_ID, 2L))
+                .willReturn(Optional.of(activeOne.get(0))); // 이미 응원 중 → support() no-op
+        given(userAccountRepository.getReferenceById(ACCOUNT_ID)).willReturn(account());
+        for (Long id : List.of(6L, 7L, 8L)) {
+            given(userSupportPlayerRepository.findByUserAccount_IdAndPlayer_Id(ACCOUNT_ID, id))
+                    .willReturn(Optional.empty());
+            given(playerRepository.getReferenceById(id)).willReturn(playerOf(id, "선수" + id, KIA));
+        }
+        given(userSupportPlayerRepository.save(any())).willAnswer(call -> call.getArgument(0));
+        given(userSupportPlayerRepository.findAllActiveWithPlayerAndTeam(ACCOUNT_ID))
+                .willReturn(activeSupportPlayersOf(requestIds, KIA));
+
+        // when
+        List<PlayerResponse> result = supportService.addPlayers(ACCOUNT_ID, requestIds);
+
+        // then: 신규 3명만 저장되고(2번은 이미 응원 중이라 save 안 됨) 예외 없이 성공한다
+        assertThat(result).hasSize(4);
+        verify(userSupportPlayerRepository, times(3)).save(any(UserSupportPlayer.class));
+    }
+
+    @Test
+    @DisplayName("[USER-SP-20, USER-SP-32, USER-SP-33] 중복 id가 섞인 일괄 요청은 distinct 후 5명이라 거부된다")
+    void addPlayers_duplicateIdsWithinBatch_afterDedupeExceedsLimit_throwsLimitExceeded() {
+        // given: [2,2,3,4,5,6] → distinct {2,3,4,5,6} = 5명
+        List<Long> requestIds = List.of(2L, 2L, 3L, 4L, 5L, 6L);
+        List<Long> distinctIds = List.of(2L, 3L, 4L, 5L, 6L);
+        List<Player> players = distinctIds.stream().map(id -> playerOf(id, "선수" + id, KIA)).toList();
+        given(userSupportTeamRepository.findByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(Optional.of(supportTeamOf(KIA)));
+        given(playerRepository.findAllById(distinctIds)).willReturn(players);
+        given(userSupportPlayerRepository.findAllByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(Collections.emptyList());
+
+        // when & then
+        assertThatThrownBy(() -> supportService.addPlayers(ACCOUNT_ID, requestIds))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.SUPPORT_PLAYER_LIMIT_EXCEEDED);
+
+        verify(userSupportPlayerRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("[USER-SP-20, USER-SP-32] 중복 id가 섞인 일괄 요청도 distinct 후 4명이면 성공한다")
+    void addPlayers_duplicateIdsWithinBatch_afterDedupeWithinLimit_succeeds() {
+        // given: [2,2,2,3,4,5] → distinct {2,3,4,5} = 4명
+        List<Long> requestIds = List.of(2L, 2L, 2L, 3L, 4L, 5L);
+        List<Long> distinctIds = List.of(2L, 3L, 4L, 5L);
+        List<Player> players = distinctIds.stream().map(id -> playerOf(id, "선수" + id, KIA)).toList();
+        given(userSupportTeamRepository.findByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(Optional.of(supportTeamOf(KIA)));
+        given(playerRepository.findAllById(distinctIds)).willReturn(players);
+        given(userSupportPlayerRepository.findAllByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(Collections.emptyList());
+        given(userAccountRepository.getReferenceById(ACCOUNT_ID)).willReturn(account());
+        for (Long id : distinctIds) {
+            given(userSupportPlayerRepository.findByUserAccount_IdAndPlayer_Id(ACCOUNT_ID, id))
+                    .willReturn(Optional.empty());
+            given(playerRepository.getReferenceById(id)).willReturn(playerOf(id, "선수" + id, KIA));
+        }
+        given(userSupportPlayerRepository.save(any())).willAnswer(call -> call.getArgument(0));
+        given(userSupportPlayerRepository.findAllActiveWithPlayerAndTeam(ACCOUNT_ID))
+                .willReturn(activeSupportPlayersOf(distinctIds, KIA));
+
+        // when
+        List<PlayerResponse> result = supportService.addPlayers(ACCOUNT_ID, requestIds);
+
+        // then: 중복이 제거되지 않았다면 findAllById(distinctIds)가 스텁과 어긋나 실패한다
         assertThat(result).hasSize(4);
         verify(userSupportPlayerRepository, times(4)).save(any(UserSupportPlayer.class));
     }
@@ -565,17 +714,19 @@ class SupportServiceTest {
     }
 
     @Test
-    @DisplayName("[USER-SP-35] 없는 선수 id가 섞인 초과 요청은 상한보다 PLAYER_NOT_FOUND가 먼저 판정된다")
+    @DisplayName("[USER-SP-35] 없는 선수 id가 섞인 일괄(5개) 요청은 상한보다 PLAYER_NOT_FOUND가 먼저 판정된다")
     void addPlayers_excessiveRequestWithUnknownPlayer_throwsPlayerNotFoundBeforeLimitCheck() {
-        // given: 이미 4명 응원 중 + 신규 2명 요청인데 그중 하나(999)가 실재하지 않는다
-        List<UserSupportPlayer> activeFour = activeSupportPlayersOf(List.of(2L, 3L, 4L, 5L), KIA);
-        Player playerSix = playerOf(6L, "선수6", KIA);
+        // given: 5개를 한 번에 요청했는데 그중 하나(999)가 실재하지 않는다 — 상한 검사 자체에 닿지 못한다
+        List<Long> requestIds = List.of(6L, 7L, 8L, 9L, 999L);
+        List<Player> knownPlayers = List.of(6L, 7L, 8L, 9L).stream()
+                .map(id -> playerOf(id, "선수" + id, KIA))
+                .toList();
         given(userSupportTeamRepository.findByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
                 .willReturn(Optional.of(supportTeamOf(KIA)));
-        given(playerRepository.findAllById(List.of(6L, 999L))).willReturn(List.of(playerSix));
+        given(playerRepository.findAllById(requestIds)).willReturn(knownPlayers);
 
         // when & then
-        assertThatThrownBy(() -> supportService.addPlayers(ACCOUNT_ID, List.of(6L, 999L)))
+        assertThatThrownBy(() -> supportService.addPlayers(ACCOUNT_ID, requestIds))
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(ErrorCode.PLAYER_NOT_FOUND);
@@ -586,18 +737,22 @@ class SupportServiceTest {
     }
 
     @Test
-    @DisplayName("[USER-SP-35] 소속 위반 선수가 섞인 초과 요청은 상한보다 PLAYER_NOT_IN_SUPPORT_TEAM이 먼저 판정된다")
+    @DisplayName("[USER-SP-35] 소속 위반 선수가 섞인 일괄(5개) 요청은 상한보다 PLAYER_NOT_IN_SUPPORT_TEAM이 먼저 판정된다")
     void addPlayers_excessiveRequestWithWrongTeamPlayer_throwsNotInSupportTeamBeforeLimitCheck() {
-        // given: 이미 3명 응원 중(KIA) + 신규 2명 요청인데 그중 하나가 LG 소속이다
-        List<UserSupportPlayer> activeThree = activeSupportPlayersOf(List.of(2L, 3L, 4L), KIA);
-        Player playerSix = playerOf(6L, "선수6", KIA);
-        Player lgPlayer = playerOf(20L, "김현수", LG);
+        // given: 5개를 한 번에 요청했는데 그중 하나(20번)가 LG 소속이다 — 상한 검사 자체에 닿지 못한다
+        List<Long> requestIds = List.of(6L, 7L, 8L, 20L, 9L);
+        List<Player> requestPlayers = List.of(
+                playerOf(6L, "선수6", KIA),
+                playerOf(7L, "선수7", KIA),
+                playerOf(8L, "선수8", KIA),
+                playerOf(20L, "김현수", LG),
+                playerOf(9L, "선수9", KIA));
         given(userSupportTeamRepository.findByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
                 .willReturn(Optional.of(supportTeamOf(KIA)));
-        given(playerRepository.findAllById(List.of(6L, 20L))).willReturn(List.of(playerSix, lgPlayer));
+        given(playerRepository.findAllById(requestIds)).willReturn(requestPlayers);
 
         // when & then
-        assertThatThrownBy(() -> supportService.addPlayers(ACCOUNT_ID, List.of(6L, 20L)))
+        assertThatThrownBy(() -> supportService.addPlayers(ACCOUNT_ID, requestIds))
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(ErrorCode.PLAYER_NOT_IN_SUPPORT_TEAM);
@@ -608,11 +763,15 @@ class SupportServiceTest {
     }
 
     @Test
-    @DisplayName("[USER-SP-31] 취소된 선수는 상한에 잡히지 않는다 — 활성 2명뿐이면 취소 이력과 무관하게 2명을 더 추가할 수 있다")
+    @DisplayName("[USER-SP-31] 취소된 선수는 상한에 잡히지 않는다 — 활성 2명 + 취소 3명인 계정도 2명을 "
+            + "일괄로 더 추가할 수 있다")
     void addPlayers_opposedPlayersDoNotCountTowardLimit_succeeds() {
-        // given: findAllByUserAccount_IdAndOpposeIsNull은 정의상 활성 행만 돌려준다 — 취소된 행이 실제로
-        // 더 있더라도(예: 과거에 2명을 취소한 이력) 이 조회 결과에는 잡히지 않는다는 전제를 그대로 스텁한다.
+        // given: 활성 2명(2,3번) 외에 과거에 취소한 3명(90,91,92번)이 실제로 더 있는 계정이다.
+        // findAllByUserAccount_IdAndOpposeIsNull은 정의상 활성 행만 돌려주므로, 취소된 3명이 실재해도
+        // 이 조회 결과(=상한 판정 대상)에는 잡히지 않는다는 전제를 취소 엔티티까지 만들어 명시적으로 검증한다.
         List<UserSupportPlayer> activeTwo = activeSupportPlayersOf(List.of(2L, 3L), KIA);
+        List<UserSupportPlayer> opposedThree = activeSupportPlayersOf(List.of(90L, 91L, 92L), KIA);
+        opposedThree.forEach(support -> support.oppose(LocalDateTime.of(2026, 7, 1, 0, 0)));
         List<Long> newIds = List.of(8L, 9L);
         List<Player> newPlayers = newIds.stream().map(id -> playerOf(id, "선수" + id, KIA)).toList();
         given(userSupportTeamRepository.findByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
@@ -636,6 +795,12 @@ class SupportServiceTest {
         // then: 합집합 {2,3,8,9} = 4 → 거부되지 않는다
         assertThat(result).hasSize(4);
         verify(userSupportPlayerRepository, times(2)).save(any(UserSupportPlayer.class));
+        // 취소된 3명은 이번 요청에서 조회·저장 어느 쪽으로도 건드려지지 않는다(상한 판정 대상에서도 제외)
+        assertThat(opposedThree).allMatch(UserSupportPlayer::isOpposed);
+        for (Long opposedId : List.of(90L, 91L, 92L)) {
+            verify(userSupportPlayerRepository, never())
+                    .findByUserAccount_IdAndPlayer_Id(ACCOUNT_ID, opposedId);
+        }
     }
 
     @Test
@@ -806,5 +971,234 @@ class SupportServiceTest {
         // 선수 조회는 fetch join 쿼리 1회뿐 — findById도, 응원 행을 다시 훑는 옛 2단계 조회도 타지 않는다
         verify(playerRepository, never()).findById(any());
         verify(userSupportPlayerRepository, never()).findAllByUserAccount_IdAndOpposeIsNull(any());
+        // 읽기 경로에는 계정 락이 걸리지 않는다 — GET /me 가 이 경로를 타므로, 락이 붙으면 프로필 조회끼리
+        // 서로를 막는다(회귀 증거, 아래 "계정 행 비관적 락" 섹션과 짝을 이룸)
+        verify(userAccountRepository, never()).findWithLockById(any());
+    }
+
+    // ---------- 계정 행 비관적 락(회귀) ----------
+    // 목 기반 테스트의 한계: 여기서 고정하는 것은 "락을 잡는 코드 경로가 살아 있다"까지다. 실제 동시
+    // 트랜잭션 간의 배타성(진짜 레이스가 막히는지)은 목으로는 검증할 수 없다 — DB 라운드트립이 필요하다.
+
+    @Test
+    @DisplayName("[USER-SP-38] selectTeam은 findWithLockById를 정확히 1회 호출한다")
+    void selectTeam_locksAccountExactlyOnce() {
+        // given
+        given(teamRepository.findById(6L)).willReturn(Optional.of(KIA));
+        given(userSupportTeamRepository.findByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(Optional.empty());
+        given(userSupportTeamRepository.findByUserAccount_IdAndTeam_Id(ACCOUNT_ID, 6L))
+                .willReturn(Optional.empty());
+        given(userAccountRepository.getReferenceById(ACCOUNT_ID)).willReturn(account());
+        given(userSupportTeamRepository.save(any())).willAnswer(call -> call.getArgument(0));
+
+        // when
+        supportService.selectTeam(ACCOUNT_ID, 6L);
+
+        // then
+        verify(userAccountRepository, times(1)).findWithLockById(ACCOUNT_ID);
+    }
+
+    @Test
+    @DisplayName("[USER-SP-38] addPlayers는 findWithLockById를 정확히 1회 호출한다")
+    void addPlayers_locksAccountExactlyOnce() {
+        // given
+        Player player = playerOf(2L, "김도영", KIA);
+        given(userSupportTeamRepository.findByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(Optional.of(supportTeamOf(KIA)));
+        given(playerRepository.findAllById(List.of(2L))).willReturn(List.of(player));
+        given(userSupportPlayerRepository.findByUserAccount_IdAndPlayer_Id(ACCOUNT_ID, 2L))
+                .willReturn(Optional.empty());
+        given(userAccountRepository.getReferenceById(ACCOUNT_ID)).willReturn(account());
+        given(playerRepository.getReferenceById(2L)).willReturn(player);
+        given(userSupportPlayerRepository.save(any())).willAnswer(call -> call.getArgument(0));
+        given(userSupportPlayerRepository.findAllByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(Collections.emptyList());
+        given(userSupportPlayerRepository.findAllActiveWithPlayerAndTeam(ACCOUNT_ID))
+                .willReturn(List.of(supportPlayerOf(player)));
+
+        // when
+        supportService.addPlayers(ACCOUNT_ID, List.of(2L));
+
+        // then
+        verify(userAccountRepository, times(1)).findWithLockById(ACCOUNT_ID);
+    }
+
+    @Test
+    @DisplayName("[USER-SP-38, USER-SP-42] opposePlayers는 findWithLockById를 정확히 1회 호출한다")
+    void opposePlayers_locksAccountExactlyOnce() {
+        // given
+        Player player = playerOf(2L, "김도영", KIA);
+        given(playerRepository.findAllById(List.of(2L))).willReturn(List.of(player));
+        given(userSupportPlayerRepository.findByUserAccount_IdAndPlayer_Id(ACCOUNT_ID, 2L))
+                .willReturn(Optional.of(supportPlayerOf(player)));
+        given(userSupportPlayerRepository.findAllActiveWithPlayerAndTeam(ACCOUNT_ID))
+                .willReturn(Collections.emptyList());
+
+        // when
+        supportService.opposePlayers(ACCOUNT_ID, List.of(2L));
+
+        // then
+        verify(userAccountRepository, times(1)).findWithLockById(ACCOUNT_ID);
+    }
+
+    @Test
+    @DisplayName("[USER-SP-40] selectTeam은 계정 락을 구단 조회보다 먼저 잡는다(락 순서 고정) "
+            + "— 락이 나중으로 밀리면 레이스가 그대로 남으므로 \"호출했다\"만으로는 부족하다")
+    void selectTeam_locksAccountBeforeTeamLookup() {
+        // given
+        given(teamRepository.findById(6L)).willReturn(Optional.of(KIA));
+        given(userSupportTeamRepository.findByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(Optional.empty());
+        given(userSupportTeamRepository.findByUserAccount_IdAndTeam_Id(ACCOUNT_ID, 6L))
+                .willReturn(Optional.empty());
+        given(userAccountRepository.getReferenceById(ACCOUNT_ID)).willReturn(account());
+        given(userSupportTeamRepository.save(any())).willAnswer(call -> call.getArgument(0));
+
+        // when
+        supportService.selectTeam(ACCOUNT_ID, 6L);
+
+        // then
+        InOrder inOrder = inOrder(userAccountRepository, teamRepository);
+        inOrder.verify(userAccountRepository).findWithLockById(ACCOUNT_ID);
+        inOrder.verify(teamRepository).findById(6L);
+    }
+
+    @Test
+    @DisplayName("[USER-SP-40, USER-SP-43] addPlayers는 계정 락을 응원 구단 조회보다 먼저 잡는다(락 순서 고정)")
+    void addPlayers_locksAccountBeforeSupportTeamLookup() {
+        // given: 소속 검사 기준 자체가 없어 SUPPORT_TEAM_REQUIRED로 끝나지만, 그 조회보다도 락이
+        // 먼저였는지를 확인하는 데는 지장이 없다
+        given(userSupportTeamRepository.findByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(Optional.empty());
+
+        // when
+        assertThatThrownBy(() -> supportService.addPlayers(ACCOUNT_ID, List.of(2L)))
+                .isInstanceOf(BusinessException.class);
+
+        // then
+        InOrder inOrder = inOrder(userAccountRepository, userSupportTeamRepository);
+        inOrder.verify(userAccountRepository).findWithLockById(ACCOUNT_ID);
+        inOrder.verify(userSupportTeamRepository).findByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID);
+    }
+
+    @Test
+    @DisplayName("[USER-SP-40, USER-SP-42] opposePlayers는 계정 락을 선수 존재 검증보다 먼저 잡는다(락 순서 고정)")
+    void opposePlayers_locksAccountBeforePlayerExistenceCheck() {
+        // given
+        Player player = playerOf(2L, "김도영", KIA);
+        given(playerRepository.findAllById(List.of(2L))).willReturn(List.of(player));
+        given(userSupportPlayerRepository.findByUserAccount_IdAndPlayer_Id(ACCOUNT_ID, 2L))
+                .willReturn(Optional.of(supportPlayerOf(player)));
+        given(userSupportPlayerRepository.findAllActiveWithPlayerAndTeam(ACCOUNT_ID))
+                .willReturn(Collections.emptyList());
+
+        // when
+        supportService.opposePlayers(ACCOUNT_ID, List.of(2L));
+
+        // then
+        InOrder inOrder = inOrder(userAccountRepository, playerRepository);
+        inOrder.verify(userAccountRepository).findWithLockById(ACCOUNT_ID);
+        inOrder.verify(playerRepository).findAllById(List.of(2L));
+    }
+
+    @Test
+    @DisplayName("[USER-SP-44] currentSupportedPlayers(GET /me 경로)는 findWithLockById를 절대 호출하지 "
+            + "않는다 — /me 조회끼리 서로를 막지 않는다는 회귀 증거")
+    void currentSupportedPlayers_neverLocksAccount() {
+        // given
+        given(userSupportPlayerRepository.findAllActiveWithPlayerAndTeam(ACCOUNT_ID))
+                .willReturn(Collections.emptyList());
+
+        // when
+        supportService.currentSupportedPlayers(ACCOUNT_ID);
+
+        // then
+        verify(userAccountRepository, never()).findWithLockById(any());
+    }
+
+    @Test
+    @DisplayName("[USER-SP-45] selectTeam은 계정이 사라졌으면 UNAUTHENTICATED를 던지고 구단 리포지토리를 "
+            + "건드리지 않는다")
+    void selectTeam_accountNotFound_throwsUnauthenticatedAndTouchesNoOtherRepository() {
+        // given: @BeforeEach 공통 스텁을 이 테스트에서만 덮어써 "락 대상 계정이 사라졌다"를 재현한다
+        given(userAccountRepository.findWithLockById(ACCOUNT_ID)).willReturn(Optional.empty());
+
+        // when & then
+        assertThatThrownBy(() -> supportService.selectTeam(ACCOUNT_ID, 6L))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.UNAUTHENTICATED);
+
+        verify(teamRepository, never()).findById(any());
+        verify(userSupportTeamRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("[USER-SP-45] addPlayers는 계정이 사라졌으면 UNAUTHENTICATED를 던지고 구단·선수 리포지토리를 "
+            + "건드리지 않는다")
+    void addPlayers_accountNotFound_throwsUnauthenticatedAndTouchesNoOtherRepository() {
+        // given
+        given(userAccountRepository.findWithLockById(ACCOUNT_ID)).willReturn(Optional.empty());
+
+        // when & then
+        assertThatThrownBy(() -> supportService.addPlayers(ACCOUNT_ID, List.of(2L)))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.UNAUTHENTICATED);
+
+        verify(userSupportTeamRepository, never()).findByUserAccount_IdAndOpposeIsNull(any());
+        verify(playerRepository, never()).findAllById(any());
+    }
+
+    @Test
+    @DisplayName("[USER-SP-45] opposePlayers는 계정이 사라졌으면 UNAUTHENTICATED를 던지고 선수 리포지토리를 "
+            + "건드리지 않는다")
+    void opposePlayers_accountNotFound_throwsUnauthenticatedAndTouchesNoOtherRepository() {
+        // given
+        given(userAccountRepository.findWithLockById(ACCOUNT_ID)).willReturn(Optional.empty());
+
+        // when & then
+        assertThatThrownBy(() -> supportService.opposePlayers(ACCOUNT_ID, List.of(2L)))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.UNAUTHENTICATED);
+
+        verify(playerRepository, never()).findAllById(any());
+        verify(userSupportPlayerRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("[USER-SP-41] playerIds가 빈 배열이어도 addPlayers는 조기 반환보다 계정 락을 먼저 잡는다"
+            + "(의도된 설계)")
+    void addPlayers_emptyPlayerIds_locksAccountBeforeEarlyReturn() {
+        // given
+        Player player = playerOf(2L, "김도영", KIA);
+        given(userSupportTeamRepository.findByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(Optional.of(supportTeamOf(KIA)));
+        given(userSupportPlayerRepository.findAllActiveWithPlayerAndTeam(ACCOUNT_ID))
+                .willReturn(List.of(supportPlayerOf(player)));
+
+        // when
+        supportService.addPlayers(ACCOUNT_ID, List.of());
+
+        // then
+        verify(userAccountRepository, times(1)).findWithLockById(ACCOUNT_ID);
+    }
+
+    @Test
+    @DisplayName("[USER-SP-41] playerIds가 빈 배열이어도 opposePlayers는 조기 반환보다 계정 락을 먼저 잡는다"
+            + "(의도된 설계)")
+    void opposePlayers_emptyPlayerIds_locksAccountBeforeEarlyReturn() {
+        // given
+        Player player = playerOf(2L, "김도영", KIA);
+        given(userSupportPlayerRepository.findAllActiveWithPlayerAndTeam(ACCOUNT_ID))
+                .willReturn(List.of(supportPlayerOf(player)));
+
+        // when
+        supportService.opposePlayers(ACCOUNT_ID, List.of());
+
+        // then
+        verify(userAccountRepository, times(1)).findWithLockById(ACCOUNT_ID);
     }
 }
