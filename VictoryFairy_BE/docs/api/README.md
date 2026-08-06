@@ -11,9 +11,9 @@
 | 인증 | [auth.md](auth.md) | user | `/api/member/auth` | 9 | 전부 불필요 | 2026-08-04 | [🔗](https://app.notion.com/p/3b278fa9b0f981b39166c408778394e9) |
 | 계정 | [account.md](account.md) | user | `/api/member/users` | 2 | 필수 | 2026-08-04 | [🔗](https://app.notion.com/p/3b278fa9b0f981f8b5bcf163fc897b12) |
 | 구단 | [team.md](team.md) | user | `/api/member/teams` | 1 | 불필요(GET 한정) | 2026-07-28 (추정) | [🔗](https://app.notion.com/p/3b278fa9b0f981859999f42bfc4dd56b) |
-| 선수 | [player.md](player.md) | user | `/api/member/players` | 1 | 불필요(GET 한정, 단 로그인 시 결과가 달라짐) | 2026-08-04 | [🔗](https://app.notion.com/p/3b278fa9b0f981afb501f9e94e1f32f4) |
+| 선수 | [player.md](player.md) | user | `/api/member/players` | 1 | 불필요(GET 한정, 단 로그인 시 결과가 달라짐) | 2026-08-06 | [🔗](https://app.notion.com/p/3b278fa9b0f981afb501f9e94e1f32f4) |
 | 경기 | [game.md](game.md) | user | `/api/member/games` | 2 | 불필요(GET 한정) | 2026-08-04 | [🔗](https://app.notion.com/p/3b278fa9b0f981938659cb3681750105) |
-| 응원 | [support.md](support.md) | user | `/api/member/support` | 3 | 필수 | 2026-07-28 (추정) | [🔗](https://app.notion.com/p/3b278fa9b0f981f5ae03ff5df8489a63) |
+| 응원 | [support.md](support.md) | user | `/api/member/support` | 3 | 필수 | 2026-08-06 | [🔗](https://app.notion.com/p/3b278fa9b0f981f5ae03ff5df8489a63) |
 | 채팅 | [chat.md](chat.md) | quiz | `/api/game/chat` | 7 | 필수 | 2026-08-04 | [🔗](https://app.notion.com/p/3b278fa9b0f98165a655fd5cced543d5) |
 
 `최종 업데이트`는 **계약이 마지막으로 바뀐 날**이지 문서를 손댄 날이 아니다. `(추정)`은 도메인 분리 이전에 엔드포인트별 이력이 없어 해당 컨트롤러의 마지막 커밋 날짜로 역산했다는 뜻이다.

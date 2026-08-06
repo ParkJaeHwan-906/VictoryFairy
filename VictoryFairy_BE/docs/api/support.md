@@ -3,7 +3,7 @@
 > **도메인** `support` — 사용자의 응원 구단·응원 선수 선택 상태.
 > **모듈** user (포트 8080) · **경로 접두사** `/api/member/support` · **엔드포인트** 3개
 > **컨트롤러** `user/src/main/java/com/skhynix/user/support/controller/SupportController.java` (`@RequestMapping("/support")`)
-> **최종 갱신** 2026-08-04 — 모듈별(`user.md`) 문서를 도메인별로 분리. 계약 변경 없음.
+> **최종 갱신** 2026-08-06 — 응원 선수 응답이 재사용하는 `PlayerResponse`의 항목 키가 `{id, name}`에서 여섯 필드로 바뀜([player.md](player.md) 참고). 이 도메인 고유의 계약(엔드포인트·요청 본문·상태코드)은 불변(직전 갱신: 2026-08-04 모듈별 문서를 도메인별로 분리).
 > **요구사항** `docs/requirements/user/support-selection.md` (USER-SP-4 ~ 29)
 > 공통 규약(응답 래퍼·JWT·401 정책)은 [README.md](README.md)를 먼저 볼 것.
 
@@ -81,7 +81,7 @@ curl -i -X POST http://localhost:8080/api/member/support/team \
 ---
 
 ## POST /api/member/support/players
-> 최종 변경: 2026-07-28 (추정) — 도메인 분리 이전 이력이 없어 `SupportController` 마지막 커밋 기준
+> 최종 변경: 2026-08-06 — 응답 항목 키 교체(공유 DTO `PlayerResponse` 변경분). 요청 본문·상태코드는 불변
 
 응원 선수 **추가**. → `SupportService.addPlayers()`. 요구사항: USER-SP-14 ~ 23.
 
@@ -98,10 +98,11 @@ curl -i -X POST http://localhost:8080/api/member/support/team \
 - **중복 id 는 400이 아니라 제거 후 처리**(`[3,3,7]` → 정상).
 - **선수 수 상한 없음.**
 
-**응답 200 OK** `ApiResponse<List<PlayerResponse>>` — **이번에 추가한 선수만이 아니라 현재 응원 중인 선수 전체**를 `name` 오름차순으로 반환한다(프론트가 재조회할 필요 없음).
+**응답 200 OK** `ApiResponse<List<PlayerResponse>>` — **이번에 추가한 선수만이 아니라 현재 응원 중인 선수 전체**를 `name` 오름차순으로 반환한다(프론트가 재조회할 필요 없음). 항목 형태는 [선수(player)](player.md#get-apimemberplayers)의 응답과 **동일한 DTO**를 재사용하므로, 그쪽 계약이 바뀌면 이 응답도 함께 바뀐다.
 ```json
-{"success":true,"data":[{"id":1,"name":"강백호"},{"id":2,"name":"김도영"}],"message":null}
+{"success":true,"data":[{"teamId":6,"teamName":"KIA","playerId":2,"playerName":"김도영","playerNumber":"7","playerPosition":"INFIELDER"},{"teamId":6,"teamName":"KIA","playerId":3,"playerName":"양현종","playerNumber":"54","playerPosition":"PITCHER"}],"message":null}
 ```
+`playerNumber`·`playerPosition`은 `null`일 수 있다(등록명단발이라 원본이 비어 있는 선수가 있다 — [player.md](player.md) 참고).
 
 **멱등성**: 이미 응원 중인 선수를 다시 보내면 아무 변경이 없다. 과거에 취소했던 선수를 다시 보내면 새 행이 아니라 기존 행이 재활성된다.
 
@@ -127,7 +128,7 @@ curl -i -X POST http://localhost:8080/api/member/support/players \
 ---
 
 ## PUT /api/member/support/players/oppose
-> 최종 변경: 2026-07-28 (추정) — 도메인 분리 이전 이력이 없어 `SupportController` 마지막 커밋 기준
+> 최종 변경: 2026-08-06 — 응답 항목 키 교체(공유 DTO `PlayerResponse` 변경분). 요청 본문·상태코드는 불변
 
 응원 선수 **취소**. → `SupportService.opposePlayers()`. 요구사항: USER-SP-24 ~ 29.
 
