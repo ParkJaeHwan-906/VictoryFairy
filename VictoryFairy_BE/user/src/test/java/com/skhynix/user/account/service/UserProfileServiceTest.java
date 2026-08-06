@@ -285,4 +285,27 @@ class UserProfileServiceTest {
         verify(userBqRepository, never()).findByUserAccount_Id(any());
         verify(supportService, never()).currentSupportedPlayers(any());
     }
+
+    @Test
+    @DisplayName("[USER-SP-44] GET /me 경로는 계정 행 비관적 락(findWithLockById)을 절대 타지 않는다"
+            + " — SupportService.lockAccount는 쓰기 경로 전용이며 /me는 SupportService를 조회 전용 메서드"
+            + "(currentSupportedPlayers)로만 호출한다")
+    void getMyProfile_neverLocksAccount() {
+        // given
+        UserAccount account = accountWithPoint("nick", 0L);
+        given(userAccountRepository.findById(ACCOUNT_ID)).willReturn(Optional.of(account));
+        given(userSupportTeamRepository.findWithTeamByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(Optional.empty());
+        given(userBqRepository.findByUserAccount_Id(ACCOUNT_ID)).willReturn(Optional.empty());
+        given(supportService.currentSupportedPlayers(ACCOUNT_ID)).willReturn(List.of());
+
+        // when
+        userProfileService.getMyProfile(ACCOUNT_ID);
+
+        // then: UserProfileService가 직접 들고 있는 UserAccountRepository 목에 대한 검증이다.
+        // SupportService는 이 클래스에서 통째로 목이라 그 내부의 lockAccount 호출 여부는 이 테스트로
+        // 직접 볼 수 없다 — 그 부분은 SupportServiceTest.currentSupportedPlayers_neverLocksAccount가
+        // 대신 고정한다(같은 리포지토리 인스턴스가 아니라 목 조합이 다르기 때문).
+        verify(userAccountRepository, never()).findWithLockById(any());
+    }
 }
