@@ -1,0 +1,73 @@
+spring:
+  datasource:
+    url: jdbc:mysql://${DB_HOST}:${DB_PORT}/${DB_NAME}?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  # 운영 SMTP 실발송 설정(SmtpEmailSender는 prod 프로파일에서만 로딩). 접속 정보는 환경변수 주입.
+  # 기본값을 둬 MAIL_* 미주입 시에도 앱이 부팅되게 한다(메일 설정 누락이 user 서비스 전체를
+  # 죽이지 않도록). host/port는 Mailjet 고정값을 기본값으로, 시크릿(username/password)은 빈 기본값 —
+  # 실제 발송은 k8s Secret에 실 키가 주입돼야 동작하고, 없으면 발송 시점에만 실패한다.
+  mail:
+    host: ${MAIL_HOST:in-v3.mailjet.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
+  jpa:
+    hibernate:
+      # 개발 단계: 엔티티 기준으로 누락 테이블/컬럼을 자동 생성(additive)한다.
+      # ⚠ update 는 삭제/타입변경은 반영하지 않으며, 배포마다 스키마가 자동 변경된다.
+      #   스키마가 안정화되면 none 으로 되돌리고 마이그레이션(Flyway/수동 DDL)으로 전환할 것.
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
+    open-in-view: false
+    # 시드 스크립트(아래 sql.init)를 Hibernate 초기화 '이후'에 돌리기 위한 스위치.
+    # 기본값(false)이면 EntityManagerFactory 준비 전에 실행돼, 위 ddl-auto 가 만들기도 전의
+    # 테이블에 INSERT 를 시도한다.
+    defer-datasource-initialization: true
+
+  # 기본 데이터 시드 — dev 와 같은 파일, 같은 순서다(단일 출처는 infra/sql).
+  #   teams-init.sql         : 10개 구단
+  #   chat-init.sql          : (chatrooms/chats DDL) + SYSTEM 계정 + 구단별 채팅방 10개
+  #   game-statuses-init.sql : 경기 상태 코드 5행(SCHEDULED/IN_PROGRESS/FINISHED/DRAW/CANCELED)
+  # 종전 운영 규칙은 "사람이 infra/sql 을 직접 적용"이었으나, 테이블을 만드는 주체가 이미 이 앱
+  # (ddl-auto=update)이라 만드는 쪽과 채우는 쪽이 갈라져 있었다. 둘 다 user 가 갖도록 모은다.
+  # 세 파일 모두 INSERT ... WHERE NOT EXISTS / CREATE TABLE IF NOT EXISTS 뿐이라 재실행 안전이다
+  # (빈 스키마 기동 후 다시 돌려 행 수가 그대로임을 실측) — 그래서 mode: always 다.
+  # ⚠ 순서 고정: teams-init 이 먼저다. teams 가 0행이면 chat-init 의 구단별 채팅방 생성이 팀 이름
+  #   조인에서 걸러져 에러 없이 0행만 넣고 끝난다.
+  #   game-statuses-init 은 다른 시드와 참조 관계가 없어 순서 의존이 없다(그래서 맨 뒤).
+  # ⚠ game_statuses 는 py-collector 도 쓰는 테이블이다 — 수집기가 상태명을 lookup-or-insert 로
+  #   만들던 자리를 이 시드가 대신한다. 이름 표기가 어긋나면 같은 상태가 두 행으로 갈라지므로
+  #   수집기 map_status 를 고칠 때 game-statuses-init.sql 도 함께 볼 것.
+  # ⚠ data-locations 에 infra/sql 의 마이그레이션 파일(migrate-*.sql)을 절대 추가하지 말 것.
+  #   그쪽은 DROP TABLE/DROP COLUMN 을 포함한 1회성 파일이라 매 기동 실행되면 데이터가 사라진다.
+  #   migrate-game-status-unique.sql 은 파괴적이진 않지만 재실행하면 Duplicate key name 으로 죽어
+  #   모든 파드가 기동 실패한다 — 역시 금지. 재실행 안전한 시드만 이 목록에 올린다.
+  # ⚠ 파드 여러 개가 '완전히 비어 있는' DB 에 동시에 뜨면 WHERE NOT EXISTS 가 서로를 못 봐
+  #   UNIQUE(teams.code, game_statuses.name 등) 충돌로 한쪽 기동이 실패할 수 있다. 재시작하면
+  #   앞선 파드가 넣은 행이 보여 통과하므로 자가 치유되며, 이미 시드된 DB 에서는 전부 no-op 이라
+  #   롤링 업데이트에서는 애초에 일어나지 않는다. 초기 구축 때만 파드 1개로 먼저 띄울 것.
+  sql:
+    init:
+      mode: always
+      encoding: UTF-8
+      data-locations:
+        - classpath:sql/teams-init.sql
+        - classpath:sql/chat-init.sql
+        - classpath:sql/game-statuses-init.sql
+
+  web:
+    error:
+      include-stacktrace: never

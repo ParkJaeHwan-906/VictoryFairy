@@ -1,0 +1,96 @@
+# ExternalDNS: Ingress(k8s/22-ingress.yaml)의 host(victoryfairy.com)를 감시해
+#   Route53 존에 A(ALIAS)→ALB, 소유권 표시용 TXT 레코드를 자동 생성/갱신한다.
+#   덕분에 apex(루트) 도메인도 ALB 로 수동 A레코드 없이 연결된다.
+#
+# 권한: IRSA — SA 어노테이션의 IAM 역할(modules/dns 의 aws_iam_role.external_dns)로
+#   Route53 를 호출한다. 역할은 해당 호스팅영역 레코드 변경만 허용(최소 권한).
+# 배선: role-arn = terraform output external_dns_role_arn (이름 기반이라 값이 고정됨).
+#   domain-filter/txt-owner-id 는 dns 모듈·클러스터와 일치해야 한다.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: external-dns
+  namespace: kube-system
+  labels:
+    app: external-dns
+  annotations:
+    # = terraform output external_dns_role_arn
+    eks.amazonaws.com/role-arn: arn:aws:iam::555209622409:role/victoryfairy-dev-external-dns
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: external-dns
+  labels:
+    app: external-dns
+rules:
+  - apiGroups: [""]
+    resources: ["services", "endpoints", "pods", "nodes"]
+    verbs: ["get", "watch", "list"]
+  - apiGroups: ["extensions", "networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "watch", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: external-dns-viewer
+  labels:
+    app: external-dns
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: external-dns
+subjects:
+  - kind: ServiceAccount
+    name: external-dns
+    namespace: kube-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: external-dns
+  namespace: kube-system
+  labels:
+    app: external-dns
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # 단일 리더 — 동시에 두 파드가 레코드를 다투지 않게.
+  selector:
+    matchLabels:
+      app: external-dns
+  template:
+    metadata:
+      labels:
+        app: external-dns
+    spec:
+      serviceAccountName: external-dns
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+      containers:
+        - name: external-dns
+          image: registry.k8s.io/external-dns/external-dns:v0.15.0
+          args:
+            - --source=ingress
+            - --domain-filter=victoryfairy.com # 이 존만 관리(다른 도메인 손대지 않음)
+            - --provider=aws
+            - --aws-zone-type=public
+            - --registry=txt
+            - --txt-owner-id=victoryfairy-dev # 이 클러스터가 만든 레코드임을 TXT로 표식
+            # upsert-only: 레코드 생성·갱신만. Ingress 삭제 시 DNS 레코드는 남긴다(실수 삭제 방지).
+            # 삭제까지 자동 동기화하려면 --policy=sync 로 교체.
+            - --policy=upsert-only
+          env:
+            - name: AWS_REGION
+              value: ap-northeast-2
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi

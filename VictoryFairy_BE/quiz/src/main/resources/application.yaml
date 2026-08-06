@@ -1,0 +1,68 @@
+spring:
+  application:
+    name: quiz
+  main:
+    web-application-type: servlet
+  config:
+    import:
+      - optional:file:.env[.properties]
+      - optional:file:../.env[.properties]
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+  data:
+    # 실시간 fan-out pub/sub 용(prod 전용 — RedisPubSubPublisher/RealtimeRedisConfig).
+    # 운영 값은 k8s configmap app-config 가 주입한다. prod 이외 프로파일은 연결을 맺는 빈이
+    # 아예 등록되지 않으므로(=InMemoryPublisher 사용) 이 값이 쓰이지 않는다.
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+  jpa:
+    # REST/SSE 전용 앱이라 OSIV 불필요. 모든 LAZY 접근(Chat.userAccount.nickname,
+    # Chatroom.team.name)은 @Transactional 서비스 메서드 안에서 끝나고 컨트롤러 경계는
+    # DTO 레코드만 넘어간다. OSIV=true면 SSE 롱커넥션이 응답이 끝날 때까지 JPA 커넥션을
+    # 잡아 mem_limit 500m / Hikari 기본 풀에서 고갈 위험 → 전 프로파일 false로 고정.
+    # LAZY 접근을 트랜잭션 밖으로 옮기지 않는 한 되돌리지 말 것. (미측정: 정합성 기반 판단)
+    open-in-view: false
+  mvc:
+    async:
+      # SSE는 SseEmitterRegistry.EMITTER_TIMEOUT_MS(30분) + 15초 하트비트로 수명을 관리한다.
+      # SseEmitter의 명시 타임아웃은 DeferredResult로 전파돼 이 전역값을 개별 오버라이드하므로
+      # 현재 SSE는 이 설정과 무관하게 30분까지 유지된다(동작 변화 없음). 이 값은 타임아웃 없이
+      # new SseEmitter()로 만들어질 미래의 emitter나 여타 async 요청이 톰캣 기본 30초에 조기
+      # 종료되는 것을 막는 안전망이다. SSE emitter 타임아웃보다 낮추지 말 것.
+      request-timeout: 30m
+
+server:
+  port: 8081
+  servlet:
+    # 이 앱의 모든 경로에 붙는 외부 접두사. 컨트롤러는 자기 자원 이름만 갖는다
+    # (@RequestMapping("/chat") → 외부 /api/game/chat/**).
+    #
+    # ⚠ 서블릿 컨테이너가 필터 체인 '이전에' 이 접두사를 떼므로:
+    #   - SecurityConfig 의 requestMatchers 는 접두사를 뺀 경로를 쓴다.
+    #   - MockMvc 는 context-path 를 적용하지 않으므로 슬라이스 테스트도 /chat/** 로 요청한다.
+    # ⚠ ALB 는 forward 시 경로 rewrite 를 못 하므로 k8s/22-ingress.yaml 의 path 와
+    #   이 값이 문자 그대로 일치해야 한다.
+    context-path: /api/game
+
+# ALB 타깃 그룹 헬스체크용. health 만 노출한다(그 외 액추에이터 엔드포인트는 닫힘).
+#
+# ⚠ ALB 는 /actuator/health 가 아니라 '/actuator/health/readiness' 를 본다
+#   (k8s/22-ingress.yaml 의 healthcheck-path = /api/game/actuator/health/readiness).
+#   전체 health 는 db 인디케이터까지 합산해 DOWN 을 내므로, MySQL EC2 가 잠깐 흔들리면
+#   살아있는 파드까지 타깃에서 빠져 전면 503 이 된다. readiness 그룹은 기본적으로
+#   readinessState 만 보므로 그런 연쇄를 만들지 않는다.
+# ⚠ context-path(/api/game) 아래로 들어가므로 외부 경로에는 접두사가 붙는다.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true # liveness/readiness 그룹 활성화
+
+jwt:
+  # 토큰 검증만 수행. user와 반드시 동일한 secret이어야 검증됨 (.env의 JWT_SECRET 공유)
+  secret: ${JWT_SECRET:local-dev-secret-please-change-this-to-a-32byte-plus-random-value}

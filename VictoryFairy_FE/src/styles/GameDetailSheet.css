@@ -1,0 +1,326 @@
+/**
+ * GameDetailSheet(경기 상세 정보 바텀시트) 스타일.
+ * Figma: SWM / [Game] 경기 상세 정보 — `Bottom Area` 402 x 774.
+ *
+ * 시트 높이는 내용에 따라 달라진다(라인업 유무로 디자인 두 종류가 있다).
+ * 그래서 높이를 고정하지 않고 최대치만 두고, 넘치면 안쪽만 스크롤한다.
+ */
+
+.game-sheet {
+  position: fixed;
+  z-index: 10;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+/* 딤 — 클릭하면 닫힌다. 버튼이지만 화면에는 어두운 면으로만 보인다. */
+.game-sheet__dim {
+  position: absolute;
+  inset: 0;
+  border: none;
+  padding: 0;
+  background-color: var(--color-dim);
+  cursor: default;
+}
+
+.game-sheet__sheet {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--layout-app-width);
+  max-height: 90dvh;
+  border-radius: var(--radius-40) var(--radius-40) 0 0;
+  background-color: var(--color-surface);
+  overflow: clip;
+  animation: game-sheet-rise 0.24s ease-out;
+}
+
+@keyframes game-sheet-rise {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Handle — 시트 상단 고정
+ * ------------------------------------------------------------------ */
+.game-sheet__handle {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 12px 0;
+}
+
+.game-sheet__handle-bar {
+  width: 48px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-label-assistive);
+}
+
+/* 핸들의 용도를 보조기기에만 알린다(화면에는 막대만 보인다). */
+.game-sheet__handle-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------ *
+ * Body — 내용이 길면 여기만 스크롤된다(CTA 는 아래 고정)
+ * ------------------------------------------------------------------ */
+.game-sheet__body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  padding-bottom: 20px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.game-sheet__title {
+  margin: 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  text-align: center;
+}
+
+/* 제목 하단(62) → 헤더 상단(86) = 24px */
+.game-sheet__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 24px;
+  padding-inline: var(--layout-gutter);
+}
+
+.game-sheet__place {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+}
+
+.game-sheet__stadium {
+  color: var(--color-label-normal);
+  font-size: var(--font-size-title1);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.game-sheet__time {
+  flex-shrink: 0;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-label2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+/* 목록 카드의 칩과 같은 형태·색이다 */
+.game-sheet__chip {
+  flex-shrink: 0;
+  padding: 4px 12px;
+  border-radius: var(--radius-20);
+  color: var(--color-white);
+  font-size: var(--font-size-label2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+  white-space: nowrap;
+}
+
+.game-sheet__chip--scheduled {
+  background-color: var(--color-primary-lighter);
+}
+
+.game-sheet__chip--live {
+  background-color: var(--color-primary-normal);
+}
+
+.game-sheet__chip--done {
+  background-color: var(--color-secondary-light);
+}
+
+.game-sheet__chip--canceled {
+  background-color: var(--color-label-disable);
+}
+
+/* ------------------------------------------------------------------ *
+ * Teams — 원정 VS 홈. 헤더 하단(120) → 팀 영역 상단(140) = 20px
+ * ------------------------------------------------------------------ */
+.game-sheet__teams {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 33px;
+  margin-top: 20px;
+  padding-inline: 32px;
+}
+
+.game-sheet__team {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 100px;
+}
+
+.game-sheet__logo-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 60px;
+}
+
+.game-sheet__logo {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.game-sheet__team-name {
+  color: var(--color-label-normal);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-body1);
+  letter-spacing: -0.16px;
+  text-align: center;
+}
+
+.game-sheet__vs {
+  flex-shrink: 0;
+  color: var(--color-primary-normal);
+  font-size: var(--font-size-title1);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title1);
+}
+
+/* ------------------------------------------------------------------ *
+ * Lineup — 원정 · 홈 두 열
+ * ------------------------------------------------------------------ */
+.game-sheet__lineup {
+  display: flex;
+  gap: 58px;
+  justify-content: center;
+  margin-top: 20px;
+  padding-inline: 32px;
+}
+
+.game-sheet__batters {
+  display: flex;
+  flex-direction: column;
+  width: 140px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.game-sheet__batter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--color-line-lighter);
+}
+
+/* 마지막 줄은 구분선 없이 끝난다 */
+.game-sheet__batter:last-child {
+  border-bottom: none;
+}
+
+.game-sheet__batter-name {
+  min-width: 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.game-sheet__batter-position {
+  flex-shrink: 0;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-body4);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body4);
+}
+
+/* 라인업 미공시 · 조회 실패 안내문 */
+.game-sheet__notice {
+  margin: 40px 0;
+  padding-inline: var(--layout-gutter);
+  color: var(--color-label-assistive);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  text-align: center;
+}
+
+/* ------------------------------------------------------------------ *
+ * CTA — 아래 고정. 진행 전 · 취소 경기에는 없다.
+ * ------------------------------------------------------------------ */
+.game-sheet__cta {
+  flex-shrink: 0;
+  height: 60px;
+  margin: 0 var(--layout-gutter) calc(22px + env(safe-area-inset-bottom, 0px));
+  border-radius: var(--radius-15);
+  color: var(--color-white);
+  font-size: var(--font-size-button2);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+}
+
+.game-sheet__cta--live {
+  background-color: var(--color-primary-normal);
+}
+
+.game-sheet__cta--done {
+  background-color: var(--color-secondary-light);
+}
+
+/* ------------------------------------------------------------------ *
+ * 반응형 · 접근성
+ * ------------------------------------------------------------------ */
+@media (max-width: 359px) {
+  .game-sheet__teams,
+  .game-sheet__lineup {
+    gap: 20px;
+    padding-inline: 16px;
+  }
+
+  .game-sheet__batters {
+    width: auto;
+    flex: 1 1 0;
+    min-width: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-sheet__sheet {
+    animation: none;
+  }
+}

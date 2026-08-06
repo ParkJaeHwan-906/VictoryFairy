@@ -1,0 +1,267 @@
+/**
+ * CommunityPage(라운지 메인) 스타일.
+ * Figma: SWM / [Lounge] 라운지 메인 (node 724:20029), 기준 프레임 402 x 874.
+ *
+ * Figma 의 절대 좌표는 흐름(flow) 레이아웃으로 옮겼고, 요소 간 간격은 원본 좌표
+ * 차이를 그대로 margin 으로 환산해 시각적 결과를 보존한다.
+ *   예) 랭킹 목록(top 403) - 헤더 카드 하단(381) = margin-top 22px
+ * 디자인 최상단의 iOS 상태 바(47px)는 단말 크롬이라 옮기지 않았다(LoginPage 와 동일).
+ * 화면 높이와 하단 NavBar 자리는 AppLayout 이 잡아 준다.
+ */
+
+.community-page {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--layout-app-width);
+  margin-inline: auto;
+  padding-bottom: 24px;
+  background-color: var(--color-background-basic);
+}
+
+/* ------------------------------------------------------------------ *
+ * Header — 아이보리 카드(제목 + 시상대)
+ * ------------------------------------------------------------------ */
+.community-page__header {
+  display: flex;
+  flex-direction: column;
+  border-radius: 0 0 var(--radius-20) var(--radius-20);
+  background-color: var(--color-background-ivory);
+  /* Figma: drop-shadow 0 0 2px Gray/200 */
+  filter: drop-shadow(0 0 2px var(--color-gray-200));
+}
+
+.community-page__title {
+  margin: 0;
+  padding: 20px var(--layout-gutter) 0;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-title1);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title1);
+}
+
+/* ------------------------------------------------------------------ *
+ * Podium — 2위 · 1위 · 3위 시상대
+ * 세 칸이 각 100px, 좌우 51px 여백으로 402px 를 채운다.
+ * ------------------------------------------------------------------ */
+.community-page__podium {
+  display: flex;
+  align-items: flex-end;
+  padding: 20px 51px;
+}
+
+.community-page__podium-item {
+  display: flex;
+  flex: 1 0 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.community-page__podium-profile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 60px;
+}
+
+.community-page__podium-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+}
+
+.community-page__podium-point {
+  margin: 0;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-label2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+.community-page__podium-name {
+  margin: 0;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+}
+
+.community-page__podium-avatar {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: var(--radius-40);
+  object-fit: cover;
+}
+
+/* 시상대 단. 높이·색이 순위마다 다르다. */
+.community-page__podium-bar {
+  width: 100%;
+  border-radius: var(--radius-10) var(--radius-10) 0 0;
+}
+
+/* 1위 — 사진·이름이 한 단계 크고 단이 가장 높다 */
+.community-page__podium-item--rank1 .community-page__podium-profile {
+  width: 80px;
+}
+
+.community-page__podium-item--rank1 .community-page__podium-point {
+  line-height: var(--line-height-body4);
+}
+
+.community-page__podium-item--rank1 .community-page__podium-name {
+  font-size: var(--font-size-title3);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title3);
+}
+
+.community-page__podium-item--rank1 .community-page__podium-bar {
+  height: 60px;
+  background-color: var(--color-primary-normal);
+}
+
+.community-page__podium-item--rank2 .community-page__podium-bar {
+  height: 40px;
+  background-color: var(--color-primary-400);
+}
+
+.community-page__podium-item--rank3 .community-page__podium-bar {
+  height: 20px;
+  background-color: var(--color-primary-lighter);
+}
+
+/* ------------------------------------------------------------------ *
+ * Ranking — 4위 이하 목록 + 맨 아래 내 순위
+ * ------------------------------------------------------------------ */
+.community-page__ranking {
+  margin: 22px 0 0;
+  padding: 0 var(--layout-gutter);
+  list-style: none;
+}
+
+.community-page__rank-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius-10);
+}
+
+.community-page__rank-number {
+  flex-shrink: 0;
+  width: 35px;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+}
+
+.community-page__rank-content {
+  display: flex;
+  flex: 1 0 0;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  gap: 8px;
+}
+
+.community-page__rank-user {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.community-page__rank-avatar {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-40);
+  object-fit: cover;
+}
+
+.community-page__rank-name {
+  overflow: hidden;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.community-page__rank-point {
+  flex-shrink: 0;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-label2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+/* 내 순위 — 회색 바탕에 순위·닉네임만 강조색 */
+.community-page__rank-row--mine {
+  background-color: var(--color-background-gray);
+}
+
+.community-page__rank-row--mine .community-page__rank-number,
+.community-page__rank-row--mine .community-page__rank-name {
+  color: var(--color-primary-normal);
+}
+
+/* ------------------------------------------------------------------ *
+ * Chat FAB — 오른쪽 아래 채팅 버튼
+ * 디자인에선 NavBar 바로 위에 놓이지만, NavBar 를 아직 그리지 않으므로
+ * 화면 오른쪽 아래(여백 24px)에 고정한다.
+ * 402px 보다 넓은 화면에서도 앱 폭 안쪽에 머물도록 right 를 계산한다.
+ * ------------------------------------------------------------------ */
+.community-page__chat-fab {
+  position: fixed;
+  right: max(var(--layout-gutter), calc(50% - var(--layout-app-width) / 2 + var(--layout-gutter)));
+  /* Figma: 버튼 하단(762)이 NavBar 흰 바 위끝(786)보다 24px 위다. */
+  bottom: calc(var(--layout-navbar-height) + env(safe-area-inset-bottom, 0px) + 24px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 68px;
+  height: 68px;
+  border-radius: var(--radius-35);
+  background-image: linear-gradient(
+    138.19deg,
+    var(--color-primary-200) 2.49%,
+    var(--color-primary-500) 97.51%
+  );
+  box-shadow: 0 0 4px 0 var(--color-gray-300);
+}
+
+/*
+ * 말풍선 아이콘.
+ * 프로젝트 자산 `chat2.svg` 의 fill 이 검정이라, LoginPage 의 에러 아이콘과 같은
+ * 방식으로 mask 로 오려내고 흰색으로 칠한다.
+ */
+.community-page__chat-fab-icon {
+  width: 32px;
+  height: 32px;
+  background-color: var(--color-white);
+  -webkit-mask: url('../assets/chat2.svg') no-repeat center / contain;
+  mask: url('../assets/chat2.svg') no-repeat center / contain;
+}
+
+/* ------------------------------------------------------------------ *
+ * 반응형 — 402px 미만(소형 단말)에서 좌우 여백을 줄여 레이아웃이 깨지지 않게 한다.
+ * ------------------------------------------------------------------ */
+@media (max-width: 359px) {
+  .community-page__podium {
+    padding-inline: 16px;
+  }
+
+  .community-page__ranking {
+    padding-inline: 16px;
+  }
+}

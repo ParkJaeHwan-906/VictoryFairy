@@ -1,0 +1,34 @@
+spring:
+  datasource:
+    url: jdbc:mysql://${DB_HOST}:${DB_PORT}/${DB_NAME}?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    hibernate:
+      # 로컬은 엔티티 기준으로 누락 테이블/컬럼을 자동 생성(additive)한다. 빈 볼륨으로 시작해도
+      # 스키마 자체는 만들어진다(데이터는 아래 참고).
+      # ⚠ update 는 추가만 반영한다 — 컬럼 삭제·타입 변경·인덱스 제거는 그대로 남는다. 엔티티에서
+      #   무언가를 없앴는데 로컬만 이상하면 스키마가 낡은 것이니 DB 를 지우고 다시 띄울 것.
+      #   (종전 validate 는 이런 드리프트를 즉시 잡아줬지만, 대신 사람이 손으로 DDL 을 맞춰야 했다.)
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+# 로컬 시드(구단 10개·SYSTEM 계정·구단별 채팅방)는 이 앱이 넣지 않는다 — user-app 이 dev 기동 시
+# 넣는다(user/src/main/resources/application-dev.yaml 의 spring.sql.init). 테이블을 만드는 앱과
+# 기본 데이터를 넣는 앱을 하나로 모으려고 옮겼다(prod 에서 DDL 을 내는 앱도 user 뿐이다).
+# ⚠ 그래서 빈 DB 에 quiz 만 띄우면 테이블은 있어도 채팅방이 0행이다. 채팅방 목록이 비어 있으면
+#   설정을 의심하기 전에 user-app 을 한 번 띄울 것.
+
+# dev 는 Redis 를 쓰지 않는다(fan-out 은 InMemoryPublisher). spring-boot-starter-data-redis 가
+# 클래스패스에 있다는 이유만으로 액추에이터가 redis 인디케이터를 켜서, 로컬에 Redis 가 없으면
+# /actuator/health 가 DOWN 으로 보인다 → 오해를 막기 위해 dev 에서만 끈다.
+# (readiness 그룹은 원래 이 인디케이터를 보지 않으므로 ALB 헬스체크와는 무관하다.)
+management:
+  health:
+    redis:
+      enabled: false
