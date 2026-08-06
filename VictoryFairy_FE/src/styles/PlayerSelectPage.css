@@ -1,0 +1,269 @@
+/**
+ * PlayerSelectPage(온보딩 - 선호 선수 선택) 스타일.
+ * Figma: SWM / [Onboarding] 선호 선수 선택-기본 (node 296:1566)
+ *              [Onboarding] 선호 선수 선택-최대 (node 929:8021)
+ * 기준 프레임 402 x 874.
+ *
+ * Figma 의 절대 좌표는 흐름 레이아웃으로 옮겼다. 세로 간격은 앞 요소의 아랫변에서 잰 값이다
+ * (heading 아래 8 / guide 아래 40 / 필드 아래 20).
+ *
+ * 상단 바·CTA 는 TeamSelectPage 와 같은 컴포넌트(Bar/Top · Btn/CTA)라 규칙도 같게 맞췄다.
+ */
+
+.player-select-page {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--layout-app-width);
+  min-height: 100dvh;
+  margin-inline: auto;
+  padding-bottom: 48px;
+  background-color: var(--color-background-basic);
+}
+
+/* ------------------------------------------------------------------ *
+ * Bar/Top — 뒤로가기 · 타이틀
+ * 오른쪽은 디자인상 opacity 0 인 빈 버튼 → 타이틀 중앙 정렬용 스페이서로 둔다.
+ * ------------------------------------------------------------------ */
+.player-select-page__topbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.player-select-page__back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 60px;
+  padding: 10px;
+  border-radius: var(--radius-10);
+  overflow: clip;
+}
+
+.player-select-page__back-icon {
+  width: 20px;
+  height: 20px;
+  background-color: var(--color-label-assistive);
+  -webkit-mask: url('../assets/arrow_l.svg') center / contain no-repeat;
+  mask: url('../assets/arrow_l.svg') center / contain no-repeat;
+}
+
+.player-select-page__topbar-title {
+  margin: 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  text-align: center;
+}
+
+.player-select-page__topbar-spacer {
+  width: 60px;
+  height: 60px;
+}
+
+/* ------------------------------------------------------------------ *
+ * Title/Title1 — "가장 응원하는 선수를 / 선택해주세요"
+ * ------------------------------------------------------------------ */
+.player-select-page__heading {
+  flex: 0 0 auto;
+  margin: 20px 0 0;
+  padding-inline: var(--layout-gutter);
+  color: var(--color-label-normal);
+  font-size: var(--font-size-title1);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title1);
+}
+
+/* Body/Body4 — 구단·인원 안내. 구단 이름은 온보딩에서 넘어오면 앞에 붙는다. */
+.player-select-page__guide {
+  flex: 0 0 auto;
+  margin: 8px 0 0;
+  padding-inline: var(--layout-gutter);
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-body4);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body4);
+}
+
+/* ------------------------------------------------------------------ *
+ * 검색 필드 — 누르면 바텀시트가 열린다(여기서 직접 입력하지 않는다)
+ * ------------------------------------------------------------------ */
+.player-select-page__field {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 40px;
+  padding-inline: var(--layout-gutter);
+}
+
+.player-select-page__field-label {
+  margin: 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-label2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+/*
+ * Textfield/Box_1 과 같은 모양이지만 버튼이다.
+ * 오른쪽 여백(50px)은 44px 아이콘 버튼이 글자를 덮지 않도록 비워 둔 자리다.
+ */
+.player-select-page__trigger {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 16px 50px 16px 12px;
+  border-radius: var(--radius-12);
+  background-color: var(--color-background-gray);
+  text-align: left;
+  cursor: pointer;
+}
+
+.player-select-page__trigger-text {
+  min-width: 0;
+  color: var(--color-label-disable);
+  font-size: var(--font-size-body2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Btn/Icon_r 44x44 안의 20px 아이콘. 버튼 안이라 자리만 잡고 클릭은 필드가 받는다. */
+.player-select-page__trigger-icon {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  width: 20px;
+  height: 20px;
+  margin-top: -10px;
+  background-color: var(--color-label-alternative);
+  -webkit-mask: url('../assets/search.svg') center / contain no-repeat;
+  mask: url('../assets/search.svg') center / contain no-repeat;
+}
+
+/* ------------------------------------------------------------------ *
+ * 선택한 선수 — 이름 + 해제(X). CTA 를 아래로 밀어내는 신축 영역이다.
+ * ------------------------------------------------------------------ */
+.player-select-page__body {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+  margin-top: 20px;
+  padding-inline: var(--layout-gutter);
+}
+
+.player-select-page__selected {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.player-select-page__selected-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 4px;
+  border-bottom: 1px solid var(--color-line-lighter);
+}
+
+/* 마지막 줄은 구분선 없이 끝난다 */
+.player-select-page__selected-item:last-child {
+  border-bottom: none;
+}
+
+.player-select-page__selected-name {
+  min-width: 0;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.player-select-page__remove {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+}
+
+.player-select-page__remove-icon {
+  width: 20px;
+  height: 20px;
+  background-color: var(--color-label-assistive);
+  -webkit-mask: url('../assets/x.svg') center / contain no-repeat;
+  mask: url('../assets/x.svg') center / contain no-repeat;
+  transition: background-color 0.15s ease-in-out;
+}
+
+.player-select-page__remove:hover .player-select-page__remove-icon,
+.player-select-page__remove:focus-visible .player-select-page__remove-icon {
+  background-color: var(--color-label-neutral);
+}
+
+/* ------------------------------------------------------------------ *
+ * CTA — 화면 하단에 붙인다
+ * ------------------------------------------------------------------ */
+.player-select-page__submit {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  height: 60px;
+  margin-top: 40px;
+  margin-inline: var(--layout-gutter);
+  padding-inline: 16px;
+  border-radius: var(--radius-15);
+  background-color: var(--color-primary-normal);
+  color: var(--color-white);
+  font-size: var(--font-size-button2);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  transition: background-color 0.15s ease-in-out;
+}
+
+.player-select-page__submit:disabled {
+  background-color: var(--color-action-disabled);
+  color: var(--color-label-disable);
+  cursor: not-allowed;
+}
+
+/* ------------------------------------------------------------------ *
+ * 반응형 · 접근성
+ * ------------------------------------------------------------------ */
+@media (max-width: 379px) {
+  .player-select-page__heading,
+  .player-select-page__guide,
+  .player-select-page__field,
+  .player-select-page__body {
+    padding-inline: 16px;
+  }
+
+  .player-select-page__submit {
+    margin-inline: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .player-select-page__submit,
+  .player-select-page__remove-icon {
+    transition: none;
+  }
+}

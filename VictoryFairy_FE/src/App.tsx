@@ -7,6 +7,7 @@ import TeamSelectPage from './pages/TeamSelectPage';
 import MainPage from './pages/MainPage';
 import MyPage from './pages/MyPage';
 import GamePage from './pages/GamePage';
+import PlayerSelectPage from './pages/PlayerSelectPage';
 import { ROUTES } from './routes';
 
 export default function App() {
@@ -15,8 +16,8 @@ export default function App() {
       <Route path="/" element={<Navigate to={ROUTES.login} replace />} />
       <Route path={ROUTES.login} element={<LoginPage />} />
       <Route path={ROUTES.signup} element={<SignupPage />} />
-      {/* 온보딩은 NavBar 없이 단독으로 뜬다(가입 → 구단 선택 흐름) */}
       <Route path={ROUTES.teamSelect} element={<TeamSelectPage />} />
+      <Route path={ROUTES.playerSelect} element={<PlayerSelectPage />} />
       {/*
         하단 NavBar 가 붙는 화면들.
         레이아웃에 NavBar 를 한 번만 두어, 이 안에서 화면을 옮겨 다녀도
