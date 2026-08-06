@@ -66,6 +66,12 @@ git clone --depth 1 -b dev \
 `wiki/_meta/builder-runs/`에서 마지막 성공 실행 시각을 찾고, 그 날짜 이후
 파티션만 `.work/posts/`로 내려받는다. 첫 실행(마커 없음)이면 최근 14일.
 
+**단, 직전 마커에 `pendingPlayers`가 남아 있으면 전체 파티션을 받는다.** 증분 창은
+*게시글 날짜* 기준이라, "게시글은 예전 것이지만 시간이 없어 아직 못 다룬 선수"를
+기억하지 못한다. 2026-08-06에 실제로 이 구멍에 빠졌다 — 후보 557명 중 110명만
+처리하고 마커를 찍자 다음 실행의 증분 창이 그 시각 이후로 좁혀져, 남은 447명의
+근거 게시글(7/19~8/1 파티션)이 영영 후보에서 빠지게 됐다. 백필 세션으로 메웠다.
+
 ```bash
 : "${S3_BUCKET:?S3_BUCKET 환경변수를 설정하라}"
 mkdir -p .work/posts
@@ -74,8 +80,20 @@ mkdir -p .work/posts
 LAST_RUN_KEY=$(ls .work/wiki-repo/wiki/_meta/builder-runs/ 2>/dev/null \
   | sort | tail -1)
 
+PENDING_COUNT=0
 if [ -n "$LAST_RUN_KEY" ]; then
   LAST_RUN_ISO="${LAST_RUN_KEY%.json}"
+  PENDING_COUNT=$(py-collector/.venv/bin/python -c "
+import json,sys
+d=json.load(open('.work/wiki-repo/wiki/_meta/builder-runs/$LAST_RUN_KEY'))
+print(len(d.get('pendingPlayers') or []))" 2>/dev/null || echo 0)
+fi
+
+if [ "$PENDING_COUNT" -gt 0 ]; then
+  # 미처리 선수가 남아 있다 — 그들의 근거 게시글은 증분 창 밖(과거)이므로 전량 받는다.
+  SINCE_DATE="0000-00-00"
+  echo "미처리 선수 ${PENDING_COUNT}명 — 전체 파티션 수집"
+elif [ -n "$LAST_RUN_KEY" ]; then
   SINCE_DATE=$(date -u -d "$LAST_RUN_ISO" +%Y-%m-%d 2>/dev/null \
     || date -u -jf "%Y-%m-%dT%H:%M:%S" "${LAST_RUN_ISO%%.*}" +%Y-%m-%d 2>/dev/null \
     || date -u -jf "%Y-%m-%dT%H:%M:%SZ" "$LAST_RUN_ISO" +%Y-%m-%d)
@@ -97,6 +115,9 @@ for SRC in dcinside fmkorea; do
   done
 done
 ```
+
+`pendingPlayers`가 있으면 **그 선수들을 3단계에서 먼저 처리**한다(신규 게시글보다
+우선). 오래 밀린 선수가 계속 뒤로 밀리는 것을 막기 위한 순서다.
 
 **입력은 `validation/bedrock/success/` 뿐이다.** `community/`(원문) 경로는 위키
 빌더가 직접 읽지 않는다 — 검열·주제 필터를 통과한 정제 게시글만 소비한다.
@@ -356,7 +377,8 @@ cat > "wiki/_meta/builder-runs/$RUN_ISO.json" <<JSON
   "runAt": "$RUN_ISO",
   "postsProcessed": <이번 실행에서 읽은 게시글 수>,
   "playersUpdated": <갱신된 선수 문서 수>,
-  "skipped": [<선수 매칭 보류/거부 목록 — 사유 포함>]
+  "skipped": [<선수 매칭 보류/거부 목록 — 사유 포함>],
+  "pendingPlayers": [<후보였으나 시간 상한으로 이번에 못 다룬 kboPlayerId 목록>]
 }
 JSON
 
@@ -397,6 +419,8 @@ cd -
 - **푸시 실패**: 그 실행의 산출물은 반영되지 않는다. 마커가 같은 커밋에 있으므로
   증분 기준도 함께 롤백돼, 다음 실행이 같은 구간을 다시 훑는다 — 데이터 유실은
   없고 한 주기 늦어질 뿐이다. 실패 지점과 에러 전문을 보고한다.
-- **60분 소요 상한 초과**: 그 시점까지 처리한 선수까지만 커밋하고 남은
-  후보는 스킵 목록에 남긴다 — 강제 종료돼 커밋조차 못 했으면 다음 실행이
-  증분 기준에 따라 같은 구간을 다시 처리한다.
+- **60분 소요 상한 초과**: 그 시점까지 처리한 선수까지만 커밋하고, **못 다룬
+  후보의 `kboPlayerId`를 마커의 `pendingPlayers`에 반드시 남긴다.** 이걸 빠뜨리면
+  다음 실행의 증분 창(게시글 날짜 기준)이 좁혀지면서 그 선수들이 후보에서 영영
+  사라진다 — 2026-08-06에 447명이 이 구멍에 빠졌다(1단계 설명 참고). 강제 종료돼
+  커밋조차 못 했으면 마커도 안 써지므로 다음 실행이 같은 구간을 다시 처리한다.
