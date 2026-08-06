@@ -13,9 +13,11 @@ import com.skhynix.user.account.dto.UserAccountResponse;
 import com.skhynix.user.account.service.UserAccountService;
 import com.skhynix.user.account.service.UserProfileService;
 import com.skhynix.user.global.config.SecurityConfig;
+import com.skhynix.user.player.dto.PlayerResponse;
 import com.skhynix.user.team.dto.TeamResponse;
 import com.skhynix.websupport.error.GlobalExceptionHandler;
 import com.skhynix.websupport.jwt.JwtTokenProvider;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
@@ -74,16 +76,21 @@ class UserAccountControllerMeTest {
         return token;
     }
 
+    private static PlayerResponse playerOf(Long playerId, String playerName) {
+        return new PlayerResponse(6L, "KIA", playerId, playerName, "10", "INFIELDER");
+    }
+
     private static UserAccountResponse fullProfile() {
-        return new UserAccountResponse("nick", new TeamResponse(6L, "KIA"), 1200L, 340L);
+        return new UserAccountResponse("nick", new TeamResponse(6L, "KIA"),
+                List.of(playerOf(100L, "김선수")), 1200L, 340L);
     }
 
     // ---------- 응답 본문 (USER-ME-12 ~ 20) ----------
 
     @Test
     @DisplayName("[USER-ME-12, 13, 14, 15, 17, 18] 인증된 사용자가 요청하면 200과 ApiResponse에 담긴 "
-            + "프로필을 반환하고, data의 키는 정확히 nickname·supportTeam·point·bqScore 4개뿐이다")
-    void getMyProfile_authenticated_returns200WithExactlyFourKeys() throws Exception {
+            + "프로필을 반환하고, data의 키는 정확히 nickname·supportTeam·supportPlayers·point·bqScore 5개뿐이다")
+    void getMyProfile_authenticated_returns200WithExactlyFiveKeys() throws Exception {
         // given
         String uid = UUID.randomUUID().toString();
         Long accountId = 1L;
@@ -96,12 +103,55 @@ class UserAccountControllerMeTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.message").doesNotExist())
-                .andExpect(jsonPath("$.data.length()").value(4))
+                .andExpect(jsonPath("$.data.length()").value(5))
                 .andExpect(jsonPath("$.data.nickname").value("nick"))
                 .andExpect(jsonPath("$.data.supportTeam.id").value(6))
                 .andExpect(jsonPath("$.data.supportTeam.name").value("KIA"))
                 .andExpect(jsonPath("$.data.point").value(1200))
                 .andExpect(jsonPath("$.data.bqScore").value(340));
+    }
+
+    @Test
+    @DisplayName("[USER-ME-32] 응원 선수가 있으면 supportPlayers가 배열로 담기고 각 항목은 "
+            + "PlayerResponse의 6개 키(teamId·teamName·playerId·playerName·playerNumber·playerPosition)를 그대로 갖는다")
+    void getMyProfile_withSupportPlayers_returnsPlayerResponseShapeArray() throws Exception {
+        // given
+        String uid = UUID.randomUUID().toString();
+        Long accountId = 1L;
+        String token = stubValidAccessToken(uid);
+        given(userAccountRepository.findActiveIdByUid(uid)).willReturn(Optional.of(accountId));
+        given(userProfileService.getMyProfile(accountId)).willReturn(fullProfile());
+
+        // when & then
+        mockMvc.perform(get("/users/me").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.supportPlayers").isArray())
+                .andExpect(jsonPath("$.data.supportPlayers.length()").value(1))
+                .andExpect(jsonPath("$.data.supportPlayers[0].length()").value(6))
+                .andExpect(jsonPath("$.data.supportPlayers[0].teamId").value(6))
+                .andExpect(jsonPath("$.data.supportPlayers[0].teamName").value("KIA"))
+                .andExpect(jsonPath("$.data.supportPlayers[0].playerId").value(100))
+                .andExpect(jsonPath("$.data.supportPlayers[0].playerName").value("김선수"))
+                .andExpect(jsonPath("$.data.supportPlayers[0].playerNumber").value("10"))
+                .andExpect(jsonPath("$.data.supportPlayers[0].playerPosition").value("INFIELDER"));
+    }
+
+    @Test
+    @DisplayName("[USER-ME-34] 응원 선수가 없으면 supportPlayers는 null이 아니라 빈 배열로 담긴다")
+    void getMyProfile_noSupportPlayers_returnsEmptyArrayNotNull() throws Exception {
+        // given
+        String uid = UUID.randomUUID().toString();
+        Long accountId = 1L;
+        String token = stubValidAccessToken(uid);
+        given(userAccountRepository.findActiveIdByUid(uid)).willReturn(Optional.of(accountId));
+        given(userProfileService.getMyProfile(accountId))
+                .willReturn(new UserAccountResponse("nick", new TeamResponse(6L, "KIA"), List.of(), 1200L, 340L));
+
+        // when & then
+        mockMvc.perform(get("/users/me").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.supportPlayers").isArray())
+                .andExpect(jsonPath("$.data.supportPlayers.length()").value(0));
     }
 
     @Test
@@ -136,7 +186,7 @@ class UserAccountControllerMeTest {
         String token = stubValidAccessToken(uid);
         given(userAccountRepository.findActiveIdByUid(uid)).willReturn(Optional.of(accountId));
         given(userProfileService.getMyProfile(accountId))
-                .willReturn(new UserAccountResponse("nick", null, 0L, 0L));
+                .willReturn(new UserAccountResponse("nick", null, List.of(), 0L, 0L));
 
         // when & then
         mockMvc.perform(get("/users/me").header("Authorization", "Bearer " + token))
@@ -154,7 +204,7 @@ class UserAccountControllerMeTest {
         String token = stubValidAccessToken(uid);
         given(userAccountRepository.findActiveIdByUid(uid)).willReturn(Optional.of(accountId));
         given(userProfileService.getMyProfile(accountId))
-                .willReturn(new UserAccountResponse("nick", null, 1200L, 0L));
+                .willReturn(new UserAccountResponse("nick", null, List.of(), 1200L, 0L));
 
         // when & then: jsonPath.value(1200)은 숫자 1200과만 매칭되고 문자열 "1200"과는 매칭되지 않는다
         mockMvc.perform(get("/users/me").header("Authorization", "Bearer " + token))
