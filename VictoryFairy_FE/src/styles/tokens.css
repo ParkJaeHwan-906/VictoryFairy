@@ -32,8 +32,12 @@
   /* Color — Red (검증 실패 / 에러) */
   --color-red-500: #e5342b;
 
+  /* Color — Yellow (경기 종료 · 퀴즈 결과) */
+  --color-yellow-300: #ffcb4d;
+
   /* Color — Line */
   --color-line-light: var(--color-gray-100);
+  --color-line-lighter: var(--color-gray-50);
 
   /* Color — Brand (소셜 로그인) */
   --color-kakao-container: #fee500;
@@ -49,8 +53,10 @@
   --color-surface: var(--color-white);
   /* Figma Style: Primary/Normal — 강조 텍스트·1위 시상대 */
   --color-primary-normal: var(--color-primary-500);
-  /* Figma Style: Primary/Lighter — 3위 시상대 */
+  /* Figma Style: Primary/Lighter — 3위 시상대 · 경기 예정 칩 */
   --color-primary-lighter: var(--color-primary-300);
+  /* Figma Style: Secondary/Light — 경기 종료 칩 · 퀴즈 결과 버튼 */
+  --color-secondary-light: var(--color-yellow-300);
   /* 프로필 자리표시 아바타의 원형 바탕 */
   --color-profile-container: var(--color-primary-50);
   /* 바텀시트가 덮는 딤. Figma: Static/black 50% */
