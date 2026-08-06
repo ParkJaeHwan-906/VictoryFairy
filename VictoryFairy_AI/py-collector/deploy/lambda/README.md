@@ -7,14 +7,21 @@
 - **community** — `rate(10 minutes)` → `{"job":"community"}` : 새 글만 증분 수집
 - **game** — `cron(0 18 * * ? *)`(03:00 KST) → `{"job":"game"}` : schedule→result→relay
   - 03:00 KST에 돌면 전날 저녁(KST) 끝난 경기가 대상 — 그 시각 UTC 날짜가 곧 경기 KST 날짜라 자동 정합.
+- **kbo_records** — `cron(0 22 * * ? *)`(07:00 KST) → `{"job":"kbo_records"}` : KBO 기록실 스냅샷 → `kbo-records/`
+- **game_schedule** — `cron(30 23 * * ? *)`(08:30 KST) → `{"job":"game_schedule"}` : 당일(KST) **예정** 경기 → `question-source/`
+  - `game`과 방향이 반대입니다 — 저건 끝난 경기, 이건 아직 시작 전 경기라 날짜 앵커가 KST입니다.
+  - 뒤 두 잡은 `quiz_source_jobs_enabled = true` 일 때만 생성됩니다 → [퀴즈 원천 잡 컷오버](#퀴즈-원천-잡-컷오버)
 
 `kbo-collector-db` (DB 잡, VPC 안 — `db_subnet_ids` 설정 시에만 생성):
 - **records** — `cron(30 18 * * ? *)`(03:30 KST) → `{"job":"records"}` : 완료 경기 → games/game_lineups
 - **registrations** — `cron(0 2 * * ? *)`(11:00 KST) → `{"job":"registrations"}` : KBO 1군 등록명단 → players
 - **games_sync** — `{"job":"games_sync"}` : 당일 KBO 경기 전부의 상태(SCHEDULED/LIVE/종료/취소) →
-  games 동기화. 스케줄 제안(**테라폼 미적용 — 아래 두 줄은 문서 기록용, infra 반영 보류**):
-  - 아침 동기화: `cron(0 23 * * ? *)`(08:00 KST) — 당일 SCHEDULED 선반영
-  - 경기 시간대: `cron(0/10 8-14 * * ? *)`(17:00~23:50 KST, 10분 간격) — LIVE/종료/취소 반영
+  games 동기화. 한 잡에 스케줄이 둘입니다:
+  - `games-sync-morning` — `cron(0 23 * * ? *)`(08:00 KST) : 당일 SCHEDULED 선반영
+  - `games-sync-live` — `cron(0/10 8-14 * * ? *)`(17:00~23:50 KST, 10분 간격) : LIVE/종료/취소 반영
+- **export** — `cron(0 19 * * ? *)`(04:00 KST) → `{"job":"export","target":"game_result"}` :
+  games/game_lineups → `question-source/` envelope. `records`(03:30) 뒤라야 그날 경기가 실립니다.
+  S3에 쓰지만 원본이 MySQL이라 -db 함수 소관입니다. `quiz_source_jobs_enabled` 게이트 대상.
 
 함수를 나눈 이유: 운영 MySQL(데이터 EC2)은 VPC 안에서만 접근되므로 DB 잡 함수만
 프라이빗 서브넷에 배치하고(외부 API는 기존 NAT로 아웃바운드), S3 잡 함수는 VPC 밖에
@@ -127,6 +134,50 @@ apply 전에 `git pull` 하세요. 되감겼다면 GitHub Actions에서 `deploy-
 > (`@sha256:...`, `data.aws_ecr_image`로 조회)에 고정합니다. `:latest` 문자열로 고정하면
 > 값이 안 바뀌어 Terraform이 갱신을 건너뛰기 때문입니다. CI가 SHA 태그와 함께 `:latest`도
 > 갱신하는 이유가 이 핀을 맞춰 두기 위함입니다.
+
+## 퀴즈 원천 잡 컷오버
+
+`kbo_records`·`game_schedule`·`export` 세 잡의 룰은 `quiz_source_jobs_enabled`(기본
+`false`) 뒤에 있습니다. **기본값이 false인 이유**: 핸들러가 모르는 `job` 값은 예외를
+내지 않고 빈 summary만 남기고 끝납니다. 코드가 배포되기 전에 켜면 "매일 성공하는데
+산출물은 없는" 룰이 되고, 그건 알람에도 안 걸립니다.
+
+또 하나 — 2026-08-06 확인 시점에 이 잡들은 **이미 돌고 있었습니다.** 다만 terraform
+밖이었습니다:
+
+```
+vf-local-test-kbo-records     cron(0 22 * * ? *)   -> kbo-collector-local-test
+vf-local-test-game-schedule   cron(30 23 * * ? *)  -> kbo-collector-local-test
+```
+
+`kbo-collector-local-test`는 CI 갱신 대상이 아니라 이미지가 그때 다이제스트에 고정돼
+있습니다. 컷오버는 이 그림자 스택을 걷어내는 작업이기도 합니다.
+
+**순서를 지켜야 합니다** — 켜기 전에 코드가 이미지에 들어가 있어야 합니다.
+
+1. 세 잡의 핸들러 분기(`handler.py`)와 소스(`kbo_collector/sources/kbo_records.py` 등)를
+   main에 머지 → `deploy-collector.yml`이 이미지를 다시 굽습니다.
+2. 실제로 들어갔는지 확인 — 여기서 `kbo_records`가 no-op이면 아직입니다:
+   ```bash
+   aws lambda invoke --function-name kbo-collector \
+     --payload '{"job":"kbo_records"}' --cli-binary-format raw-in-base64-out /dev/stdout
+   ```
+3. `quiz_source_jobs_enabled = true`로 `terraform apply` (5개 룰 생성).
+4. 하루 돌려보고 산출물 확인:
+   ```bash
+   aws s3 ls s3://<버킷>/kbo-records/hitter-basic/ | tail -2
+   aws s3 ls s3://<버킷>/question-source/game_schedule/ | tail -2
+   ```
+5. **그다음에** 그림자 스택을 지웁니다. 순서를 바꾸면 그날 데이터에 구멍이 납니다:
+   ```bash
+   for r in vf-local-test-kbo-records vf-local-test-game-schedule; do
+     aws events remove-targets --rule "$r" --ids "$(aws events list-targets-by-rule \
+       --rule "$r" --query 'Targets[0].Id' --output text)"
+     aws events delete-rule --name "$r"
+   done
+   aws lambda delete-function --function-name kbo-collector-local-test
+   ```
+   함수를 지우면 그 전용 IAM 롤(`kbo-collector-local-test`)도 함께 정리하세요.
 
 ## 내리기 (과금 중단)
 ```bash

@@ -41,3 +41,64 @@ resource "aws_lambda_permission" "game" {
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.game.arn
 }
+
+# --- 퀴즈 원천 잡 (kbo_records / game_schedule) ---
+#
+# 이 둘은 2026-08-06 확인 시점에 terraform 밖에서 매일 돌고 있었다 — `vf-local-test-*`
+# 룰이 관리 대상이 아닌 `kbo-collector-local-test` 함수를 때리는 형태였고, 어느 .tf
+# 에도 없었다. 여기로 회수하면서 타깃을 정식 함수로 바로잡는다.
+#
+# ⚠ quiz_source_jobs_enabled 기본값이 false 인 이유: 이 잡들의 분기가 아직 배포
+#   이미지의 handler.py 에 없다. 모르는 job 값은 예외 없이 조용히 빈 summary 만
+#   내고 끝나므로, 지금 켜면 "매일 성공하는데 산출물은 없는" 룰이 된다. 컷오버
+#   절차는 README.md "퀴즈 원천 잡 컷오버" 참고.
+
+resource "aws_cloudwatch_event_rule" "kbo_records" {
+  count               = var.quiz_source_jobs_enabled ? 1 : 0
+  name                = "${var.name}-kbo-records"
+  description         = "KBO 기록실 스냅샷 -> S3 kbo-records/ (07:00 KST)"
+  schedule_expression = var.kbo_records_schedule
+  tags                = var.tags
+}
+
+resource "aws_cloudwatch_event_target" "kbo_records" {
+  count = var.quiz_source_jobs_enabled ? 1 : 0
+  rule  = aws_cloudwatch_event_rule.kbo_records[0].name
+  arn   = aws_lambda_function.this.arn
+  input = jsonencode({ job = "kbo_records" })
+}
+
+resource "aws_lambda_permission" "kbo_records" {
+  count         = var.quiz_source_jobs_enabled ? 1 : 0
+  statement_id  = "AllowEventBridgeKboRecords"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.this.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.kbo_records[0].arn
+}
+
+# 위 "game" 잡(schedule/result/relay, 끝난 경기 대상)과는 방향이 반대인 별개 잡 —
+# 이건 그날 아직 시작 전인 경기를 내다본다. 그래서 날짜 앵커도 KST 다.
+resource "aws_cloudwatch_event_rule" "game_schedule" {
+  count               = var.quiz_source_jobs_enabled ? 1 : 0
+  name                = "${var.name}-game-schedule"
+  description         = "당일(KST) 예정경기 -> S3 question-source/ (08:30 KST)"
+  schedule_expression = var.game_schedule_export_schedule
+  tags                = var.tags
+}
+
+resource "aws_cloudwatch_event_target" "game_schedule" {
+  count = var.quiz_source_jobs_enabled ? 1 : 0
+  rule  = aws_cloudwatch_event_rule.game_schedule[0].name
+  arn   = aws_lambda_function.this.arn
+  input = jsonencode({ job = "game_schedule" })
+}
+
+resource "aws_lambda_permission" "game_schedule" {
+  count         = var.quiz_source_jobs_enabled ? 1 : 0
+  statement_id  = "AllowEventBridgeGameSchedule"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.this.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.game_schedule[0].arn
+}

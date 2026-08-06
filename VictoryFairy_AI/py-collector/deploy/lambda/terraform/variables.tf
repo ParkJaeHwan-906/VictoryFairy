@@ -67,6 +67,30 @@ variable "game_schedule" {
   default     = "cron(0 18 * * ? *)"
 }
 
+# --- 퀴즈 원천 잡 (kbo_records / game_schedule / export) ---
+# 세 잡 모두 quiz_source_jobs_enabled 하나로 켜고 끈다. 켜기 전 조건은
+# schedules.tf 의 "퀴즈 원천 잡" 주석 참고.
+
+variable "quiz_source_jobs_enabled" {
+  description = "퀴즈 원천 잡(kbo_records/game_schedule/export)의 EventBridge 룰 생성 여부. 배포 이미지의 handler.py 가 이 job 값들을 아는 뒤에 true 로 올린다."
+  type        = bool
+  default     = false
+}
+
+variable "kbo_records_schedule" {
+  description = "KBO 기록실 스냅샷 -> S3. 기본 07:00 KST = 22:00 UTC (전날 경기가 기록실에 반영된 뒤)."
+  type        = string
+  default     = "cron(0 22 * * ? *)"
+}
+
+# 이름에 "_export_" 를 넣어 위 game_schedule 과 구분한다 — 저건 "game" 잡
+# (schedule/result/relay)의 cron 이고, 이건 "game_schedule" 잡의 cron 이다.
+variable "game_schedule_export_schedule" {
+  description = "당일(KST) 예정경기 -> S3 question-source/. 기본 08:30 KST = 23:30 UTC."
+  type        = string
+  default     = "cron(30 23 * * ? *)"
+}
+
 # --- DB 적재 잡 (records/registrations) — lambda_db.tf ---
 # db_subnet_ids 가 비어 있으면(기본) DB 잡 리소스는 아무것도 만들지 않는다.
 # 값들은 VictoryFairy_Infra(environments/dev) 스택에서 가져온다 — 프라이빗 서브넷 id,
@@ -127,6 +151,24 @@ variable "registrations_schedule" {
   description = "KBO 1군 등록명단 DB 적재 스케줄. 기본 11:00 KST = 02:00 UTC (당일 등록 변동 반영 후)."
   type        = string
   default     = "cron(0 2 * * ? *)"
+}
+
+variable "games_sync_morning_schedule" {
+  description = "당일 경기 상태 선반영(SCHEDULED). 기본 08:00 KST = 23:00 UTC."
+  type        = string
+  default     = "cron(0 23 * * ? *)"
+}
+
+variable "games_sync_live_schedule" {
+  description = "경기 시간대 상태 폴링. 기본 17:00~23:50 KST 10분 간격 = 08:00~14:50 UTC."
+  type        = string
+  default     = "cron(0/10 8-14 * * ? *)"
+}
+
+variable "export_game_result_schedule" {
+  description = "game_result envelope -> S3 question-source/. 기본 04:00 KST = 19:00 UTC (records 03:30 이후)."
+  type        = string
+  default     = "cron(0 19 * * ? *)"
 }
 
 variable "pii_salt" {

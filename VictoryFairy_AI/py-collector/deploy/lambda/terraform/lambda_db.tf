@@ -81,8 +81,10 @@ resource "aws_lambda_function" "db" {
       COLLECTOR_DB_PASSWORD  = var.db_password
       COLLECTOR_TARGETS_FILE = "/var/task/config/targets.yaml"
       JOURNAL_DIR            = "/tmp/journal" # Lambda's only writable path
-      # DB 잡은 S3/마스킹을 안 쓰지만 Settings 가 필수값으로 요구한다(설정 로딩용).
-      # 이 함수의 IAM 롤에는 S3 권한이 없어 실수로 써도 접근 불가.
+      # records/registrations 는 S3/마스킹을 안 쓰지만 Settings 가 필수값으로 요구한다
+      # (설정 로딩용). export 잡은 실제로 이 값으로 S3 에 쓴다 — 이 함수는 S3 잡 함수와
+      # 같은 aws_iam_role.lambda 를 쓰고, 그 롤엔 iam.tf 의 s3-landing 인라인 정책
+      # (PutObject/GetObject/ListBucket, 버킷 전체)이 붙어 있어 추가 권한이 필요 없다.
       COLLECTOR_S3_BUCKET = var.data_bucket_name
       COLLECTOR_S3_REGION = var.region
       COLLECTOR_PII_SALT  = local.pii_salt
@@ -157,4 +159,71 @@ resource "aws_lambda_permission" "registrations" {
   function_name = aws_lambda_function.db[0].function_name
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.registrations[0].arn
+}
+
+# --- games_sync: 당일 경기 상태 -> games (아침 1회 + 경기 시간대 폴링) ---
+#
+# records(완료 경기 박스스코어)와 달리 취소·예정·진행 상태를 따라간다. 한 잡에
+# 스케줄이 둘이라 for_each 로 묶었다 — 룰/타깃/권한 3종을 두 벌 복붙하면 한쪽만
+# 고치는 사고가 난다.
+locals {
+  games_sync_schedules = local.db_enabled ? {
+    # 당일 SCHEDULED 를 미리 깔아둔다.
+    morning = var.games_sync_morning_schedule
+    # 경기 시간대에 LIVE/종료/취소를 따라간다.
+    live = var.games_sync_live_schedule
+  } : {}
+}
+
+resource "aws_cloudwatch_event_rule" "games_sync" {
+  for_each            = local.games_sync_schedules
+  name                = "${var.name}-games-sync-${each.key}"
+  description         = "당일(KST) 경기 상태 -> prod MySQL games (${each.key})"
+  schedule_expression = each.value
+  tags                = var.tags
+}
+
+resource "aws_cloudwatch_event_target" "games_sync" {
+  for_each = aws_cloudwatch_event_rule.games_sync
+  rule     = each.value.name
+  arn      = aws_lambda_function.db[0].arn
+  input    = jsonencode({ job = "games_sync" })
+}
+
+resource "aws_lambda_permission" "games_sync" {
+  for_each      = aws_cloudwatch_event_rule.games_sync
+  statement_id  = "AllowEventBridgeGamesSync${title(each.key)}"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.db[0].function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = each.value.arn
+}
+
+# --- export(game_result): games/game_lineups -> S3 question-source/ (매일 04:00 KST) ---
+#
+# records(03:30) 가 그날 경기를 적재한 뒤라야 의미가 있어 그 다음에 둔다. S3 에 쓰는
+# 잡이지만 원본이 MySQL 이라 -db 함수 소관이다(위 environment 주석의 IAM 근거 참고).
+# quiz_source_jobs_enabled 게이트 이유는 schedules.tf 의 같은 이름 변수 주석 참고.
+resource "aws_cloudwatch_event_rule" "export_game_result" {
+  count               = local.db_enabled && var.quiz_source_jobs_enabled ? 1 : 0
+  name                = "${var.name}-export-game-result"
+  description         = "game_result envelope -> S3 question-source/ (04:00 KST)"
+  schedule_expression = var.export_game_result_schedule
+  tags                = var.tags
+}
+
+resource "aws_cloudwatch_event_target" "export_game_result" {
+  count = local.db_enabled && var.quiz_source_jobs_enabled ? 1 : 0
+  rule  = aws_cloudwatch_event_rule.export_game_result[0].name
+  arn   = aws_lambda_function.db[0].arn
+  input = jsonencode({ job = "export", target = "game_result" })
+}
+
+resource "aws_lambda_permission" "export_game_result" {
+  count         = local.db_enabled && var.quiz_source_jobs_enabled ? 1 : 0
+  statement_id  = "AllowEventBridgeExportGameResult"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.db[0].function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.export_game_result[0].arn
 }
