@@ -55,6 +55,10 @@ public class SupportService {
      * @return 변경 후 현재 응원 구단
      */
     public TeamResponse selectTeam(Long userAccountId, Long teamId) {
+        // 구단 변경은 응원 선수를 전원 취소한다. 락이 없으면 그 사이 들어온 addPlayers 가 옛 구단 선수를
+        // 얹어 "응원 선수는 응원 구단 소속" 불변식이 깨진다.
+        lockAccount(userAccountId);
+
         Team team = teamRepository.findById(teamId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.TEAM_NOT_FOUND));
 
@@ -91,6 +95,10 @@ public class SupportService {
      * @return 추가 후 현재 응원 중인 선수 전체(이번에 추가한 선수만이 아니다)
      */
     public List<PlayerResponse> addPlayers(Long userAccountId, List<Long> playerIds) {
+        // 상한 판정(읽기→판정→저장)이 원자적이어야 한다. 락 없이는 활성 2명 계정에 [a,b]·[c,d] 가 동시에
+        // 들어오면 두 트랜잭션이 각각 합집합 4로 통과해 최종 6명이 된다.
+        lockAccount(userAccountId);
+
         // 소속 검사 기준이 되는 구단이 없으면 선수 검증 자체가 불가능하므로 가장 먼저 판정한다.
         UserSupportTeam supportTeam = userSupportTeamRepository
                 .findByUserAccount_IdAndOpposeIsNull(userAccountId)
@@ -158,6 +166,11 @@ public class SupportService {
      * @return 취소 후 남아 있는 응원 선수 전체
      */
     public List<PlayerResponse> opposePlayers(Long userAccountId, List<Long> playerIds) {
+        // 취소는 개수를 줄이는 방향이라 상한과는 무관하지만, 응원 행을 UPDATE 하며 행 락을 잡는다. 다른
+        // 쓰기 경로가 계정 락 → 응원 행 락 순서인데 여기만 응원 행부터 잡으면 락 순서가 역전돼 데드락이
+        // 난다. 같은 순서로 맞춘다.
+        lockAccount(userAccountId);
+
         List<Long> targetIds = playerIds.stream().distinct().toList();
         if (targetIds.isEmpty()) {
             return currentSupportedPlayers(userAccountId);
@@ -172,6 +185,26 @@ public class SupportService {
         }
 
         return currentSupportedPlayers(userAccountId);
+    }
+
+    /**
+     * 같은 계정의 응원 상태 변경을 직렬화한다. 쓰기 경로는 예외 없이 이 호출을 <b>가장 먼저</b> 한다 —
+     * 순서가 흔들리면 락 순서 역전으로 데드락이 난다.
+     *
+     * <p>잠그는 대상이 응원 행이 아니라 계정 행인 이유는 {@code UserAccountRepository.findWithLockById} 참고 —
+     * 활성 0명 계정에는 잠글 원소가 없고, 응원 행 쪽 갭 락은 격리 수준·인덱스에 따라 달라진다.
+     *
+     * <p>클래스 레벨 {@code @Transactional} 덕에 락은 커밋까지 유지된다. 트랜잭션 밖에서 잡으면 조회 직후
+     * 풀려 아무것도 막지 못한다.
+     *
+     * <p>읽기 전용 경로({@link #currentSupportedPlayers})에는 절대 걸지 않는다 — {@code GET /me} 가 그 경로를
+     * 타므로, 조회에 쓰기 락이 붙으면 프로필 조회끼리 서로를 막는다.
+     */
+    private void lockAccount(Long userAccountId) {
+        // 필터가 활성 계정임을 확인한 id라 정상 경로에서는 항상 존재한다. 그 사이 사라졌다면 인증 근거가
+        // 사라진 것이므로 다른 경로들과 같은 401로 맞춘다.
+        userAccountRepository.findWithLockById(userAccountId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHENTICATED));
     }
 
     /**
