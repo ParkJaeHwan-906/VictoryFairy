@@ -1,0 +1,92 @@
+name: wiki-sync
+
+# LLM 위키의 원본은 VictoryFairy_WIKI 리포의 dev 브랜치다. 이 워크플로가 그
+# 리포와 S3 사이의 다리 역할을 한다:
+#   1) 위키 빌더 루틴이 S3 wiki-outbox/ 에 반출한 갱신분을 dev 에 커밋
+#      (루틴 세션은 GitHub 에 직접 쓸 수 없다 — 2026-08-04 실측 3회)
+#   2) dev 의 wiki/ 를 S3 wiki/ 로 역동기화 (퀴즈 루틴 등 S3 소비자용 읽기 캐시)
+#   3) 반영된 outbox 비우기 (안 비우면 다음 실행이 같은 파일을 또 커밋한다)
+# 사람 편집은 dev 에 직접 커밋/PR — outbox 에 없는 파일은 덮어써지지 않는다.
+#
+# 위치: 위키 리포에는 위키만 두고 스케줄·코드는 이 리포에서 관리한다(2026-08-06).
+#   그래서 이 파일은 VictoryFairy 에 있고, 남의 리포(VictoryFairy_WIKI)를
+#   체크아웃·푸시하므로 배포 키가 필요하다 — 기본 GITHUB_TOKEN 은 자기 리포에만
+#   쓸 수 있다. schedule 은 기본 브랜치(main) 의 워크플로만 발화하므로 이 파일을
+#   feature 브랜치에 두면 크론이 돌지 않는다.
+#
+# 사전 조건 2가지 (없으면 첫 스텝에서 명시적으로 실패한다):
+#   - secrets.WIKI_DEPLOY_KEY : VictoryFairy_WIKI 에 write 허용으로 등록한 배포
+#     키의 **개인키**. 공개키는 그 리포 Settings → Deploy keys 에 등록한다.
+#   - IAM 역할 vf-wiki-mirror-gha 신뢰 정책에 이 리포의 OIDC sub 허용
+#     (repo:ParkJaeHwan-906/VictoryFairy:ref:refs/heads/main)
+
+on:
+  schedule:
+    - cron: "30 22 * * 1,4" # 화·금 07:30 KST — 위키 빌더(06:00 KST) 이후
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write # AWS OIDC (무키)
+  contents: read # 위키 리포 쓰기는 배포 키가 담당 — 이 리포에는 쓰지 않는다
+
+env:
+  S3_BUCKET: victoryfairy-crawl-local # dev 전환 시 victoryfairy-crawl-dev 로 교체
+  WIKI_REPO: ParkJaeHwan-906/VictoryFairy_WIKI
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check deploy key is configured
+        run: |
+          if [ -z "${{ secrets.WIKI_DEPLOY_KEY }}" ]; then
+            echo "::error::secrets.WIKI_DEPLOY_KEY 가 없다. VictoryFairy_WIKI 에 write 배포 키를 등록하고 개인키를 이 리포 시크릿에 넣어라."
+            exit 1
+          fi
+
+      # 위키 리포를 wiki-repo/ 로 체크아웃한다. ssh-key 를 주면 checkout 이
+      # SSH 설정과 push 자격을 함께 심어주므로 별도 ssh-agent 스텝이 필요 없다.
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.WIKI_REPO }}
+          ref: dev
+          ssh-key: ${{ secrets.WIKI_DEPLOY_KEY }}
+          path: wiki-repo
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::555209622409:role/vf-wiki-mirror-gha
+          aws-region: ap-northeast-2
+
+      - name: Apply builder outbox (S3 -> wiki dev)
+        id: outbox
+        working-directory: wiki-repo
+        run: |
+          mkdir -p /tmp/outbox
+          aws s3 sync "s3://${S3_BUCKET}/wiki-outbox/" /tmp/outbox/
+          if [ -z "$(ls -A /tmp/outbox 2>/dev/null)" ]; then
+            echo "outbox empty"
+            echo "applied=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          rsync -a /tmp/outbox/ wiki/
+          git add -A wiki/
+          if git diff --cached --quiet; then
+            echo "outbox had no effective changes"
+          else
+            git config user.name "vf-wiki-sync"
+            git config user.email "actions@github.com"
+            git commit -m "wiki: apply builder outbox $(date -u +%Y-%m-%dT%H:%MZ)"
+            git push origin dev
+          fi
+          echo "applied=true" >> "$GITHUB_OUTPUT"
+
+      - name: Export wiki (dev -> S3 read cache)
+        working-directory: wiki-repo
+        run: aws s3 sync wiki/ "s3://${S3_BUCKET}/wiki/" --delete
+
+      # outbox 는 반영이 확인된 경우에만 비운다 — 위 스텝이 실패했는데 비우면
+      # 빌더가 만든 갱신분이 어디에도 남지 않고 사라진다.
+      - name: Clear outbox
+        if: steps.outbox.outputs.applied == 'true'
+        run: aws s3 rm "s3://${S3_BUCKET}/wiki-outbox/" --recursive
