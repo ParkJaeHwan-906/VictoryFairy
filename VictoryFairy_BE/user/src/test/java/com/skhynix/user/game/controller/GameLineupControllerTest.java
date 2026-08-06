@@ -66,8 +66,8 @@ class GameLineupControllerTest {
 
     private static final GameLineupResponse SAMPLE_LINEUP = new GameLineupResponse(
             3L,
-            List.of(new GameLineupResponse.Pitcher("원태인", "P")),
-            List.of(new GameLineupResponse.Batter("김지찬", "CF", 1)));
+            List.of(new GameLineupResponse.Pitcher("원태인", "투수")),
+            List.of(new GameLineupResponse.Batter("김지찬", "중견수", 1)));
 
     @Test
     @DisplayName("[USER-GL-1] 유효한 gameId면 200과 ApiResponse 래퍼에 담긴 팀 그룹 배열을 반환한다")
@@ -195,11 +195,11 @@ class GameLineupControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].teamId").value(3))
                 .andExpect(jsonPath("$.data[0].pitchers[0].name").value("원태인"))
-                .andExpect(jsonPath("$.data[0].pitchers[0].positionName").value("P"))
+                .andExpect(jsonPath("$.data[0].pitchers[0].positionName").value("투수"))
                 .andExpect(jsonPath("$.data[0].pitchers[0].playerId").doesNotExist())
                 .andExpect(jsonPath("$.data[0].pitchers[0].batOrder").doesNotExist())
                 .andExpect(jsonPath("$.data[0].batters[0].name").value("김지찬"))
-                .andExpect(jsonPath("$.data[0].batters[0].positionName").value("CF"))
+                .andExpect(jsonPath("$.data[0].batters[0].positionName").value("중견수"))
                 .andExpect(jsonPath("$.data[0].batters[0].batOrder").value(1))
                 .andExpect(jsonPath("$.data[0].batters[0].playerId").doesNotExist());
     }

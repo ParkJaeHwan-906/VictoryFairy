@@ -19,8 +19,9 @@ public record GameLineupResponse(Long teamId,
     /**
      * {@code positionName} 은 {@code position_id} 가 NULL 이면 {@code null} 그대로 나간다
      * ({@code GameResponse.stadium} 과 같은 처리) — 서버가 {@code "-"} 같은 표시용 대체 문자열을 정하면
-     * 화면마다 표기가 달라질 때 계약을 다시 바꿔야 한다. 값 자체도 py-collector 약어({@code "P"}·{@code "DH"})를
-     * 가공 없이 내보낸다(매핑에 없는 표기를 원문 적재하는 열린 집합이라 서버가 변환을 떠안지 않는다).
+     * 화면마다 표기가 달라질 때 계약을 다시 바꿔야 한다. 값 자체는 {@code positions.name}({@code "투수"}·
+     * {@code "지명타자"})을 가공 없이 내보낸다 — 수집 단계에서 이미 화면에 쓸 정식 명칭으로 적재하므로
+     * 서버가 변환을 떠안지 않는다(매핑에 없는 표기는 원문 적재되는 열린 집합, {@link com.skhynix.domain.game.entity.Position} 참고).
      */
     public record Pitcher(String name, String positionName) {
 
