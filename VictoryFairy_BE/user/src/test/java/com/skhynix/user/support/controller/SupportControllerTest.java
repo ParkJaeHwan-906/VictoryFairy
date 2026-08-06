@@ -69,6 +69,14 @@ class SupportControllerTest {
     @MockitoBean
     private UserAccountRepository userAccountRepository;
 
+    /**
+     * 서비스가 이미 만들어 준 DTO를 흉내내는 스텁 값. 이 슬라이스는 직렬화된 키·값만 보므로 구단은
+     * KIA 하나로 고정한다(엔티티→DTO 매핑은 {@code SupportServiceTest} 몫).
+     */
+    private static PlayerResponse responseOf(Long playerId, String playerName) {
+        return new PlayerResponse(6L, "KIA", playerId, playerName, "1" + playerId, "INFIELDER");
+    }
+
     /** 유효한 access 토큰을 스텁하고, 그 uid 가 활성 계정 {@link #ACCOUNT_ID} 로 해석되게 만든다. */
     private String stubAuthenticatedToken() {
         String uid = UUID.randomUUID().toString();
@@ -166,7 +174,7 @@ class SupportControllerTest {
         // given
         String token = stubAuthenticatedToken();
         given(supportService.addPlayers(ACCOUNT_ID, List.of(3L)))
-                .willReturn(List.of(new PlayerResponse(2L, "김도영"), new PlayerResponse(3L, "양현종")));
+                .willReturn(List.of(responseOf(2L, "김도영"), responseOf(3L, "양현종")));
 
         // when & then: 요청은 3번 하나뿐이지만 응답은 기존 2번까지 포함한다(추가 방식)
         mockMvc.perform(post("/support/players")
@@ -176,8 +184,8 @@ class SupportControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.length()").value(2))
-                .andExpect(jsonPath("$.data[0].name").value("김도영"))
-                .andExpect(jsonPath("$.data[1].name").value("양현종"));
+                .andExpect(jsonPath("$.data[0].playerName").value("김도영"))
+                .andExpect(jsonPath("$.data[1].playerName").value("양현종"));
 
         verify(supportService).addPlayers(ACCOUNT_ID, List.of(3L));
     }
@@ -275,7 +283,7 @@ class SupportControllerTest {
         // given
         String token = stubAuthenticatedToken();
         given(supportService.opposePlayers(ACCOUNT_ID, List.of(3L)))
-                .willReturn(List.of(new PlayerResponse(2L, "김도영")));
+                .willReturn(List.of(responseOf(2L, "김도영")));
 
         // when & then
         mockMvc.perform(put("/support/players/oppose")
@@ -285,7 +293,7 @@ class SupportControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.length()").value(1))
-                .andExpect(jsonPath("$.data[0].id").value(2));
+                .andExpect(jsonPath("$.data[0].playerId").value(2));
 
         verify(supportService).opposePlayers(ACCOUNT_ID, List.of(3L));
     }

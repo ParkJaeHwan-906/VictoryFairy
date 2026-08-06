@@ -1,5 +1,6 @@
 package com.skhynix.user.player.controller;
 
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -70,9 +71,17 @@ class PlayerControllerTest {
     private UserAccountRepository userAccountRepository;
 
     private static final List<PlayerResponse> THREE_PLAYERS = List.of(
-            new PlayerResponse(1L, "강백호"),
-            new PlayerResponse(2L, "김도영"),
-            new PlayerResponse(3L, "이정후"));
+            responseOf(1L, "강백호"),
+            responseOf(2L, "김도영"),
+            responseOf(3L, "이정후"));
+
+    /**
+     * 서비스가 이미 만들어 준 DTO를 흉내내는 스텁 값. 이 슬라이스에서 검증하는 것은 직렬화된 키·값이지
+     * 엔티티→DTO 매핑이 아니므로(그건 {@code PlayerServiceTest} 몫) 구단은 KIA 하나로 고정한다.
+     */
+    private static PlayerResponse responseOf(Long playerId, String playerName) {
+        return new PlayerResponse(6L, "KIA", playerId, playerName, "1" + playerId, "INFIELDER");
+    }
 
     /** 유효한 access 토큰을 스텁하고, 그 uid 가 활성 계정 {@link #ACCOUNT_ID} 로 해석되게 만든다. */
     private String stubAuthenticatedToken() {
@@ -102,22 +111,45 @@ class PlayerControllerTest {
     }
 
     @Test
-    @DisplayName("[USER-PL-2] 선수 항목은 id·name 두 필드만 담고 average·kboPlayerId·team은 "
-            + "응답 어디에도 없다")
-    void getPlayers_itemContainsOnlyIdAndName() throws Exception {
+    @DisplayName("[USER-PL-2] 선수 항목은 teamId·teamName·playerId·playerName·playerNumber·"
+            + "playerPosition 여섯 필드만 담고 average·kboPlayerId는 응답 어디에도 없다")
+    void getPlayers_itemContainsTeamAndPlayerFieldsOnly() throws Exception {
         // given
         given(playerService.getPlayers(null, null, null))
-                .willReturn(List.of(new PlayerResponse(2L, "김도영")));
+                .willReturn(List.of(responseOf(2L, "김도영")));
 
         // when & then
         mockMvc.perform(get("/players"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].length()").value(2))
-                .andExpect(jsonPath("$.data[0].id").value(2))
-                .andExpect(jsonPath("$.data[0].name").value("김도영"))
+                .andExpect(jsonPath("$.data[0].length()").value(6))
+                .andExpect(jsonPath("$.data[0].teamId").value(6))
+                .andExpect(jsonPath("$.data[0].teamName").value("KIA"))
+                .andExpect(jsonPath("$.data[0].playerId").value(2))
+                .andExpect(jsonPath("$.data[0].playerName").value("김도영"))
+                .andExpect(jsonPath("$.data[0].playerNumber").value("12"))
+                .andExpect(jsonPath("$.data[0].playerPosition").value("INFIELDER"))
                 .andExpect(jsonPath("$.data[0].average").doesNotExist())
                 .andExpect(jsonPath("$.data[0].kboPlayerId").doesNotExist())
-                .andExpect(jsonPath("$.data[0].team").doesNotExist());
+                // 구단은 중첩 객체가 아니라 평평한 두 필드다 — 프론트 계약이 바뀌면 여기가 먼저 깨진다
+                .andExpect(jsonPath("$.data[0].team").doesNotExist())
+                .andExpect(jsonPath("$.data[0].name").doesNotExist())
+                .andExpect(jsonPath("$.data[0].id").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("[USER-PL-2] 등번호·포지션이 없는 선수는 키가 사라지지 않고 playerNumber·playerPosition이 "
+            + "null로 직렬화된다(Jackson NON_NULL 설정이 붙으면 깨질 자리)")
+    void getPlayers_missingNumberAndPosition_serializedAsExplicitNulls() throws Exception {
+        // given
+        given(playerService.getPlayers(null, null, null))
+                .willReturn(List.of(new PlayerResponse(6L, "KIA", 5L, "무명", null, null)));
+
+        // when & then
+        mockMvc.perform(get("/players"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].length()").value(6))
+                .andExpect(jsonPath("$.data[0].playerNumber").value(nullValue()))
+                .andExpect(jsonPath("$.data[0].playerPosition").value(nullValue()));
     }
 
     @Test
@@ -126,14 +158,14 @@ class PlayerControllerTest {
     void getPlayers_withTeamId_passesParameterToService() throws Exception {
         // given
         given(playerService.getPlayers(null, 6L, null))
-                .willReturn(List.of(new PlayerResponse(2L, "김도영")));
+                .willReturn(List.of(responseOf(2L, "김도영")));
 
         // when & then
         mockMvc.perform(get("/players").queryParam("teamId", "6"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.length()").value(1))
-                .andExpect(jsonPath("$.data[0].name").value("김도영"));
+                .andExpect(jsonPath("$.data[0].playerName").value("김도영"));
     }
 
     @Test
@@ -246,7 +278,7 @@ class PlayerControllerTest {
         // given
         given(jwtTokenProvider.validateToken("not-a-jwt")).willReturn(false);
         given(playerService.getPlayers(null, 9L, null))
-                .willReturn(List.of(new PlayerResponse(4L, "박건우")));
+                .willReturn(List.of(responseOf(4L, "박건우")));
 
         // when & then
         mockMvc.perform(get("/players")
@@ -254,7 +286,7 @@ class PlayerControllerTest {
                         .queryParam("teamId", "9"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.length()").value(1))
-                .andExpect(jsonPath("$.data[0].name").value("박건우"));
+                .andExpect(jsonPath("$.data[0].playerName").value("박건우"));
     }
 
     @Test
@@ -308,23 +340,23 @@ class PlayerControllerTest {
     }
 
     @Test
-    @DisplayName("[USER-PLF-14] 응원 구단이 teamId를 오버라이딩한 응답도 항목 키가 정확히 {id,name}이고 "
-            + "적용 구단·오버라이딩 여부를 알리는 필드가 없다")
+    @DisplayName("[USER-PLF-14] 응원 구단이 teamId를 오버라이딩한 응답도 항목 키가 평시와 동일한 여섯 "
+            + "필드이고, 적용 구단·오버라이딩 여부를 알리는 필드가 없다")
     void getPlayers_overriddenResponse_keepsResponseShapeUnchanged() throws Exception {
         // given: 컨트롤러 관점에서는 서비스가 이미 오버라이딩을 반영한 결과를 준다 — teamId=9를 보냈지만
         // 서비스 스텁은 (ACCOUNT_ID, 9, null)로 걸어 응원 구단으로 대체된 상황을 표현한다
         String token = stubAuthenticatedToken();
         given(playerService.getPlayers(ACCOUNT_ID, 9L, null))
-                .willReturn(List.of(new PlayerResponse(2L, "김도영")));
+                .willReturn(List.of(responseOf(2L, "김도영")));
 
         // when & then
         mockMvc.perform(get("/players")
                         .header("Authorization", "Bearer " + token)
                         .queryParam("teamId", "9"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].length()").value(2))
-                .andExpect(jsonPath("$.data[0].id").value(2))
-                .andExpect(jsonPath("$.data[0].name").value("김도영"))
+                .andExpect(jsonPath("$.data[0].length()").value(6))
+                .andExpect(jsonPath("$.data[0].playerId").value(2))
+                .andExpect(jsonPath("$.data[0].playerName").value("김도영"))
                 .andExpect(jsonPath("$.data[0].appliedTeamId").doesNotExist())
                 .andExpect(jsonPath("$.data[0].team").doesNotExist())
                 .andExpect(jsonPath("$.message").doesNotExist());
@@ -365,14 +397,14 @@ class PlayerControllerTest {
     void getPlayers_withName_passesParameterToService() throws Exception {
         // given: (null, null, "도영") 스텁만 두었으므로 컨트롤러가 다른 값을 넘기면 빈 목록이 나와 단언이 깨진다
         given(playerService.getPlayers(null, null, "도영"))
-                .willReturn(List.of(new PlayerResponse(2L, "김도영")));
+                .willReturn(List.of(responseOf(2L, "김도영")));
 
         // when & then
         mockMvc.perform(get("/players").queryParam("name", "도영"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.length()").value(1))
-                .andExpect(jsonPath("$.data[0].name").value("김도영"));
+                .andExpect(jsonPath("$.data[0].playerName").value("김도영"));
     }
 
     @Test
@@ -380,13 +412,13 @@ class PlayerControllerTest {
     void getPlayers_withTeamIdAndName_passesBothToService() throws Exception {
         // given
         given(playerService.getPlayers(null, 6L, "도영"))
-                .willReturn(List.of(new PlayerResponse(2L, "김도영")));
+                .willReturn(List.of(responseOf(2L, "김도영")));
 
         // when & then
         mockMvc.perform(get("/players").queryParam("teamId", "6").queryParam("name", "도영"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.length()").value(1))
-                .andExpect(jsonPath("$.data[0].name").value("김도영"));
+                .andExpect(jsonPath("$.data[0].playerName").value("김도영"));
     }
 
     @Test
