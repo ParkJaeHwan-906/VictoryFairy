@@ -1,0 +1,113 @@
+/**
+ * GamePage(날짜별 경기 목록) 스타일.
+ * Figma: SWM / [Game] 경기 메인 (node 657:3919), 기준 프레임 402 x 874.
+ *
+ * 세로 좌표를 흐름 레이아웃으로 환산한 값:
+ *   상단 바 60 → 인사말 127(=107+20) → 목록 227(=195+32)
+ * iOS 상태바(47px)는 다른 화면들과 같이 제외했으므로 y 값에서 47 을 뺀 기준이다.
+ */
+
+.game-page {
+  display: flex;
+  flex-direction: column;
+  background-color: var(--color-background-gray);
+}
+
+/* ------------------------------------------------------------------ *
+ * Top bar — 이전 / 날짜 / 다음
+ * ------------------------------------------------------------------ */
+.game-page__topbar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 60px;
+}
+
+/*
+ * 화살표는 20px 이지만 디자인의 터치 영역은 60px 정사각이다.
+ * 버튼 자체를 60px 로 두고 아이콘만 가운데 놓는다.
+ */
+.game-page__nav {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 60px;
+  padding: 0;
+  border-radius: var(--radius-10);
+}
+
+/* `arrow_l.svg` 의 fill 이 검정이라 mask 로 오려내고 색만 입힌다. */
+.game-page__nav-icon {
+  width: 20px;
+  height: 20px;
+  background-color: var(--color-label-assistive);
+  -webkit-mask: url('../assets/arrow_l.svg') no-repeat center / contain;
+  mask: url('../assets/arrow_l.svg') no-repeat center / contain;
+}
+
+.game-page__nav--next .game-page__nav-icon {
+  -webkit-mask-image: url('../assets/arrow_r.svg');
+  mask-image: url('../assets/arrow_r.svg');
+}
+
+.game-page__date {
+  margin: 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  text-align: center;
+  /* 날짜 글자 수는 항상 같으므로 폭을 고정해 화살표가 흔들리지 않게 한다 */
+  min-width: 140px;
+}
+
+/* ------------------------------------------------------------------ *
+ * Heading — 고른 날짜에 따라 문구가 바뀐다
+ * ------------------------------------------------------------------ */
+.game-page__heading {
+  flex-shrink: 0;
+  margin: 20px 0 0;
+  padding-inline: var(--layout-gutter);
+  color: var(--color-label-normal);
+  font-size: var(--font-size-title1);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title1);
+}
+
+/* ------------------------------------------------------------------ *
+ * List — 경기 카드
+ * ------------------------------------------------------------------ */
+.game-page__body {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+  padding: 32px var(--layout-gutter) 24px;
+}
+
+.game-page__list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 로딩 · 실패 · 경기 없음 안내 */
+.game-page__status {
+  margin: 40px 0;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-body2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body2);
+  text-align: center;
+}
+
+.game-page__status--error {
+  color: var(--color-error-strong);
+}
