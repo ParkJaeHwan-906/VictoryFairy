@@ -100,7 +100,7 @@ curl -i -X POST http://localhost:8080/api/member/support/team \
 
 **응답 200 OK** `ApiResponse<List<PlayerResponse>>` — **이번에 추가한 선수만이 아니라 현재 응원 중인 선수 전체**를 `name` 오름차순으로 반환한다(프론트가 재조회할 필요 없음). 항목 형태는 [선수(player)](player.md#get-apimemberplayers)의 응답과 **동일한 DTO**를 재사용하므로, 그쪽 계약이 바뀌면 이 응답도 함께 바뀐다.
 ```json
-{"success":true,"data":[{"teamId":6,"teamName":"KIA","playerId":2,"playerName":"김도영","playerNumber":"7","playerPosition":"INFIELDER"},{"teamId":6,"teamName":"KIA","playerId":3,"playerName":"양현종","playerNumber":"54","playerPosition":"PITCHER"}],"message":null}
+{"success":true,"data":[{"teamId":21,"teamName":"KIA","playerId":168,"playerName":"김도영","playerNumber":"5","playerPosition":"INFIELDER"},{"teamId":21,"teamName":"KIA","playerId":414,"playerName":"고종욱","playerNumber":null,"playerPosition":null}],"message":null}
 ```
 `playerNumber`·`playerPosition`은 `null`일 수 있다(등록명단발이라 원본이 비어 있는 선수가 있다 — [player.md](player.md) 참고).
 
