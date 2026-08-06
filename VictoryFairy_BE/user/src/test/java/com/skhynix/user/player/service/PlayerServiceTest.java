@@ -9,6 +9,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 
 import com.skhynix.domain.player.entity.Player;
+import com.skhynix.domain.player.entity.PositionGroup;
 import com.skhynix.domain.player.repository.PlayerRepository;
 import com.skhynix.domain.support.entity.UserSupportTeam;
 import com.skhynix.domain.support.repository.UserSupportTeamRepository;
@@ -38,7 +39,7 @@ import org.springframework.test.util.ReflectionTestUtils;
  *
  * <p>여기서 다루는 것: teamId·name 유무 조합에 따라 서로 다른 리포지토리 메서드를 고르는지(그리고 다른
  * 쪽은 호출하지 않는지), 빈 문자열·공백 검색어를 "검색어 없음"으로 접는지, 리포지토리가 준 순서를
- * 재정렬하지 않는지, 엔티티가 아니라 {@code id}·{@code name}만 담은 DTO로 변환하는지, 빈 결과를 예외
+ * 재정렬하지 않는지, 엔티티가 아니라 구단·선수 필드만 골라 담은 DTO로 변환하는지, 빈 결과를 예외
  * 없이 흘려보내는지, 그리고 <b>적용 구단 결정</b>(USER-PLF-16: 응원 구단 &gt; 요청 teamId &gt; 없음)이
  * 정확히 그 순서로 동작하는지.
  *
@@ -85,14 +86,40 @@ class PlayerServiceTest {
     }
 
     private Player playerOf(Long id, String name, Team team) {
+        return playerOf(id, name, team, uniformNumberOf(id), PositionGroup.INFIELDER);
+    }
+
+    private Player playerOf(Long id, String name, Team team, String uniformNumber,
+                            PositionGroup positionGroup) {
         Player player = Player.builder()
                 .team(team)
                 .name(name)
                 .average(0.312)
                 .kboPlayerId("7" + id)
+                .uniformNumber(uniformNumber)
+                .positionGroup(positionGroup)
                 .build();
         ReflectionTestUtils.setField(player, "id", id);
         return player;
+    }
+
+    /**
+     * {@link #playerOf(Long, String, Team)} 픽스처와 짝을 이루는 기대 DTO. 픽스처의 등번호·포지션 규칙을
+     * 한 곳에만 두어, 필드가 늘 때 단언 지점 전부를 손대지 않아도 되게 한다. 필드 <b>매핑</b> 자체(어느
+     * 엔티티 값이 어느 컴포넌트로 가는지)는 이 헬퍼를 쓰지 않고 리터럴로 못박은
+     * {@link #getPlayers_mapsTeamAndPlayerFieldsFromEntity} 가 지킨다.
+     */
+    private static PlayerResponse responseOf(Long id, String name) {
+        return responseOf(id, name, KIA);
+    }
+
+    private static PlayerResponse responseOf(Long id, String name, Team team) {
+        return new PlayerResponse(team.getId(), team.getName(), id, name,
+                uniformNumberOf(id), PositionGroup.INFIELDER.name());
+    }
+
+    private static String uniformNumberOf(Long id) {
+        return "1" + id;
     }
 
     private static UserAccount accountOf() {
@@ -115,9 +142,9 @@ class PlayerServiceTest {
 
         // then
         assertThat(result).containsExactly(
-                new PlayerResponse(1L, "강백호"),
-                new PlayerResponse(2L, "김도영"),
-                new PlayerResponse(3L, "이정후"));
+                responseOf(1L, "강백호"),
+                responseOf(2L, "김도영"),
+                responseOf(3L, "이정후"));
     }
 
     @Test
@@ -132,7 +159,7 @@ class PlayerServiceTest {
         List<PlayerResponse> result = playerService.getPlayers(null, 6L, null);
 
         // then
-        assertThat(result).containsExactly(new PlayerResponse(2L, "김도영"));
+        assertThat(result).containsExactly(responseOf(2L, "김도영"));
         verify(playerRepository).findAllByTeam_IdOrderByNameAsc(6L);
         verifyNoMoreInteractions(playerRepository); // findAllByOrderByNameAsc는 타지 않았다
     }
@@ -177,22 +204,54 @@ class PlayerServiceTest {
 
         // then
         assertThat(result)
-                .extracting(PlayerResponse::name)
+                .extracting(PlayerResponse::playerName)
                 .containsExactly("이정후", "강백호", "김도영");
     }
 
     @Test
-    @DisplayName("[USER-PL-2] 엔티티를 직접 노출하지 않고 id·name만 담은 PlayerResponse로 변환한다"
-            + "(kboPlayerId·average는 DTO에 필드 자체가 없어 컴파일 타임에 노출 불가)")
-    void getPlayers_mapsOnlyIdAndNameFromEntity() {
-        // given
-        given(playerRepository.findAllByOrderByNameAsc()).willReturn(List.of(playerOf(42L, "김도영")));
+    @DisplayName("[USER-PL-2] 엔티티를 직접 노출하지 않고 구단(id·name)과 선수(id·name·등번호·포지션)만 "
+            + "담은 PlayerResponse로 변환한다(kboPlayerId·average는 DTO에 필드 자체가 없어 컴파일 타임에 "
+            + "노출 불가)")
+    void getPlayers_mapsTeamAndPlayerFieldsFromEntity() {
+        // given: 구단 id·이름과 선수 id·이름이 서로 뒤바뀌어도 통과하지 않도록 값을 전부 다르게 준다
+        given(playerRepository.findAllByOrderByNameAsc())
+                .willReturn(List.of(playerOf(42L, "김도영", KIA, "47", PositionGroup.OUTFIELDER)));
 
         // when
         List<PlayerResponse> result = playerService.getPlayers(null, null, null);
 
         // then
-        assertThat(result).containsExactly(new PlayerResponse(42L, "김도영"));
+        assertThat(result).containsExactly(
+                new PlayerResponse(6L, "KIA", 42L, "김도영", "47", "OUTFIELDER"));
+    }
+
+    @Test
+    @DisplayName("[USER-PL-2] 포지션 구분이 없는 선수(1군 이력 없음)는 대체값이 아니라 playerPosition=null로 "
+            + "나간다 — enum을 그대로 문자열화하면 NPE가 나는 자리다")
+    void getPlayers_nullPositionGroup_mapsToNullWithoutException() {
+        // given
+        given(playerRepository.findAllByOrderByNameAsc())
+                .willReturn(List.of(playerOf(5L, "무명", KIA, "99", null)));
+
+        // when
+        List<PlayerResponse> result = playerService.getPlayers(null, null, null);
+
+        // then
+        assertThat(result).containsExactly(new PlayerResponse(6L, "KIA", 5L, "무명", "99", null));
+    }
+
+    @Test
+    @DisplayName("[USER-PL-2] 등번호가 미배정인 선수는 빈 문자열이 아니라 playerNumber=null로 나간다")
+    void getPlayers_nullUniformNumber_mapsToNull() {
+        // given
+        given(playerRepository.findAllByOrderByNameAsc())
+                .willReturn(List.of(playerOf(5L, "무명", KIA, null, PositionGroup.PITCHER)));
+
+        // when
+        List<PlayerResponse> result = playerService.getPlayers(null, null, null);
+
+        // then
+        assertThat(result).containsExactly(new PlayerResponse(6L, "KIA", 5L, "무명", null, "PITCHER"));
     }
 
     @Test
@@ -207,7 +266,7 @@ class PlayerServiceTest {
         List<PlayerResponse> result = playerService.getPlayers(null, null, "도영");
 
         // then
-        assertThat(result).containsExactly(new PlayerResponse(2L, "김도영"));
+        assertThat(result).containsExactly(responseOf(2L, "김도영"));
         verify(playerRepository).findAllByNameContainingOrderByNameAsc("도영");
         verifyNoMoreInteractions(playerRepository); // findAllByOrderByNameAsc는 타지 않았다
     }
@@ -224,7 +283,7 @@ class PlayerServiceTest {
         List<PlayerResponse> result = playerService.getPlayers(null, null, "도");
 
         // then
-        assertThat(result).extracting(PlayerResponse::name).containsExactly("김도영");
+        assertThat(result).extracting(PlayerResponse::playerName).containsExactly("김도영");
     }
 
     @Test
@@ -239,7 +298,7 @@ class PlayerServiceTest {
         List<PlayerResponse> result = playerService.getPlayers(null, 6L, "도영");
 
         // then
-        assertThat(result).containsExactly(new PlayerResponse(2L, "김도영"));
+        assertThat(result).containsExactly(responseOf(2L, "김도영"));
         verify(playerRepository).findAllByTeam_IdAndNameContainingOrderByNameAsc(6L, "도영");
         // 앱에서 두 결과의 교집합을 내지 않는다 — 단일 쿼리로 DB가 좁힌다
         verifyNoMoreInteractions(playerRepository);
@@ -256,7 +315,7 @@ class PlayerServiceTest {
         List<PlayerResponse> result = playerService.getPlayers(null, null, blankName);
 
         // then
-        assertThat(result).containsExactly(new PlayerResponse(1L, "강백호"));
+        assertThat(result).containsExactly(responseOf(1L, "강백호"));
         verify(playerRepository).findAllByOrderByNameAsc();
         verifyNoMoreInteractions(playerRepository); // LIKE '%%' 쿼리를 헛돌리지 않는다
     }
@@ -272,7 +331,7 @@ class PlayerServiceTest {
         List<PlayerResponse> result = playerService.getPlayers(null, 6L, "  ");
 
         // then
-        assertThat(result).containsExactly(new PlayerResponse(2L, "김도영"));
+        assertThat(result).containsExactly(responseOf(2L, "김도영"));
         verify(playerRepository).findAllByTeam_IdOrderByNameAsc(6L);
         verifyNoMoreInteractions(playerRepository);
     }
@@ -288,7 +347,7 @@ class PlayerServiceTest {
         List<PlayerResponse> result = playerService.getPlayers(null, null, "  도영  ");
 
         // then
-        assertThat(result).containsExactly(new PlayerResponse(2L, "김도영"));
+        assertThat(result).containsExactly(responseOf(2L, "김도영"));
         verify(playerRepository).findAllByNameContainingOrderByNameAsc("도영");
     }
 
@@ -321,7 +380,7 @@ class PlayerServiceTest {
         List<PlayerResponse> result = playerService.getPlayers(ACCOUNT_ID, null, null);
 
         // then
-        assertThat(result).containsExactly(new PlayerResponse(2L, "김도영"));
+        assertThat(result).containsExactly(responseOf(2L, "김도영"));
         verify(playerRepository).findAllByTeam_IdOrderByNameAsc(6L);
         verifyNoMoreInteractions(playerRepository);
     }
@@ -340,7 +399,7 @@ class PlayerServiceTest {
         List<PlayerResponse> result = playerService.getPlayers(ACCOUNT_ID, 9L, null);
 
         // then
-        assertThat(result).containsExactly(new PlayerResponse(2L, "김도영"));
+        assertThat(result).containsExactly(responseOf(2L, "김도영"));
         verify(playerRepository).findAllByTeam_IdOrderByNameAsc(6L);
         verify(playerRepository, never()).findAllByTeam_IdOrderByNameAsc(9L);
         verifyNoMoreInteractions(playerRepository);
@@ -360,7 +419,7 @@ class PlayerServiceTest {
         List<PlayerResponse> result = playerService.getPlayers(ACCOUNT_ID, 999999L, null);
 
         // then
-        assertThat(result).containsExactly(new PlayerResponse(2L, "김도영"));
+        assertThat(result).containsExactly(responseOf(2L, "김도영"));
         verify(playerRepository).findAllByTeam_IdOrderByNameAsc(6L);
         verifyNoMoreInteractions(playerRepository);
     }
@@ -378,7 +437,7 @@ class PlayerServiceTest {
         List<PlayerResponse> result = playerService.getPlayers(ACCOUNT_ID, 9L, null);
 
         // then
-        assertThat(result).containsExactly(new PlayerResponse(4L, "박건우"));
+        assertThat(result).containsExactly(responseOf(4L, "박건우", NC));
         verify(userSupportTeamRepository).findByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID);
         verify(playerRepository).findAllByTeam_IdOrderByNameAsc(9L);
         verifyNoMoreInteractions(playerRepository);
@@ -432,7 +491,7 @@ class PlayerServiceTest {
         List<PlayerResponse> result = playerService.getPlayers(ACCOUNT_ID, 9L, null);
 
         // then
-        assertThat(result).containsExactly(new PlayerResponse(4L, "박건우"));
+        assertThat(result).containsExactly(responseOf(4L, "박건우", NC));
         verify(playerRepository).findAllByTeam_IdOrderByNameAsc(9L);
     }
 
@@ -450,7 +509,7 @@ class PlayerServiceTest {
         List<PlayerResponse> result = playerService.getPlayers(ACCOUNT_ID, 9L, "도영");
 
         // then
-        assertThat(result).containsExactly(new PlayerResponse(2L, "김도영"));
+        assertThat(result).containsExactly(responseOf(2L, "김도영"));
         verify(playerRepository).findAllByTeam_IdAndNameContainingOrderByNameAsc(6L, "도영");
         verify(playerRepository, never()).findAllByTeam_IdAndNameContainingOrderByNameAsc(9L, "도영");
         verifyNoMoreInteractions(playerRepository);
@@ -470,7 +529,7 @@ class PlayerServiceTest {
         List<PlayerResponse> result = playerService.getPlayers(ACCOUNT_ID, null, "  ");
 
         // then
-        assertThat(result).containsExactly(new PlayerResponse(2L, "김도영"));
+        assertThat(result).containsExactly(responseOf(2L, "김도영"));
         verify(playerRepository).findAllByTeam_IdOrderByNameAsc(6L);
         verify(playerRepository, never()).findAllByTeam_IdAndNameContainingOrderByNameAsc(6L, "  ");
         verifyNoMoreInteractions(playerRepository);

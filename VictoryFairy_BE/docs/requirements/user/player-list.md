@@ -1,5 +1,6 @@
 # KBO 선수 목록 조회 요구사항
-> 상태: 승인됨 (2026-07-28) · 모듈: user · 최종 수정: 2026-08-03(이름 검색 `name` 추가 — USER-PL-13~16)
+> 상태: 승인됨 (2026-07-28) · 모듈: user · 최종 수정: 2026-08-06(응답 항목 키 교체 — USER-PL-2 개정 + USER-PL-2a 신설)
+> **2026-08-06 개정(USER-PL-2 한정)**: 응답 항목이 `{id, name}`에서 `{teamId, teamName, playerId, playerName, playerNumber, playerPosition}` 여섯 필드로 바뀐 **파괴적 변경**이다. 기존 `id`·`name` 키는 사라졌다. 함께 무효화된 것: "`Player.team`을 응답에서 제외하는 것이 N+1 방지책"이라는 아래 "설계 제약" 항목(취소선 참조). 이 개정으로 등번호·포지션의 `null` 처리 계약(USER-PL-2a)이 새로 생겼다.
 > **작성 시점 주의**: 이 문서는 구현보다 먼저가 아니라 **구현 초안을 리뷰한 뒤 사후에 계약을 고정한 것**이다(`team-list.md`는 구현 전 작성). 아래 요구사항은 현재 코드가 실제로 하는 동작과 일치하며, 리뷰에서 갈렸던 두 지점(무인증 공개 여부, 구단 필터)은 사용자가 직접 결정했다.
 > **2026-08-04 개정(USER-PL-4 한정)**: `docs/requirements/user/player-lookup-team-fallback.md`(응원 구단 폴백, 사용자 결정 2026-08-04)가 **적용 구단 결정 규칙의 단일 출처**가 되었다 — 유효한 access 토큰의 계정에 활성 응원 구단이 있으면 그 구단이 우선하고 요청의 `teamId`는 무시된다(USER-PLF-16·17). 이에 따라 **USER-PL-4를 조건부(유비쿼터스 → 예외)로 좁혔다.** 나머지 항목은 이번 개정에서 손대지 않았으나, **USER-PL-5·USER-PL-6도 같은 이유로 개정 대기 상태**다(개정 문안은 폴백 문서의 "기존 계약과의 충돌" 2·3번 참조 — 승인 전까지 이 두 문장은 "활성 응원 구단이 없는 요청"에 한해서만 유효하다고 읽을 것).
 > **2026-08-03 개정**: 이름 검색(`?name=`)은 최초 계약에서 **명시적으로 제외**했던 축이다(아래 "범위" 참조). 화면 요구가 생겨 열었으며, 열면서 지킨 원칙은 기존 필터와 같다 — 선택 파라미터이고, 필터링·정렬은 DB 가 단일 쿼리로 수행하며, 일치하는 것이 없으면 404 가 아니라 빈 배열이다.
@@ -30,7 +31,8 @@
 | ID | 유형 | 요구사항 | 인수 기준 |
 |---|---|---|---|
 | USER-PL-1 | 이벤트 | WHEN 클라이언트가 선수 목록을 요청하면, THE 시스템 SHALL 200과 `ApiResponse` 래퍼에 담긴 선수 배열을 반환한다 | `GET /api/member/players` → 200, 본문 `{"success":true,"data":[...],"message":null}` |
-| USER-PL-2 | 유비쿼터스 | THE 시스템 SHALL 선수 항목에 `id`와 `name` 두 필드만 포함한다 | `data[0]`의 키 집합이 정확히 `{"id","name"}`. `average`·`kboPlayerId`·`team`·`createdAt`·`updatedAt` 키가 **응답 어디에도 없음** |
+| USER-PL-2 | 유비쿼터스 | THE 시스템 SHALL 선수 항목에 소속 구단(`teamId`·`teamName`)과 선수(`playerId`·`playerName`·`playerNumber`·`playerPosition`) 여섯 필드만 포함한다 | `data[0]`의 키 집합이 정확히 그 여섯 개. `average`·`kboPlayerId`·`createdAt`·`updatedAt` 키가 **응답 어디에도 없고**, 구단은 중첩 객체(`team`)가 아님 |
+| USER-PL-2a | 유비쿼터스 | THE 시스템 SHALL 원본에 값이 없는 `playerNumber`·`playerPosition`을 대체값으로 채우지 않고 `null`로 내보내되 **키는 유지**한다 | 등번호 미배정·포지션 없는 선수의 `data[0]`도 키 6개를 모두 갖고 해당 값만 `null`(`""`·`"UNKNOWN"`이 아니며 키 누락도 아님) |
 | USER-PL-3 | 유비쿼터스 | THE 시스템 SHALL 선수 목록을 `name` 오름차순(DB 콜레이션 기준)으로 정렬해 반환하며, `teamId`·`name` 유무와 무관하게 같은 정렬을 적용한다 | 동일 DB 상태에서 2회 연속 호출 시 순서 동일. `?teamId=`·`?name=` 를 붙인 응답도 `name` 오름차순(관련도 순이 아님) |
 | USER-PL-4 | 예외 | **(2026-08-04 개정)** IF 적용 구단이 결정되지 않으면(=`teamId` 미전달 **이고** 요청 계정에 활성 응원 구단도 없음), THEN THE 시스템 SHALL `players` 테이블의 모든 행을 반환한다 | 헤더 없이 `GET /api/member/players` → `data` 길이가 `SELECT COUNT(*) FROM players` 와 일치. **응원 구단이 있는 계정의 토큰을 실으면 이 요구사항이 적용되지 않는다**(그 구단으로 좁혀짐 — `player-lookup-team-fallback.md` USER-PLF-1) |
 | USER-PL-5 | 복합 | **(2026-08-04 개정)** WHILE 적용 구단이 요청의 `teamId` 로 결정되는 상태(=활성 응원 구단이 없음)에서, WHEN 요청에 `teamId` 가 있으면, THE 시스템 SHALL 그 구단 소속 선수만 반환한다. 활성 응원 구단이 있으면 `teamId` 는 무시된다(USER-PLF-16·17 우선) | `GET /api/member/players?teamId=6`(무인증 또는 응원 구단 없는 계정) → 반환된 모든 선수의 `players.team_id` 가 6. 6이 아닌 구단 소속은 한 건도 없음. 응원 구단이 9인 계정 토큰으로 같은 요청 → `team_id` 가 9(이 요구사항 미적용) |
@@ -61,7 +63,7 @@
 - **정렬은 DB 단독 수행이다.** `ORDER BY name ASC`로 조회하고 애플리케이션에서 재정렬하지 않는다(`team-list.md`와 동일한 결정 — 정렬 기준이 두 곳으로 갈라지면 USER-PL-3 이 어느 쪽 규칙인지 모호해진다).
 - **`SecurityConfig`의 `requestMatchers` 경로에는 context-path 를 붙이지 않는다.** 외부 경로가 `/api/member/players`여도 매처는 `/players`다. 접두사를 붙이면 매칭이 안 돼 `anyRequest().authenticated()`로 떨어지고 **USER-PL-9 가 401 로 실패한다.** 초안이 실제로 이 규칙 자체를 빠뜨려 전 요청이 401 이었다.
 - **`teamId` 에 구단 존재 검증을 붙이지 않는다.** USER-PL-6 이 404 가 아니라 빈 배열인 것은 성능 타협이 아니라 계약이다 — 존재 확인에 조회를 한 번 더 쓰는 대신, 이미 공개된 `GET /api/member/teams` 가 유효한 `id` 의 출처라는 전제를 따른다.
-- **`Player.team` 은 LAZY 이며 응답 변환 경로에서 초기화되지 않아야 한다.** USER-PL-2 가 `team` 을 제외하는 것이 곧 N+1 방지책이다. 이후 소속 구단을 응답에 넣게 되면 **DTO 만 고치면 선수 수만큼 팀 조회가 나간다** — 반드시 리포지토리에 fetch join 을 함께 도입해야 한다.
+- ~~**`Player.team` 은 LAZY 이며 응답 변환 경로에서 초기화되지 않아야 한다.**~~ **2026-08-06 무효** — 소속 구단이 응답에 들어가면서 `PlayerResponse.from()` 이 `Player.team` 을 초기화한다. 여기서 경고한 대로 **DTO 만 고쳤고 fetch join 은 아직 도입하지 않았다.** 실제 비용은 예측했던 "선수 수만큼"보다는 작다 — 영속성 컨텍스트 1차 캐시가 같은 구단의 반복 조회를 흡수해 **서로 다른 구단 수(최대 10)만큼**의 추가 SELECT 로 수렴한다. 그래도 공짜는 아니므로 리포지토리 4종의 fetch join 은 남은 숙제다. 또한 변환이 트랜잭션 밖으로 나가면 `LazyInitializationException` 이 되므로, `PlayerService`·`SupportService` 의 `@Transactional` 경계 안에서 변환한다는 전제가 이제 **필수 제약**이다.
 - **필터 조건은 FK 컬럼(`players.team_id`) 하나여야 한다.** `Team` 을 조인해 걸면 불필요한 조인이 생긴다(`findAllByTeam_IdOrderByNameAsc` 는 조인 없이 FK 로만 건다).
 - **`teamId`+`name` 은 단일 쿼리로 건다.** 두 필터를 각각 조회해 앱에서 교집합을 내면 안 된다(`findAllByTeam_IdAndNameContainingOrderByNameAsc` 하나로 DB 가 좁히고 정렬까지 끝낸다). 조합이 2×2 라 리포지토리 메서드가 4개인데, 이 개수를 줄이려고 `:param IS NULL OR ...` 형태의 단일 JPQL 로 합치는 리팩터링은 하지 않았다 — 조건 분기가 SQL 안으로 숨어 실행 계획이 파라미터마다 달라지는 대신, 어떤 요청이 어떤 쿼리를 타는지가 코드에 드러나는 쪽을 택했다.
 - **`name` 은 `IgnoreCase` 를 붙이지 않는다.** MySQL 기본 콜레이션(`utf8mb4_..._ci`)이 이미 대소문자를 구분하지 않으므로, `IgnoreCase` 를 붙이면 양변에 `LOWER()` 만 추가돼 SQL 이 지저분해진다. 콜레이션을 `_bin`/`_cs` 로 바꾸면 이 전제가 깨진다.
@@ -74,6 +76,7 @@
 2. **필터는 쿼리 파라미터 `?teamId=`, 경로 변수(`/teams/{id}/players`)가 아니다.** 필터가 **선택**이라 같은 엔드포인트가 전체 조회도 겸해야 하고(USER-PL-4), 이후 다른 필터 축이 생기면 쿼리 파라미터 쪽이 자연스럽게 확장된다. 리소스 중첩 경로는 전체 조회를 별도 엔드포인트로 쪼개야 해서 폐기.
 3. **없는 `teamId` 는 404 가 아니라 200 + `[]`.** 위 "제약" 참조. 조회는 성공했고 결과가 비었을 뿐이다.
 4. **응답은 `id`+`name` 만.** `average` 는 갱신 주기·기준이 정의되지 않아 계약에서 뺐고, 소스 자연키 2종은 소유권 경계상 영구 제외다.
+   > 2026-08-06 개정: 소속 구단·등번호·포지션이 추가돼 여섯 필드가 됐다(USER-PL-2 갱신). `average` 제외와 자연키 영구 제외 판단은 그대로다.
 5. **경로는 `GET /api/member/players`** (복수형 컬렉션). 컨트롤러 매핑은 `@RequestMapping("/players")` + `@GetMapping`.
 6. **이름 검색은 prefix 가 아니라 contains 다** (2026-08-03). 초안 코드는 `LIKE '검색어%'`(앞부분 일치)였으나, 검색어가 이름의 앞부분이라는 보장이 없어(`"도영"` 으로 `"김도영"` 을 찾는 것이 실사용 패턴이다) 부분 일치로 고정했다. 앞부분 일치는 부분 일치의 부분집합이라 계약을 넓히는 방향이며, 되돌리려면 `PlayerRepository` 의 `Containing` → `StartingWith` 한 곳만 바꾸면 된다.
 7. **`name` 도 `teamId` 와 같은 선택 쿼리 파라미터다** (2026-08-03). 별도 검색 엔드포인트(`/players/search`)를 만들지 않은 이유는 결정 2와 같다 — 필터가 선택이라 같은 엔드포인트가 전체 조회를 겸해야 하고, 필터 축이 늘어도 쿼리 파라미터 쪽이 자연스럽게 확장된다.
@@ -89,7 +92,8 @@
 | ID | 테스트 |
 |---|---|
 | USER-PL-1 | `PlayerControllerTest.getPlayers_returns200WithApiResponseWrappedArray` |
-| USER-PL-2 | `PlayerControllerTest.getPlayers_itemContainsOnlyIdAndName` · `PlayerServiceTest.getPlayers_mapsOnlyIdAndNameFromEntity` |
+| USER-PL-2 | `PlayerControllerTest.getPlayers_itemContainsTeamAndPlayerFieldsOnly` · `PlayerServiceTest.getPlayers_mapsTeamAndPlayerFieldsFromEntity` |
+| USER-PL-2a | `PlayerControllerTest.getPlayers_missingNumberAndPosition_serializedAsExplicitNulls` · `PlayerServiceTest.getPlayers_nullPositionGroup_mapsToNullWithoutException` · `PlayerServiceTest.getPlayers_nullUniformNumber_mapsToNull` |
 | USER-PL-3 | `PlayerServiceTest.getPlayers_doesNotReorderRepositoryResult` (**한계 있음** — 아래 참조) |
 | USER-PL-4 | `PlayerControllerTest.getPlayers_withoutTeamId_passesNullToService` · `PlayerServiceTest.getPlayers_withoutTeamId_returnsAllRowsMappedToDto` |
 | USER-PL-5 | `PlayerControllerTest.getPlayers_withTeamId_passesParameterToService` · `PlayerServiceTest.getPlayers_withTeamId_usesFilteredQueryOnly` |

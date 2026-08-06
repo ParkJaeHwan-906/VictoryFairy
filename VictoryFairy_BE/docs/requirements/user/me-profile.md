@@ -154,7 +154,7 @@ WHERE NOT EXISTS (SELECT 1 FROM users_bq b WHERE b.user_account_id = ua.id);
 1. **`users_bq`는 계정과 1:1**(UNIQUE `user_account_id`). 사용자 결정. 누적 획득 점수는 그 한 행의 `bq_score`를 그대로 읽으며 `SUM` 집계가 아니다. 1:N 이력 안은 폐기했다 — 획득 사유 컬럼이 없어 이력의 활용도가 낮고, `updated_at`(변경 시 갱신)이 붙은 것 자체가 domain 컨벤션상 "갱신되는 엔티티"의 표식이다(순수 기록성 엔티티는 `created_at`만 갖는다).
 2. **행은 회원가입 시 함께 생성한다**(`bq_score = 0`). 사용자 결정. lazy 생성 안은 폐기했다 — 조회 경로가 "행이 없을 수도 있다"를 정상 상태로 다루면 이후 점수 증감 경로도 매번 "없으면 만들기"를 반복해야 한다. 대신 **기존 계정 백필이 배포 필수 절차가 됐다**(USER-ME-26).
 3. **응원 구단은 제품상 필수다.** 사용자 결정. 다만 스키마·코드가 강제하지 않으므로 `/me`는 미선택 윈도우에서 `supportTeam: null` + 200으로 응답한다(USER-ME-16) — 이는 정책의 예외가 아니라 **정책이 아직 강제되지 않는 구간의 안전망**이다.
-4. **`supportTeam`은 `{id, name}` 객체다.** 사용자 결정. 이 API의 모든 구단·선수 표현(`TeamResponse`/`PlayerResponse`)과 일관되고, 프론트가 구단 로고·색상을 이름 문자열이 아니라 id로 매핑할 수 있다.
+4. **`supportTeam`은 `{id, name}` 객체다.** 사용자 결정. 프론트가 구단 로고·색상을 이름 문자열이 아니라 id로 매핑할 수 있다. 결정 당시에는 `TeamResponse`/`PlayerResponse`와도 형태가 같았으나, **2026-08-06에 `PlayerResponse`가 여섯 필드로 바뀌어 그 일관성은 `TeamResponse`에만 남았다**(이 API의 `supportTeam` 자체는 그대로다).
 5. **응답 래퍼는 `ApiResponse`다.** 위 "엔드포인트" 절의 근거 참조.
 6. **응답 필드명은 `nickname` / `supportTeam` / `point` / `bqScore`로 고정한다**(USER-ME-13). 컬럼명 `bq_score`의 camelCase다.
 7. **`point`·`bqScore`는 JSON 숫자다.** BIGINT이므로 자바스크립트 안전 정수 범위(2^53)를 넘으면 정밀도 문제가 생길 수 있으나, 포인트·점수 규모상 실사용 영향이 없다고 보고 문자열 직렬화는 하지 않는다.
