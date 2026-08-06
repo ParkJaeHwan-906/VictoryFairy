@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import com.skhynix.common.error.BusinessException;
 import com.skhynix.common.error.ErrorCode;
 import com.skhynix.domain.player.entity.Player;
+import com.skhynix.domain.player.entity.PositionGroup;
 import com.skhynix.domain.player.repository.PlayerRepository;
 import com.skhynix.domain.support.entity.UserSupportPlayer;
 import com.skhynix.domain.support.entity.UserSupportTeam;
@@ -86,9 +87,21 @@ class SupportServiceTest {
     }
 
     private static Player playerOf(Long id, String name, Team team) {
-        Player player = Player.builder().team(team).name(name).average(0.3).build();
+        Player player = Player.builder()
+                .team(team)
+                .name(name)
+                .average(0.3)
+                .uniformNumber("1" + id)
+                .positionGroup(PositionGroup.INFIELDER)
+                .build();
         ReflectionTestUtils.setField(player, "id", id);
         return player;
+    }
+
+    /** {@link #playerOf} 픽스처와 짝을 이루는 기대 DTO — 응원 API는 선수 목록 API와 같은 계약을 돌려준다. */
+    private static PlayerResponse responseOf(Long id, String name, Team team) {
+        return new PlayerResponse(team.getId(), team.getName(), id, name,
+                "1" + id, PositionGroup.INFIELDER.name());
     }
 
     private static UserAccount account() {
@@ -332,8 +345,8 @@ class SupportServiceTest {
 
         // then: 기존 2번이 그대로 남아 있다(추가 방식)
         assertThat(result).containsExactly(
-                new PlayerResponse(2L, "김도영"),
-                new PlayerResponse(3L, "양현종"));
+                responseOf(2L, "김도영", KIA),
+                responseOf(3L, "양현종", KIA));
     }
 
     @Test
@@ -542,8 +555,8 @@ class SupportServiceTest {
 
         // then: 정렬은 DB(스텁)가 준 순서를 그대로 흘려보낸다
         assertThat(result).containsExactly(
-                new PlayerResponse(2L, "김도영"),
-                new PlayerResponse(3L, "양현종"));
+                responseOf(2L, "김도영", KIA),
+                responseOf(3L, "양현종", KIA));
         // 선수 조회는 batch 1회뿐 — 응원 행 수만큼 findById가 나가지 않는다
         verify(playerRepository, never()).findById(any());
     }

@@ -3,7 +3,7 @@
 > **도메인** `player` — KBO 선수 참조 데이터 및 이름 검색.
 > **모듈** user (포트 8080) · **경로 접두사** `/api/member/players` · **엔드포인트** 1개
 > **컨트롤러** `user/src/main/java/com/skhynix/user/player/controller/PlayerController.java` (`@RequestMapping("/players")`)
-> **최종 갱신** 2026-08-04 — 구단 조건이 요청 `teamId`가 아니라 **적용 구단**(토큰의 활성 응원 구단 > `teamId` > 없음)으로 바뀜. `teamId` 오버라이딩 규칙 반영(직전 변경: 2026-08-03 이름 부분 일치 검색 파라미터 `name` 추가)
+> **최종 갱신** 2026-08-06 — **응답 항목 키가 바뀐 파괴적 변경**: `{id, name}` → `{teamId, teamName, playerId, playerName, playerNumber, playerPosition}`. 소속 구단·등번호·포지션이 추가됐고 기존 `id`·`name` 키는 **사라졌다**(직전 변경: 2026-08-04 적용 구단 오버라이딩)
 > 공통 규약(응답 래퍼·401 정책)은 [README.md](README.md)를 먼저 볼 것.
 > 요구사항: `docs/requirements/user/player-lookup-team-fallback.md`(USER-PLF-1~21)
 
@@ -29,12 +29,12 @@
 
 **같은 URL이 `Authorization` 헤더 유무로 결과가 갈린다.** `GET /api/member/players?teamId=9`를 헤더 없이 보내면 9번 구단 선수만, 활성 응원 구단이 6인 계정의 토큰을 실어 보내면 **9는 무시되고 6번 구단 선수**가 나온다. 프론트가 "필터가 안 먹는다"로 오해하기 쉬운 지점이다.
 
-여기서 반환하는 `data[].id`가 [응원(support)](support.md)의 `playerIds` 입력값이다.
+여기서 반환하는 `data[].playerId`가 [응원(support)](support.md)의 `playerIds` 입력값이다.
 
 ---
 
 ## GET /api/member/players
-> 최종 변경: 2026-08-04 — 구단 조건이 요청 `teamId`가 아니라 적용 구단(토큰의 활성 응원 구단 > `teamId` > 없음)으로 바뀜. 응답 형태·상태코드는 불변
+> 최종 변경: 2026-08-06 — 응답 항목 키 교체(`id`·`name` 제거, `teamId`·`teamName`·`playerId`·`playerName`·`playerNumber`·`playerPosition` 추가). 쿼리 파라미터·상태코드·정렬은 불변(직전 변경: 2026-08-04 적용 구단 오버라이딩)
 
 KBO 선수 목록 조회 및 이름 검색. `PlayerController` → `PlayerService.getPlayers(Long userAccountId, Long teamId, String name)` → `resolveTeamId()`로 적용 구단 결정 → `PlayerRepository`의 네 메서드 중 하나.
 
@@ -72,13 +72,23 @@ KBO 선수 목록 조회 및 이름 검색. `PlayerController` → `PlayerServic
 |---|---|---|
 | success | boolean | 항상 `true` |
 | data | array | 선수 배열 |
-| data[].id | Long | 선수 PK |
-| data[].name | String | 선수 이름 |
+| data[].teamId | Long | 소속 구단 PK |
+| data[].teamName | String | 소속 구단 이름 |
+| data[].playerId | Long | 선수 PK |
+| data[].playerName | String | 선수 이름 |
+| data[].playerNumber | String\|null | 등번호. `'0'`·`'00'` 구분과 선행 0 보존 때문에 숫자가 아니라 **문자열**이다. 미배정(일부 육성선수)이면 `null` |
+| data[].playerPosition | String\|null | KBO 공식 포지션 구분 4종 중 하나 — `PITCHER`·`CATCHER`·`INFIELDER`·`OUTFIELDER`. 1군 이력이 없어 구분이 없으면 `null` |
 | message | null | 사용되지 않음 |
 
-**응답 형태는 적용 구단이 무엇으로 결정됐는지와 무관하게 동일하다.** 어떤 구단이 실제로 적용됐는지, `teamId`가 오버라이딩됐는지를 알리는 필드(`appliedTeamId` 등)나 헤더는 **없다**(USER-PLF-14). 클라이언트는 응답만 보고 자신의 `teamId`가 무시됐는지 알 수 없다 — 알아야 한다면 [`GET /api/member/users/me`](account.md)의 `supportTeam`과 비교하는 수밖에 없다.
+**응답 형태(키 집합)는 적용 구단이 무엇으로 결정됐는지와 무관하게 동일하다.** 어떤 구단이 적용됐는지를 알리는 **전용** 필드(`appliedTeamId` 등)나 헤더는 여전히 **없다**(USER-PLF-14).
 
-**`average`/`kboPlayerId`/`team`/`createdAt`/`updatedAt`는 의도적으로 응답에 없다.** `kboPlayerId`(KBO 공식 playerId, 네이버 record API의 pcode 와도 실측상 동일 값)는 py-collector가 upsert 키로 소유하는 소스 자연키라 `TeamResponse`가 `Team.code`를 감추는 것과 같은 이유로 제외한다. `team`을 담지 않는 것은 N+1 방지 목적도 겸한다(`Player.team`이 LAZY라 응답 변환에서 초기화되지 않는다).
+다만 **2026-08-06부터 항목마다 `teamId`가 실려, 오버라이딩 여부를 사실상 응답만으로 알 수 있게 됐다** — `?teamId=9`로 요청했는데 돌아온 항목의 `teamId`가 전부 6이면 요청값이 무시된 것이다. 판별이 불가능한 경우는 결과가 빈 배열일 때뿐이며, 그때는 [`GET /api/member/users/me`](account.md)의 `supportTeam`과 대조해야 한다. 이는 구단 필드 추가의 부수 효과이지 오버라이딩을 알리려고 설계한 것이 아니므로, 이 성질에 의존하는 프론트 로직을 짜기 전에 백엔드와 합의할 것.
+
+**`playerNumber`·`playerPosition`은 `null`이 그대로 나간다.** 두 값 모두 KBO 등록명단발이라 원본에 비어 있는 선수가 실제로 존재한다(등번호 미배정 육성선수, 1군 이력이 없어 포지션 구분이 없는 선수). 서버는 `""`나 `"UNKNOWN"` 같은 대체값으로 채우지 않으며, **키가 사라지지도 않는다** — 항목은 언제나 여섯 키를 모두 갖고 값만 `null`이다. "값이 없다"와 "값이 UNKNOWN이다"를 클라이언트가 구분할 수 있게 하려는 결정이므로, 표시 문구(`-`, `미정` 등)를 고르는 것은 프론트 몫이다.
+
+**`average`/`kboPlayerId`/`createdAt`/`updatedAt`는 의도적으로 응답에 없다.** `kboPlayerId`(KBO 공식 playerId, 네이버 record API의 pcode 와도 실측상 동일 값)는 py-collector가 upsert 키로 소유하는 소스 자연키라 `TeamResponse`가 `Team.code`를 감추는 것과 같은 이유로 제외한다.
+
+**구단은 중첩 객체가 아니라 평평한 두 필드(`teamId`·`teamName`)다.** `{"team":{"id":6,"name":"KIA"}}` 형태가 아니다. 이 때문에 응답 변환에서 LAZY인 `Player.team`이 초기화되며, 목록 한 번에 **서로 다른 구단 수만큼**(최대 10) 추가 SELECT가 붙는다(영속성 컨텍스트 1차 캐시가 같은 구단의 반복 조회는 흡수한다). 선수 수에 비례하지는 않지만 공짜도 아니므로, 목록이 더 커지면 리포지토리 4종에 fetch join을 도입할 자리다.
 
 **정렬: `name` 오름차순, DB(`ORDER BY name ASC`)가 단독 수행하며 애플리케이션에서 재정렬하지 않는다.** 적용 구단·`name` 유무와 무관하게 같은 정렬이다(검색 결과도 관련도 순이 아니라 이름 오름차순). 구단 목록과 마찬가지로 한국어 로케일이 아닌 MySQL 콜레이션 기준이다.
 
@@ -117,14 +127,20 @@ curl -i -X GET "http://localhost:8080/api/member/players?teamId=9" \
   -H 'Authorization: Bearer eyJ...'
 ```
 ```json
-{"success":true,"data":[{"id":2,"name":"김도영"}],"message":null}
+{"success":true,"data":[{"teamId":6,"teamName":"KIA","playerId":2,"playerName":"김도영","playerNumber":"7","playerPosition":"INFIELDER"}],"message":null}
+```
+등번호·포지션이 비어 있는 선수는 키를 유지한 채 값만 `null`이다:
+```json
+{"success":true,"data":[{"teamId":6,"teamName":"KIA","playerId":5,"playerName":"무명","playerNumber":null,"playerPosition":null}],"message":null}
 ```
 
 ---
 
 ## 확인 필요 / 코드 미확인
 
-- 선수 상세 조회(`GET /api/member/players/{id}`), 포지션·타율 등 기록 노출, 초성 검색·오타 허용·관련도 정렬은 모두 코드에 없다. `Player.average` 필드는 존재하지만 어떤 응답에도 실리지 않는다.
+- 선수 상세 조회(`GET /api/member/players/{id}`), 초성 검색·오타 허용·관련도 정렬은 코드에 없다. `Player.average` 필드는 존재하지만 어떤 응답에도 실리지 않는다.
+- 노출하는 포지션은 KBO 공식 등록명단의 **4그룹 구분**뿐이다. 1루수·유격수 같은 세부 수비 포지션은 공식 소스 자체가 제공하지 않아 값이 없다 — 필요해지면 `game_lineups`의 경기별 포지션을 집계해 파생하는 것이 다음 단계다(별도 필드로, 이 값의 확장이 아니라).
+- **포지션·등번호로 거르는 쿼리 파라미터는 없다.** 응답에 실릴 뿐 필터 조건은 여전히 `teamId`·`name` 둘뿐이며, 포지션별 목록이 필요하면 프론트가 받아서 거르는 수밖에 없다.
 - 검색어의 `%`·`_` 미이스케이프는 알려진 동작으로 남겨둔 상태다(위 본문 참고). 선수 이름에 이 문자가 들어갈 일이 없다는 전제이며, 전제가 깨지면 이스케이프 도입이 필요하다.
 - 오버라이딩을 우회하는 파라미터(`?ignoreSupport=true` 등)는 요구사항상 의도적으로 두지 않았다(요구사항 문서 "후속" 절) — 응원 구단이 있는 사용자가 타 구단 선수를 조회할 방법은 현재 이 엔드포인트에 없다.
 
@@ -132,4 +148,4 @@ curl -i -X GET "http://localhost:8080/api/member/players?teamId=9" \
 
 - [구단(team)](team.md) — `?teamId=`에 넣을 값의 출처.
 - [계정(account)](account.md) — `GET /api/member/users/me`의 `supportTeam`. 응답만으로 오버라이딩 발생 여부를 알 수 없을 때 대조하는 유일한 방법.
-- [응원(support)](support.md) — 응원 선수 추가·취소에 이 `id`를 쓴다. **응원 선수는 응원 구단 소속이어야 하므로** 선수 선택 UI는 종전에 `?teamId=<응원 구단>`으로 좁혀 호출하도록 안내했으나, **2026-08-04부터는 로그인 상태라면 파라미터 없이 호출해도 같은 결과**가 나온다(적용 구단이 자동으로 응원 구단이 되므로). 비로그인 상태에서 응원 구단을 좁혀 보여줘야 한다면 여전히 `?teamId=`가 필요하다.
+- [응원(support)](support.md) — 응원 선수 추가·취소에 이 `playerId`를 쓴다. **응원 선수는 응원 구단 소속이어야 하므로** 선수 선택 UI는 종전에 `?teamId=<응원 구단>`으로 좁혀 호출하도록 안내했으나, **2026-08-04부터는 로그인 상태라면 파라미터 없이 호출해도 같은 결과**가 나온다(적용 구단이 자동으로 응원 구단이 되므로). 비로그인 상태에서 응원 구단을 좁혀 보여줘야 한다면 여전히 `?teamId=`가 필요하다.
