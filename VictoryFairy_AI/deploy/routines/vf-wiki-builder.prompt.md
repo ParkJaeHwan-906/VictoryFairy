@@ -23,7 +23,7 @@ VictoryFairy LLM 위키 빌더 루틴이다 (화·금 주 2회).
 2. cd VictoryFairy_AI 후 wiki-builder/ROUTINE.md 를 읽고 '사전 조건'부터 검증하라. 도구가 없으면 설치하라(python3 -m pip install --quiet awscli PyYAML 등 — 명시적 허용).
 
 [실행]
-3. ROUTINE.md 절차를 0단계(위키 클론)부터 순서대로 수행하라. 위키는 s3가 아니라 VictoryFairy_WIKI 리포 dev 브랜치를 .work/wiki-repo/ 로 클론해서 읽고 고친다.
+3. ROUTINE.md 절차를 0단계(위키 클론)부터 순서대로 수행하라. 위키는 S3가 아니라 VictoryFairy_WIKI 리포 dev 브랜치를 .work/wiki-repo/ 로 클론해서 읽고 고친다.
 4. 0단계 클론이 실패하면 즉시 중단하라 — 기존 문서 없이 병합하면 누적된 위키를 통째로 날린다.
 5. 7단계에서 .work/wiki-repo 안에서 wiki/ 를 커밋하고 origin dev 로 push 한다. 푸시가 거부되면 git pull --rebase origin dev 후 한 번 재시도하라.
 
