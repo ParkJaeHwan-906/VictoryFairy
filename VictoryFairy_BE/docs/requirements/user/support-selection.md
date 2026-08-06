@@ -271,8 +271,6 @@
 
 `SupportServiceTest` **47건**(락 회귀 12건 신설) · `SupportControllerTest` 22건 · `UserProfileServiceTest` **11건**(`getMyProfile_neverLocksAccount` 신설), `:user:test` **356건** 전부 통과(2026-08-06 실측).
 
-⚠ 락 회귀 테스트 12+1건의 `@DisplayName` 은 아직 `[문서 미커버, 회귀]` 로 시작한다(작성 시점에 이 ID 들이 없었다). **이제 USER-SP-38~46 이 있으므로 각 ID 로 교체할 것** — USER-SP-37 의 "문서 91행" 참조와 같은 종류의 정리다.
-
 **락 회귀 12건이 고정하는 것(요약)**: ①쓰기 3경로가 락을 정확히 1회 호출(38·42) ②`InOrder` 로 락이 다른 리포지토리 접근보다 앞임을 고정(40·43) ③`currentSupportedPlayers` 는 락을 절대 안 잡음(44) ④계정 부재 시 `UNAUTHENTICATED` 이고 다른 리포지토리를 안 탐(45) ⑤빈 `playerIds` 도 락이 먼저(41). 여기에 `UserProfileServiceTest` 1건이 `GET /me` 쪽에서 ③을 다시 못 박는다.
 `SupportServiceTest` 는 `@BeforeEach` 에서 `findWithLockById` 를 공통 스텁한다 — **쓰기 경로 3개가 첫 줄에서 락을 타므로 이 스텁이 없으면 이 클래스의 거의 모든 테스트가 `UNAUTHENTICATED` 로 깨진다.** 새 쓰기 테스트를 추가할 때 밟기 쉬운 자리다.
 
