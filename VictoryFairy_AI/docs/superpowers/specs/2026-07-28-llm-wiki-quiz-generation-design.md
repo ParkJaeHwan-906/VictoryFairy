@@ -167,6 +167,11 @@ routine에는 최소 권한 IAM 자격증명만 부여: `question-source/`·`kbo
 ```
 
 - `options`는 항상 2개(O/X·2지선다) 또는 4개(4지선다) — 주관식 없음
+- `options`의 `id`는 **A부터 순서대로**(A/B/C/D)이고 배열 순서가 곧 표시 순서다.
+  RDB `quiz_options.option`(UI 보기 번호)은 **0부터** 배열 인덱스 그대로 매긴다
+  — A=0, B=1, C=2, D=3. OX는 `O`=A→0, `X`=B→1로 BE의 O/X 표기(0:1)와 일치한다.
+  후보 JSON에 번호를 별도 필드로 싣지 않는다(`validate_candidates.py` check 2가
+  id 순서를 강제하므로 위치만으로 결정된다 — 같은 정보를 두 곳에 두면 어긋난다)
 - `answer`/`evidence`는 지식 퀴즈 필수, 예측 퀴즈는 `null`
 - `settlement`은 예측 퀴즈 필수(경기 종료 후 BE가 RDB로 정답 판정할 키), 지식 퀴즈는 `null`
 - `templateId`: 출제 템플릿 식별자. 지금은 기록만 하고, 추후 BE가 템플릿별 유저 반응(정답률·
