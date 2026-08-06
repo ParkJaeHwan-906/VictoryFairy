@@ -127,12 +127,15 @@ curl -i -X GET "http://localhost:8080/api/member/players?teamId=9" \
   -H 'Authorization: Bearer eyJ...'
 ```
 ```json
-{"success":true,"data":[{"teamId":6,"teamName":"KIA","playerId":2,"playerName":"김도영","playerNumber":"7","playerPosition":"INFIELDER"}],"message":null}
+{"success":true,"data":[{"teamId":21,"teamName":"KIA","playerId":168,"playerName":"김도영","playerNumber":"5","playerPosition":"INFIELDER"}],"message":null}
 ```
 등번호·포지션이 비어 있는 선수는 키를 유지한 채 값만 `null`이다:
 ```json
-{"success":true,"data":[{"teamId":6,"teamName":"KIA","playerId":5,"playerName":"무명","playerNumber":null,"playerPosition":null}],"message":null}
+{"success":true,"data":[{"teamId":21,"teamName":"KIA","playerId":414,"playerName":"고종욱","playerNumber":null,"playerPosition":null}],"message":null}
 ```
+> 위 두 예시는 2026-08-06 실제 응답에서 그대로 가져왔다. **`teamId`는 1~10이 아니다** — 현재 구단 PK는 16~25 범위이고 KIA는 21이다. 하드코딩하지 말고 [`GET /api/member/teams`](team.md)에서 받아 쓸 것.
+>
+> 전체 조회는 558건이고 그중 **260건은 `playerNumber`·`playerPosition`이 `null`** 이다(등록명단에 없는 선수). 즉 null은 예외가 아니라 절반 가까운 일반적인 경우다.
 
 ---
 
