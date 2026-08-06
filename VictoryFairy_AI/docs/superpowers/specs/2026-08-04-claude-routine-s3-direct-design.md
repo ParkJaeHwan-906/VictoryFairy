@@ -164,12 +164,18 @@ BE 퀴즈 테이블 신설 시 `difficulty`·`points` 칼럼과 정답/오답 �
 
 | 처분 | 대상 |
 |---|---|
-| **유지 (재사용)** | `runner/{config,catalog,binding,finalize}.py` + 해당 tests — §4의 결정적 단계 실행체 |
-| **폐기** | `runner/{bedrock_client,generate,judge,main}.py`, `entrypoint-quiz.sh`, `Dockerfile`, `deploy/runner/` (cronjob yaml·IRSA 정책·README) |
+| **유지 (재사용)** | `runner/{catalog,binding,finalize}.py` + 해당 tests — §4의 결정적 단계 실행체 |
+| **폐기** | `runner/{bedrock_client,generate,judge,main,config}.py`, `entrypoint-quiz.sh`, `Dockerfile`, `deploy/runner/` (cronjob yaml·IRSA 정책·README), 대응 tests 4개 |
 | **원복** | `question-gen/ROUTINE.md` 머리의 "Bedrock 러너의 스펙 문서" 안내 블록 → 루틴 실행 지침으로 되돌림 |
 
-폐기 커밋은 구현계획에서 별도 태스크로 다룬다 (2026-08-03 스펙 문서 자체는
-결정 기록으로 보존).
+**2026-08-06 폐기 완료.** 처음 이 표를 쓸 때는 `config.py`를 유지 대상에
+넣었으나, 실제로 열어 보니 내용이 Bedrock 모델 ID 2개(`DEFAULT_MODEL_C1/C2`)와
+컨테이너 경로(`repo_root` 기본값 `/app`)뿐이었고 `catalog`·`binding`·`finalize`
+어디에서도 참조하지 않았다 — 루틴이 리포 체크아웃 위에서 직접 도는 지금 구조에
+쓸 데가 없어 함께 폐기했다. `runner/requirements.txt`의 `boto3`도 같은 이유로
+제거(남은 세 모듈은 PyYAML만 쓴다).
+
+2026-08-03 Bedrock 스펙 문서 자체는 결정 기록으로 보존한다.
 
 ## 10. 마이그레이션 순서
 
