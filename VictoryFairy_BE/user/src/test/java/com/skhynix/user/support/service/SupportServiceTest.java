@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -27,9 +28,11 @@ import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -77,6 +80,17 @@ class SupportServiceTest {
 
     @InjectMocks
     private SupportService supportService;
+
+    /**
+     * 쓰기 경로 3개(selectTeam·addPlayers·opposePlayers)가 첫 줄에서 {@code lockAccount()}를 호출한다 —
+     * 스텁하지 않으면 이 클래스의 거의 모든 테스트가 {@code UNAUTHENTICATED}로 깨진다. 읽기 경로
+     * ({@link SupportService#currentSupportedPlayers})는 이 락을 타지 않는다 — 해당 테스트가 개별적으로
+     * {@code never()}로 확인한다({@code LENIENT} 설정이라 그 테스트에서는 이 스텁이 그냥 미사용으로 남는다).
+     */
+    @BeforeEach
+    void stubAccountLock() {
+        given(userAccountRepository.findWithLockById(ACCOUNT_ID)).willReturn(Optional.of(account()));
+    }
 
     private static final Team KIA = teamOf(6L, "KIA", "HT");
     private static final Team LG = teamOf(8L, "LG", "LG");
@@ -957,5 +971,234 @@ class SupportServiceTest {
         // 선수 조회는 fetch join 쿼리 1회뿐 — findById도, 응원 행을 다시 훑는 옛 2단계 조회도 타지 않는다
         verify(playerRepository, never()).findById(any());
         verify(userSupportPlayerRepository, never()).findAllByUserAccount_IdAndOpposeIsNull(any());
+        // 읽기 경로에는 계정 락이 걸리지 않는다 — GET /me 가 이 경로를 타므로, 락이 붙으면 프로필 조회끼리
+        // 서로를 막는다(회귀 증거, 아래 "계정 행 비관적 락" 섹션과 짝을 이룸)
+        verify(userAccountRepository, never()).findWithLockById(any());
+    }
+
+    // ---------- 계정 행 비관적 락(회귀) ----------
+    // 목 기반 테스트의 한계: 여기서 고정하는 것은 "락을 잡는 코드 경로가 살아 있다"까지다. 실제 동시
+    // 트랜잭션 간의 배타성(진짜 레이스가 막히는지)은 목으로는 검증할 수 없다 — DB 라운드트립이 필요하다.
+
+    @Test
+    @DisplayName("[USER-SP-38] selectTeam은 findWithLockById를 정확히 1회 호출한다")
+    void selectTeam_locksAccountExactlyOnce() {
+        // given
+        given(teamRepository.findById(6L)).willReturn(Optional.of(KIA));
+        given(userSupportTeamRepository.findByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(Optional.empty());
+        given(userSupportTeamRepository.findByUserAccount_IdAndTeam_Id(ACCOUNT_ID, 6L))
+                .willReturn(Optional.empty());
+        given(userAccountRepository.getReferenceById(ACCOUNT_ID)).willReturn(account());
+        given(userSupportTeamRepository.save(any())).willAnswer(call -> call.getArgument(0));
+
+        // when
+        supportService.selectTeam(ACCOUNT_ID, 6L);
+
+        // then
+        verify(userAccountRepository, times(1)).findWithLockById(ACCOUNT_ID);
+    }
+
+    @Test
+    @DisplayName("[USER-SP-38] addPlayers는 findWithLockById를 정확히 1회 호출한다")
+    void addPlayers_locksAccountExactlyOnce() {
+        // given
+        Player player = playerOf(2L, "김도영", KIA);
+        given(userSupportTeamRepository.findByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(Optional.of(supportTeamOf(KIA)));
+        given(playerRepository.findAllById(List.of(2L))).willReturn(List.of(player));
+        given(userSupportPlayerRepository.findByUserAccount_IdAndPlayer_Id(ACCOUNT_ID, 2L))
+                .willReturn(Optional.empty());
+        given(userAccountRepository.getReferenceById(ACCOUNT_ID)).willReturn(account());
+        given(playerRepository.getReferenceById(2L)).willReturn(player);
+        given(userSupportPlayerRepository.save(any())).willAnswer(call -> call.getArgument(0));
+        given(userSupportPlayerRepository.findAllByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(Collections.emptyList());
+        given(userSupportPlayerRepository.findAllActiveWithPlayerAndTeam(ACCOUNT_ID))
+                .willReturn(List.of(supportPlayerOf(player)));
+
+        // when
+        supportService.addPlayers(ACCOUNT_ID, List.of(2L));
+
+        // then
+        verify(userAccountRepository, times(1)).findWithLockById(ACCOUNT_ID);
+    }
+
+    @Test
+    @DisplayName("[USER-SP-38, USER-SP-42] opposePlayers는 findWithLockById를 정확히 1회 호출한다")
+    void opposePlayers_locksAccountExactlyOnce() {
+        // given
+        Player player = playerOf(2L, "김도영", KIA);
+        given(playerRepository.findAllById(List.of(2L))).willReturn(List.of(player));
+        given(userSupportPlayerRepository.findByUserAccount_IdAndPlayer_Id(ACCOUNT_ID, 2L))
+                .willReturn(Optional.of(supportPlayerOf(player)));
+        given(userSupportPlayerRepository.findAllActiveWithPlayerAndTeam(ACCOUNT_ID))
+                .willReturn(Collections.emptyList());
+
+        // when
+        supportService.opposePlayers(ACCOUNT_ID, List.of(2L));
+
+        // then
+        verify(userAccountRepository, times(1)).findWithLockById(ACCOUNT_ID);
+    }
+
+    @Test
+    @DisplayName("[USER-SP-40] selectTeam은 계정 락을 구단 조회보다 먼저 잡는다(락 순서 고정) "
+            + "— 락이 나중으로 밀리면 레이스가 그대로 남으므로 \"호출했다\"만으로는 부족하다")
+    void selectTeam_locksAccountBeforeTeamLookup() {
+        // given
+        given(teamRepository.findById(6L)).willReturn(Optional.of(KIA));
+        given(userSupportTeamRepository.findByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(Optional.empty());
+        given(userSupportTeamRepository.findByUserAccount_IdAndTeam_Id(ACCOUNT_ID, 6L))
+                .willReturn(Optional.empty());
+        given(userAccountRepository.getReferenceById(ACCOUNT_ID)).willReturn(account());
+        given(userSupportTeamRepository.save(any())).willAnswer(call -> call.getArgument(0));
+
+        // when
+        supportService.selectTeam(ACCOUNT_ID, 6L);
+
+        // then
+        InOrder inOrder = inOrder(userAccountRepository, teamRepository);
+        inOrder.verify(userAccountRepository).findWithLockById(ACCOUNT_ID);
+        inOrder.verify(teamRepository).findById(6L);
+    }
+
+    @Test
+    @DisplayName("[USER-SP-40, USER-SP-43] addPlayers는 계정 락을 응원 구단 조회보다 먼저 잡는다(락 순서 고정)")
+    void addPlayers_locksAccountBeforeSupportTeamLookup() {
+        // given: 소속 검사 기준 자체가 없어 SUPPORT_TEAM_REQUIRED로 끝나지만, 그 조회보다도 락이
+        // 먼저였는지를 확인하는 데는 지장이 없다
+        given(userSupportTeamRepository.findByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(Optional.empty());
+
+        // when
+        assertThatThrownBy(() -> supportService.addPlayers(ACCOUNT_ID, List.of(2L)))
+                .isInstanceOf(BusinessException.class);
+
+        // then
+        InOrder inOrder = inOrder(userAccountRepository, userSupportTeamRepository);
+        inOrder.verify(userAccountRepository).findWithLockById(ACCOUNT_ID);
+        inOrder.verify(userSupportTeamRepository).findByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID);
+    }
+
+    @Test
+    @DisplayName("[USER-SP-40, USER-SP-42] opposePlayers는 계정 락을 선수 존재 검증보다 먼저 잡는다(락 순서 고정)")
+    void opposePlayers_locksAccountBeforePlayerExistenceCheck() {
+        // given
+        Player player = playerOf(2L, "김도영", KIA);
+        given(playerRepository.findAllById(List.of(2L))).willReturn(List.of(player));
+        given(userSupportPlayerRepository.findByUserAccount_IdAndPlayer_Id(ACCOUNT_ID, 2L))
+                .willReturn(Optional.of(supportPlayerOf(player)));
+        given(userSupportPlayerRepository.findAllActiveWithPlayerAndTeam(ACCOUNT_ID))
+                .willReturn(Collections.emptyList());
+
+        // when
+        supportService.opposePlayers(ACCOUNT_ID, List.of(2L));
+
+        // then
+        InOrder inOrder = inOrder(userAccountRepository, playerRepository);
+        inOrder.verify(userAccountRepository).findWithLockById(ACCOUNT_ID);
+        inOrder.verify(playerRepository).findAllById(List.of(2L));
+    }
+
+    @Test
+    @DisplayName("[USER-SP-44] currentSupportedPlayers(GET /me 경로)는 findWithLockById를 절대 호출하지 "
+            + "않는다 — /me 조회끼리 서로를 막지 않는다는 회귀 증거")
+    void currentSupportedPlayers_neverLocksAccount() {
+        // given
+        given(userSupportPlayerRepository.findAllActiveWithPlayerAndTeam(ACCOUNT_ID))
+                .willReturn(Collections.emptyList());
+
+        // when
+        supportService.currentSupportedPlayers(ACCOUNT_ID);
+
+        // then
+        verify(userAccountRepository, never()).findWithLockById(any());
+    }
+
+    @Test
+    @DisplayName("[USER-SP-45] selectTeam은 계정이 사라졌으면 UNAUTHENTICATED를 던지고 구단 리포지토리를 "
+            + "건드리지 않는다")
+    void selectTeam_accountNotFound_throwsUnauthenticatedAndTouchesNoOtherRepository() {
+        // given: @BeforeEach 공통 스텁을 이 테스트에서만 덮어써 "락 대상 계정이 사라졌다"를 재현한다
+        given(userAccountRepository.findWithLockById(ACCOUNT_ID)).willReturn(Optional.empty());
+
+        // when & then
+        assertThatThrownBy(() -> supportService.selectTeam(ACCOUNT_ID, 6L))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.UNAUTHENTICATED);
+
+        verify(teamRepository, never()).findById(any());
+        verify(userSupportTeamRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("[USER-SP-45] addPlayers는 계정이 사라졌으면 UNAUTHENTICATED를 던지고 구단·선수 리포지토리를 "
+            + "건드리지 않는다")
+    void addPlayers_accountNotFound_throwsUnauthenticatedAndTouchesNoOtherRepository() {
+        // given
+        given(userAccountRepository.findWithLockById(ACCOUNT_ID)).willReturn(Optional.empty());
+
+        // when & then
+        assertThatThrownBy(() -> supportService.addPlayers(ACCOUNT_ID, List.of(2L)))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.UNAUTHENTICATED);
+
+        verify(userSupportTeamRepository, never()).findByUserAccount_IdAndOpposeIsNull(any());
+        verify(playerRepository, never()).findAllById(any());
+    }
+
+    @Test
+    @DisplayName("[USER-SP-45] opposePlayers는 계정이 사라졌으면 UNAUTHENTICATED를 던지고 선수 리포지토리를 "
+            + "건드리지 않는다")
+    void opposePlayers_accountNotFound_throwsUnauthenticatedAndTouchesNoOtherRepository() {
+        // given
+        given(userAccountRepository.findWithLockById(ACCOUNT_ID)).willReturn(Optional.empty());
+
+        // when & then
+        assertThatThrownBy(() -> supportService.opposePlayers(ACCOUNT_ID, List.of(2L)))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.UNAUTHENTICATED);
+
+        verify(playerRepository, never()).findAllById(any());
+        verify(userSupportPlayerRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("[USER-SP-41] playerIds가 빈 배열이어도 addPlayers는 조기 반환보다 계정 락을 먼저 잡는다"
+            + "(의도된 설계)")
+    void addPlayers_emptyPlayerIds_locksAccountBeforeEarlyReturn() {
+        // given
+        Player player = playerOf(2L, "김도영", KIA);
+        given(userSupportTeamRepository.findByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(Optional.of(supportTeamOf(KIA)));
+        given(userSupportPlayerRepository.findAllActiveWithPlayerAndTeam(ACCOUNT_ID))
+                .willReturn(List.of(supportPlayerOf(player)));
+
+        // when
+        supportService.addPlayers(ACCOUNT_ID, List.of());
+
+        // then
+        verify(userAccountRepository, times(1)).findWithLockById(ACCOUNT_ID);
+    }
+
+    @Test
+    @DisplayName("[USER-SP-41] playerIds가 빈 배열이어도 opposePlayers는 조기 반환보다 계정 락을 먼저 잡는다"
+            + "(의도된 설계)")
+    void opposePlayers_emptyPlayerIds_locksAccountBeforeEarlyReturn() {
+        // given
+        Player player = playerOf(2L, "김도영", KIA);
+        given(userSupportPlayerRepository.findAllActiveWithPlayerAndTeam(ACCOUNT_ID))
+                .willReturn(List.of(supportPlayerOf(player)));
+
+        // when
+        supportService.opposePlayers(ACCOUNT_ID, List.of());
+
+        // then
+        verify(userAccountRepository, times(1)).findWithLockById(ACCOUNT_ID);
     }
 }
