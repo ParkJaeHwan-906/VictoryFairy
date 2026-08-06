@@ -29,8 +29,14 @@ S3 `wiki/` 읽기 캐시는 그 우회로였으므로 전부 폐기했다.
 
 ## 사전 조건
 
-- 환경변수 `S3_BUCKET` (예: `victoryfairy-crawl-dev`) — **입력**(크롤 게시글·선수
-  프로필·밈 시드)을 읽는 용도로만 쓴다. 위키 산출물은 S3로 가지 않는다
+- 입력 버킷 — **입력**(크롤 게시글·선수 프로필·밈 시드)을 읽는 용도로만 쓴다. 위키
+  산출물은 S3로 가지 않는다. 운영 버킷은 **`victoryfairy-crawl-dev`**이고, 환경변수
+  `S3_BUCKET`이 비어 있으면 1단계가 이 값을 기본값으로 쓴다.
+  `victoryfairy-crawl-local`은 테스트·퀴즈용 구식 버킷이라 위키 빌드 입력으로 쓰면
+  안 된다 — 두 버킷은 prefix 구조가 같아서 잘못 잡아도 **에러 없이 조용히 옛
+  데이터로 완주한다**. 2026-08-06에 실제로 이 사고가 났다: 프롬프트로 dev를 지시했는데도
+  환경변수가 local이라 8,265건(local 전량)만 읽고 끝났고, 인용 각주가 8/1에서 끊긴 것을
+  보고서야 발견했다. 그래서 1단계에 기본값·강제전환·최신 파티션 로그를 넣어뒀다
 - routine 전용 최소 권한 IAM 자격증명(`question-source/`·`validation/` 읽기) —
   이 문서는 자격증명이 이미 환경에 주입돼 있다고 가정한다
 - GitHub 쓰기 자격증명 — claude.ai 계정에 연결된 것을 세션이 자동으로 쓴다.
@@ -73,7 +79,22 @@ git clone --depth 1 -b dev \
 근거 게시글(7/19~8/1 파티션)이 영영 후보에서 빠지게 됐다. 백필 세션으로 메웠다.
 
 ```bash
-: "${S3_BUCKET:?S3_BUCKET 환경변수를 설정하라}"
+# 입력 버킷 확정. 미설정이면 운영 버킷을 쓰고, 구식 테스트 버킷이면 강제로 되돌린다
+# — 두 버킷은 prefix가 같아 잘못 잡아도 에러 없이 옛 데이터로 완주한다(사전 조건 참고).
+S3_BUCKET="${S3_BUCKET:-victoryfairy-crawl-dev}"
+if [ "$S3_BUCKET" = "victoryfairy-crawl-local" ]; then
+  echo "경고: S3_BUCKET이 구식 테스트 버킷(local)이라 운영 버킷으로 강제 전환한다" >&2
+  S3_BUCKET=victoryfairy-crawl-dev
+fi
+
+# 이번 실행이 실제로 무엇을 보고 있는지 남긴다 — 버킷을 잘못 잡으면 여기서 드러난다.
+# 최신 파티션이 오늘·어제가 아니면 입력이 멈춘 것이므로 보고에 반드시 적는다.
+echo "입력 버킷: s3://$S3_BUCKET"
+for SRC in dcinside fmkorea; do
+  echo "  $SRC 최신 파티션: $(aws s3 ls "s3://$S3_BUCKET/validation/bedrock/success/$SRC/" \
+    2>/dev/null | tail -1 | awk '{print $2}')"
+done
+
 mkdir -p .work/posts
 
 # 마커는 위키 리포 안에 있다(0단계에서 클론됨) — S3가 아니다.
