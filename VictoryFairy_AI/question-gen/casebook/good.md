@@ -7,6 +7,7 @@
 
 ## 1. H2H_SEASON_RECORD (지식 · 상대전적)
 
+
 ```json
 {
   "quizId": "QZ-20260730-001",
@@ -40,6 +41,7 @@
 정확히 맞는다.
 
 ## 2. MEME_ORIGIN (지식 · 밈 유래)
+
 
 ```json
 {
@@ -76,6 +78,7 @@
 
 ## 3. PRED_WIN_LOSE (예측 · 오늘 경기 승자)
 
+
 ```json
 {
   "quizId": "QZ-20260730-003",
@@ -109,6 +112,7 @@ routine은 매일 08:50 KST에 도는데 그 시각은 UTC로 전날 23:50이라
 경기 당일(KST) 안에 들어온다.
 
 ## 4. CAREER_PATH (지식 · 위키 커리어 이력) — 2026-08-01 실행 5점 사례
+
 
 ```json
 {
@@ -145,6 +149,7 @@ routine은 매일 08:50 KST에 도는데 그 시각은 UTC로 전날 23:50이라
 
 ## 5. RELATION_LINK (지식 · 그래프 관계) — 2026-08-01 실행 5점 사례
 
+
 ```json
 {
   "quizId": "QZ-20260801-007",
@@ -177,3 +182,178 @@ routine은 매일 08:50 KST에 도는데 그 시각은 UTC로 전날 23:50이라
 관계의 근거 문장이 위키 문서에 각주와 함께 존재해 evidence 대조가 한 번에 통과했고,
 `사건연루` 엣지가 아닌 안전한 엣지만 썼다(생성 규칙 §4). 팀을 넘나드는 의외의
 연결고리라 EXPERT 난이도에 걸맞은 "아는 사람만 아는" 재미가 있다.
+
+## 6. MEME_OWNER (지식 · 밈 주인공) — 2026-08-04 실행 사례
+
+
+```json
+{
+  "quizId": "QZ-20260804-002",
+  "gameId": null,
+  "kind": "KNOWLEDGE",
+  "type": "MEME",
+  "templateId": "MEME_OWNER",
+  "format": "MULTI4",
+  "question": "별명 '신도영'의 주인공은?",
+  "options": [
+    { "id": "A", "text": "김도영" },
+    { "id": "B", "text": "하주석" },
+    { "id": "C", "text": "오스틴" },
+    { "id": "D", "text": "구자욱" }
+  ],
+  "answer": "A",
+  "evidence": {
+    "source": "wiki/players/52605.md#별명·밈",
+    "quote": "**신도영**: 홈런 레이스를 이끌 때 팬들이 붙이는 신격화 별명."
+  },
+  "settlement": null,
+  "difficulty": "EASY",
+  "pointReward": 30,
+  "status": "PENDING",
+  "createdAt": "2026-08-04T08:43:06Z",
+  "deadlineAt": "2026-08-04T14:59:00Z",
+  "createdBy": "AI_ENGINE"
+}
+```
+
+**좋은 이유**: 오답 3개 중 하나(하주석)는 정답과 같은 팀(KIA) 선수라 distractor 전략("같은
+팀 또는 같은 포지션 선수")을 정확히 따르고, evidence quote는 위키 원문 그대로라 대조에
+바로 통과한다. 질문이 짧고 즉답 가능하다.
+
+## 7. MEME_ORIGIN (지식 · 밈 유래, 2회차) — 2026-08-04 실행 사례
+
+
+```json
+{
+  "quizId": "QZ-20260804-001",
+  "gameId": null,
+  "kind": "KNOWLEDGE",
+  "type": "MEME",
+  "templateId": "MEME_ORIGIN",
+  "format": "MULTI4",
+  "question": "김도영의 별명 '김도영 OO 금지 시리즈'는 왜 생겼을까?",
+  "options": [
+    { "id": "A", "text": "광주 맛집 이름을 넣어 타 지역 이적을 막고 싶다는 팬들의 애정 표현" },
+    { "id": "B", "text": "김도영이 특정 음식을 못 먹게 된 사연에서 유래" },
+    { "id": "C", "text": "구단이 팬 굿즈 판매 금지 조치를 내린 데서 유래" },
+    { "id": "D", "text": "김도영이 인터뷰에서 금지어를 말해서 생긴 밈" }
+  ],
+  "answer": "A",
+  "evidence": {
+    "source": "wiki/players/52605.md#별명·밈",
+    "quote": "**\"김도영 OO 금지\" 시리즈**: 광주 맛집 이름을 나열하며 \"김도영 종로초밥 금지\" 식으로 잇는 팬 코픽파스타. 타 지역 이적을 막고 싶다는 애정 표현이다."
+  },
+  "settlement": null,
+  "difficulty": "EASY",
+  "pointReward": 30,
+  "status": "PENDING",
+  "createdAt": "2026-08-04T08:43:06Z",
+  "deadlineAt": "2026-08-04T14:59:00Z",
+  "createdBy": "AI_ENGINE"
+}
+```
+
+**좋은 이유**: 오답 3개가 전부 "그럴듯한 가짜 유래"(distractor 전략)이고, 정답만 위키
+원문("광주 맛집... 타 지역 이적을 막고 싶다는 애정 표현이다")을 글자 그대로 인용했다.
+같은 실행에서 MEME_OWNER(4번)와 같은 선수를 다뤘지만 서로 다른 밈(신도영 vs 김도영
+OO 금지)을 물어 내용이 겹치지 않는다.
+
+## 8. RELATION_LINK (지식 · 밈 공유 관계) — 2026-08-04 실행 사례
+
+
+```json
+{
+  "quizId": "QZ-20260804-007",
+  "gameId": null,
+  "kind": "KNOWLEDGE",
+  "type": "MEME",
+  "templateId": "RELATION_LINK",
+  "format": "MULTI4",
+  "question": "삼성 디아즈와 페덱의 공통점을 부르는 밈은?",
+  "options": [
+    { "id": "A", "text": "12년 만의 외국인 듀오" },
+    { "id": "B", "text": "국민 오빠 듀오" },
+    { "id": "C", "text": "다이나믹 듀오" },
+    { "id": "D", "text": "라이언킹 콤비" }
+  ],
+  "answer": "A",
+  "evidence": {
+    "source": "wiki/players/54400.md#별명·밈",
+    "quote": "**12년 만의 외국인 듀오**: 투수 페덱과 함께 2014년 밴덴헐크+나바로 조합(백인 투수+흑인 야수)에 빗대지는 밈."
+  },
+  "settlement": null,
+  "difficulty": "EXPERT",
+  "pointReward": 120,
+  "status": "PENDING",
+  "createdAt": "2026-08-04T08:43:06Z",
+  "deadlineAt": "2026-08-04T14:59:00Z",
+  "createdBy": "AI_ENGINE"
+}
+```
+
+**좋은 이유**: `wiki/graph.json`의 `밈공유` 엣지(54400↔56459)로 먼저 관계를 확인한 뒤,
+정답 evidence는 graph가 아니라 실제 위키 문서 원문(`wiki/players/54400.md`)에서
+인용했다(graph는 "관계가 존재한다"는 사실만 확인하는 용도, evidence 자체는 항상
+위키 원문). 오답 3개는 사실이 아닌 그럴듯한 밈 이름을 자유 작성한 것으로, distractor
+전략("사실이 아닌 그럴듯한 공통점")과 정확히 맞는다.
+
+## 9. PRED_STREAK (예측 · 연패 지속 여부, 2026-08-05 실행)
+
+
+```json
+{
+  "quizId": "QZ-20260805-002",
+  "gameId": "20260805HHSS02026",
+  "kind": "PREDICTION",
+  "type": "WIN_LOSE",
+  "templateId": "PRED_STREAK",
+  "format": "BINARY",
+  "question": "1연패 한화, 오늘도 질까?",
+  "options": [{ "id": "A", "text": "한화 연패 지속" }, { "id": "B", "text": "한화 연패 탈출" }],
+  "answer": null,
+  "evidence": null,
+  "settlement": { "gameId": "20260805HHSS02026", "metric": "WIN_TEAM" },
+  "difficulty": "MEDIUM",
+  "pointReward": 50,
+  "status": "PENDING",
+  "createdAt": "2026-08-05T00:00:39Z",
+  "deadlineAt": "2026-08-05T07:30:00Z",
+  "createdBy": "AI_ENGINE"
+}
+```
+
+**좋은 이유**: `stats.streaks`(season.md 연승·연패 섹션)에서 실측된 "HH: 1연패"를
+문구 양념으로 자연스럽게 끌어와 오늘 경기에 긴장감을 붙였다. 옵션이 "이어진다/
+끊는다"가 아니라 "한화 연패 지속/한화 연패 탈출"로 어느 팀 기준인지 자체로
+명시돼 있어 BE가 `settlement.metric: WIN_TEAM` 판정과 옵션 텍스트를 잘못
+연결할 여지가 없다.
+
+## 10. PRED_WIN_LOSE (예측 · 오늘 경기 승자, 2026-08-05 실행)
+
+
+```json
+{
+  "quizId": "QZ-20260805-004",
+  "gameId": "20260805HHSS02026",
+  "kind": "PREDICTION",
+  "type": "WIN_LOSE",
+  "templateId": "PRED_WIN_LOSE",
+  "format": "BINARY",
+  "question": "1연패 한화 vs 1연승 삼성, 오늘 승자는?",
+  "options": [{ "id": "A", "text": "한화" }, { "id": "B", "text": "삼성" }],
+  "answer": null,
+  "evidence": null,
+  "settlement": { "gameId": "20260805HHSS02026", "metric": "WIN_TEAM" },
+  "difficulty": "MEDIUM",
+  "pointReward": 50,
+  "status": "PENDING",
+  "createdAt": "2026-08-05T00:00:39Z",
+  "deadlineAt": "2026-08-05T07:30:00Z",
+  "createdBy": "AI_ENGINE"
+}
+```
+
+**좋은 이유**: 오늘 매치업(HH vs SS)의 상대전적(`stats.head_to_head`)이 이번
+시즌 데이터에 아예 없어(양 팀이 맞붙은 적 없음) 근거 없는 상대전적 문구를
+지어내는 대신, 양 팀 모두에 대해 실측된 연승/연패 상태(`stats.streaks`)만으로
+양념을 구성했다 — 없는 데이터를 억지로 채우지 않고 있는 데이터로 대체한 사례.

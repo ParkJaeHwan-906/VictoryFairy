@@ -194,8 +194,10 @@ trending.md`(있으면), 최근 7일 `.work/quiz-candidates/`의 `templateId`·�
 
 ### 5. ③ 문구 생성 (이 세션이 직접 수행)
 
-`question-gen/prompts/generation-rules.md` 규칙 + `question-gen/casebook/good.md`·
-`bad.md`(few-shot)를 적용해, 4단계에서 바인딩한 데이터로 문구를 작성한다. 물량은
+`question-gen/prompts/generation-rules.md` 규칙 + casebook(few-shot)을 적용해,
+4단계에서 바인딩한 데이터로 문구를 작성한다. casebook은 위키 클론이 있으면
+`.work/wiki-repo/wiki/_meta/casebook/{good,bad}.md`(누적본)를 쓰고, 없으면
+리포 시드 `question-gen/casebook/{good,bad}.md`로 대체한다. 물량은
 3단계에서 고른 조합 수 그대로 — `scoring.yaml`의 `volume` 슬롯 ×
 `candidateMultiplier`만큼 생성한다(검증에서 추릴 폐기율을 흡수). **경기 묶음
 순서대로 만들고 공통 묶음을 마지막에** 둔다.
@@ -260,7 +262,12 @@ aws s3 cp --recursive "$VALIDATE_DIR/" "s3://$S3_BUCKET/quiz-candidates/$TODAY/"
 **한 커밋으로** `VictoryFairy_WIKI`의 `dev`에 올린다.
 
 - casebook `good.md`/`bad.md`는 이 세션이 검증 패스 4단계(재미 채점) 결과로 직접
-  갱신한다 — 5점 사례는 `good.md`에, 2점 이하 사례는 사유와 함께 `bad.md`에 추가
+  갱신한다 — 5점 사례는 `good.md`에, 2점 이하 사례는 사유와 함께 `bad.md`에 추가.
+  **갱신 대상은 위키 클론 쪽 파일(`.work/wiki-repo/wiki/_meta/casebook/`)이고,
+  리포의 `question-gen/casebook/`을 그 위에 복사하지 않는다.** 리포 사본은 시드일
+  뿐이라 덮어쓰면 이전 실행 사례가 전부 사라진다 — 2026-08-06에 실제로 그렇게
+  되어 있었다(리포·`dev`·S3에 서로 다른 사례가 흩어져 어느 쪽도 상위집합이
+  아니었고, 합본 커밋으로 복구했다). 절 번호는 이어서 붙인다
 - 템플릿 제안은 오늘 데이터에서 가능해 보이는 새 아이디어 1~2개(카탈로그에 없어
   못 만든 흥미로운 조합 등)를 이 세션이 직접 작성한다
 
@@ -268,9 +275,9 @@ aws s3 cp --recursive "$VALIDATE_DIR/" "s3://$S3_BUCKET/quiz-candidates/$TODAY/"
 if [ -d .work/wiki-repo/wiki ]; then
   mkdir -p .work/wiki-repo/wiki/_meta/casebook \
            .work/wiki-repo/wiki/_meta/template-proposals
-  cp question-gen/casebook/good.md .work/wiki-repo/wiki/_meta/casebook/good.md
-  cp question-gen/casebook/bad.md  .work/wiki-repo/wiki/_meta/casebook/bad.md
-  # 템플릿 제안은 없을 수도 있다(제안할 게 없으면 생략)
+  # casebook 은 위 설명대로 이 세션이 위키 클론 쪽 파일을 직접 Read → 사례 추가 →
+  # Write 로 갱신한다. 리포 사본을 여기로 복사하지 않는다(누적분이 날아간다).
+  # 템플릿 제안은 없을 수도 있다(제안할 게 없으면 생략).
   [ -f .work/template-proposals.md ] && cp .work/template-proposals.md \
     ".work/wiki-repo/wiki/_meta/template-proposals/$TODAY.md"
 
@@ -288,9 +295,10 @@ if [ -d .work/wiki-repo/wiki ]; then
 fi
 ```
 
-casebook은 **리포 정본(`question-gen/casebook/`)이 아니라 위키 쪽 사본만** 갱신된다.
-주기적으로 사람이 위키의 최신본을 이 리포의 `question-gen/casebook/`에 반영한다
-(이 routine은 VictoryFairy 리포에 커밋하지 않는다).
+casebook의 **누적본은 위키(`dev`)에 있고, 리포의 `question-gen/casebook/`은 시드**다.
+주기적으로 사람이 위키 최신본을 리포에 반영한다(이 routine은 VictoryFairy 리포에
+커밋하지 않는다). 5단계 few-shot도 위키 클론이 있으면 그쪽 누적본을 쓴다 — 사례가
+많을수록 문구 품질이 올라간다.
 
 푸시가 실패해도 **문항 업로드(7단계)는 이미 끝났으므로 그날 퀴즈는 유효하다** —
 실패 지점을 보고하고 종료한다. 통계·casebook은 다음 실행이 다시 만들어 올린다.
