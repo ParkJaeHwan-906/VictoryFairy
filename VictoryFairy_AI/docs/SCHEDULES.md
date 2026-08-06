@@ -36,13 +36,25 @@
 | `registrations` | 1군 등록명단 → RDB | Lambda | 〃 |
 | `vf-quiz-daily` | 퀴즈 후보 생성 | Claude Code 루틴 | `VictoryFairy_AI/deploy/routines/vf-quiz-daily.prompt.md` |
 | `vf-wiki-builder` | 위키 문서 갱신 | Claude Code 루틴 | `VictoryFairy_AI/deploy/routines/vf-wiki-builder.prompt.md` |
-| `wiki-sync` | outbox → 위키 커밋·캐시 | GitHub Actions | ⚠️ **VictoryFairy_WIKI** 리포 `main` |
+| `wiki-sync` | outbox → 위키 커밋·캐시 | GitHub Actions | `.github/workflows/wiki-sync.yml` (**`main` 브랜치**) |
 
-앞의 8개는 이 리포에서 관리한다. `wiki-sync`만 다른 리포에 있는데, 이유는
-GitHub Actions 크론이 **그 리포의 기본 브랜치에서만 발화**하고 워크플로가
-`VictoryFairy_WIKI`의 `dev`에 커밋해야 하기 때문이다. 이 리포로 옮기면
-크로스-리포 쓰기 토큰(PAT 또는 GitHub App)이 새로 필요하다 — 지금은 기본
-`GITHUB_TOKEN`으로 자기 리포에 커밋해 시크릿이 0개다.
+전부 이 리포에서 관리한다 — 위키 리포에는 위키 문서만 둔다(2026-08-06 이관,
+PR #153).
+
+`wiki-sync`만 `main` 브랜치에 있는 이유는 **GitHub Actions `schedule`이 기본
+브랜치의 워크플로만 발화**하기 때문이다. `dev_ai`나 feature 브랜치에 두면
+크론이 돌지 않는다. 이 워크플로를 고칠 때는 `main` 대상 PR을 따로 올려야 한다.
+
+남의 리포(`VictoryFairy_WIKI`)에 커밋해야 하므로 인증이 두 겹이다:
+
+| 대상 | 인증 |
+|---|---|
+| AWS S3 | OIDC — `vf-wiki-mirror-gha` 역할, 신뢰 정책이 이 리포 `main` sub 허용 |
+| 위키 리포 쓰기 | 배포 키 `secrets.WIKI_DEPLOY_KEY` (기본 `GITHUB_TOKEN`은 자기 리포 전용) |
+
+배포 키를 쓴 이유는 PAT와 달리 리포 하나에만 묶이고, 만료 관리가 없고,
+개인 계정에 종속되지 않기 때문이다. 키를 교체할 때는 `VictoryFairy_WIKI`
+Settings → Deploy keys(write 허용)와 이 리포의 시크릿을 함께 바꾼다.
 
 ## 루틴 프롬프트를 고칠 때
 
