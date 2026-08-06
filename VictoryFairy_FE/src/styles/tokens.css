@@ -142,4 +142,6 @@
   --layout-navbar-height: 60px;
   /* 라운지 채팅 바텀시트 높이(874 프레임 기준 694px) */
   --layout-chat-sheet-height: 694px;
+  /* 선호 선수 검색 바텀시트 높이(874 프레임 기준 760px) */
+  --layout-player-sheet-height: 760px;
 }
