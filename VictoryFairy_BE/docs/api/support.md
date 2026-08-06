@@ -3,8 +3,8 @@
 > **도메인** `support` — 사용자의 응원 구단·응원 선수 선택 상태.
 > **모듈** user (포트 8080) · **경로 접두사** `/api/member/support` · **엔드포인트** 3개
 > **컨트롤러** `user/src/main/java/com/skhynix/user/support/controller/SupportController.java` (`@RequestMapping("/support")`)
-> **최종 갱신** 2026-08-06 — 응원 선수 응답이 재사용하는 `PlayerResponse`의 항목 키가 `{id, name}`에서 여섯 필드로 바뀜([player.md](player.md) 참고). 이 도메인 고유의 계약(엔드포인트·요청 본문·상태코드)은 불변(직전 갱신: 2026-08-04 모듈별 문서를 도메인별로 분리).
-> **요구사항** `docs/requirements/user/support-selection.md` (USER-SP-4 ~ 29)
+> **최종 갱신** 2026-08-06 — `POST /api/member/support/players`에 **활성 응원 선수 4명 상한** 도입(`SUPPORT_PLAYER_LIMIT_EXCEEDED`, 400). 같은 날 응원 선수 응답이 재사용하는 `PlayerResponse`의 항목 키가 `{id, name}`에서 여섯 필드로도 바뀜([player.md](player.md) 참고). 이 응답 재사용은 `GET /api/member/users/me`(`supportPlayers`)에도 번진다 — [account.md](account.md) 참고. `PUT /players/oppose`(취소)는 상한과 무관, 계약 불변.
+> **요구사항** `docs/requirements/user/support-selection.md` (USER-SP-4 ~ 36, USER-SP-22는 2026-08-06 폐기·USER-SP-30~36으로 대체)
 > 공통 규약(응답 래퍼·JWT·401 정책)은 [README.md](README.md)를 먼저 볼 것.
 
 ## 엔드포인트 목록
@@ -26,6 +26,8 @@
 **삭제가 아니라 상태 전이다.** 취소는 행을 지우지 않고 `oppose` 컬럼에 시각을 기록한다. 그래서 취소 API가 `DELETE`가 아니라 `PUT`이고, 재선택 시 새 행 대신 기존 행이 재활성된다. 두 번 보내도 결과가 같다(멱등).
 
 **세 응답 모두 "현재 상태 전체"를 돌려준다** — 방금 변경한 항목만이 아니라 반영 후의 응원 구단/응원 선수 전체라, 프론트가 재조회할 필요가 없다.
+
+**응원 선수는 최대 4명이다(2026-08-06 도입).** 강제 주체는 추가 API(`POST /players`) 하나뿐이고, 취소 API는 상한과 무관하다. 자세한 판정 규칙은 [`POST /api/member/support/players`](#post-apimembersupportplayers) 절 참고.
 
 ---
 
@@ -81,7 +83,7 @@ curl -i -X POST http://localhost:8080/api/member/support/team \
 ---
 
 ## POST /api/member/support/players
-> 최종 변경: 2026-08-06 — 응답 항목 키 교체(공유 DTO `PlayerResponse` 변경분). 요청 본문·상태코드는 불변
+> 최종 변경: 2026-08-06 — **활성 응원 선수 4명 상한** 신설(400 `SUPPORT_PLAYER_LIMIT_EXCEEDED`). 같은 날 응답 항목 키도 교체(공유 DTO `PlayerResponse` 변경분)
 
 응원 선수 **추가**. → `SupportService.addPlayers()`. 요구사항: USER-SP-14 ~ 23.
 
@@ -96,11 +98,11 @@ curl -i -X POST http://localhost:8080/api/member/support/team \
 - **빈 배열 `[]` 은 200**(아무 변경 없음). 선수 응원은 필수가 아니다.
 - **필드 자체를 빼면 400** — `null`과 `[]`를 구분한다.
 - **중복 id 는 400이 아니라 제거 후 처리**(`[3,3,7]` → 정상).
-- **선수 수 상한 없음.**
+- **활성 응원 선수 4명 상한(2026-08-06 신설).** 판정은 **합집합**: `현재 활성(oppose is null) 응원 선수 id` ∪ `요청 distinct id`의 크기가 4를 넘으면 거부한다. 이미 응원 중인 선수를 다시 보내는 것은 no-op이라 합집합 크기를 늘리지 않으므로 재요청이 억울하게 막히지 않는다. **취소된 선수는 상한에 안 잡힌다** — 4명 응원 중 2명을 [`PUT /players/oppose`](#put-apimembersupportplayersoppose)로 취소하면 다시 2명 추가 가능. 상한 도입 이전에 이미 초과 응원 중이던 계정의 기존 행은 잘라내지 않는다(마이그레이션 없음) — 초과 상태 그대로 추가 요청만 막힌다.
 
 **응답 200 OK** `ApiResponse<List<PlayerResponse>>` — **이번에 추가한 선수만이 아니라 현재 응원 중인 선수 전체**를 `name` 오름차순으로 반환한다(프론트가 재조회할 필요 없음). 항목 형태는 [선수(player)](player.md#get-apimemberplayers)의 응답과 **동일한 DTO**를 재사용하므로, 그쪽 계약이 바뀌면 이 응답도 함께 바뀐다.
 ```json
-{"success":true,"data":[{"teamId":6,"teamName":"KIA","playerId":2,"playerName":"김도영","playerNumber":"7","playerPosition":"INFIELDER"},{"teamId":6,"teamName":"KIA","playerId":3,"playerName":"양현종","playerNumber":"54","playerPosition":"PITCHER"}],"message":null}
+{"success":true,"data":[{"teamId":21,"teamName":"KIA","playerId":168,"playerName":"김도영","playerNumber":"5","playerPosition":"INFIELDER"},{"teamId":21,"teamName":"KIA","playerId":414,"playerName":"고종욱","playerNumber":null,"playerPosition":null}],"message":null}
 ```
 `playerNumber`·`playerPosition`은 `null`일 수 있다(등록명단발이라 원본이 비어 있는 선수가 있다 — [player.md](player.md) 참고).
 
@@ -112,17 +114,27 @@ curl -i -X POST http://localhost:8080/api/member/support/team \
 |---|---|---|
 | 400 | (필드 오류) | `playerIds` 누락/`null` |
 | 400 | SUPPORT_TEAM_REQUIRED | `"응원하는 구단을 먼저 선택해 주세요."` — **응원 구단을 고르기 전에는 선수를 고를 수 없다**(소속 검사의 기준이 없으므로 선수 검증보다 먼저 판정) |
-| 400 | PLAYER_NOT_IN_SUPPORT_TEAM | `"응원하는 구단 소속 선수만 선택할 수 있습니다."` |
-| 401 | UNAUTHENTICATED | 위와 동일 |
 | 404 | PLAYER_NOT_FOUND | `"존재하지 않는 선수입니다."` |
+| 400 | PLAYER_NOT_IN_SUPPORT_TEAM | `"응원하는 구단 소속 선수만 선택할 수 있습니다."` |
+| 400 | SUPPORT_PLAYER_LIMIT_EXCEEDED | `"응원 선수는 최대 4명까지 선택할 수 있습니다."` — 활성 응원 선수 id ∪ 요청 distinct id 의 크기가 4 초과(2026-08-06 신설) |
+| 401 | UNAUTHENTICATED | 위와 동일 |
 
-⚠ **부분 반영이 없다.** 목록에 하나라도 실패 대상이 있으면 **같은 요청의 다른 선수도 저장되지 않는다**(단일 트랜잭션).
+**검사 순서(위 표의 행 순서가 곧 판정 우선순위다) — 상한이 마지막이라는 점이 중요하다:**
+
+`SUPPORT_TEAM_REQUIRED`(400) → 빈 요청 조기 반환(200) → `PLAYER_NOT_FOUND`(404) → `PLAYER_NOT_IN_SUPPORT_TEAM`(400) → `SUPPORT_PLAYER_LIMIT_EXCEEDED`(400). **없는 선수 id 가 섞인 초과 요청은 400이 아니라 404가 먼저 난다** — 예: 4명 응원 중인 계정이 `[999999]`(존재하지 않는 선수 하나)만 보내면 상한 계산까지 가지 않고 `PLAYER_NOT_FOUND`로 끝난다.
+
+⚠ **부분 반영이 없다.** 목록에 하나라도 실패 대상이 있으면 **같은 요청의 다른 선수도 저장되지 않는다**(단일 트랜잭션). 상한 초과도 동일 원칙이다 — **상한까지만 채우고 나머지를 버리는 동작이 아니라 요청 전체를 거부**한다. 어떤 선수가 반영되고 어떤 선수가 잘렸는지 응답으로 구분할 수 없어, 부분 성공은 클라이언트가 복구할 수 없는 상태를 만들기 때문이다.
 
 **예시**
 ```bash
 curl -i -X POST http://localhost:8080/api/member/support/players \
   -H "Authorization: Bearer $ACCESS_TOKEN" -H "Content-Type: application/json" \
   -d '{"playerIds":[1,2]}'
+```
+
+상한 초과 예시(이미 4명 응원 중인 상태에서 5번째 선수 추가 시도):
+```json
+{"success":false,"data":null,"message":"응원 선수는 최대 4명까지 선택할 수 있습니다."}
 ```
 
 ---
@@ -135,6 +147,8 @@ curl -i -X POST http://localhost:8080/api/member/support/players \
 **인증 필수.** **`DELETE`가 아니라 `PUT`인 이유**: 행을 지우는 것이 아니라 `oppose` 컬럼에 취소 시각을 채우는 **상태 전이**이고, 이미 취소된 대상에는 아무 일도 일어나지 않아 두 번 보내도 결과가 같다(멱등). 덕분에 본문에 리스트를 실을 수 있어 추가 API와 대칭이다.
 
 **요청**: 추가 API와 **같은 본문 형태**(`playerIds`).
+
+**2026-08-06 도입된 응원 선수 4명 상한과 무관하다.** 취소는 활성 응원 선수 수를 줄이는 방향이라 상한 검사 자체가 없다 — 몇 명을 취소하든 항상 처리된다.
 
 **응답 200 OK** `ApiResponse<List<PlayerResponse>>` — 취소 후 **남아 있는** 응원 선수 목록. 전원 취소하면 빈 배열이다.
 ```json
@@ -172,12 +186,14 @@ curl -i -X PUT http://localhost:8080/api/member/support/players/oppose \
 
 ## 확인 필요 / 코드 미확인
 
-- **응원 상태 조회(`GET /api/member/support`) 엔드포인트가 없다.** 현재 응원 구단·선수를 알려면 위 세 API 중 하나를 호출해 그 응답을 받는 수밖에 없다(모두 반영 후 전체 상태를 반환한다). 최초 진입 화면에서 상태만 읽고 싶은 경우가 코드로 커버되지 않는다.
+- **응원 상태 조회(`GET /api/member/support`) 엔드포인트가 없다.** 현재 응원 구단·선수를 알려면 위 세 API 중 하나를 호출하거나 [`GET /api/member/users/me`](account.md#get-apimemberusersme)(`supportPlayers`)를 호출해 그 응답을 받는 수밖에 없다(모두 반영 후 전체 상태를 반환한다). 최초 진입 화면에서 상태만 읽고 싶은 경우가 코드로 커버되지 않는다.
 - **응원 구단 취소 API는 존재하지 않는다** — 구단은 필수라 변경만 가능하다.
-- 선수 응원 수 상한이 없다. 정책상 상한이 필요한지는 요구사항에도 결론이 없다.
+- **(과거 기록, 정정됨)** 이전 버전 문서에는 "선수 응원 수 상한이 없다"고 적혀 있었다 — 2026-08-06 결정으로 활성 응원 선수 4명 상한이 도입돼 더 이상 사실이 아니다(`POST /players` 절 참고). `docs/requirements/user/support-selection.md` USER-SP-22는 이 결정으로 폐기 표시됐고 USER-SP-30~36으로 대체됐다.
+- 상한(USER-SP-30~36) 도입분은 구현만 끝났고 자동화 테스트가 아직 없다(`SupportServiceTest` 21건에 상한 케이스 0건, `docs/requirements/user/support-selection.md` "테스트 대응" 참고) — 이 문서의 서술은 로컬 실측(4명까지 200 → 5번째 400 메시지 일치 → 초과 거부 후 실제 반영 0건 → 취소 후 재추가 200)으로 확인했다.
 
 ## 관련 문서
 
 - [구단(team)](team.md) — `teamId`의 출처.
 - [선수(player)](player.md) — `playerIds`의 출처. 응원 구단 소속으로 좁히려면 `?teamId=`를 함께 쓴다.
-- 요구사항: `docs/requirements/user/support-selection.md`
+- [계정(account)](account.md) — `GET /api/member/users/me`의 `supportPlayers`가 이 도메인의 응원 선수 목록(`PlayerResponse`)을 그대로 재사용한다. **`PlayerResponse`를 바꾸면 `/players`·응원 API 2개·`/me` 총 4곳이 함께 바뀐다.**
+- 요구사항: `docs/requirements/user/support-selection.md`(USER-SP-4~36, USER-SP-22는 폐기)

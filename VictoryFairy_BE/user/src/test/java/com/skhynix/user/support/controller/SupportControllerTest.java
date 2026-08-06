@@ -259,6 +259,24 @@ class SupportControllerTest {
     }
 
     @Test
+    @DisplayName("[USER-SP-33] 서비스가 SUPPORT_PLAYER_LIMIT_EXCEEDED를 던지면 400과 상한 안내 메시지를 반환한다")
+    void addPlayers_limitExceeded_returns400() throws Exception {
+        // given
+        String token = stubAuthenticatedToken();
+        given(supportService.addPlayers(ACCOUNT_ID, List.of(9L)))
+                .willThrow(new BusinessException(ErrorCode.SUPPORT_PLAYER_LIMIT_EXCEEDED));
+
+        // when & then
+        mockMvc.perform(post("/support/players")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"playerIds\":[9]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("응원 선수는 최대 4명까지 선택할 수 있습니다."));
+    }
+
+    @Test
     @DisplayName("[USER-SP-16] 서비스가 PLAYER_NOT_FOUND를 던지면 404와 \"존재하지 않는 선수입니다.\"를 반환한다")
     void addPlayers_unknownPlayer_returns404() throws Exception {
         // given

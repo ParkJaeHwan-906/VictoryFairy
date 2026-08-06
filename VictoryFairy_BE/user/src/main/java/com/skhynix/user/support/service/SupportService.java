@@ -14,8 +14,10 @@ import com.skhynix.domain.user.repository.UserAccountRepository;
 import com.skhynix.user.player.dto.PlayerResponse;
 import com.skhynix.user.team.dto.TeamResponse;
 import java.time.LocalDateTime;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,6 +36,9 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 @Transactional
 public class SupportService {
+
+    /** 응원 선수 개수 상한의 단일 출처. 이 값을 다른 곳에 다시 적지 말 것. */
+    private static final int MAX_SUPPORT_PLAYERS = 4;
 
     private final UserSupportTeamRepository userSupportTeamRepository;
     private final UserSupportPlayerRepository userSupportPlayerRepository;
@@ -104,6 +109,8 @@ public class SupportService {
             }
         }
 
+        validatePlayerLimit(userAccountId, targetIds);
+
         for (Long playerId : targetIds) {
             userSupportPlayerRepository.findByUserAccount_IdAndPlayer_Id(userAccountId, playerId)
                     .ifPresentOrElse(
@@ -116,6 +123,28 @@ public class SupportService {
         }
 
         return currentSupportedPlayers(userAccountId);
+    }
+
+    /**
+     * 추가를 반영했을 때의 응원 선수 수가 상한을 넘는지 판정한다.
+     *
+     * <p>이미 응원 중인 선수를 다시 보내는 것은 no-op 이라 개수를 늘리지 않는다. 그래서 "현재 + 요청"
+     * 합이 아니라 <b>합집합의 크기</b>로 세야 재요청이 억울하게 막히지 않는다.
+     *
+     * <p>넘치면 상한까지만 채우지 않고 요청 전체를 거부한다 — 어떤 선수가 반영되고 어떤 선수가 잘렸는지
+     * 응답에서 구분할 수 없어, 부분 성공은 클라이언트가 복구할 수 없는 상태를 만든다.
+     *
+     * <p>이미 상한을 넘긴 계정(정책 도입 이전 데이터)의 기존 행은 건드리지 않는다. 추가만 막힌다.
+     */
+    private void validatePlayerLimit(Long userAccountId, List<Long> targetIds) {
+        Set<Long> resultingIds = new HashSet<>(targetIds);
+        userSupportPlayerRepository.findAllByUserAccount_IdAndOpposeIsNull(userAccountId)
+                // 프록시의 id 접근은 초기화를 유발하지 않는다(선수 이름 등을 읽으면 N+1).
+                .forEach(support -> resultingIds.add(support.getPlayer().getId()));
+
+        if (resultingIds.size() > MAX_SUPPORT_PLAYERS) {
+            throw new BusinessException(ErrorCode.SUPPORT_PLAYER_LIMIT_EXCEEDED);
+        }
     }
 
     /**
@@ -171,22 +200,19 @@ public class SupportService {
     }
 
     /**
-     * 현재 응원 중인 선수를 name 오름차순으로 반환한다. 응원 행에서 FK 값만 모아 한 번에 조회한다 —
-     * {@code UserSupportPlayer.player} 가 LAZY 라 행마다 {@code getPlayer().getName()} 을 부르면 N+1
-     * 이 생긴다(프록시의 id 접근은 초기화를 유발하지 않아 첫 단계는 쿼리를 만들지 않는다).
+     * 현재 응원 중인 선수를 선수명 오름차순으로 반환한다. 응원 행·선수·소속 구단을 fetch join 한 조회
+     * 하나로 끝낸다 — {@code UserSupportPlayer.player} 와 {@code Player.team} 이 둘 다 LAZY 라, 이
+     * 조회가 아니면 {@code PlayerResponse.from} 이 행마다 프록시를 깨워 N+1 이 된다. 정렬도 DB 가
+     * 하므로 결과를 다시 정렬하지 않는다.
+     *
+     * <p>응원 행이 없으면 빈 리스트다. 조기 반환 분기가 없는 것은 누락이 아니라 fetch join 결과가
+     * 비면 그대로 빈 리스트가 되기 때문이다 — 분기를 되살리면 쿼리 수는 그대로인데 코드만 는다.
      */
     @Transactional(readOnly = true)
     public List<PlayerResponse> currentSupportedPlayers(Long userAccountId) {
-        List<Long> playerIds = userSupportPlayerRepository
-                .findAllByUserAccount_IdAndOpposeIsNull(userAccountId)
+        return userSupportPlayerRepository.findAllActiveWithPlayerAndTeam(userAccountId)
                 .stream()
-                .map(support -> support.getPlayer().getId())
-                .toList();
-        if (playerIds.isEmpty()) {
-            return List.of();
-        }
-        return playerRepository.findAllByIdInOrderByNameAsc(playerIds)
-                .stream()
+                .map(UserSupportPlayer::getPlayer)
                 .map(PlayerResponse::from)
                 .toList();
     }

@@ -3,7 +3,7 @@
 > **도메인** `account` — 로그인 계정 자체의 생명주기(탈퇴) + 내 프로필 요약 조회.
 > **모듈** user (포트 8080) · **경로 접두사** `/api/member/users` · **엔드포인트** 2개
 > **컨트롤러** `user/src/main/java/com/skhynix/user/account/controller/UserAccountController.java` (`@RequestMapping("/users")`)
-> **최종 갱신** 2026-08-04 — `GET /api/member/users/me`(내 프로필 요약 조회) 신규 추가.
+> **최종 갱신** 2026-08-06 — `GET /api/member/users/me` 응답에 `supportPlayers`(현재 응원 중인 선수 목록) 추가, 응답 키 4개→5개, SELECT 횟수 4회→5회로 정정.
 > 공통 규약(응답 래퍼·JWT payload·401 4종)은 [README.md](README.md)를 먼저 볼 것.
 
 ## 엔드포인트 목록
@@ -11,7 +11,7 @@
 | 메서드 | 경로 | 성공 | 용도 |
 |---|---|---|---|
 | DELETE | [/api/member/users/me](#delete-apimemberusersme) | 204 | 회원 탈퇴(soft delete) |
-| GET | [/api/member/users/me](#get-apimemberusersme) | 200 | 내 요약 프로필 조회(닉네임·응원 구단·포인트·누적 점수) |
+| GET | [/api/member/users/me](#get-apimemberusersme) | 200 | 내 요약 프로필 조회(닉네임·응원 구단·응원 선수·포인트·누적 점수) |
 
 ## 이 도메인의 특이사항
 
@@ -75,9 +75,9 @@ curl -i -X DELETE http://localhost:8080/api/member/users/me \
 ---
 
 ## GET /api/member/users/me
-> 최종 변경: 2026-08-04 — 신규 추가
+> 최종 변경: 2026-08-06 — 응답에 `supportPlayers`(현재 응원 중인 선수 목록) 추가. 키 4개→5개, SELECT 4회→5회로 정정
 
-내 요약 프로필 조회(닉네임·응원 구단·보유 포인트·누적 획득 점수). `UserAccountController.getMyProfile()` → `UserProfileService.getMyProfile()`(클래스 레벨 `@Transactional(readOnly = true)`, 쓰기 경로 없음 — 아래 안전망이 작동해도 행을 만들지 않는다).
+내 요약 프로필 조회(닉네임·응원 구단·응원 선수·보유 포인트·누적 획득 점수). `UserAccountController.getMyProfile()` → `UserProfileService.getMyProfile()`(클래스 레벨 `@Transactional(readOnly = true)`, 쓰기 경로 없음 — 아래 안전망이 작동해도 행을 만들지 않는다). 응원 선수 목록은 `SupportService.currentSupportedPlayers()`에 위임한다(같은 목록을 두 곳에서 따로 만들면 한쪽만 고쳐질 때 응원 API 응답과 갈라지기 때문).
 
 **인증 필요** — `Authorization: Bearer <accessToken>`. `DELETE /api/member/users/me`와 같은 경로라 `SecurityConfig` 변경 없이 기존 `anyRequest().authenticated()`에 자연히 걸린다.
 
@@ -90,22 +90,28 @@ curl -i -X DELETE http://localhost:8080/api/member/users/me \
 | 필드 | 타입 | 설명 |
 |---|---|---|
 | data.nickname | String | `users_account.nickname` 현재 값 |
-| data.supportTeam | `{id, name}` \| null | 현재 응원 중인(`oppose is null`) 구단. `team.md`의 `TeamResponse`를 재사용. **응원 구단을 아직 선택하지 않은 계정에서는 `null`**이며 이는 오류가 아니라 200 — "가입 완료 ~ 구단 선택 전" 윈도우의 안전망 |
+| data.supportTeam | `{id, name}` \| null | 현재 응원 중인(`oppose is null`) 구단. [`team.md`](team.md)의 `TeamResponse`를 재사용. **응원 구단을 아직 선택하지 않은 계정에서는 `null`**이며 이는 오류가 아니라 200 — "가입 완료 ~ 구단 선택 전" 윈도우의 안전망 |
+| data.supportPlayers | `PlayerResponse[]` | **현재 응원 중인**(`oppose is null`) 선수 전체, `playerName` 오름차순. 항목은 [선수(player)](player.md#get-apimemberplayers)·[응원(support)](support.md) API와 **완전히 동일한 `PlayerResponse` 재사용**(전용 DTO 없음) — 키 6개 `{teamId, teamName, playerId, playerName, playerNumber, playerPosition}`. `playerNumber`·`playerPosition`은 nullable이라 `null`이 그대로 나갈 수 있다 |
 | data.point | long(JSON 숫자) | 보유 포인트. `users_account.point` |
 | data.bqScore | long(JSON 숫자) | 누적 획득 점수. `users_bq.bq_score`. **그 계정의 `users_bq` 행이 없으면 `null`이 아니라 `0`**(배포 직후~백필 사이의 안전망, 아래 각주 참고) |
 
-`data`의 키 집합은 정확히 이 4개로 닫혀 있다 — `id`·`uid`·`password`·`email`·`tel`·`exitAt`·`createdAt`·`updatedAt`은 응답 어디에도 없다(`UserAccount` 엔티티를 그대로 싣지 않고 전용 DTO로 조립).
+`data`의 키 집합은 정확히 이 5개로 닫혀 있다(2026-08-06 이전은 4개) — `id`·`uid`·`password`·`email`·`tel`·`exitAt`·`createdAt`·`updatedAt`은 응답 어디에도 없다(`UserAccount` 엔티티를 그대로 싣지 않고 전용 DTO로 조립).
 
+⚠ **`supportTeam`(단일 값)과 `supportPlayers`(목록)의 "없음" 표현은 비대칭이다.** 구단은 단일 값이라 "없음"을 `null`로만 표현할 수 있지만, 목록은 빈 배열이 그대로 "0건"이라 `supportPlayers`는 응원 선수가 없어도 `null`이 아니라 **빈 배열 `[]`**이다. 응원 구단이 아예 없는 계정(구단 선택 전)에서도 `supportPlayers`는 (구단이 없으므로 당연히) `[]`이며 200이다 — 400 `SUPPORT_TEAM_REQUIRED`가 아니다.
+
+⚠ **`supportPlayers`의 길이는 보통 4 이하지만, 그 상한을 강제하는 주체는 이 엔드포인트가 아니다.** 4명 상한은 [`POST /api/member/support/players`](support.md#post-apimembersupportplayers)가 추가 시점에 거부하는 것으로만 강제되며, `/me`는 "있는 그대로" 반환한다. 상한 도입(2026-08-06) 이전에 이미 5명 이상을 응원 중이던 계정은 그 초과분이 그대로 반환된다(마이그레이션 없음) — **클라이언트가 `supportPlayers.length <= 4`를 불변으로 가정하면 안 된다.**
+
+응원 선수가 있는 경우:
 ```json
-{"success":true,"data":{"nickname":"gildong","supportTeam":{"id":6,"name":"KIA"},"point":0,"bqScore":0},"message":null}
+{"success":true,"data":{"nickname":"gildong","supportTeam":{"id":6,"name":"KIA"},"supportPlayers":[{"teamId":6,"teamName":"KIA","playerId":168,"playerName":"김도영","playerNumber":"5","playerPosition":"INFIELDER"},{"teamId":6,"teamName":"KIA","playerId":414,"playerName":"고종욱","playerNumber":null,"playerPosition":null}],"point":0,"bqScore":0},"message":null}
 ```
 
-응원 구단 미선택 시:
+응원 구단·응원 선수 모두 없는 경우:
 ```json
-{"success":true,"data":{"nickname":"gildong","supportTeam":null,"point":0,"bqScore":0},"message":null}
+{"success":true,"data":{"nickname":"gildong","supportTeam":null,"supportPlayers":[],"point":0,"bqScore":0},"message":null}
 ```
 
-**내부 동작**: 계정 조회 1 + 응원 구단 행 조회 1 + 구단명 프록시 초기화(LAZY) 1 + 누적 점수 조회 1 = SELECT 4회 고정(응원 이력 행 수와 무관). DTO 조립은 서비스 트랜잭션 안에서 끝난다(`open-in-view: false`인 prod에서 컨트롤러가 지연 로딩 연관을 읽으면 `LazyInitializationException`이 나기 때문).
+**내부 동작(SELECT 5회 고정, 응원 이력 행 수·응원 선수 수와 무관)**: `JwtAuthenticationFilter`의 uid→id 해석(`findActiveIdByUid`) 1 + 계정 조회 1 + 응원 구단 행 조회(+구단명 LAZY 프록시 초기화) 1 + 응원 선수 목록(fetch join 1쿼리로 선수·소속 구단까지 함께 가져온다, `SupportService.currentSupportedPlayers`) 1 + 누적 점수 조회 1 = 5. 응원 선수가 0명이어도 fetch join 쿼리 자체는 나가므로 등호로 고정된 횟수다(이전 문서의 "SELECT 4회 고정"은 필터 단계를 빼고 세거나 응원 선수 조회를 2쿼리로 세던 낡은 서술 — 정정됨). DTO 조립은 서비스 트랜잭션 안에서 끝난다(`open-in-view: false`인 prod에서 컨트롤러가 지연 로딩 연관을 읽으면 `LazyInitializationException`이 나기 때문).
 
 **실패**
 
@@ -140,4 +146,5 @@ curl -i http://localhost:8080/api/member/users/me \
 
 - [인증(auth)](auth.md) — 탈퇴가 login/refresh/signup 응답에 미치는 영향의 반대편 서술. signup이 `users_bq` 행을 함께 만드는 부수 효과도 그쪽 문서 참고.
 - [구단(team)](team.md) — `supportTeam` 필드가 재사용하는 `TeamResponse` 정의.
-- 요구사항: `docs/requirements/user/withdraw.md`, `docs/requirements/user/me-profile.md`(USER-ME-1~30, 동결)
+- [선수(player)](player.md) · [응원(support)](support.md) — `supportPlayers` 필드가 재사용하는 `PlayerResponse` 정의. **`PlayerResponse`를 바꾸면 `GET /players`·응원 API 2개·이 엔드포인트 총 4곳이 함께 바뀐다.**
+- 요구사항: `docs/requirements/user/withdraw.md`, `docs/requirements/user/me-profile.md`(USER-ME-1~36, 2026-08-06 2차 개정으로 `supportPlayers` 추가·상한 무관 서술 확정)
