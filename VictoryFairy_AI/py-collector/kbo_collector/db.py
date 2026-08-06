@@ -64,24 +64,33 @@ POSITION_INSERT = (
     "INSERT INTO positions (name, created_at, updated_at) VALUES (%s, NOW(6), NOW(6))"
 )
 
-# 네이버 박스스코어 pos 표기 → 자체 영문 약어 (사용자 결정: DB 는 표준 표기 저장).
-# "타"/"주"는 수비 위치가 아닌 출전 형태(대타/대주자) — PH/PR 로 구분 보존.
-# 미지 표기는 warning 후 원문 그대로 적재해 수집이 깨지지 않게 한다(매핑 추가는 후속).
-POSITION_CODES = {
-    "투": "P", "포": "C", "一": "1B", "二": "2B", "三": "3B",
-    "유": "SS", "좌": "LF", "중": "CF", "우": "RF", "지": "DH",
-    "타": "PH", "주": "PR",
+# 네이버 박스스코어 pos 표기 → 화면 표시용 정식 명칭 (사용자 결정: positions.name 이
+# 그대로 API `positionName` 으로 나가므로 DB 에 읽을 수 있는 값을 저장한다).
+# "타"/"주"는 수비 위치가 아닌 출전 형태(대타/대주자) — 구분 보존.
+# 1·2·3루는 네이버가 한자(一/二/三)로 보낸다.
+POSITION_NAMES = {
+    "투": "투수", "포": "포수", "一": "1루수", "二": "2루수", "三": "3루수",
+    "유": "유격수", "좌": "좌익수", "중": "중견수", "우": "우익수", "지": "지명타자",
+    "타": "대타", "주": "대주자",
 }
 
 
-def position_code(raw):
+def position_name(raw):
+    """네이버 pos 표기 → 정식 명칭.
+
+    경기 중 수비 위치를 바꾼 선수는 표기가 이어붙어 온다("중좌"=중견수→좌익수,
+    "타二"=대타→2루수). 라인업은 "이 선수가 어디로 나왔나"를 보여주는 화면이므로
+    첫 글자(= 그 경기 시작 위치)로 접는다. 이 분해가 없으면 조합이 12×12 까지
+    늘어나 positions 코드테이블이 계속 불어난다.
+    미지 표기는 warning 후 원문 그대로 적재해 수집이 깨지지 않게 한다.
+    """
     if raw is None:
         return None
-    code = POSITION_CODES.get(raw)
-    if code is None:
+    name = POSITION_NAMES.get(raw) or POSITION_NAMES.get(raw[:1])
+    if name is None:
         log.warning("unknown position notation %r — storing raw", raw)
         return raw
-    return code
+    return name
 
 
 # 박스스코어 선수 해소: kbo_player_id 일괄 조회 → 신규 INSERT
@@ -319,17 +328,17 @@ class DbSink:
         return pk
 
     def upsert_lineups(self, game_pk, lineups, player_map, team_ids) -> None:
-        """LineupRow 목록 upsert. position(네이버 원문 표기) -> 자체 영문 약어로
+        """LineupRow 목록 upsert. position(네이버 원문 표기) -> 정식 명칭으로
         변환한 뒤 position_id 는 호출당 memo dict로 해소한다 (포지션은 ~10종이라
         중복 lookup 을 막는 게 목적. memo 키도 변환 후 값 기준)."""
         rows = [r for r in lineups if r.pcode in player_map and r.team_code in team_ids]
         position_memo: dict = {}
 
-        def resolved_position_id(name):
-            code = position_code(name)
-            if code not in position_memo:
-                position_memo[code] = self.position_id(code)
-            return position_memo[code]
+        def resolved_position_id(raw):
+            name = position_name(raw)
+            if name not in position_memo:
+                position_memo[name] = self.position_id(name)
+            return position_memo[name]
 
         self._many(LINEUP_UPSERT, [(
             game_pk, team_ids[r.team_code], player_map[r.pcode],

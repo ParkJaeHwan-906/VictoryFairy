@@ -196,8 +196,9 @@ flowchart TD
 > 포지션 lookup 테이블(name에 DB UNIQUE 없음 — lookup-or-insert가 SELECT 후 INSERT하는
 > 크론 단일 실행 전제, `game_lineups.position_id`가 참조) — 최신 구조는 domain
 > 모듈 JPA 엔티티·`crawl-flow.md` 4절 참고. `positions.name`은 네이버 원문(중/포/一…)이
-> 아니라 자체 영문 약어(P/C/1B/2B/3B/SS/LF/CF/RF/DH/PH/PR)로 적재된다 — 매핑 표는
-> `data-formats.md` `battersBoxscore` 절 참고, 미지 표기는 warning 후 원문 적재.
+> 아니라 정식 명칭(투수/포수/1루수/…/대타/대주자)으로 적재된다 — 이 값이 API
+> `positionName`으로 그대로 나가기 때문. 2글자 조합(교체 출전)은 첫 글자로 접는다.
+> 매핑 표는 `data-formats.md` `battersBoxscore` 절 참고, 미지 표기는 warning 후 원문 적재.
 
 ### 로스터 (소스: KBO 공식)
 
