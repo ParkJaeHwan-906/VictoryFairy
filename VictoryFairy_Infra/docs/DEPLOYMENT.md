@@ -194,8 +194,9 @@ SHA 태그만 올리면 `latest`가 옛 이미지를 가리킨 채 남아 **다�
 
 ### 범위 밖 — 함수 설정
 
-이미지만 CI 소관입니다. VPC/SG·환경변수·EventBridge 스케줄 등 **함수 설정은 여전히**
-`VictoryFairy_AI/py-collector/deploy/lambda/terraform`의 `apply` 소관입니다(`dev_ai` 브랜치).
+이미지만 `deploy-collector.yml`(main) 소관입니다. VPC/SG·환경변수·EventBridge 스케줄 등
+**함수 설정은** `VictoryFairy_Infra/collector-lambda`의 `apply` 소관이고, 그 apply 는
+`collector-terraform.yml`이 `dev_infra` 머지 때 자동으로 돌립니다.
 
 ## 7. 관련 리소스 위치
 

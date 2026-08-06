@@ -181,10 +181,10 @@ kbo-collector (Lambda)  ──▶ S3 community/{source}/{date}/{postId}.json
 - **Lambda 15분 상한**: 이벤트당 처리량이 작아 정상 경로는 문제없다. 다만 **백필(누적분 순회)은
   대량 반복이라 이 모델에 맞지 않는다** — Step Functions + Map 이나 별도 처리가 필요하다. 미결정.
 - **콜드 스타트**: 정제 이미지가 274MB 컨테이너다. 야간 일괄이라 지연 자체는 문제가 아니다.
-- **`kbo-collector` 는 이 레포의 Terraform 밖**이다 — 없는 게 아니라 **`dev_ai` 트리의 자체
-  스택**(`py-collector/deploy/lambda/terraform`)이 함수·EventBridge 규칙·ECR 을 소유한다.
-  정제 Lambda 는 이 레포가 관리하므로 **한 파이프라인이 두 state 에 걸친다.** 이미지 배포만
-  2026-08-05 에 CI 로 통일됐고(§ 위), 스택 흡수 여부는 미결정.
+- **`kbo-collector` 는 `environments/dev` 밖**이다 — `collector-lambda/` 독립 스택이
+  함수·EventBridge 규칙·ECR 을 소유한다(같은 state 버킷의 별도 key). 정제 Lambda 는
+  `environments/dev` 소관이라 **한 파이프라인이 두 state 에 걸친다.** 스택을 하나로
+  합칠지는 미결정 — 수집기는 배포 주기가 달라 따로 두는 편이 apply 폭발 반경이 작다.
 - **`batch` 노드그룹(Spot, min 0)은 정제에 쓰이지 않게 됐다.** 제거하지 않고 **문제 생성 단계용으로
   보류**한다 — 그 단계는 Claude API + **MySQL(VPC 안)** 저장이라 Lambda 를 VPC 에 붙여야 하고,
   NAT 경유·ENI 콜드스타트가 붙는다. EKS 가 유리할 수 있다. `k8s/40~42-*.yaml` 도 같은 이유로 남긴다.
