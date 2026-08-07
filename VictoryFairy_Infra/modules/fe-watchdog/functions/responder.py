@@ -18,6 +18,7 @@
 import datetime as dt
 import json
 import os
+import re
 import urllib.error
 import urllib.request
 
@@ -33,6 +34,15 @@ COOLDOWN = int(os.environ.get("ROLLBACK_COOLDOWN_SECONDS", "600"))
 SLACK_WEBHOOK_PARAM = os.environ.get("SLACK_WEBHOOK_PARAM", "")
 GITHUB_TOKEN_PARAM = os.environ.get("GITHUB_TOKEN_PARAM", "")
 GITHUB_REPO = os.environ.get("GITHUB_REPO", "")
+
+# {"user": "/api/actuator/health/readiness", ...} — healthcheck 와 같은 값을 받는다.
+API_TARGETS = json.loads(os.environ.get("API_TARGETS", "{}"))
+
+ASSET_RE = re.compile(r"assets/index-[A-Za-z0-9]+\.js")
+
+# ⚠ 표시 이름(@박재환)은 알림을 울리지 않는다 — 일반 텍스트로만 보인다.
+#   반드시 사용자 ID 로 <@U...> 형태여야 멘션이 된다.
+MENTION_USER_IDS = [u for u in os.environ.get("MENTION_USER_IDS", "").split(",") if u]
 
 s3 = boto3.client("s3")
 ssm = boto3.client("ssm")
@@ -64,6 +74,79 @@ def _post_json(url, payload, headers=None):
         return res.status, res.read().decode("utf-8", "replace")
 
 
+def _status(path):
+    """(상태코드, 본문). 도달 실패는 0."""
+    req = urllib.request.Request(f"{SITE}{path}", headers={"User-Agent": "vf-watchdog/1"})
+    try:
+        with urllib.request.urlopen(req, timeout=8) as res:
+            return res.status, res.read(200_000).decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        return e.code, ""
+    except Exception:  # noqa: BLE001
+        return 0, ""
+
+
+def probe():
+    """알람 시점의 실제 증상을 모은다.
+
+    CloudWatch 가 주는 NewStateReason 은 "Threshold Crossed: 2 datapoints..." 같은 기계적 문구라
+    '무엇이 왜 깨졌는지' 를 알려주지 않는다. 그래서 여기서 직접 때려 본다 — 알림에 담을 값은
+    지표가 아니라 사람이 바로 판단할 수 있는 응답 코드다.
+
+    반환: [(라벨, 경로, 상태코드)], 진단문
+    """
+    rows = []
+
+    code, body = _status("/")
+    rows.append(("진입점", "/", code))
+
+    # 번들 참조는 index.html 에서 뽑는다 — 버전이 바뀌면 파일명도 바뀌므로 고정할 수 없다.
+    asset = None
+    if code == 200:
+        m = ASSET_RE.search(body)
+        asset = m.group(0) if m else None
+    if asset:
+        acode, _ = _status(f"/{asset}")
+        rows.append(("번들", f"/{asset}", acode))
+    else:
+        rows.append(("번들", "index.html 에서 참조를 찾지 못함", 0))
+
+    rows.append(("딥링크", "/login", _status("/login")[0]))
+
+    for name, path in API_TARGETS.items():
+        rows.append((f"API({name})", path, _status(path)[0]))
+
+    return rows, diagnose(rows)
+
+
+def diagnose(rows):
+    """응답 코드 조합에서 한 줄 판단을 뽑는다. 사람이 로그를 뒤지기 전에 방향을 잡게 하는 것이 목적."""
+    by_label = {label: code for label, _, code in rows}
+    entry = by_label.get("진입점", 0)
+    bundle = by_label.get("번들", 0)
+    deep = by_label.get("딥링크", 0)
+    apis = {k: v for k, v in by_label.items() if k.startswith("API(")}
+    api_bad = [k for k, v in apis.items() if v != 200]
+
+    if entry == 0:
+        return "도메인에 아예 닿지 못합니다. DNS·인증서·CloudFront 배포 상태를 먼저 보십시오."
+    if entry != 200:
+        return f"진입점이 {entry} 입니다. S3 의 index.html 이 없거나 CloudFront 오리진 접근이 막힌 상태로 보입니다."
+    if bundle != 200:
+        return (
+            f"index.html 은 살아 있는데 그것이 참조하는 번들이 {bundle} 입니다. "
+            "배포가 자산을 올리지 못했거나, index.html 과 자산 버전이 어긋난 상태입니다."
+        )
+    if deep != 200:
+        return f"딥링크가 {deep} 입니다. CloudFront SPA fallback 함수를 확인하십시오."
+    if api_bad:
+        return (
+            f"정적 자산은 정상인데 {', '.join(api_bad)} 가 실패합니다. "
+            "FE 문제가 아니라 ALB 타깃·파드·앱 쪽입니다(kubectl get pods / describe ingress)."
+        )
+    return "지금 다시 때려보니 전부 정상입니다 — 이미 회복됐거나 간헐적 증상입니다(플래핑 가능)."
+
+
 def notify_slack(text, blocks=None):
     url = _param(SLACK_WEBHOOK_PARAM)
     if not url:
@@ -79,10 +162,16 @@ def notify_slack(text, blocks=None):
 
 
 def open_issue(title, body):
+    """(티켓 URL, 실패 사유). 둘 중 하나만 값이 있다.
+
+    ⚠ 실패 사유를 반환하는 이유: 토큰 만료 같은 이유로 티켓이 안 열렸을 때 조용히 넘어가면
+      아무도 눈치채지 못한다. 알림에 그 사실을 실어 보내야 한다(감시의 실패가 침묵이 되면 안 된다).
+      미설정은 의도된 상태이므로 사유를 반환하지 않는다.
+    """
     token = _param(GITHUB_TOKEN_PARAM)
     if not token or not GITHUB_REPO:
-        print("GitHub 토큰/레포 미설정 — 티켓 생략")
-        return None
+        print("GitHub 토큰/레포 미설정 — 티켓 생략(의도된 상태)")
+        return None, None
     try:
         status, raw = _post_json(
             f"https://api.github.com/repos/{GITHUB_REPO}/issues",
@@ -93,10 +182,13 @@ def open_issue(title, body):
                 "User-Agent": "vf-fe-watchdog/1",
             },
         )
-        return json.loads(raw).get("html_url") if status < 300 else None
+        if status < 300:
+            return json.loads(raw).get("html_url"), None
+        # 401·403 은 대개 토큰 만료·권한 부족이다. 사람이 바로 알아야 한다.
+        return None, f"GitHub 응답 {status} (토큰 만료·권한 확인 필요)"
     except Exception as e:  # noqa: BLE001
         print(f"GitHub 티켓 발행 실패: {e}")
-        return None
+        return None, f"{type(e).__name__}: {e}"
 
 
 def list_releases():
@@ -156,6 +248,16 @@ def rollback():
     return True, "ok", target
 
 
+def _table(rows):
+    """응답 코드 표. 코드블록으로 감싸 Slack 에서 열이 맞게 보이도록 한다."""
+    body = "\n".join(f"{label:<11}{path:<44}{code if code else '도달실패'}" for label, path, code in rows)
+    return f"```\n{body}\n```"
+
+
+def _mentions():
+    return " ".join(f"<@{uid}>" for uid in MENTION_USER_IDS)
+
+
 def handler(event, context):  # noqa: ARG001
     for record in event.get("Records", []):
         try:
@@ -169,29 +271,38 @@ def handler(event, context):  # noqa: ARG001
         reason = msg.get("NewStateReason", "")
         is_fe = name == FE_ALARM_NAME
 
-        # 복구(OK) 통보는 알리기만 한다.
+        # 복구는 멘션하지 않는다 — 좋은 소식으로 사람을 부르면 다음 진짜 호출이 무시된다.
         if state != "ALARM":
-            notify_slack(f":white_check_mark: *{name}* 복구됨 ({state})\n{reason}")
+            notify_slack(f":white_check_mark: 복구됨 — `{name}`\n{reason}")
             continue
 
-        lines = [f":rotating_light: *{name}* ALARM", reason]
+        rows, judgement = probe()
+
+        head = ":rotating_light: *FE 장애*" if is_fe else f":rotating_light: *BE 장애* — `{name}`"
+        lines = [_mentions(), head, f"알람: `{name}`", "", "*지금 상태*", _table(rows), f"*판단* {judgement}"]
 
         if not is_fe:
-            lines.append(
-                "\nFE 롤백은 하지 않습니다 — 이 알람은 API/오리진 범주이고 FE 를 되돌려도 낫지 않습니다."
-            )
+            lines += [
+                "*조치* FE 롤백은 하지 않았습니다 — 원인이 BE 라 FE 를 되돌리면 정상 FE 만 잃습니다.",
+                "*확인* `kubectl -n victoryfairy get pods` · `kubectl -n victoryfairy describe ingress`",
+            ]
             notify_slack("\n".join(lines))
             continue
 
         ok, why, target = rollback()
         if ok:
-            lines.append(f"\n:leftwards_arrow_with_hook: *{target}* 로 자동 롤백했습니다. {SITE} 확인 필요.")
+            lines.append(f"*조치* `{target}` 로 자동 롤백했습니다. {SITE} 확인 필요.")
             issue = open_issue(
-                f"[FE 자동 롤백] {target} 로 되돌림 — {name}",
+                f"[FE 자동 롤백] {target} 로 되돌림 — {judgement[:60]}",
                 f"CloudWatch 알람 `{name}` 이 ALARM 으로 전이해 상시 감시가 자동 롤백했습니다.\n\n"
                 f"| | |\n|---|---|\n"
                 f"| 되돌린 버전 | `{target}` |\n"
+                f"| 판단 | {judgement} |\n"
                 f"| 알람 사유 | {reason} |\n\n"
+                "## 알람 시점의 실제 응답\n\n"
+                "```\n"
+                + "\n".join(f"{l:<11}{p:<44}{c if c else '도달실패'}" for l, p, c in rows)
+                + "\n```\n\n"
                 "## ⚠ 지금 상태\n\n"
                 "롤백은 **배포본만** 되돌립니다. `main` 은 그대로이므로 코드와 서비스 중인 버전이 "
                 "어긋나 있습니다. **원인을 고치지 않은 채 다른 변경을 배포하면 롤백이 조용히 "
@@ -202,10 +313,14 @@ def handler(event, context):  # noqa: ARG001
                 "- [ ] 배포 스모크가 이 유형을 잡았는지 확인 — 못 잡았다면 검사 항목 추가\n\n"
                 "절차: `VictoryFairy_Infra/docs/fe-release-rollback.md`",
             )
-            if issue:
-                lines.append(f"티켓: {issue}")
+            issue_url, issue_err = issue
+            if issue_url:
+                lines.append(f"*티켓* {issue_url}")
+            elif issue_err:
+                # 티켓이 안 열린 것을 알림에 드러낸다 — 조용히 넘어가면 추적이 끊긴 줄도 모른다.
+                lines.append(f":warning: *티켓 발행 실패* — {issue_err}\n손으로 이슈를 남겨주십시오.")
         else:
-            lines.append(f"\n:x: *자동 롤백 못 함* — {why}\n수동 대응이 필요합니다.")
+            lines.append(f":x: *자동 롤백 못 함* — {why}\n수동 대응이 필요합니다.")
 
         notify_slack("\n".join(lines))
 

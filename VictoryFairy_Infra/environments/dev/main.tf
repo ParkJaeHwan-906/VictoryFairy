@@ -193,6 +193,10 @@ module "fe_watchdog" {
   slack_webhook_param = "/victoryfairy/dev/slack-webhook-url"
   github_token_param  = "/victoryfairy/dev/github-token"
   github_repo         = "ParkJaeHwan-906/VictoryFairy"
+
+  # 장애 알림에서 호출할 사람. ⚠ 표시 이름(@박재환)은 알림을 울리지 않으므로 사용자 ID 여야 한다.
+  #   박재환 · 소태호 · 손동현
+  mention_user_ids = ["U0BGJAW7TGR", "U0B5RBDPN1K", "U0BGD4H2W2H"]
 }
 
 module "security" {

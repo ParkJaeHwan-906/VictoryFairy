@@ -225,6 +225,11 @@ resource "aws_lambda_function" "responder" {
       SLACK_WEBHOOK_PARAM       = var.slack_webhook_param
       GITHUB_TOKEN_PARAM        = var.github_token_param
       GITHUB_REPO               = var.github_repo
+      MENTION_USER_IDS          = join(",", var.mention_user_ids)
+
+      # 알람 시점에 직접 때려 실제 증상을 알림에 담기 위해 healthcheck 와 같은 대상을 받는다.
+      # CloudWatch 의 NewStateReason 은 "Threshold Crossed: ..." 라 원인을 알려주지 않는다.
+      API_TARGETS = jsonencode(var.api_targets)
     }
   }
 
