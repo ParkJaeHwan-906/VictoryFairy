@@ -1,6 +1,7 @@
 package com.skhynix.domain.quiz.repository;
 
 import com.skhynix.domain.quiz.entity.QuizOption;
+import java.util.Collection;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 
@@ -27,4 +28,11 @@ public interface QuizOptionRepository extends JpaRepository<QuizOption, Long> {
      * OOM-kill 로 이어진다. 이 조합은 금지.
      */
     List<QuizOption> findAllByQuiz_IdOrderByOptionAsc(Long quizId);
+
+    /**
+     * 문제 N건의 보기를 한 방에 가져온다 — 위 단건 메서드의 ⚠ 이 지시하는 바로 그 2쿼리 방식이다
+     * (오늘의 퀴즈 목록이 문제마다 단건 메서드를 부르면 N+1). 호출한 쪽이 {@code quiz.id}로 그룹핑해
+     * 묶는다. 정렬을 {@code (quizId, option)}으로 고정해 그룹핑 후에도 보기 표기 순서가 유지된다.
+     */
+    List<QuizOption> findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(Collection<Long> quizIds);
 }

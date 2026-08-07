@@ -2,14 +2,19 @@ package com.skhynix.domain.quiz.entity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.skhynix.domain.game.entity.Game;
+import com.skhynix.domain.game.entity.GameStatus;
 import com.skhynix.domain.player.entity.Player;
 import com.skhynix.domain.team.entity.Team;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * {@link Quiz}의 Builder 필드 배선과 출제 대상 판정({@code isPlayerQuiz}/{@code isTeamQuiz}/
- * {@code isGeneralQuiz})만 검증하는 순수 단위 테스트(Spring 컨텍스트/DB 없음).
+ * {@link Quiz}의 Builder 필드 배선과 출제 대상 판정(5분류 — {@code isPlayerQuiz}/{@code isTeamQuiz}/
+ * {@code isMatchupQuiz}/{@code isGameQuiz}/{@code isGeneralQuiz})만 검증하는 순수 단위 테스트
+ * (Spring 컨텍스트/DB 없음).
  *
  * <p><b>DB 전략</b>: {@code domain} 모듈에 {@code @DataJpaTest} 실행에 필요한 H2/Testcontainers/구동 중인
  * MySQL 이 없어({@link com.skhynix.domain.stadium.entity.StadiumTest} javadoc 참고) 저장·조회 라운드트립은
@@ -112,8 +117,8 @@ class QuizTest {
     }
 
     @Test
-    @DisplayName("score는 MVP 이후 도입이라 지정하지 않으면 null로 남는다")
-    void score_isNullWhenNotGiven() {
+    @DisplayName("score·externalId·difficulty는 지정하지 않으면 null로 남는다(사람이 쓴 퀴즈 경로)")
+    void optionalFields_areNullWhenNotGiven() {
         // given
         Quiz quiz = Quiz.builder()
                 .quizType(newQuizType("객관식"))
@@ -123,5 +128,78 @@ class QuizTest {
 
         // then
         assertThat(quiz.getScore()).isNull();
+        assertThat(quiz.getExternalId()).isNull();
+        assertThat(quiz.getDifficulty()).isNull();
+        assertThat(quiz.getTemplateId()).isNull();
+    }
+
+    @Test
+    @DisplayName("team·opponentTeam이 모두 있으면 맞대결 문제로 판정된다(구단 문제 아님)")
+    void isMatchupQuiz_whenBothTeamsPresent() {
+        // given — "올해 한화는 KT와의 상대전적에서 우위다?" 형태(quiz-candidates 실데이터 유형)
+        Quiz quiz = Quiz.builder()
+                .quizType(newQuizType("객관식"))
+                .team(newTeam("한화"))
+                .opponentTeam(newTeam("KT"))
+                .content("올해 한화는 KT와의 상대전적에서 우위다?")
+                .answer(1)
+                .build();
+
+        // then
+        assertThat(quiz.isMatchupQuiz()).isTrue();
+        assertThat(quiz.isTeamQuiz()).isFalse();
+        assertThat(quiz.isPlayerQuiz()).isFalse();
+        assertThat(quiz.isGeneralQuiz()).isFalse();
+    }
+
+    @Test
+    @DisplayName("game이 있으면 특정 경기 문제이면서, 로더가 채운 홈/원정으로 맞대결 판정도 함께 성립한다")
+    void isGameQuiz_whenGamePresent() {
+        // given — 로더 불변식: game 이 있으면 team(홈)·opponentTeam(원정)을 함께 채운다
+        Team home = newTeam("LG");
+        Team away = newTeam("SSG");
+        Game game = Game.builder()
+                .gameDate(LocalDateTime.of(2026, 8, 4, 18, 30))
+                .homeTeam(home)
+                .awayTeam(away)
+                .gameStatus(GameStatus.builder().name("FINISHED").build())
+                .naverGameId("20260804SKLG02026")
+                .build();
+        Quiz quiz = Quiz.builder()
+                .quizType(newQuizType("객관식"))
+                .team(home)
+                .opponentTeam(away)
+                .game(game)
+                .content("8/4 LG-SSG 경기 승리투수는?")
+                .answer(0)
+                .build();
+
+        // then
+        assertThat(quiz.isGameQuiz()).isTrue();
+        assertThat(quiz.isMatchupQuiz()).isTrue();
+        assertThat(quiz.isGeneralQuiz()).isFalse();
+    }
+
+    @Test
+    @DisplayName("적재 메타(externalId·quizDate·difficulty·templateId)가 Builder로 배선된다")
+    void builder_wiresIngestMetadata() {
+        // given
+        Quiz quiz = Quiz.builder()
+                .quizType(newQuizType("객관식"))
+                .content("강백호가 FA로 새로 합류한 팀은?")
+                .answer(0)
+                .score(80.0)
+                .externalId("QZ-20260807-001")
+                .quizDate(LocalDate.of(2026, 8, 7))
+                .difficulty("HARD")
+                .templateId("CAREER_PATH")
+                .build();
+
+        // then
+        assertThat(quiz.getExternalId()).isEqualTo("QZ-20260807-001");
+        assertThat(quiz.getQuizDate()).isEqualTo(LocalDate.of(2026, 8, 7));
+        assertThat(quiz.getDifficulty()).isEqualTo("HARD");
+        assertThat(quiz.getTemplateId()).isEqualTo("CAREER_PATH");
+        assertThat(quiz.getScore()).isEqualTo(80.0);
     }
 }

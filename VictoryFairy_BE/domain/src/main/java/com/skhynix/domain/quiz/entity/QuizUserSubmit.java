@@ -7,10 +7,10 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.Builder;
@@ -32,13 +32,15 @@ import org.hibernate.annotations.UpdateTimestamp;
  * ({@code user_support_team}과 같은 명시적 예외). 사용자 초안의 컬럼명 {@code Field}는 의미가 드러나지
  * 않아 사용자 설명("정답 유/무")대로 {@code is_answer}로 명명했다.
  *
- * <p>⚠ <b>한 사용자가 같은 문제에 여러 번 제출하는 것을 스키마가 막지 않는다.</b> 재제출을 허용할지
- * (허용한다면 새 행을 쌓을지, 같은 행을 갱신할지)가 정해지지 않아 UNIQUE 제약을 걸지 않았다. 1회 제출로
- * 확정되면 {@code (user_account_id, quiz_id)} UNIQUE 를 추가한다. {@code updated_at}을 둔 것은 후자(같은
- * 행 갱신)를 열어두기 위해서다.
+ * <p><b>{@code (user_account_id, quiz_id)} UNIQUE — 같은 문제에는 1회만 제출할 수 있다.</b>
+ * "이미 푼 문제는 다시 풀 수 없다"가 확정 규칙이고 제출 기록이 점수 적립({@code users_bq.score})의
+ * 근거인 이상, 중복 제출(=점수 이중 적립) 차단은 앱 로직이 아니라 DB 가 보증해야 한다 — 동시 요청
+ * 2건이 둘 다 existsBy 검사를 통과하는 race 를 막는 것은 이 제약뿐이다. {@code updated_at}은 정정
+ * 등으로 같은 행을 갱신할 가능성을 위해 남겨둔다(새 행 재제출은 이 제약이 막는다).
  */
-// idx_quiz_users_submit_account_quiz(user_account_id, quiz_id): 중복 제출 판정
+// uk_quiz_users_submit_account_quiz(user_account_id, quiz_id): 중복 제출 차단(UNIQUE) + 판정 조회
 // (findByUserAccount_IdAndQuiz_Id / existsByUserAccount_IdAndQuiz_Id)이 인덱스 하나로 단건 조회가 된다.
+// 예전의 같은 컬럼 쌍 일반 인덱스(idx_...)를 승격한 것 — 따로 추가하면 같은 컬럼 쌍에 인덱스가 둘이 된다.
 // 없으면 InnoDB 가 FK 마다 자동으로 만드는 단일 컬럼 인덱스 둘로 index_merge intersect 를 돌리는데,
 // quiz_id 쪽 스캔 길이가 "그 문제를 푼 사람 수"에 비례해 자란다 — 즉 인기 문제일수록 제출 경로가 느려진다.
 // (실측: 제출 20만 행/사용자 2000명 기준 intersect 100+1235행 0.16ms → 인덱스 단건 조회 0.006ms,
@@ -46,12 +48,12 @@ import org.hibernate.annotations.UpdateTimestamp;
 // 선행 컬럼이 user_account_id 인 이유: 둘 다 등치라 이 질의만 보면 순서가 무관하지만, 앞으로 붙을
 // "내 제출 이력"(user_account_id 단독)을 같은 인덱스가 받는다. 반대편 "문제별 정답률"(quiz_id 단독)은
 // FK 자동 인덱스가 이미 받는다.
-// ⚠ 1회 제출로 확정해 (user_account_id, quiz_id) UNIQUE 를 걸 때는 이 인덱스를 UNIQUE 로 승격시킬 것
-//   — 따로 추가하면 같은 컬럼 쌍에 인덱스가 둘이 된다.
+// ⚠ ddl-auto=update 는 기존 테이블에 UNIQUE 를 추가하지 않는다(game_statuses 실측) — 테이블이 이미
+//   생성된 환경(dev)은 infra/sql/migrate-quiz-ingest.sql 을 1회 수동 실행해야 한다.
 @Entity
-@Table(name = "quiz_users_submit", indexes = {
-        @Index(name = "idx_quiz_users_submit_account_quiz",
-                columnList = "user_account_id, quiz_id")
+@Table(name = "quiz_users_submit", uniqueConstraints = {
+        @UniqueConstraint(name = "uk_quiz_users_submit_account_quiz",
+                columnNames = {"user_account_id", "quiz_id"})
 })
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)

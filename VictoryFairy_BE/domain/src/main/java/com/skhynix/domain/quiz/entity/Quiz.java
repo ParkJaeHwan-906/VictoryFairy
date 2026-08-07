@@ -1,5 +1,6 @@
 package com.skhynix.domain.quiz.entity;
 
+import com.skhynix.domain.game.entity.Game;
 import com.skhynix.domain.player.entity.Player;
 import com.skhynix.domain.team.entity.Team;
 import jakarta.persistence.Column;
@@ -8,9 +9,12 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.Builder;
@@ -23,32 +27,56 @@ import org.hibernate.annotations.UpdateTimestamp;
  * 문제 한 건. 보기는 {@link QuizOption}이 {@code quiz_id} FK로 들고 있고, 제출 기록은
  * {@link QuizUserSubmit}이 갖는다.
  *
- * <p><b>출제 대상은 {@code team}/{@code player} 두 FK의 조합으로 표현한다</b>(사용자 확정):
+ * <p><b>출제 대상은 FK 4개({@code team}/{@code opponentTeam}/{@code player}/{@code game})의 조합으로
+ * 표현한다.</b> 대상 분류를 별도 컬럼에 저장하지 않는 이유는 조합에서 전부 파생되기 때문이다 — 같은
+ * 사실을 두 곳에 두면 반드시 어긋난다.
  * <table border="1">
  *   <caption>대상 판정</caption>
- *   <tr><th>team</th><th>player</th><th>의미</th><th>판정 메서드</th></tr>
- *   <tr><td>not null</td><td>not null</td><td>특정 선수에 대한 문제</td><td>{@link #isPlayerQuiz()}</td></tr>
- *   <tr><td>not null</td><td>null</td><td>특정 구단에 대한 문제</td><td>{@link #isTeamQuiz()}</td></tr>
- *   <tr><td>null</td><td>null</td><td>야구 도메인 자체의 문제</td><td>{@link #isGeneralQuiz()}</td></tr>
+ *   <tr><th>조합</th><th>의미</th><th>판정 메서드</th></tr>
+ *   <tr><td>player ≠ null</td><td>특정 선수에 대한 문제</td><td>{@link #isPlayerQuiz()}</td></tr>
+ *   <tr><td>team ≠ null, opponentTeam = null, player = null</td><td>특정 구단에 대한 문제</td>
+ *       <td>{@link #isTeamQuiz()}</td></tr>
+ *   <tr><td>team ≠ null, opponentTeam ≠ null</td><td>두 구단 맞대결에 대한 문제</td>
+ *       <td>{@link #isMatchupQuiz()}</td></tr>
+ *   <tr><td>game ≠ null</td><td>특정 경기에 대한 문제</td><td>{@link #isGameQuiz()}</td></tr>
+ *   <tr><td>전부 null</td><td>야구 도메인 자체의 문제</td><td>{@link #isGeneralQuiz()}</td></tr>
  * </table>
- * 그래서 두 FK는 <b>nullable</b>이다. 사용자가 제공한 DDL 초안에는 둘 다 {@code NOT NULL}로 적혀
- * 있었으나, 그대로 두면 위 2·3행이 애초에 저장 불가능해 대상 구분 설계 자체가 성립하지 않는다.
+ * 실데이터(quiz-candidates 2026-08-07 실측)가 원래의 3분류(선수/구단/일반)를 벗어났다 — "한화 vs KT
+ * 상대전적"(구단 2개), "8/4 LG-SSG 승리투수"(특정 경기)가 이미 출제되고 있어 {@code opponentTeam}과
+ * {@code game}을 추가했다.
  *
- * <p>⚠ <b>{@code team == null && player != null}은 정의되지 않은 조합이다</b>(선수는 반드시 소속 구단이
- * 있다). 스키마로는 막을 수 없어 — MySQL CHECK 제약을 걸면 선수의 구단 이적 시 갱신 순서에 따라 걸린다 —
- * <b>쓰기 경로가 지켜야 하는 서비스 정책</b>이다. 이 조합이 저장되면 {@link #isPlayerQuiz()}만 true가 되어
- * 구단 정보 없는 선수 문제로 취급된다. {@code UserSupportTeam}의 "한 사용자는 구단 1개만 응원한다"와 같은
- * 성격의 제약이다.
+ * <p><b>불변식(쓰기 경로가 지켜야 하는 서비스 정책 — 스키마로는 막지 않는다)</b>:
+ * <ul>
+ *   <li>{@code opponentTeam != null}이면 {@code team != null}이다(상대만 있는 맞대결은 없다).</li>
+ *   <li>{@code game != null}이면 로더가 그 경기의 홈/원정으로 {@code team}(홈)·{@code opponentTeam}
+ *       (원정)을 함께 채운다 — "내 응원팀 관련 문제" 조회가 경기 문항까지 조인 없이
+ *       {@code team_id = ? OR opponent_team_id = ?} 한 줄로 나오게 하기 위해서다.</li>
+ *   <li>{@code team == null && player != null}은 <b>정상 조합이다</b> — 원래 미정의로 뒀으나
+ *       정답 유출 방지 규칙이 이를 뒤집었다: 대상 FK 에는 문제가 <i>전제</i>하는 엔티티만 담고
+ *       <b>정답에만 등장하는 엔티티는 담지 않는다</b>. "강백호가 FA로 새로 합류한 팀은?"이 그
+ *       예다 — 강백호(전제)는 담기지만 소속팀(정답)을 담으면 팀 필터가 곧 정답 힌트가 되므로
+ *       {@code team}을 일부러 비운다. 로더가 {@code player.team}으로 채워 넣어서도 안 된다.</li>
+ * </ul>
  *
- * <p>{@code score}(난이도 가중 점수)는 <b>MVP 이후 작업</b>이라 지금은 채워지지 않는다 — 그래서 nullable
- * 이며, 소비하는 쪽은 null을 반드시 다뤄야 한다. 값이 항상 들어오게 되면 그때 non-null로 좁힌다.
+ * <p>{@code externalId}는 AI 파이프라인 산출물(S3 {@code quiz-candidates/{date}/{quizId}.json})의
+ * {@code quizId}다. <b>적재 멱등성의 열쇠</b>이며(재실행·파드 동시 실행 시 UNIQUE 가 중복을 원자적으로
+ * 차단), S3 원본(근거 {@code evidence} 포함)으로의 역추적 링크이기도 하다 — {@code games.naverGameId}와
+ * 같은 계열(외부 생산자의 식별자를 우리 행에 보관해야 대조가 성립한다). 사람이 직접 쓰는 퀴즈는 null.
+ *
+ * <p>{@code score}는 문제 배점이다. 원래 "MVP 이후"로 비워뒀으나 파이프라인이 {@code pointReward}
+ * (난이도 연동, scoring.yaml이 정본)를 이미 보내고 있어 적재 시 채운다. 사람이 쓴 퀴즈는 null일 수
+ * 있으므로 소비하는 쪽은 여전히 null을 다뤄야 한다.
  *
  * <p>{@code answer}는 정답 보기의 번호로, {@link QuizOption#getOption()}과 같은 축이다
- * (O/X는 0=X, 1=O). 보기 엔티티를 가리키는 FK가 아니라 <b>번호 값</b>인 것에 주의 — 보기 행이 재생성돼도
- * 번호만 유지되면 정답이 따라 깨지지 않는다.
+ * (O/X는 0=O, 1=X — 후보 JSON의 A=0, B=1 순번 그대로). 보기 엔티티를 가리키는 FK가 아니라 <b>번호
+ * 값</b>인 것에 주의 — 보기 행이 재생성돼도 번호만 유지되면 정답이 따라 깨지지 않는다.
  */
 @Entity
-@Table(name = "quizzes")
+@Table(
+        name = "quizzes",
+        uniqueConstraints = @UniqueConstraint(name = "uk_quizzes_external_id",
+                columnNames = "external_id"),
+        indexes = @Index(name = "idx_quizzes_quiz_date", columnList = "quiz_date"))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Quiz {
@@ -70,8 +98,6 @@ public class Quiz {
      * {@code DELETE FROM players WHERE ...} 한 줄이 그 선수의 문제 → 보기 → <b>전 사용자의 제출 기록</b>까지
      * 말없이 지운다. 제출 기록은 중복 제출 차단의 유일한 근거이기도 해서, 지워지면 이미 푼 문제를 다시
      * 풀 수 있게 된다. 문제는 사람이 쓴 콘텐츠라 수집기로 재생성되지도 않는다.
-     * (domain 의 다른 CASCADE 대상은 전부 수집기가 다시 만들 수 있는 파생 데이터이거나 대상이 사라지면
-     * 의미가 함께 죽는 사용자 기록이다 — 문제는 둘 다 아니다.)
      *
      * <p>non-cascade 면 대신 {@code DELETE FROM players} 가 <b>ERROR 1451 로 시끄럽게 실패</b>한다.
      * 조용한 소실보다 낫고, 실제로 앱에는 선수·구단을 지우는 경로가 없어(py-collector 도 upsert 만 한다)
@@ -85,24 +111,70 @@ public class Quiz {
     @JoinColumn(name = "team_id", nullable = true)
     private Team team;
 
+    /**
+     * 맞대결 문제의 상대 구단(없을 수 있음). {@code @OnDelete} 없음 — 근거는 {@link #team} 참고.
+     *
+     * <p>이름이 "홈/원정"이 아닌 이유: 맞대결 문제 대부분("올해 한화는 KT 상대 우위다?" 같은 시즌
+     * 상대전적)에는 홈/원정 개념 자체가 없다. 홈은 <b>사실 주장</b>이라 아무 데나 넣으면 컬럼이 거짓을
+     * 말하게 되지만, 상대는 순서가 임의여도 관계가 성립한다. 경기 문항({@code game != null})만 예외적으로
+     * 홈=team, 원정=opponentTeam 규약을 따른다(로더가 채움 — 클래스 javadoc 불변식 참고).
+     */
+    @ManyToOne(fetch = FetchType.LAZY, optional = true)
+    @JoinColumn(name = "opponent_team_id", nullable = true)
+    private Team opponentTeam;
+
     /** 출제 대상 선수(없을 수 있음). {@code @OnDelete} 없음 — 근거는 {@link #team} 참고. */
     @ManyToOne(fetch = FetchType.LAZY, optional = true)
     @JoinColumn(name = "player_id", nullable = true)
     private Player player;
+
+    /**
+     * 출제 대상 경기(없을 수 있음). {@code @OnDelete} 없음 — 근거는 {@link #team} 참고.
+     * 예측(PREDICTION) 퀴즈가 도입되면 경기 종료 후 정산이 이 FK 를 딛고 이뤄진다.
+     */
+    @ManyToOne(fetch = FetchType.LAZY, optional = true)
+    @JoinColumn(name = "game_id", nullable = true)
+    private Game game;
 
     @Column(name = "content", columnDefinition = "TEXT", nullable = false)
     private String content;
 
     // 정답 보기 번호(QuizOption.option 과 같은 축). 보기 FK가 아니라 번호 값이다.
     // TINYINT 는 QuizOption.option 과 맞춘 것 — 같은 축의 값을 서로 비교하는데 컬럼 폭이 다르면
-    // 스키마만 보고는 같은 축임이 드러나지 않는다. ddl-auto=update 는 기존 컬럼 타입을 바꾸지 않으므로
-    // 테이블이 생기기 전인 지금이 아니면 수동 ALTER 가 필요하다.
+    // 스키마만 보고는 같은 축임이 드러나지 않는다.
     @Column(name = "answer", columnDefinition = "TINYINT", nullable = false)
     private Integer answer;
 
-    // 난이도 가중 점수 — MVP 이후 도입이라 지금은 null
+    // 배점 — AI 산출물의 pointReward(난이도 연동). 사람이 쓴 퀴즈는 null 가능(클래스 javadoc 참고)
     @Column(name = "score", nullable = true)
     private Double score;
+
+    /**
+     * AI 파이프라인 산출물의 {@code quizId}(예: {@code QZ-20260807-001}). 적재 멱등키이자 S3 원본
+     * 역추적 링크 — 클래스 javadoc 참고. 사람이 직접 쓰는 퀴즈는 null이며, MySQL 은 UNIQUE 인덱스에서
+     * NULL 중복을 허용하므로 충돌하지 않는다.
+     */
+    @Column(name = "external_id", length = 32, nullable = true)
+    private String externalId;
+
+    /**
+     * 출제일. "오늘의 퀴즈" 조회({@code WHERE quiz_date = ?})의 유일한 기준이다.
+     * {@code createdAt}(적재 시각)으로 대신할 수 없다 — 재시도·백필로 어제 파티션을 오늘 적재하면
+     * 적재 시각은 오늘이지만 출제일은 어제다. S3 파티션 날짜가 그대로 들어온다.
+     */
+    @Column(name = "quiz_date", nullable = false)
+    private LocalDate quizDate;
+
+    // UI 난이도 배지용(EASY/MEDIUM/HARD/EXPERT — 파이프라인 계약값 그대로). 사람이 쓴 퀴즈는 null 가능
+    @Column(name = "difficulty", length = 10, nullable = true)
+    private String difficulty;
+
+    /**
+     * 출제 템플릿 식별자(예: {@code MEME_ORIGIN}). 스펙이 예고한 피드백 루프 — 템플릿별 유저 반응
+     * (정답률·스킵률)을 집계해 출제 가중치를 조정 — 의 조인 키다. 지금은 기록만 한다.
+     */
+    @Column(name = "template_id", length = 64, nullable = true)
+    private String templateId;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -113,14 +185,21 @@ public class Quiz {
     private LocalDateTime updatedAt;
 
     @Builder
-    private Quiz(QuizType quizType, Team team, Player player, String content, Integer answer,
-            Double score) {
+    private Quiz(QuizType quizType, Team team, Team opponentTeam, Player player, Game game,
+            String content, Integer answer, Double score, String externalId, LocalDate quizDate,
+            String difficulty, String templateId) {
         this.quizType = quizType;
         this.team = team;
+        this.opponentTeam = opponentTeam;
         this.player = player;
+        this.game = game;
         this.content = content;
         this.answer = answer;
         this.score = score;
+        this.externalId = externalId;
+        this.quizDate = quizDate;
+        this.difficulty = difficulty;
+        this.templateId = templateId;
     }
 
     /** 특정 선수에 대한 문제인가. */
@@ -128,13 +207,23 @@ public class Quiz {
         return player != null;
     }
 
-    /** 특정 구단에 대한 문제인가(선수 지정 없음). */
+    /** 특정 구단 하나에 대한 문제인가(선수·상대 구단 지정 없음). */
     public boolean isTeamQuiz() {
-        return team != null && player == null;
+        return team != null && opponentTeam == null && player == null;
     }
 
-    /** 구단·선수를 가리지 않는 야구 도메인 자체의 문제인가. */
+    /** 두 구단의 맞대결에 대한 문제인가. */
+    public boolean isMatchupQuiz() {
+        return team != null && opponentTeam != null;
+    }
+
+    /** 특정 경기에 대한 문제인가. */
+    public boolean isGameQuiz() {
+        return game != null;
+    }
+
+    /** 구단·선수·경기를 가리지 않는 야구 도메인 자체의 문제인가. */
     public boolean isGeneralQuiz() {
-        return team == null && player == null;
+        return team == null && player == null && game == null;
     }
 }
