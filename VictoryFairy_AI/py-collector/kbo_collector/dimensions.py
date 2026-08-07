@@ -21,6 +21,17 @@ class PlayerRow:
     weight_kg: int | None
 
 
+@dataclass(frozen=True)
+class TradeRow:
+    """Trade.aspx(GetTradeList) 한 행. playerId 가 없어 이름+팀으로만 식별된다."""
+    date: str            # 'YYYY-MM-DD'
+    category: str        # 항목: 트레이드/개명/등번호 변경/웨이버/자유계약선수/...
+    team_name: str       # 팀 짧은 이름(트레이드는 도착 팀)
+    player_name: str
+    position: str | None  # '김한결(투수)' 괄호 안. 없으면 None
+    note: str            # 비고: 'KIA→한화', '개명전:박건', '140→62' 등
+
+
 TEAMS: list[TeamRow] = [
     TeamRow("OB", "두산", "두산 베어스"),
     TeamRow("LG", "LG", "LG 트윈스"),
@@ -36,6 +47,18 @@ TEAMS: list[TeamRow] = [
 TEAM_CODES: list[str] = [t.team_code for t in TEAMS]
 
 PLAYER_SECTIONS: set[str] = {"투수", "포수", "내야수", "외야수"}
+
+# 등록명단 섹션(=KBO 공식 포지션 구분) -> players.position_group 저장값.
+# KBO 공식은 세부 포지션(1루수 등)을 제공하지 않는다(4개 그룹이 전부).
+POSITION_GROUPS: dict[str, str] = {
+    "투수": "PITCHER",
+    "포수": "CATCHER",
+    "내야수": "INFIELDER",
+    "외야수": "OUTFIELDER",
+}
+
+# 이동현황(Trade.aspx) 팀 표기 -> team_code. TEAMS.name 과 동일 표기다.
+TEAM_CODE_BY_NAME: dict[str, str] = {t.name: t.team_code for t in TEAMS}
 
 
 def parse_physique(text: str) -> tuple[int | None, int | None]:

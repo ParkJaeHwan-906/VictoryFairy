@@ -1,14 +1,16 @@
 """운영 서비스 스키마(MySQL) 적재 싱크.
 
 테이블 구조의 유일한 원천은 domain 모듈 JPA 엔티티다(teams/players/stadiums/
-game_statuses/games/game_lineups — dev_be 브랜치 VictoryFairy_BE/domain 참고.
-이 리포에는 DDL 사본을 두지 않으며 스키마 변경·생성은 dev_be 소관). 수집기는 소스
-자연키(teams.code, players.kbo_player_id, games.naver_game_id)로
+game_statuses/games/game_lineups/registrations — dev_be 브랜치 VictoryFairy_BE/domain
+참고. 이 리포에는 DDL 사본을 두지 않으며 스키마 변경·생성은 dev_be 소관). 수집기는
+소스 자연키(teams.code, players.kbo_player_id, games.naver_game_id)로
 upsert 해 재실행에도 멱등이다. PK 는 전부 서비스 소유의 AUTO_INCREMENT id.
 """
 import logging
 
 import pymysql
+
+from .dimensions import POSITION_GROUPS
 
 log = logging.getLogger("db")
 
@@ -24,11 +26,29 @@ TEAMS_UPSERT = (
 TEAM_IDS_SQL = "SELECT code, id FROM teams WHERE code IS NOT NULL"
 
 # KBO 공식 로스터: kbo_player_id 자연키. 팀 이적 시 team_id 전진, 신규는 average=0.
+# uniform_number/position_group 은 등록명단이 주는 값으로 매일 최신화(등번호 변경 반영).
 ROSTER_PLAYER_UPSERT = (
-    "INSERT INTO players (kbo_player_id, name, team_id, average, created_at, updated_at) "
-    "VALUES (%s, %s, %s, 0, NOW(6), NOW(6)) "
-    "ON DUPLICATE KEY UPDATE name=VALUES(name), team_id=VALUES(team_id), updated_at=NOW(6)"
+    "INSERT INTO players (kbo_player_id, name, team_id, uniform_number, position_group, "
+    " average, created_at, updated_at) "
+    "VALUES (%s, %s, %s, %s, %s, 0, NOW(6), NOW(6)) "
+    "ON DUPLICATE KEY UPDATE name=VALUES(name), team_id=VALUES(team_id), "
+    "  uniform_number=VALUES(uniform_number), position_group=VALUES(position_group), "
+    "  updated_at=NOW(6)"
 )
+
+# 일별 등록 스냅샷: (registration_date, player_id) 자연키. 같은 날 재실행이면 team 만 갱신.
+PLAYER_IDS_BY_KBO = "SELECT kbo_player_id, id FROM players WHERE kbo_player_id IN ({ph})"
+REGISTRATION_UPSERT = (
+    "INSERT INTO registrations (registration_date, team_id, player_id, created_at, updated_at) "
+    "VALUES (%s, %s, %s, NOW(6), NOW(6)) "
+    "ON DUPLICATE KEY UPDATE team_id=VALUES(team_id), updated_at=NOW(6)"
+)
+
+# 이동현황 반영: playerId 가 없어 (이름, 팀) 유일 매칭일 때만 손댄다.
+PLAYER_IDS_BY_NAME_TEAM = "SELECT id FROM players WHERE name=%s AND team_id=%s"
+PLAYER_SET_TEAM = "UPDATE players SET team_id=%s, updated_at=NOW(6) WHERE id=%s"
+PLAYER_SET_NAME = "UPDATE players SET name=%s, updated_at=NOW(6) WHERE id=%s"
+PLAYER_SET_UNIFORM_NUMBER = "UPDATE players SET uniform_number=%s, updated_at=NOW(6) WHERE id=%s"
 
 # 상태/구장 lookup-or-insert (name 에 UNIQUE 없음 → SELECT 후 INSERT, 크론 단일 실행 전제)
 STATUS_SELECT = "SELECT id FROM game_statuses WHERE name=%s"
@@ -44,24 +64,33 @@ POSITION_INSERT = (
     "INSERT INTO positions (name, created_at, updated_at) VALUES (%s, NOW(6), NOW(6))"
 )
 
-# 네이버 박스스코어 pos 표기 → 자체 영문 약어 (사용자 결정: DB 는 표준 표기 저장).
-# "타"/"주"는 수비 위치가 아닌 출전 형태(대타/대주자) — PH/PR 로 구분 보존.
-# 미지 표기는 warning 후 원문 그대로 적재해 수집이 깨지지 않게 한다(매핑 추가는 후속).
-POSITION_CODES = {
-    "투": "P", "포": "C", "一": "1B", "二": "2B", "三": "3B",
-    "유": "SS", "좌": "LF", "중": "CF", "우": "RF", "지": "DH",
-    "타": "PH", "주": "PR",
+# 네이버 박스스코어 pos 표기 → 화면 표시용 정식 명칭 (사용자 결정: positions.name 이
+# 그대로 API `positionName` 으로 나가므로 DB 에 읽을 수 있는 값을 저장한다).
+# "타"/"주"는 수비 위치가 아닌 출전 형태(대타/대주자) — 구분 보존.
+# 1·2·3루는 네이버가 한자(一/二/三)로 보낸다.
+POSITION_NAMES = {
+    "투": "투수", "포": "포수", "一": "1루수", "二": "2루수", "三": "3루수",
+    "유": "유격수", "좌": "좌익수", "중": "중견수", "우": "우익수", "지": "지명타자",
+    "타": "대타", "주": "대주자",
 }
 
 
-def position_code(raw):
+def position_name(raw):
+    """네이버 pos 표기 → 정식 명칭.
+
+    경기 중 수비 위치를 바꾼 선수는 표기가 이어붙어 온다("중좌"=중견수→좌익수,
+    "타二"=대타→2루수). 라인업은 "이 선수가 어디로 나왔나"를 보여주는 화면이므로
+    첫 글자(= 그 경기 시작 위치)로 접는다. 이 분해가 없으면 조합이 12×12 까지
+    늘어나 positions 코드테이블이 계속 불어난다.
+    미지 표기는 warning 후 원문 그대로 적재해 수집이 깨지지 않게 한다.
+    """
     if raw is None:
         return None
-    code = POSITION_CODES.get(raw)
-    if code is None:
+    name = POSITION_NAMES.get(raw) or POSITION_NAMES.get(raw[:1])
+    if name is None:
         log.warning("unknown position notation %r — storing raw", raw)
         return raw
-    return code
+    return name
 
 
 # 박스스코어 선수 해소: kbo_player_id 일괄 조회 → 신규 INSERT
@@ -153,7 +182,76 @@ class DbSink:
     # ---------- 선수 (KBO 로스터) ----------
     def upsert_roster_players(self, players, team_id) -> None:
         self._many(ROSTER_PLAYER_UPSERT,
-                   [(p.player_id, p.name, team_id) for p in players])
+                   [(p.player_id, p.name, team_id, p.back_number or None,
+                     POSITION_GROUPS.get(p.position)) for p in players])
+
+    # ---------- 일별 등록 스냅샷 ----------
+    def upsert_registrations(self, snapshot_date, players, team_id) -> int:
+        """PlayerRow 목록 -> registrations(snapshot_date, team, player FK) upsert.
+
+        players 행이 선행돼 있어야 한다(upsert_roster_players 직후 호출 전제).
+        미해소 kbo_player_id 는 스킵하고 적재 건수를 반환한다.
+        """
+        codes = [p.player_id for p in players]
+        if not codes:
+            return 0
+        ph = ",".join(["%s"] * len(codes))
+        ids = {c: i for c, i in self.fetch_all(PLAYER_IDS_BY_KBO.format(ph=ph), codes)}
+        rows = [(snapshot_date, team_id, ids[p.player_id])
+                for p in players if p.player_id in ids]
+        self._many(REGISTRATION_UPSERT, rows)
+        return len(rows)
+
+    # ---------- 이동현황 (Trade.aspx) ----------
+    def apply_trades(self, trades, team_ids_by_name) -> dict:
+        """TradeRow 목록을 players 에 보조 반영. 반환: 항목별 적용 건수.
+
+        등록명단(playerId 보유)이 팀 배정의 원천이므로, 여기서는 명단이 못 잡는
+        갭만 메운다 — 미등록(2군) 선수의 트레이드/개명/등번호 변경. playerId 가
+        없는 피드라 (이름, 팀) 매칭이 유일할 때만 UPDATE 하고, 대상이 players 에
+        없으면(1군 이력 없음) 스킵이 정상이다. 재적용은 매칭 실패로 자연 멱등.
+        """
+        from . import kbo_trade  # 순환 없음: kbo_trade 는 dimensions 만 본다
+
+        applied: dict[str, int] = {}
+        with self._conn.cursor() as cur:
+            for t in trades:
+                if t.category in ("트레이드", "트레이드(웨이버)"):
+                    move = kbo_trade.split_arrow(t.note)
+                    if not move:
+                        continue
+                    src, dst = (team_ids_by_name.get(move[0]),
+                                team_ids_by_name.get(move[1]))
+                    pid = self._sole_player(cur, t.player_name, src)
+                    if pid and dst:
+                        cur.execute(PLAYER_SET_TEAM, (dst, pid))
+                        applied[t.category] = applied.get(t.category, 0) + 1
+                elif t.category == "개명":
+                    old = kbo_trade.renamed_from(t.note)
+                    pid = old and self._sole_player(
+                        cur, old, team_ids_by_name.get(t.team_name))
+                    if pid:
+                        cur.execute(PLAYER_SET_NAME, (t.player_name, pid))
+                        applied[t.category] = applied.get(t.category, 0) + 1
+                elif t.category == "등번호 변경":
+                    change = kbo_trade.split_arrow(t.note)
+                    pid = change and self._sole_player(
+                        cur, t.player_name, team_ids_by_name.get(t.team_name))
+                    if pid:
+                        cur.execute(PLAYER_SET_UNIFORM_NUMBER, (change[1], pid))
+                        applied[t.category] = applied.get(t.category, 0) + 1
+        self._conn.commit()
+        return applied
+
+    def _sole_player(self, cur, name, team_id):
+        """(이름, 팀) 매칭이 정확히 1건일 때만 players.id. 동명이인이면 경고 후 포기."""
+        if not name or team_id is None:
+            return None
+        cur.execute(PLAYER_IDS_BY_NAME_TEAM, (name, team_id))
+        rows = cur.fetchall()
+        if len(rows) > 1:
+            log.warning("apply_trades: ambiguous player %s (team_id=%s)", name, team_id)
+        return rows[0][0] if len(rows) == 1 else None
 
     # ---------- 상태 / 구장 ----------
     def status_id(self, name) -> int:
@@ -230,17 +328,17 @@ class DbSink:
         return pk
 
     def upsert_lineups(self, game_pk, lineups, player_map, team_ids) -> None:
-        """LineupRow 목록 upsert. position(네이버 원문 표기) -> 자체 영문 약어로
+        """LineupRow 목록 upsert. position(네이버 원문 표기) -> 정식 명칭으로
         변환한 뒤 position_id 는 호출당 memo dict로 해소한다 (포지션은 ~10종이라
         중복 lookup 을 막는 게 목적. memo 키도 변환 후 값 기준)."""
         rows = [r for r in lineups if r.pcode in player_map and r.team_code in team_ids]
         position_memo: dict = {}
 
-        def resolved_position_id(name):
-            code = position_code(name)
-            if code not in position_memo:
-                position_memo[code] = self.position_id(code)
-            return position_memo[code]
+        def resolved_position_id(raw):
+            name = position_name(raw)
+            if name not in position_memo:
+                position_memo[name] = self.position_id(name)
+            return position_memo[name]
 
         self._many(LINEUP_UPSERT, [(
             game_pk, team_ids[r.team_code], player_map[r.pcode],

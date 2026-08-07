@@ -15,9 +15,9 @@ class PositionTest {
     @DisplayName("name을 채워 build하면 그대로 보존된다")
     void builder_withName_keepsName() {
         // when
-        Position position = Position.builder().name("CF").build();
+        Position position = Position.builder().name("중견수").build();
 
         // then
-        assertThat(position.getName()).isEqualTo("CF");
+        assertThat(position.getName()).isEqualTo("중견수");
     }
 }

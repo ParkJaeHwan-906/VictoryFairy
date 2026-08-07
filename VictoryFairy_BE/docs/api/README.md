@@ -1,6 +1,6 @@
 # API 명세 — 도메인별 문서
 
-> 최종 업데이트: 2026-08-04 — `GET /api/member/games` 응답에 `homeTeamId`/`awayTeamId` 추가 + `GET /api/member/games/lineup`(경기별 선발 라인업) 신규 추가. (직전: `GET /api/member/players` 구단 조건이 응원 구단 우선(토큰 오버라이딩)으로 변경 + `quiz` 채팅에 구단 접근 제어(403 `CHATROOM_TEAM_MISMATCH`) 도입 및 `DELETE /api/game/chat/rooms/{roomUid}/subscribe` 신규 추가.)
+> 최종 업데이트: 2026-08-06 — `POST /api/member/support/players`에 활성 응원 선수 4명 상한(`SUPPORT_PLAYER_LIMIT_EXCEEDED`) 도입 + `GET /api/member/users/me` 응답에 `supportPlayers`(현재 응원 중인 선수 목록) 추가. (직전: `GET /api/member/games` 응답에 `homeTeamId`/`awayTeamId` 추가 + `GET /api/member/games/lineup`(경기별 선발 라인업) 신규 추가.)
 
 이 디렉터리는 **도메인 단위**로 나뉜다. 이전에는 Gradle 모듈 단위(`user.md`, `quiz.md`) 두 문서에 모든 엔드포인트가 들어 있었으나, 한 문서가 900줄을 넘고 서로 무관한 도메인(인증·구단·선수·경기·응원)이 뒤섞여 찾기 어려워졌다. **모듈은 배포 단위일 뿐 API 계약의 경계가 아니라는 판단**으로 문서 축을 도메인으로 바꿨다.
 
@@ -9,11 +9,11 @@
 | 도메인 | 문서 | 소속 모듈 | 경로 접두사 | 엔드포인트 | 인증 | 최종 업데이트 | Notion |
 |---|---|---|---|---|---|---|---|
 | 인증 | [auth.md](auth.md) | user | `/api/member/auth` | 9 | 전부 불필요 | 2026-08-04 | [🔗](https://app.notion.com/p/3b278fa9b0f981b39166c408778394e9) |
-| 계정 | [account.md](account.md) | user | `/api/member/users` | 2 | 필수 | 2026-08-04 | [🔗](https://app.notion.com/p/3b278fa9b0f981f8b5bcf163fc897b12) |
+| 계정 | [account.md](account.md) | user | `/api/member/users` | 2 | 필수 | 2026-08-06 | [🔗](https://app.notion.com/p/3b278fa9b0f981f8b5bcf163fc897b12) |
 | 구단 | [team.md](team.md) | user | `/api/member/teams` | 1 | 불필요(GET 한정) | 2026-07-28 (추정) | [🔗](https://app.notion.com/p/3b278fa9b0f981859999f42bfc4dd56b) |
-| 선수 | [player.md](player.md) | user | `/api/member/players` | 1 | 불필요(GET 한정, 단 로그인 시 결과가 달라짐) | 2026-08-04 | [🔗](https://app.notion.com/p/3b278fa9b0f981afb501f9e94e1f32f4) |
+| 선수 | [player.md](player.md) | user | `/api/member/players` | 1 | 불필요(GET 한정, 단 로그인 시 결과가 달라짐) | 2026-08-06 | [🔗](https://app.notion.com/p/3b278fa9b0f981afb501f9e94e1f32f4) |
 | 경기 | [game.md](game.md) | user | `/api/member/games` | 2 | 불필요(GET 한정) | 2026-08-04 | [🔗](https://app.notion.com/p/3b278fa9b0f981938659cb3681750105) |
-| 응원 | [support.md](support.md) | user | `/api/member/support` | 3 | 필수 | 2026-07-28 (추정) | [🔗](https://app.notion.com/p/3b278fa9b0f981f5ae03ff5df8489a63) |
+| 응원 | [support.md](support.md) | user | `/api/member/support` | 3 | 필수 | 2026-08-06 | [🔗](https://app.notion.com/p/3b278fa9b0f981f5ae03ff5df8489a63) |
 | 채팅 | [chat.md](chat.md) | quiz | `/api/game/chat` | 7 | 필수 | 2026-08-04 | [🔗](https://app.notion.com/p/3b278fa9b0f98165a655fd5cced543d5) |
 
 `최종 업데이트`는 **계약이 마지막으로 바뀐 날**이지 문서를 손댄 날이 아니다. `(추정)`은 도메인 분리 이전에 엔드포인트별 이력이 없어 해당 컨트롤러의 마지막 커밋 날짜로 역산했다는 뜻이다.

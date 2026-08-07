@@ -14,8 +14,10 @@ import com.skhynix.domain.user.repository.UserAccountRepository;
 import com.skhynix.user.player.dto.PlayerResponse;
 import com.skhynix.user.team.dto.TeamResponse;
 import java.time.LocalDateTime;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,6 +37,9 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 public class SupportService {
 
+    /** 응원 선수 개수 상한의 단일 출처. 이 값을 다른 곳에 다시 적지 말 것. */
+    private static final int MAX_SUPPORT_PLAYERS = 4;
+
     private final UserSupportTeamRepository userSupportTeamRepository;
     private final UserSupportPlayerRepository userSupportPlayerRepository;
     private final TeamRepository teamRepository;
@@ -50,6 +55,10 @@ public class SupportService {
      * @return 변경 후 현재 응원 구단
      */
     public TeamResponse selectTeam(Long userAccountId, Long teamId) {
+        // 구단 변경은 응원 선수를 전원 취소한다. 락이 없으면 그 사이 들어온 addPlayers 가 옛 구단 선수를
+        // 얹어 "응원 선수는 응원 구단 소속" 불변식이 깨진다.
+        lockAccount(userAccountId);
+
         Team team = teamRepository.findById(teamId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.TEAM_NOT_FOUND));
 
@@ -86,6 +95,10 @@ public class SupportService {
      * @return 추가 후 현재 응원 중인 선수 전체(이번에 추가한 선수만이 아니다)
      */
     public List<PlayerResponse> addPlayers(Long userAccountId, List<Long> playerIds) {
+        // 상한 판정(읽기→판정→저장)이 원자적이어야 한다. 락 없이는 활성 2명 계정에 [a,b]·[c,d] 가 동시에
+        // 들어오면 두 트랜잭션이 각각 합집합 4로 통과해 최종 6명이 된다.
+        lockAccount(userAccountId);
+
         // 소속 검사 기준이 되는 구단이 없으면 선수 검증 자체가 불가능하므로 가장 먼저 판정한다.
         UserSupportTeam supportTeam = userSupportTeamRepository
                 .findByUserAccount_IdAndOpposeIsNull(userAccountId)
@@ -104,6 +117,8 @@ public class SupportService {
             }
         }
 
+        validatePlayerLimit(userAccountId, targetIds);
+
         for (Long playerId : targetIds) {
             userSupportPlayerRepository.findByUserAccount_IdAndPlayer_Id(userAccountId, playerId)
                     .ifPresentOrElse(
@@ -119,6 +134,28 @@ public class SupportService {
     }
 
     /**
+     * 추가를 반영했을 때의 응원 선수 수가 상한을 넘는지 판정한다.
+     *
+     * <p>이미 응원 중인 선수를 다시 보내는 것은 no-op 이라 개수를 늘리지 않는다. 그래서 "현재 + 요청"
+     * 합이 아니라 <b>합집합의 크기</b>로 세야 재요청이 억울하게 막히지 않는다.
+     *
+     * <p>넘치면 상한까지만 채우지 않고 요청 전체를 거부한다 — 어떤 선수가 반영되고 어떤 선수가 잘렸는지
+     * 응답에서 구분할 수 없어, 부분 성공은 클라이언트가 복구할 수 없는 상태를 만든다.
+     *
+     * <p>이미 상한을 넘긴 계정(정책 도입 이전 데이터)의 기존 행은 건드리지 않는다. 추가만 막힌다.
+     */
+    private void validatePlayerLimit(Long userAccountId, List<Long> targetIds) {
+        Set<Long> resultingIds = new HashSet<>(targetIds);
+        userSupportPlayerRepository.findAllByUserAccount_IdAndOpposeIsNull(userAccountId)
+                // 프록시의 id 접근은 초기화를 유발하지 않는다(선수 이름 등을 읽으면 N+1).
+                .forEach(support -> resultingIds.add(support.getPlayer().getId()));
+
+        if (resultingIds.size() > MAX_SUPPORT_PLAYERS) {
+            throw new BusinessException(ErrorCode.SUPPORT_PLAYER_LIMIT_EXCEEDED);
+        }
+    }
+
+    /**
      * 응원 선수를 취소한다. 행을 지우지 않고 {@code oppose} 에 시각을 채우는 상태 전이이며, 이미 취소된
      * 선수에는 no-op 이라 최초 취소 시각이 보존된다.
      *
@@ -129,6 +166,11 @@ public class SupportService {
      * @return 취소 후 남아 있는 응원 선수 전체
      */
     public List<PlayerResponse> opposePlayers(Long userAccountId, List<Long> playerIds) {
+        // 취소는 개수를 줄이는 방향이라 상한과는 무관하지만, 응원 행을 UPDATE 하며 행 락을 잡는다. 다른
+        // 쓰기 경로가 계정 락 → 응원 행 락 순서인데 여기만 응원 행부터 잡으면 락 순서가 역전돼 데드락이
+        // 난다. 같은 순서로 맞춘다.
+        lockAccount(userAccountId);
+
         List<Long> targetIds = playerIds.stream().distinct().toList();
         if (targetIds.isEmpty()) {
             return currentSupportedPlayers(userAccountId);
@@ -143,6 +185,26 @@ public class SupportService {
         }
 
         return currentSupportedPlayers(userAccountId);
+    }
+
+    /**
+     * 같은 계정의 응원 상태 변경을 직렬화한다. 쓰기 경로는 예외 없이 이 호출을 <b>가장 먼저</b> 한다 —
+     * 순서가 흔들리면 락 순서 역전으로 데드락이 난다.
+     *
+     * <p>잠그는 대상이 응원 행이 아니라 계정 행인 이유는 {@code UserAccountRepository.findWithLockById} 참고 —
+     * 활성 0명 계정에는 잠글 원소가 없고, 응원 행 쪽 갭 락은 격리 수준·인덱스에 따라 달라진다.
+     *
+     * <p>클래스 레벨 {@code @Transactional} 덕에 락은 커밋까지 유지된다. 트랜잭션 밖에서 잡으면 조회 직후
+     * 풀려 아무것도 막지 못한다.
+     *
+     * <p>읽기 전용 경로({@link #currentSupportedPlayers})에는 절대 걸지 않는다 — {@code GET /me} 가 그 경로를
+     * 타므로, 조회에 쓰기 락이 붙으면 프로필 조회끼리 서로를 막는다.
+     */
+    private void lockAccount(Long userAccountId) {
+        // 필터가 활성 계정임을 확인한 id라 정상 경로에서는 항상 존재한다. 그 사이 사라졌다면 인증 근거가
+        // 사라진 것이므로 다른 경로들과 같은 401로 맞춘다.
+        userAccountRepository.findWithLockById(userAccountId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHENTICATED));
     }
 
     /**
@@ -171,22 +233,19 @@ public class SupportService {
     }
 
     /**
-     * 현재 응원 중인 선수를 name 오름차순으로 반환한다. 응원 행에서 FK 값만 모아 한 번에 조회한다 —
-     * {@code UserSupportPlayer.player} 가 LAZY 라 행마다 {@code getPlayer().getName()} 을 부르면 N+1
-     * 이 생긴다(프록시의 id 접근은 초기화를 유발하지 않아 첫 단계는 쿼리를 만들지 않는다).
+     * 현재 응원 중인 선수를 선수명 오름차순으로 반환한다. 응원 행·선수·소속 구단을 fetch join 한 조회
+     * 하나로 끝낸다 — {@code UserSupportPlayer.player} 와 {@code Player.team} 이 둘 다 LAZY 라, 이
+     * 조회가 아니면 {@code PlayerResponse.from} 이 행마다 프록시를 깨워 N+1 이 된다. 정렬도 DB 가
+     * 하므로 결과를 다시 정렬하지 않는다.
+     *
+     * <p>응원 행이 없으면 빈 리스트다. 조기 반환 분기가 없는 것은 누락이 아니라 fetch join 결과가
+     * 비면 그대로 빈 리스트가 되기 때문이다 — 분기를 되살리면 쿼리 수는 그대로인데 코드만 는다.
      */
     @Transactional(readOnly = true)
     public List<PlayerResponse> currentSupportedPlayers(Long userAccountId) {
-        List<Long> playerIds = userSupportPlayerRepository
-                .findAllByUserAccount_IdAndOpposeIsNull(userAccountId)
+        return userSupportPlayerRepository.findAllActiveWithPlayerAndTeam(userAccountId)
                 .stream()
-                .map(support -> support.getPlayer().getId())
-                .toList();
-        if (playerIds.isEmpty()) {
-            return List.of();
-        }
-        return playerRepository.findAllByIdInOrderByNameAsc(playerIds)
-                .stream()
+                .map(UserSupportPlayer::getPlayer)
                 .map(PlayerResponse::from)
                 .toList();
     }
