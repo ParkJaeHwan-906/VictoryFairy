@@ -278,14 +278,22 @@ resource "aws_cloudwatch_metric_alarm" "fe" {
   evaluation_periods  = var.datapoints_to_alarm
   datapoints_to_alarm = var.datapoints_to_alarm
 
-  # ⚠ missing 이어야 한다. breaching 으로 두면 '지표가 없는 것' 이 곧 롤백 트리거가 된다 —
-  #   2026-08-07 최초 apply 직후 실제로 그랬다. 알람이 INSUFFICIENT_DATA → ALARM 으로 튀어
-  #   (아직 첫 점검이 돌기 전) 감시가 스스로 롤백을 실행했다. 마침 두 릴리스의 번들이 같아
-  #   사용자 영향은 없었지만, 구조적으로는 '감시 자신의 공백' 을 '서비스 장애' 로 오인한 것이다.
+  # ⚠ notBreaching 이어야 한다. 여기서 두 번 데었다.
   #
-  #   감시가 멈춘 것도 물론 알아야 한다. 다만 그 대응은 롤백이 아니라 알림이어야 하므로
-  #   아래 stalled 알람으로 분리했다(알람 이름이 다르므로 responder 가 롤백하지 않는다).
-  treat_missing_data = "missing"
+  #   breaching → '지표가 없는 것' 이 곧 롤백 트리거가 된다. 최초 apply 직후 알람이
+  #     INSUFFICIENT_DATA → ALARM 으로 튀어(첫 점검 전) 감시가 스스로 롤백했다.
+  #
+  #   missing → 없는 데이터포인트를 '평가에서 제외' 하고 남은 것만으로 판정한다. 그래서
+  #     datapoints_to_alarm = 3 이 '실제 3회 실패' 를 보장하지 못한다. 주기를 5분→1분으로
+  #     바꾼 직후 3개 구간 중 2개가 비어 있었고, 유일한 0 하나가 "1 of 1 실패" 로 해석돼
+  #     ALARM 이 됐다(CloudWatch 이력에 그대로 남아 있다). 점검이 한 번만 거르면 재현된다.
+  #
+  #   notBreaching → 없는 데이터를 '정상' 으로 센다. ALARM 에 닿으려면 실제 실패가
+  #     datapoints_to_alarm 개만큼 필요해져 오탐 방어가 비로소 보장된다.
+  #
+  # 감시가 멈춘 것도 알아야 하지만 그 대응은 롤백이 아니라 알림이어야 하므로
+  # 아래 stalled 알람으로 분리했다(알람 이름이 다르므로 responder 가 롤백하지 않는다).
+  treat_missing_data = "notBreaching"
 
   alarm_actions = [aws_sns_topic.alerts.arn]
   ok_actions    = [aws_sns_topic.alerts.arn] # 복구도 알린다
@@ -334,8 +342,8 @@ resource "aws_cloudwatch_metric_alarm" "api" {
   evaluation_periods  = var.datapoints_to_alarm
   datapoints_to_alarm = var.datapoints_to_alarm
 
-  # FE 알람과 같은 이유로 missing 이다 — 지표 공백은 stalled 알람이 따로 잡는다.
-  treat_missing_data = "missing"
+  # FE 알람과 같은 이유로 notBreaching 이다 — 지표 공백은 stalled 알람이 따로 잡는다.
+  treat_missing_data = "notBreaching"
 
   alarm_actions = [aws_sns_topic.alerts.arn]
   ok_actions    = [aws_sns_topic.alerts.arn]
