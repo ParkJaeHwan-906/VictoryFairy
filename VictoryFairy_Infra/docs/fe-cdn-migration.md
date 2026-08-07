@@ -155,9 +155,21 @@ S3 오브젝트에 헤더가 없거나 잘못 박혀 있어도 엣지가 덮어�
    ```
    `origin.victoryfairy.com` 이 ALB 로 해석되는지도 확인한다(`dig`/`nslookup`).
    ⚠ 이것이 안 되면 CloudFront 가 오리진에 닿지 못해 `/api/*` 가 전부 502 가 된다.
-5. FE 를 S3 에 올리고(#192 머지 후 `deploy-fe.yml` 실행) CloudFront 배포 도메인으로 **직접 접속해
-   검증한다** (`terraform output fe_cloudfront_domain_name`).
+5. FE 를 S3 에 올리고(`deploy-fe.yml` 실행) CloudFront 를 거쳐 검증한다.
    딥링크 새로고침, `/api` 로그인, `/rt` 채팅 SSE 를 모두 확인한다.
+
+   ⚠ **배포 도메인(`d*.cloudfront.net`)으로 그냥 접속하면 `/api/*`·`/rt/*` 검증이 안 된다.**
+   오리진 요청 정책이 `Managed-AllViewer` 라 Host 헤더가 브라우저가 보낸 값 그대로 전달되는데,
+   그 값이 `d*.cloudfront.net` 이면 ALB 규칙의 host 조건(`victoryfairy.com`)과 어긋나 404 가 된다.
+   정적 자산만 확인되고 API 는 확인되지 않는다.
+
+   Host 를 apex 로 보내면서 CloudFront 로 붙어야 전환 후와 동일한 경로를 미리 검증할 수 있다:
+   ```bash
+   EDGE=$(nslookup <배포도메인> 8.8.8.8 | tail -2 | head -1 | awk '{print $NF}')
+   curl -s -o /dev/null -w "%{http_code}\n" \
+     --resolve victoryfairy.com:443:$EDGE https://victoryfairy.com/api/actuator/health/readiness
+   ```
+   브라우저로 눈으로 보려면 hosts 파일에 `<엣지IP> victoryfairy.com` 을 임시로 넣는다.
    ⚠ 이 단계까지 사용자 트래픽은 ALB→fe-app(옛 번들)로 간다. 옛 번들은 `/api/member` 를 부르고
    그 경로는 이제 `/api` 규칙에 걸려 401 이 되므로 **1 번부터 이 시점까지 실서비스 로그인이
    불가하다.** 1~6 을 한 세션에 이어서 끝낼 것.
