@@ -28,7 +28,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
- * {@code GET /players}(외부 노출 경로 {@code /api/member/players})를 검증한다.
+ * {@code GET /players}(외부 노출 경로 {@code /api/players})를 검증한다.
  * 요구사항: {@code docs/requirements/user/player-list.md}(USER-PL-1 ~ 16) +
  * {@code docs/requirements/user/player-lookup-team-fallback.md}(USER-PLF-1 ~ 21, PLF-2·3·13은 폐기).
  *
@@ -40,7 +40,7 @@ import org.springframework.test.web.servlet.MockMvc;
  * 만든다). 컨트롤러가 새로 받는 것은 빈이 아니라 {@code @AuthenticationPrincipal Long}이라 추가
  * {@code @MockitoBean}은 필요 없다.
  *
- * <p><b>MockMvc는 context-path를 적용하지 않는다</b> — 외부 경로는 {@code /api/member/players}지만
+ * <p><b>MockMvc는 context-path를 적용하지 않는다</b> — 외부 경로는 {@code /api/players}지만
  * 이 슬라이스에서 호출하는 경로는 {@code /players}다.
  *
  * <p>실제 {@link SecurityConfig}(따라서 실제 {@code JwtAuthenticationFilter})를 태우므로

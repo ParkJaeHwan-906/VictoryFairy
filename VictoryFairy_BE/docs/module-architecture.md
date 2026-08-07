@@ -63,12 +63,12 @@ VictoryFairy BE는 Gradle 멀티모듈 프로젝트입니다. 이 문서는 **�
 
 - **발급 로직**(`AuthController`, `AuthService`, DTO)은 `user`에만 존재
 - **검증 인프라**는 `user/global/jwt`의 `JwtVerificationConfig`에 격리되어 있고, `quiz`는 `@Import(JwtVerificationConfig.class)`로 **검증 부품만** 재사용
-- `quiz`는 컴포넌트 스캔을 `com.skhynix.quiz`로 좁혀, user의 발급 엔드포인트(`/api/member/auth/**`)가 quiz에 노출되지 않도록 함
+- `quiz`는 컴포넌트 스캔을 `com.skhynix.quiz`로 좁혀, user의 발급 엔드포인트(`/api/auth/**`)가 quiz에 노출되지 않도록 함
 
 ### 토큰 흐름
 
 ```
-1. 클라이언트 → user(8080) /api/member/auth/login → access + refresh 토큰 발급
+1. 클라이언트 → user(8080) /api/auth/login → access + refresh 토큰 발급
 2. 클라이언트 → quiz(8081) 보호 API + Authorization: Bearer <access>
 3. quiz의 JwtAuthenticationFilter가 토큰 검증 → 인증 통과
 ```

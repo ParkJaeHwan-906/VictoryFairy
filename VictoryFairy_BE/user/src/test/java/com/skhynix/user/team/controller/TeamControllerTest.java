@@ -25,7 +25,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
- * {@code GET /teams}(외부 노출 경로 {@code /api/member/teams})를 검증한다.
+ * {@code GET /teams}(외부 노출 경로 {@code /api/teams})를 검증한다.
  * 요구사항: {@code docs/requirements/user/team-list.md}(USER-TM-1 ~ 9).
  *
  * <p>슬라이스 구성은 기존 {@code AuthController*Test}/{@code UserAccountControllerTest}와 동일한 패턴을
@@ -34,7 +34,7 @@ import org.springframework.test.web.servlet.MockMvc;
  * {@link JwtTokenProvider}·{@link UserAccountRepository}를 {@code @MockitoBean}으로 함께 등록한다.
  *
  * <p><b>MockMvc는 context-path를 적용하지 않는다</b> — 문서의 인수 기준은 외부 경로
- * {@code /api/member/teams} 기준이지만, 이 슬라이스에서 실제로 호출하는 경로는 {@code /teams}다.
+ * {@code /api/teams} 기준이지만, 이 슬라이스에서 실제로 호출하는 경로는 {@code /teams}다.
  *
  * <p><b>USER-TM-3의 한계</b>: 실제 {@link SecurityConfig}(따라서 실제 {@code JwtAuthenticationFilter})를
  * 태우므로 USER-TM-6/7/9(permitAll 배선)은 이 컨트롤러 슬라이스가 실질적으로 검증하는 핵심이다. 다만
