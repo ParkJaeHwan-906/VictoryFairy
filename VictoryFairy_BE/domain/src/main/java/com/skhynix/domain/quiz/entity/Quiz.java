@@ -17,8 +17,6 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.OnDelete;
-import org.hibernate.annotations.OnDeleteAction;
 import org.hibernate.annotations.UpdateTimestamp;
 
 /**
@@ -65,23 +63,41 @@ public class Quiz {
     @JoinColumn(name = "quiz_type_id", nullable = false)
     private QuizType quizType;
 
-    // CASCADE — 특정 구단에 대한 문제는 그 구단이 사라지면 함께 사라져도 된다
+    /**
+     * 출제 대상 구단(없을 수 있음). <b>{@code @OnDelete} 없음</b> — {@code Game → Team} 과 같은 정책이다.
+     *
+     * <p>여기서 구단·선수는 문제의 <b>분류 태그</b>이지 문제의 실체가 아니다. CASCADE 를 걸면
+     * {@code DELETE FROM players WHERE ...} 한 줄이 그 선수의 문제 → 보기 → <b>전 사용자의 제출 기록</b>까지
+     * 말없이 지운다. 제출 기록은 중복 제출 차단의 유일한 근거이기도 해서, 지워지면 이미 푼 문제를 다시
+     * 풀 수 있게 된다. 문제는 사람이 쓴 콘텐츠라 수집기로 재생성되지도 않는다.
+     * (domain 의 다른 CASCADE 대상은 전부 수집기가 다시 만들 수 있는 파생 데이터이거나 대상이 사라지면
+     * 의미가 함께 죽는 사용자 기록이다 — 문제는 둘 다 아니다.)
+     *
+     * <p>non-cascade 면 대신 {@code DELETE FROM players} 가 <b>ERROR 1451 로 시끄럽게 실패</b>한다.
+     * 조용한 소실보다 낫고, 실제로 앱에는 선수·구단을 지우는 경로가 없어(py-collector 도 upsert 만 한다)
+     * 이 제약이 막는 건 수동 DB 작업뿐이다. 복구 불가능한 손실 vs 되돌릴 수 있는 에러의 비대칭이 근거다.
+     *
+     * <p>⚠ FK 의 {@code ON DELETE} 는 <b>테이블 생성 시점에만</b> 정해진다 — {@code ddl-auto=update} 는
+     * 기존 FK 를 바꾸지 않으므로, 되돌리려면 {@code ALTER TABLE quizzes DROP FOREIGN KEY ... / ADD ...} 를
+     * 손으로 돌아야 한다.
+     */
     @ManyToOne(fetch = FetchType.LAZY, optional = true)
     @JoinColumn(name = "team_id", nullable = true)
-    @OnDelete(action = OnDeleteAction.CASCADE)
     private Team team;
 
-    // CASCADE — 특정 선수에 대한 문제는 그 선수가 사라지면 함께 사라져도 된다
+    /** 출제 대상 선수(없을 수 있음). {@code @OnDelete} 없음 — 근거는 {@link #team} 참고. */
     @ManyToOne(fetch = FetchType.LAZY, optional = true)
     @JoinColumn(name = "player_id", nullable = true)
-    @OnDelete(action = OnDeleteAction.CASCADE)
     private Player player;
 
     @Column(name = "content", columnDefinition = "TEXT", nullable = false)
     private String content;
 
     // 정답 보기 번호(QuizOption.option 과 같은 축). 보기 FK가 아니라 번호 값이다.
-    @Column(name = "answer", nullable = false)
+    // TINYINT 는 QuizOption.option 과 맞춘 것 — 같은 축의 값을 서로 비교하는데 컬럼 폭이 다르면
+    // 스키마만 보고는 같은 축임이 드러나지 않는다. ddl-auto=update 는 기존 컬럼 타입을 바꾸지 않으므로
+    // 테이블이 생기기 전인 지금이 아니면 수동 ALTER 가 필요하다.
+    @Column(name = "answer", columnDefinition = "TINYINT", nullable = false)
     private Integer answer;
 
     // 난이도 가중 점수 — MVP 이후 도입이라 지금은 null

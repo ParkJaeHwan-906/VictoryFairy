@@ -6,6 +6,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.Builder;
@@ -31,7 +32,12 @@ import org.hibernate.annotations.UpdateTimestamp;
  * 과 같은 명시적 예외이며, 다른 새 엔티티에 단수형을 따라 쓰지 말 것.
  */
 @Entity
-@Table(name = "quiz_type")
+@Table(
+        name = "quiz_type",
+        // 제약 이름을 명시한다(@Column(unique=true) 의 Hibernate 자동 생성명 UK... 대신) —
+        // 나중에 손으로 도는 DDL 과 같은 이름을 써야 "이미 걸렸는지"를 이름으로 확인할 수 있다.
+        // uk_game_statuses_name 과 같은 성격이다.
+        uniqueConstraints = @UniqueConstraint(name = "uk_quiz_type_name", columnNames = "name"))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class QuizType {
@@ -41,6 +47,18 @@ public class QuizType {
     @Column(name = "id")
     private Long id;
 
+    /**
+     * 유형명. 이 테이블을 lookup-or-create 로 채우고({@code QuizTypeRepository.findByName}) 그 반환형이
+     * {@code Optional} 이라, 같은 이름이 두 행이면 조회가 예외로 죽는다. UNIQUE 는 그 상태를 <b>만들어지는
+     * 순간</b> 막는다 — 빈 DB 에 파드 여러 개가 동시에 뜨면 각자의 anti-join 이 서로의 미커밋 INSERT 를
+     * 못 봐 같은 이름을 두 번 넣는데, 제약이 있으면 두 번째가 {@code Duplicate entry} 로 죽어 기동이
+     * 실패하고(= 조용한 중복 대신 시끄러운 실패) 재시작하면 앞선 행이 보여 통과한다.
+     * {@code GameStatus.name}·{@code Team.code} 와 같은 성격이다.
+     *
+     * <p>⚠ {@code ddl-auto=update} 는 <b>이미 존재하는 테이블에 UNIQUE 를 추가하지 않는다</b>(domain 실측).
+     * {@code quiz_type} 은 아직 어느 환경에도 없어 이 선언만으로 붙지만, 테이블이 한 번 생긴 뒤에는
+     * 1회성 DDL 을 손으로 돌아야 한다.
+     */
     @Column(name = "name", length = 10, nullable = false)
     private String name;
 
