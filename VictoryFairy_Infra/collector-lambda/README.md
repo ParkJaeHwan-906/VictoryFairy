@@ -118,38 +118,61 @@ vf-local-test-game-schedule   cron(30 23 * * ? *)  -> kbo-collector-local-test
 2026-08-03 다이제스트에 고정돼 있다는 점 — 코드를 고쳐도 영영 반영되지 않는다.
 컷오버는 이 그림자 스택을 걷어내는 작업이기도 하다.
 
-### ⚠ 버킷이 갈려 있다 — 이게 컷오버의 진짜 함정
+### ⚠ 버킷이 갈려 있었다 — 이게 컷오버의 진짜 함정이었다 (2026-08-07 해소)
 
 그림자 스택은 **다른 버킷**에 쓴다:
 
-| | 버킷 | 무엇이 최신인가 |
+| | 버킷 | 무엇이 최신이었나 (8/6 확인 시점) |
 |---|---|---|
 | 정식 함수 (`kbo-collector`, 이 스택) | `victoryfairy-crawl-dev` | community·raw-json 은 매일 갱신, **kbo-records 는 7/30 에 멈춤** |
 | 그림자 (`kbo-collector-local-test`) | `victoryfairy-crawl-local` | **kbo-records·question-source/game_schedule 이 여기서만 갱신** |
 
-퀴즈 루틴(`vf-quiz-daily`)의 `S3_BUCKET` 도 `victoryfairy-crawl-local` 이다 —
-산출물 `quiz-candidates/` 가 그 버킷에만 있다.
+퀴즈 루틴(`vf-quiz-daily`)의 `S3_BUCKET` 도 `victoryfairy-crawl-local` 이었다 —
+산출물 `quiz-candidates/` 가 그 버킷에만 있었다.
 
-그래서 게이트만 켜면 새 데이터는 `-dev` 로 가는데 퀴즈 루틴은 계속 `-local` 을 읽는다.
-**아무 에러 없이 퀴즈 파이프라인이 눈을 감는다.** 아래 3-b 를 건너뛰지 말 것.
+그래서 게이트만 켜면 새 데이터는 `-dev` 로 가는데 퀴즈 루틴은 계속 `-local` 을 읽어,
+**아무 에러 없이 퀴즈 파이프라인이 눈을 감는** 상태였다.
 
-**순서를 지켜야 한다** — 켜기 전에 코드가 이미지에 들어가 있어야 한다.
+**2026-08-07 에 아래 3번(버킷 일원화)을 먼저 처리했다** — 절차는 기록으로 남긴다:
+
+- 3-a 과거분 이관 완료. `kbo-records` 8/1~8/5(40건)와 `question-source`
+  `game_result/2026-08-01`·`game_schedule/2026-08-04`~`08-05`(25건)를 `-dev` 로 복사했다.
+  `kbo-records/*/2026-08-06.json` 만 제외했다 — 양쪽에 다 있는데 `-dev` 쪽이 현재
+  코드로 만든 스냅샷이라 그림자(8/3 고정 이미지)의 것으로 덮지 않았다.
+- 3-b 루틴 `S3_BUCKET` → `victoryfairy-crawl-dev` 변경 완료. 같은 날 실행부터
+  `quiz-candidates/2026-08-07/` 이 `-dev` 에 생성됐다(20건 — 직전 `-local` 실행은 2건).
+  위키 빌더 쪽은 `wiki-builder/ROUTINE.md` 의 버킷 가드로 막았다(`-local` 이면 강제 전환).
+- `-dev` 의 `question-source` 도 함께 메웠다 — `game_result` 499건(3/28~8/4),
+  `player_profile` 558건. 둘 다 export 크론이 없어 수동 적재분에 멈춰 있었다.
+
+**남은 것은 1·2번(이미지)과 4번(게이트)뿐이다.** 순서를 지켜야 한다 — 켜기 전에
+코드가 이미지에 들어가 있어야 한다.
 
 1. 세 잡의 핸들러 분기(`handler.py`)와 소스(`kbo_collector/sources/kbo_records.py` 등)를
    main 에 머지 → `deploy-collector.yml` 이 이미지를 다시 굽는다.
-2. 실제로 들어갔는지 확인 — 여기서 no-op 이면 아직이다:
+2. 실제로 들어갔는지 확인 — **응답에 결과 키가 있어야 한다.** 없으면 아직이다:
    ```bash
    aws lambda invoke --function-name kbo-collector \
      --payload '{"job":"kbo_records"}' --cli-binary-format raw-in-base64-out /dev/stdout
+   #  아직    -> {"job": "kbo_records", "date": "..."}
+   #  배포됨  -> {"job": "kbo_records", "date": "...", "kboRecords": {"loaded": 8, ...}}
+
+   aws lambda invoke --function-name kbo-collector-db \
+     --payload '{"job":"export","target":"game_result"}' \
+     --cli-binary-format raw-in-base64-out /dev/stdout
+   #  아직    -> {"job": "export", "date": "..."}
+   #  배포됨  -> {"job": "export", "date": "...", "exported": 499}
    ```
-3. **버킷 일원화** (게이트 켜기 전에):
-   a. 과거분 이관 — `-local` 에만 있는 퀴즈 원천을 `-dev` 로 옮긴다:
+   StatusCode 는 어느 쪽이든 200 이다 — **모르는 job 은 예외를 내지 않는다.**
+   2026-08-07 에 실제로 두 함수 다 결과 키 없이 돌아오는 것을 확인했다.
+3. ~~**버킷 일원화**~~ — **2026-08-07 완료** (위 절 참고). 다시 할 필요 없다.
+   a. ~~과거분 이관~~ — `-local` 에만 있던 퀴즈 원천을 `-dev` 로 옮겼다:
       ```bash
       for p in kbo-records question-source; do
         aws s3 sync s3://victoryfairy-crawl-local/$p/ s3://victoryfairy-crawl-dev/$p/
       done
       ```
-   b. 퀴즈 루틴의 `S3_BUCKET` 을 `victoryfairy-crawl-dev` 로 변경
+   b. ~~퀴즈 루틴의 `S3_BUCKET` 을 `victoryfairy-crawl-dev` 로 변경~~
       (claude.ai 루틴 설정 — 정본은 `VictoryFairy_AI/deploy/routines/`).
 4. `config.auto.tfvars` 에 `quiz_source_jobs_enabled = true` → dev_infra 머지(= apply).
 5. 하루 돌려보고 산출물 확인 — **`-dev` 쪽이 갱신돼야 한다**:
