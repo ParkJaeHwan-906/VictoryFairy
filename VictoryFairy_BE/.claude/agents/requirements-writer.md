@@ -35,7 +35,7 @@ model: inherit
 ## 요구사항 (EARS)
 | ID | 유형 | 요구사항 | 인수 기준 |
 |---|---|---|---|
-| USER-PW-1 | 예외 | IF 비밀번호가 8자 미만이면, THEN THE 시스템 SHALL 400과 위반 메시지를 반환한다 | `POST /api/member/auth/signup` `{"password":"a1!"}` → 400, `message`에 길이 위반 |
+| USER-PW-1 | 예외 | IF 비밀번호가 8자 미만이면, THEN THE 시스템 SHALL 400과 위반 메시지를 반환한다 | `POST /api/auth/signup` `{"password":"a1!"}` → 400, `message`에 길이 위반 |
 
 ## 미해결 질문
 - <사용자가 답해야 결정되는 것. 승인 시 이 절은 비어야 한다>

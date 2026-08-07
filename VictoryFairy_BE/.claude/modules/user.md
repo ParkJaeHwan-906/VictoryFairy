@@ -6,9 +6,9 @@
 JWT 기반 인증/인가 + 회원 탈퇴 + 이메일 인증(가입 선행조건). signup·login·refresh·logout·withdraw·email 인증. **포트 8080.**
 
 ## 핵심 클래스 (`user/src/main/java/com/skhynix/...`)
-- `AuthController` → `/api/member/auth/*`
+- `AuthController` → `/api/auth/*`
 - `AuthService` — 가입/로그인/재발급/로그아웃 로직. **가입 트랜잭션이 `UserBq`(`:domain`) 행도 함께 만든다**(`bq_score=0`, 계정 저장과 원자적 — signup 요청·응답 계약은 불변)
-- `account.controller.UserAccountController` → `/api/member/users/*` · `account.service.UserAccountService` — 탈퇴(soft delete) 전용. `AuthService`에 얹지 않은 이유: 탈퇴는 토큰을 **만들지 않고 지우기만** 해서 `AuthService` 협력자 5개 중 `PasswordEncoder`/`JwtTokenProvider`/`UserRepository` 3개가 불필요
+- `account.controller.UserAccountController` → `/api/users/*` · `account.service.UserAccountService` — 탈퇴(soft delete) 전용. `AuthService`에 얹지 않은 이유: 탈퇴는 토큰을 **만들지 않고 지우기만** 해서 `AuthService` 협력자 5개 중 `PasswordEncoder`/`JwtTokenProvider`/`UserRepository` 3개가 불필요
 - `account.service.UserProfileService`(클래스 레벨 `@Transactional(readOnly = true)`, 쓰기 경로 없음) — 내 프로필 조회 전용. `UserAccountService`(탈퇴)에 합치지 않은 이유는 같은 협력자 필요 범위 불일치 논리다: 탈퇴는 `UserRefreshTokenRepository`를 쓰고 조회는 안 쓰며, 조회는 `UserSupportTeamRepository`·`UserBqRepository`·`SupportService`를 쓰고 탈퇴는 안 쓴다(공유는 `UserAccountRepository` 하나뿐). **협력자에 `SupportService`가 있어 순수 리포지토리 조합이 아니다** — 응원 선수 목록은 `supportService.currentSupportedPlayers(userAccountId)`로 재사용해 로직을 복제하지 않는다(호출 대상이 `readOnly`라 조회 전용 성격은 유지). "조회가 행을 만들지 않는다"는 계약(USER-ME-20)을 쓰기 경로 없는 클래스로도 표현한다. `account.dto.UserAccountResponse`(record `nickname`/`supportTeam`/`supportPlayers`/`point`/`bqScore` — 구단은 `team.dto.TeamResponse`, 응원 선수는 `player.dto.PlayerResponse` 재사용(둘 다 전용 DTO를 새로 안 만든 것과 같은 판단), `supportPlayers`는 없으면 `null`이 아니라 빈 배열)
 - `SecurityConfig` — stateless + JWT 필터 통합 + `RestAuthenticationEntryPoint` 등록(401). `securityFilterChain(HttpSecurity, JwtTokenProvider, UserAccountRepository, ObjectMapper)`. **`JwtTokenProvider`/`JwtAuthenticationFilter`/`RestAuthenticationEntryPoint`/`GlobalExceptionHandler`는 `web-support` 모듈 소속**(`com.skhynix.websupport.*`)이라 컴포넌트 스캔 밖 — `UserApplication`이 `@Import({JwtVerificationConfig.class, GlobalExceptionHandler.class})`로 명시 등록한다
 - `auth.policy.PasswordPolicy` — 비밀번호 정책(길이 8~12, 영문+숫자+특수문자)의 **단일 출처**. `findViolation()`을 signup 검증과 `/password/validate`가 공유
@@ -27,26 +27,26 @@ JWT 기반 인증/인가 + 회원 탈퇴 + 이메일 인증(가입 선행조건)
 
 ## 엔드포인트
 ```
-POST /api/member/auth/signup            SignupRequest → Boolean (201, 이메일 인증완료 선행조건)
-POST /api/member/auth/login              LoginRequest  → TokenResponse
-POST /api/member/auth/refresh            TokenRequest  → TokenResponse
-POST /api/member/auth/logout             TokenRequest  → 204
-POST /api/member/auth/password/validate  PasswordValidationRequest → ApiResponse<PasswordValidationResponse> (항상 200)
-POST /api/member/auth/nickname/validate  NicknameValidationRequest → ApiResponse<NicknameValidationResponse> (항상 200)
-POST /api/member/auth/nickname/duplicate NicknameValidationRequest → ApiResponse<NicknameValidationResponse> (항상 200, 중복만 검사)
-POST /api/member/auth/email/send-code    EmailSendCodeRequest → 200 (가입된 이메일 409, 쿨다운 60초 내 재요청 429)
-POST /api/member/auth/email/verify       EmailVerifyRequest   → 200 (불일치/만료·무효/시도초과 400)
-DELETE /api/member/users/me              (본문 없음, access 필수) → 204
-GET /api/member/users/me                 (파라미터 없음, access 필수) → ApiResponse<UserAccountResponse> (200, 응원 구단 없으면 supportTeam:null, 응원 선수 없으면 supportPlayers:[](null 아님), users_bq 행 없으면 bqScore:0 — 셋 다 정상 200)
-GET /api/member/teams                    (파라미터 없음) → ApiResponse<List<TeamResponse>> (200, 무인증, name 오름차순)
-GET /api/member/players                  (?teamId=·?name= 둘 다 선택, AND 결합) → ApiResponse<List<PlayerResponse>> (200, 항목 키 6개 {teamId,teamName,playerId,playerName,playerNumber,playerPosition} — permitAll이면서 토큰을 읽는 첫 공개 경로, 활성 응원 구단이 있으면 요청 teamId를 오버라이딩, 비인증이면 종전대로 name 오름차순, 없는 teamId·미일치 name 은 빈 배열, name 은 부분 일치. 포지션·등번호로 거르는 파라미터는 없다)
-GET /api/member/games                    (?date= 선택, ISO yyyy-MM-dd) → ApiResponse<List<GameResponse>> (200, 무인증, gameDate 오름차순, 생략 시 Asia/Seoul 기준 오늘, 형식 오류는 400·ApiResponse 래퍼 아님)
-GET /api/member/games/lineup             (?gameId= 필수, naverGameId) → ApiResponse<List<GameLineupResponse>> (200, 무인증, 팀 그룹 배열·teamId 오름차순 / 없는 경기·빈 gameId·공백 gameId 는 404 GAME_NOT_FOUND / 라인업 미공시는 200 + 빈 배열 / 파라미터 자체 생략은 400·ApiResponse 래퍼 아님 / 비-GET 은 401)
-POST /api/member/support/team            SupportTeamRequest{teamId} → ApiResponse<TeamResponse> (200, access 필수)
-POST /api/member/support/players         SupportPlayersRequest{playerIds} → ApiResponse<List<PlayerResponse>> (200, access 필수, 추가 방식, 활성 4명 초과 시 400 SUPPORT_PLAYER_LIMIT_EXCEEDED·전체 거부)
-PUT /api/member/support/players/oppose   SupportPlayersRequest{playerIds} → ApiResponse<List<PlayerResponse>> (200, access 필수, oppose 채움)
+POST /api/auth/signup            SignupRequest → Boolean (201, 이메일 인증완료 선행조건)
+POST /api/auth/login              LoginRequest  → TokenResponse
+POST /api/auth/refresh            TokenRequest  → TokenResponse
+POST /api/auth/logout             TokenRequest  → 204
+POST /api/auth/password/validate  PasswordValidationRequest → ApiResponse<PasswordValidationResponse> (항상 200)
+POST /api/auth/nickname/validate  NicknameValidationRequest → ApiResponse<NicknameValidationResponse> (항상 200)
+POST /api/auth/nickname/duplicate NicknameValidationRequest → ApiResponse<NicknameValidationResponse> (항상 200, 중복만 검사)
+POST /api/auth/email/send-code    EmailSendCodeRequest → 200 (가입된 이메일 409, 쿨다운 60초 내 재요청 429)
+POST /api/auth/email/verify       EmailVerifyRequest   → 200 (불일치/만료·무효/시도초과 400)
+DELETE /api/users/me              (본문 없음, access 필수) → 204
+GET /api/users/me                 (파라미터 없음, access 필수) → ApiResponse<UserAccountResponse> (200, 응원 구단 없으면 supportTeam:null, 응원 선수 없으면 supportPlayers:[](null 아님), users_bq 행 없으면 bqScore:0 — 셋 다 정상 200)
+GET /api/teams                    (파라미터 없음) → ApiResponse<List<TeamResponse>> (200, 무인증, name 오름차순)
+GET /api/players                  (?teamId=·?name= 둘 다 선택, AND 결합) → ApiResponse<List<PlayerResponse>> (200, 항목 키 6개 {teamId,teamName,playerId,playerName,playerNumber,playerPosition} — permitAll이면서 토큰을 읽는 첫 공개 경로, 활성 응원 구단이 있으면 요청 teamId를 오버라이딩, 비인증이면 종전대로 name 오름차순, 없는 teamId·미일치 name 은 빈 배열, name 은 부분 일치. 포지션·등번호로 거르는 파라미터는 없다)
+GET /api/games                    (?date= 선택, ISO yyyy-MM-dd) → ApiResponse<List<GameResponse>> (200, 무인증, gameDate 오름차순, 생략 시 Asia/Seoul 기준 오늘, 형식 오류는 400·ApiResponse 래퍼 아님)
+GET /api/games/lineup             (?gameId= 필수, naverGameId) → ApiResponse<List<GameLineupResponse>> (200, 무인증, 팀 그룹 배열·teamId 오름차순 / 없는 경기·빈 gameId·공백 gameId 는 404 GAME_NOT_FOUND / 라인업 미공시는 200 + 빈 배열 / 파라미터 자체 생략은 400·ApiResponse 래퍼 아님 / 비-GET 은 401)
+POST /api/support/team            SupportTeamRequest{teamId} → ApiResponse<TeamResponse> (200, access 필수)
+POST /api/support/players         SupportPlayersRequest{playerIds} → ApiResponse<List<PlayerResponse>> (200, access 필수, 추가 방식, 활성 4명 초과 시 400 SUPPORT_PLAYER_LIMIT_EXCEEDED·전체 거부)
+PUT /api/support/players/oppose   SupportPlayersRequest{playerIds} → ApiResponse<List<PlayerResponse>> (200, access 필수, oppose 채움)
 ```
-`/api/member/users/me`는 `/api/member/auth/**` 밖에서 `anyRequest().authenticated()`에 실제로 걸리는 첫 경로다(`SecurityConfig` 수정 불필요 — 기존 규칙에 그대로 걸림). `/api/member/auth/**`는 전부 `permitAll`이라 탈퇴를 그쪽에 두면 인증이 걸리지 않는다. `/api/member/teams`는 반대로 `/api/member/auth/**` **밖에서 처음 `permitAll`이 된** 경로다(`HttpMethod.GET`으로 좁혀 열어 비-GET은 405가 아니라 401). `/api/member/players`·`/api/member/games`도 같은 성격의 참조 데이터라 같은 방식으로 열었다 — **새 공개 조회 경로를 추가할 때 `SecurityConfig`에 GET 한정 `permitAll` 한 줄을 빠뜨리면 `anyRequest().authenticated()`에 걸려 401이 난다**(선수 목록 초안이 실제로 밟은 함정). **`/api/member/games/lineup`은 이 함정의 변종이다**: `/games` 매처가 **정확 매칭**이라 하위 경로를 덮지 않아, `/games`가 이미 열려 있어도 `/games/lineup`에는 별도 줄이 또 필요했다(안 그러면 401). `/players`는 그중에서도 **`permitAll`이면서 토큰을 읽는 첫 공개 경로**다 — `JwtAuthenticationFilter`가 `permitAll` 경로에서도 돌아 유효 토큰이면 principal(`Long`)을 채우고, `PlayerService`가 그 principal로 활성 응원 구단을 조회해 있으면 요청의 `teamId`를 무시하고 덮어쓴다(비인증·무효 토큰이면 헤더 없음과 동일하게 종전 동작).
+`/api/users/me`는 `/api/auth/**` 밖에서 `anyRequest().authenticated()`에 실제로 걸리는 첫 경로다(`SecurityConfig` 수정 불필요 — 기존 규칙에 그대로 걸림). `/api/auth/**`는 전부 `permitAll`이라 탈퇴를 그쪽에 두면 인증이 걸리지 않는다. `/api/teams`는 반대로 `/api/auth/**` **밖에서 처음 `permitAll`이 된** 경로다(`HttpMethod.GET`으로 좁혀 열어 비-GET은 405가 아니라 401). `/api/players`·`/api/games`도 같은 성격의 참조 데이터라 같은 방식으로 열었다 — **새 공개 조회 경로를 추가할 때 `SecurityConfig`에 GET 한정 `permitAll` 한 줄을 빠뜨리면 `anyRequest().authenticated()`에 걸려 401이 난다**(선수 목록 초안이 실제로 밟은 함정). **`/api/games/lineup`은 이 함정의 변종이다**: `/games` 매처가 **정확 매칭**이라 하위 경로를 덮지 않아, `/games`가 이미 열려 있어도 `/games/lineup`에는 별도 줄이 또 필요했다(안 그러면 401). `/players`는 그중에서도 **`permitAll`이면서 토큰을 읽는 첫 공개 경로**다 — `JwtAuthenticationFilter`가 `permitAll` 경로에서도 돌아 유효 토큰이면 principal(`Long`)을 채우고, `PlayerService`가 그 principal로 활성 응원 구단을 조회해 있으면 요청의 `teamId`를 무시하고 덮어쓴다(비인증·무효 토큰이면 헤더 없음과 동일하게 종전 동작).
 
 ## 의존
 - 모듈: `:common`, `:domain`, `:web-support`(JWT 발급/검증·예외 핸들러·401 엔트리포인트 — 상세는 `.claude/modules/web-support.md`)
@@ -61,7 +61,7 @@ PUT /api/member/support/players/oppose   SupportPlayersRequest{playerIds} → Ap
 - `login`의 탈퇴 판정은 코드가 아니라 쿼리 조건(`findByUser_EmailAndExitAtIsNull`)이 하는 일이다 — 탈퇴 계정이 "못 찾음"으로 흡수돼 bcrypt 검사조차 안 타므로 미가입 이메일과 **응답이 완전히 동일**(전용 "탈퇴했습니다" 메시지를 두면 가입 이력이 노출되므로 의도적)
 - `JwtVerificationConfig`("검증만 필요한 모듈은 이 설정만 import" Javadoc)는 실제로는 uid→id 해석에 `UserAccountRepository`(`:domain`+JPA)까지 필요한데 Javadoc이 이를 안 적어 부정확할 뿐, `quiz`는 JWT 필터 도입 시점부터 이미 `:domain`+JPA를 갖추고 있어 새로 걸리는 모듈은 없음
 - **미인증 응답은 401**(`RestAuthenticationEntryPoint` + `ApiResponse`, 실측 바디 `{"success":false,"data":null,"message":"인증이 필요합니다."}` = `ErrorCode.UNAUTHENTICATED`). `formLogin`/`httpBasic`을 둘 다 disable하면 엔트리포인트를 등록하는 주체가 없어져 Spring Security 기본값(`Http403ForbiddenEntryPoint`)으로 떨어지는 함정이 있었음 — `exceptionHandling.authenticationEntryPoint`로 명시 등록해 401로 고정. 다시 밟기 쉬운 함정이니 기억할 것
-- **엔트리포인트(필터 단계)와 `GlobalExceptionHandler`(컨트롤러 단계)는 다른 경로**: `POST /api/member/auth/login` 자격 오답도 401이지만 메시지가 다르다(`"이메일 또는 비밀번호가 올바르지 않습니다."`, `INVALID_CREDENTIALS`). 상태 코드만으로 두 경로가 구분되지 않는다 — 엔트리포인트는 `ExceptionTranslationFilter`에서 호출돼 `@RestControllerAdvice`에 안 잡힘
+- **엔트리포인트(필터 단계)와 `GlobalExceptionHandler`(컨트롤러 단계)는 다른 경로**: `POST /api/auth/login` 자격 오답도 401이지만 메시지가 다르다(`"이메일 또는 비밀번호가 올바르지 않습니다."`, `INVALID_CREDENTIALS`). 상태 코드만으로 두 경로가 구분되지 않는다 — 엔트리포인트는 `ExceptionTranslationFilter`에서 호출돼 `@RestControllerAdvice`에 안 잡힘
 - `AccessDeniedHandler`는 의도적으로 미도입: 필터가 권한을 `Collections.emptyList()`로 넣어 authority 기반 403 경로가 없음
 - Jackson 3 (Boot 4.1) 사용 중: `ObjectMapper`/`JsonNode`는 **`tools.jackson.databind.*`**. `com.fasterxml.jackson.databind.ObjectMapper`를 import하면 컴파일 깨짐 — 클래스패스의 `com.fasterxml` 2.x는 `jjwt-jackson`이 runtimeOnly로 끌고 온 것뿐이라 컴파일에 안 잡혀 더 헷갈림
 - **Refresh 토큰 1개 정책**: 발급 직전 `expireValidTokens()`로 기존 유효 토큰 만료(재사용 방지). 탈퇴도 같은 메서드로 `exit_at`과 같은 시각에 유효 토큰을 전부 만료시킨다(`UserAccountService.withdraw`)
@@ -70,7 +70,7 @@ PUT /api/member/support/players/oppose   SupportPlayersRequest{playerIds} → Ap
 - Redis 키 규약(접두사 `email:verify:`): `code:{email}`(6자리, TTL 5분) · `attempts:{email}`(카운터, code와 동일 TTL 5분) · `cooldown:{email}`(존재 여부만, TTL 60초) · `verified:{email}`(존재 여부만, TTL 30분, signup이 조회). 오답은 5회까지 `INVALID_VERIFICATION_CODE`로 응답(카운터만 증가), 직전 누적 시도가 5 이상인 상태에서 재시도(=6번째)하면 정답 여부와 무관하게 `VERIFICATION_ATTEMPTS_EXCEEDED`로 차단하고 코드 무효화 → 재발송 요구
 - 신규 `ErrorCode`(`:common`) 5종: `INVALID_VERIFICATION_CODE`/`EXPIRED_VERIFICATION_CODE`/`VERIFICATION_ATTEMPTS_EXCEEDED`/`EMAIL_NOT_VERIFIED`는 400, `EMAIL_SEND_COOLDOWN`은 **이 모듈 첫 429** 응답
 - `send-code`가 이미 가입된 이메일에 409(`DUPLICATE_EMAIL`)를 주는 것은 위 "탈퇴 계정 비노출"류 원칙의 **의도적 예외**다 — 계정 존재를 비노출하기보다 중복가입 사전차단을 우선하기로 한 결정(근거: `docs/requirements/user/email-verification.md`)
-- **알려진 한계**: 동시 `DELETE /api/member/users/me` 2건이 각각 필터를 통과하면 둘 다 `exitAt=null`을 읽어 last-write-wins로 `exit_at`이 밀리초 단위로 밀릴 수 있음(**탈퇴는 여전히 비관적 락/조건부 UPDATE 미도입** — 아래 응원 락과 달리 이 경로만 그대로 남겨 둔 경계, 영향 경미 — 계정은 탈퇴되고 토큰도 만료됨). 순차 호출은 실측 PASS
+- **알려진 한계**: 동시 `DELETE /api/users/me` 2건이 각각 필터를 통과하면 둘 다 `exitAt=null`을 읽어 last-write-wins로 `exit_at`이 밀리초 단위로 밀릴 수 있음(**탈퇴는 여전히 비관적 락/조건부 UPDATE 미도입** — 아래 응원 락과 달리 이 경로만 그대로 남겨 둔 경계, 영향 경미 — 계정은 탈퇴되고 토큰도 만료됨). 순차 호출은 실측 PASS
 - **응원 상태 변경(`POST /support/team`·`POST /support/players`·`PUT /support/players/oppose`)은 계정 행 비관적 락으로 직렬화된다**(`UserAccountRepository.findWithLockById`, `@Lock(PESSIMISTIC_WRITE)`, 2026-08-06). 응원 행이 아니라 **계정 행**을 잠그는 이유: 지키는 불변식(활성 선수 ≤4명)이 "비어 있을 수 있는 집합"에 대한 진술이라 0명 계정엔 잠글 응원 행이 없다 — 계정 행은 행 수가 0이 될 수 없는 유일한 앵커다. ⚠ "응원 행 잠금이 불가능하다"는 뜻은 아니다 — REPEATABLE READ 넥스트키 락은 갭까지 잠가 팬텀 INSERT 를 막을 수 있다. 계정 행을 택한 진짜 이유는 갭 락이 READ COMMITTED 에서 사라지고 잠기는 범위가 인덱스 선택에 좌우돼, **격리 수준·인덱스에 의존하지 않는 PK 단일 행 잠금**을 골랐다는 것
 - **락의 파급 범위는 계정 행 하나로 안 끝난다**: 직접 잠기는 건 `users_account` 한 행뿐이고 자식 행(응원 행 등)은 잠기지 않지만, InnoDB 가 자식 행 INSERT 시 FK 검사로 **부모 행에 공유 락**을 잡아 그 계정을 참조하는 자식 테이블 쓰기 전반(응원 행뿐 아니라 로그인이 만드는 `users_refreshtoken` INSERT 등)이 대기한다(읽기는 MVCC 라 안 막힘). "계정 행 하나만 잠근다"가 "영향이 그 행에 갇힌다"는 뜻이 아니므로 이 트랜잭션 안에 외부 호출 등 오래 걸리는 작업을 넣지 말 것
 - **락 획득 실패(대기 50초 초과·데드락)는 `ApiResponse` 래퍼 없는 500 으로 나간다**(`GlobalExceptionHandler`가 `BusinessException`·`MethodArgumentNotValidException` 둘만 처리). 사용자가 **현행 유지로 확정**(409/503 매핑 안 함) — 알려진 한계

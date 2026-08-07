@@ -18,7 +18,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 응원 구단·선수 선택 엔드포인트({@code /api/member/support/**}).
+ * 응원 구단·선수 선택 엔드포인트({@code /api/support/**}).
  * 요구사항: {@code docs/requirements/user/support-selection.md}.
  *
  * <p><b>{@code SecurityConfig} 를 수정하지 말 것</b> — 세 경로 모두 {@code permitAll} 목록에 없어
@@ -27,7 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequiredArgsConstructor
-// 접두사 /api/member 는 server.servlet.context-path 가 붙인다 → 실제 노출 경로는 /api/member/support/**
+// 접두사 /api 는 server.servlet.context-path 가 붙인다 → 실제 노출 경로는 /api/support/**
 @RequestMapping("/support")
 public class SupportController {
 

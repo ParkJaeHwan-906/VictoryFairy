@@ -7,7 +7,7 @@
 ## 배경 / 목적
 `docs/requirements/quiz/chat.md`의 **QUIZ-CHAT-5는 "구단 소속에 따른 접근 제한 없음"을 명시적으로 확정한 승인 요구사항**이었다(Q1, 2026-07-20). 이 문서는 그 결정을 뒤집는다 — 채팅방을 응원 구단 단위의 폐쇄 공간으로 바꾼다. QUIZ-CHAT-5와 AC-CHAT-5-1은 이 문서로 대체되며 2026-08-04 철회 표기되었다(아래 "기존 정책과의 충돌" 절 1).
 
-판정 기준이 될 `user_support_team`(`oppose IS NULL` 1행 = 현재 응원 구단)은 이미 존재하며, user 앱의 `POST /api/member/support/team`이 "구단은 정확히 1개" 불변식을 강제한다(USER-SP-12). quiz는 이 테이블을 읽기만 한다.
+판정 기준이 될 `user_support_team`(`oppose IS NULL` 1행 = 현재 응원 구단)은 이미 존재하며, user 앱의 `POST /api/support/team`이 "구단은 정확히 1개" 불변식을 강제한다(USER-SP-12). quiz는 이 테이블을 읽기만 한다.
 
 ## 범위
 - 포함:
@@ -16,7 +16,7 @@
   - **같은 사용자의 중복 구독 축출**(last-one-wins)(G절)
   - 위 두 종료 신호의 **다중 파드 전파**(QUIZ-CTAC-28/29)
 - 제외:
-  - **응원 구단을 바꾸는 경로** — user 앱(`POST /api/member/support/team`)이 담당하며 이 문서는 그 결과를 읽기만 한다
+  - **응원 구단을 바꾸는 경로** — user 앱(`POST /api/support/team`)이 담당하며 이 문서는 그 결과를 읽기만 한다
   - **구단 변경을 이유로 한 열린 구독의 강제 절단** — Q5 확정에 따라 이번 범위 밖(명시적 퇴장·중복 축출로 인한 종료는 **포함**이다. 필요해지는 조건은 "전제" 절 A에 기록)
   - **user 앱에서 구단이 바뀐 사실을 quiz에 실시간으로 알리는 앱간 이벤트 채널** — 위와 같은 이유로 제외
   - **참여 인원 노출** — 퇴장·축출로도 인원수를 응답에 담지 않는다(QUIZ-CHAT-52 유지, QUIZ-CTAC-26)
@@ -28,15 +28,15 @@
 
 | 메서드 | 경로 | 이 문서가 추가하는 것 |
 |---|---|---|
-| GET | `/api/game/chat/rooms` | `teamId` 쿼리 파라미터(선택) + 구단 필터링 |
-| GET | `/api/game/chat/rooms/{roomUid}` | 구단 일치 검사 |
-| GET | `/api/game/chat/rooms/{roomUid}/subscribe` | 구단 일치 검사(연결 시점 1회) |
-| POST | `/api/game/chat/rooms/{roomUid}/messages` | 구단 일치 검사 |
-| GET | `/api/game/chat/rooms/{roomUid}/messages` | 구단 일치 검사 |
-| POST | `/api/game/chat/rooms/{roomUid}/messages/{messageId}/report` | 구단 일치 검사 |
-| **DELETE** | **`/api/game/chat/rooms/{roomUid}/subscribe`** | **신규 — 명시적 퇴장(구독 종료). 구단 일치 검사를 걸지 않는다(QUIZ-CTAC-21)** |
+| GET | `/rt/chat/rooms` | `teamId` 쿼리 파라미터(선택) + 구단 필터링 |
+| GET | `/rt/chat/rooms/{roomUid}` | 구단 일치 검사 |
+| GET | `/rt/chat/rooms/{roomUid}/subscribe` | 구단 일치 검사(연결 시점 1회) |
+| POST | `/rt/chat/rooms/{roomUid}/messages` | 구단 일치 검사 |
+| GET | `/rt/chat/rooms/{roomUid}/messages` | 구단 일치 검사 |
+| POST | `/rt/chat/rooms/{roomUid}/messages/{messageId}/report` | 구단 일치 검사 |
+| **DELETE** | **`/rt/chat/rooms/{roomUid}/subscribe`** | **신규 — 명시적 퇴장(구독 종료). 구단 일치 검사를 걸지 않는다(QUIZ-CTAC-21)** |
 
-컨트롤러의 `@RequestMapping`은 접두사 없는 `/chat/rooms/{roomUid}/subscribe`이고 `server.servlet.context-path`(`/api/game`)가 앞에 붙어 위 경로가 된다. 신규 경로도 quiz `SecurityConfig`의 `anyRequest().authenticated()`에 그대로 걸려 **인증 필수**이며 principal은 `@AuthenticationPrincipal Long userAccountId`다 — SecurityConfig 수정은 필요 없다.
+컨트롤러의 `@RequestMapping`은 접두사 없는 `/chat/rooms/{roomUid}/subscribe`이고 `server.servlet.context-path`(`/rt`)가 앞에 붙어 위 경로가 된다. 신규 경로도 quiz `SecurityConfig`의 `anyRequest().authenticated()`에 그대로 걸려 **인증 필수**이며 principal은 `@AuthenticationPrincipal Long userAccountId`다 — SecurityConfig 수정은 필요 없다.
 
 ## 전제 (확정 — 요구사항의 바탕)
 
@@ -62,16 +62,16 @@
 | ID | 유형 | 요구사항 | 인수 기준 |
 |---|---|---|---|
 | QUIZ-CTAC-1 | 유비쿼터스 | THE 시스템 SHALL 접근 판정의 기준 구단을 요청자의 현재 응원 구단(`user_support_team`에서 `oppose IS NULL`인 행의 구단)으로 삼는다 | KIA를 응원하는 계정의 토큰으로 요청하면 판정 기준 구단이 KIA다. `oppose`가 채워진 과거 응원 구단은 기준이 되지 않는다 — KIA→LG로 바꾼 계정은 다음 요청부터 LG 기준으로 판정된다(캐시 없음) |
-| QUIZ-CTAC-2 | 이벤트 | WHEN 방 목록 요청에 `teamId`가 없으면, THE 시스템 SHALL 요청자의 현재 응원 구단을 `teamId`로 간주해 동일하게 처리한다 | LG(id=3) 응원 계정이 `GET /api/game/chat/rooms` → 200, 결과가 `?teamId=3`으로 요청했을 때와 동일 |
-| QUIZ-CTAC-3 | 예외 | IF 요청자에게 현재 응원 중인 구단이 없고 `teamId`도 전달되지 않으면, THEN THE 시스템 SHALL 400 `SUPPORT_TEAM_REQUIRED`를 반환한다 | 응원 구단 미선택 계정이 `GET /api/game/chat/rooms` → 400, `{"success":false,"data":null,"message":"응원하는 구단을 먼저 선택해 주세요."}` |
-| QUIZ-CTAC-4 | 예외 | IF 요청자에게 현재 응원 중인 구단이 없으면, THEN THE 시스템 SHALL `teamId`가 전달되었더라도 400 `SUPPORT_TEAM_REQUIRED`를 반환한다 | 응원 구단 미선택 계정이 `GET /api/game/chat/rooms?teamId=3` → 400. 비교 기준 자체가 없어 일치 판정이 불가능하다 |
+| QUIZ-CTAC-2 | 이벤트 | WHEN 방 목록 요청에 `teamId`가 없으면, THE 시스템 SHALL 요청자의 현재 응원 구단을 `teamId`로 간주해 동일하게 처리한다 | LG(id=3) 응원 계정이 `GET /rt/chat/rooms` → 200, 결과가 `?teamId=3`으로 요청했을 때와 동일 |
+| QUIZ-CTAC-3 | 예외 | IF 요청자에게 현재 응원 중인 구단이 없고 `teamId`도 전달되지 않으면, THEN THE 시스템 SHALL 400 `SUPPORT_TEAM_REQUIRED`를 반환한다 | 응원 구단 미선택 계정이 `GET /rt/chat/rooms` → 400, `{"success":false,"data":null,"message":"응원하는 구단을 먼저 선택해 주세요."}` |
+| QUIZ-CTAC-4 | 예외 | IF 요청자에게 현재 응원 중인 구단이 없으면, THEN THE 시스템 SHALL `teamId`가 전달되었더라도 400 `SUPPORT_TEAM_REQUIRED`를 반환한다 | 응원 구단 미선택 계정이 `GET /rt/chat/rooms?teamId=3` → 400. 비교 기준 자체가 없어 일치 판정이 불가능하다 |
 
-### B. 방 목록 조회 — `GET /api/game/chat/rooms`
+### B. 방 목록 조회 — `GET /rt/chat/rooms`
 
 | ID | 유형 | 요구사항 | 인수 기준 |
 |---|---|---|---|
-| QUIZ-CTAC-5 | 이벤트 | WHEN `teamId`가 요청자의 현재 응원 구단과 같으면, THE 시스템 SHALL 그 구단에 속한 소프트삭제되지 않은 방만 200으로 반환한다 | KIA(id=6) 응원 계정이 `GET /api/game/chat/rooms?teamId=6` → 200, 모든 항목의 `team`이 KIA이며 다른 구단 방은 한 건도 없다. 현재 시드는 team↔room 1:1이므로 결과는 1건이다. 항목 필드는 기존과 동일(`roomUid`·`team`·`name`) |
-| QUIZ-CTAC-6 | 예외 | IF `teamId`가 요청자의 현재 응원 구단과 다르면, THEN THE 시스템 SHALL 403 `CHATROOM_TEAM_MISMATCH`를 반환하고 어떤 방 목록도 반환하지 않는다 | KIA(id=6) 응원 계정이 `GET /api/game/chat/rooms?teamId=3`(LG) → 403, 본문 `data`는 `null`이며 방 목록이 실리지 않는다 |
+| QUIZ-CTAC-5 | 이벤트 | WHEN `teamId`가 요청자의 현재 응원 구단과 같으면, THE 시스템 SHALL 그 구단에 속한 소프트삭제되지 않은 방만 200으로 반환한다 | KIA(id=6) 응원 계정이 `GET /rt/chat/rooms?teamId=6` → 200, 모든 항목의 `team`이 KIA이며 다른 구단 방은 한 건도 없다. 현재 시드는 team↔room 1:1이므로 결과는 1건이다. 항목 필드는 기존과 동일(`roomUid`·`team`·`name`) |
+| QUIZ-CTAC-6 | 예외 | IF `teamId`가 요청자의 현재 응원 구단과 다르면, THEN THE 시스템 SHALL 403 `CHATROOM_TEAM_MISMATCH`를 반환하고 어떤 방 목록도 반환하지 않는다 | KIA(id=6) 응원 계정이 `GET /rt/chat/rooms?teamId=3`(LG) → 403, 본문 `data`는 `null`이며 방 목록이 실리지 않는다 |
 | QUIZ-CTAC-7 | 예외 | IF `teamId`가 존재하지 않는 구단 id면, THEN THE 시스템 SHALL QUIZ-CTAC-6과 동일한 응답을 반환한다 | `?teamId=999999` → 403 `CHATROOM_TEAM_MISMATCH`. 구단 존재 여부를 별도로 조회해 404 `TEAM_NOT_FOUND`를 내지 않는다 — 응원 구단과 같지 않다는 사실만으로 판정이 끝난다 |
 | QUIZ-CTAC-8 | 예외 | IF `teamId`가 정수로 변환할 수 없는 값이면, THEN THE 시스템 SHALL 400을 반환한다 | `?teamId=abc` → 400. 이 400은 컨트롤러 진입 전 바인딩 단계에서 발생해 **`ApiResponse` 래퍼가 아니다**(`docs/api/README.md` 공통 규약의 기존 예외 — player·game의 `?teamId=`·`?date=`와 동일). 이 문서가 바꾸지 않는 기존 동작이다 |
 
@@ -79,7 +79,7 @@
 
 | ID | 유형 | 요구사항 | 인수 기준 |
 |---|---|---|---|
-| QUIZ-CTAC-9 | 예외 | IF 대상 방의 구단이 요청자의 현재 응원 구단과 다르면, THEN THE 시스템 SHALL 방 상세 조회를 403 `CHATROOM_TEAM_MISMATCH`로 거부한다 | KIA 응원 계정이 LG 방 `roomUid`로 `GET /api/game/chat/rooms/{roomUid}` → 403, `{"success":false,"data":null,"message":"응원하는 구단의 채팅방만 이용할 수 있습니다."}` |
+| QUIZ-CTAC-9 | 예외 | IF 대상 방의 구단이 요청자의 현재 응원 구단과 다르면, THEN THE 시스템 SHALL 방 상세 조회를 403 `CHATROOM_TEAM_MISMATCH`로 거부한다 | KIA 응원 계정이 LG 방 `roomUid`로 `GET /rt/chat/rooms/{roomUid}` → 403, `{"success":false,"data":null,"message":"응원하는 구단의 채팅방만 이용할 수 있습니다."}` |
 | QUIZ-CTAC-10 | 예외 | IF 대상 방의 구단이 요청자의 현재 응원 구단과 다르면, THEN THE 시스템 SHALL 구독 요청을 403 `CHATROOM_TEAM_MISMATCH`로 거부하고 SSE 스트림을 열지 않는다 | KIA 응원 계정이 LG 방 `.../subscribe` → 403, 응답 `Content-Type`이 `text/event-stream`이 아니며 `SseEmitterRegistry`에 연결이 등록되지 않는다(이후 fan-out·하트비트 대상에도 없다) |
 | QUIZ-CTAC-11 | 예외 | IF 대상 방의 구단이 요청자의 현재 응원 구단과 다르면, THEN THE 시스템 SHALL 메시지 전송을 403 `CHATROOM_TEAM_MISMATCH`로 거부하고 저장하지 않는다 | KIA 응원 계정이 LG 방에 `POST .../messages {"content":"안녕"}` → 403, `chats` 행 증가 없음, 해당 방 구독자에게 SSE 전달 없음 |
 | QUIZ-CTAC-12 | 예외 | IF 대상 방의 구단이 요청자의 현재 응원 구단과 다르면, THEN THE 시스템 SHALL 히스토리 조회를 403 `CHATROOM_TEAM_MISMATCH`로 거부한다 | KIA 응원 계정이 LG 방 `GET .../messages?page=0` → 403, 응답에 메시지가 한 건도 실리지 않는다 |
@@ -100,13 +100,13 @@
 |---|---|---|---|
 | QUIZ-CTAC-18 | 유비쿼터스 | THE 시스템 SHALL 이 접근 제어 도입으로 방 응답의 필드 집합을 바꾸지 않는다 | 목록·상세 응답 항목의 키 집합은 여전히 `roomUid`·`team`·`name`이다. `participants`도, 접근 가능 여부를 나타내는 새 필드도 추가하지 않는다(QUIZ-CHAT-52 유지) |
 
-### F. 명시적 퇴장 — `DELETE /api/game/chat/rooms/{roomUid}/subscribe`
+### F. 명시적 퇴장 — `DELETE /rt/chat/rooms/{roomUid}/subscribe`
 
 > 채팅방을 나가면 SSE 연결을 즉시 끊는다(사용자 확정). **협조적 정리(cooperative cleanup)이지 보안 통제가 아니다** — 클라이언트가 호출하지 않아도 종전 안전망이 그대로 회수한다(QUIZ-CTAC-27).
 
 | ID | 유형 | 요구사항 | 인수 기준 |
 |---|---|---|---|
-| QUIZ-CTAC-19 | 이벤트 | WHEN 인증 사용자가 방 구독 해제를 요청하면, THE 시스템 SHALL 그 사용자의 해당 방 구독 연결을 종료하고 200 `ApiResponse.ok(null)`을 반환한다 | 구독 성립 후 `DELETE /api/game/chat/rooms/{roomUid}/subscribe` → 200, 본문 `{"success":true,"data":null,"message":null}`. 호출 직후 `SseEmitterRegistry.count(roomUid)`가 1 감소하고, 종료된 emitter는 `complete()` 상태다(클라이언트 스트림이 닫힌다) |
+| QUIZ-CTAC-19 | 이벤트 | WHEN 인증 사용자가 방 구독 해제를 요청하면, THE 시스템 SHALL 그 사용자의 해당 방 구독 연결을 종료하고 200 `ApiResponse.ok(null)`을 반환한다 | 구독 성립 후 `DELETE /rt/chat/rooms/{roomUid}/subscribe` → 200, 본문 `{"success":true,"data":null,"message":null}`. 호출 직후 `SseEmitterRegistry.count(roomUid)`가 1 감소하고, 종료된 emitter는 `complete()` 상태다(클라이언트 스트림이 닫힌다) |
 | QUIZ-CTAC-20 | 이벤트 | WHEN 종료할 구독이 없는 상태에서 구독 해제를 요청하면, THE 시스템 SHALL 아무 상태도 바꾸지 않고 200을 반환한다(멱등) | 구독한 적 없는 사용자의 해제 요청 → 200(404 아님). 같은 해제 요청을 연속 2회 보내면 **둘 다 200**이고 2회차에 레지스트리 상태 변화가 없다 |
 | QUIZ-CTAC-21 | 유비쿼터스 | THE 시스템 SHALL 구독 해제 경로에 구단 일치 검사(QUIZ-CTAC-10)를 적용하지 않는다 | KIA→LG로 구단을 바꾼 사용자가 **KIA 방**에 대해 해제를 요청해도 403이 아니라 200이며, 남아 있던 KIA 방 구독이 종료된다. 정리 요청을 403으로 막으면 구단을 바꾼 사용자가 자기 낡은 연결을 닫을 수 없게 되기 때문 |
 | QUIZ-CTAC-22 | 유비쿼터스 | THE 시스템 SHALL 응원 구단이 없는 사용자에게도 구독 해제를 허용한다(QUIZ-CTAC-15의 명시적 예외) | 응원 구단 미선택 계정의 해제 요청 → 400 `SUPPORT_TEAM_REQUIRED`가 아니라 200. 방 단위 경로 5개는 여전히 400이며 해제 경로만 다르다 |
@@ -137,14 +137,14 @@
 
 ## 결정 근거 (해소된 질문 — 다시 논의하지 않기 위해)
 1. **Q1 목록 `teamId` 불일치 → 403 차단.** 목록도 방 단위 경로와 같은 규칙을 따른다(QUIZ-CTAC-6/7). `teamId`의 유효값이 하나뿐이 되는 것을 인지한 선택이며, **파라미터는 제거하지 않고 유지한다** — 근거는 "알려진 결과" 1.
-2. **Q2 응원 구단 없음 → 목록·방 단위 모두 400 `SUPPORT_TEAM_REQUIRED`.** 빈 배열로 응답하면 **"방이 없다"와 "구단을 안 골랐다"가 구분되지 않아 프론트가 온보딩(구단 선택 화면)으로 유도할 수 없다**는 것이 채택 근거다. 기존 `ErrorCode`를 그대로 재사용하며 `POST /api/member/support/players`(USER-SP-15)와 같은 처리다(QUIZ-CTAC-3/4/15).
+2. **Q2 응원 구단 없음 → 목록·방 단위 모두 400 `SUPPORT_TEAM_REQUIRED`.** 빈 배열로 응답하면 **"방이 없다"와 "구단을 안 골랐다"가 구분되지 않아 프론트가 온보딩(구단 선택 화면)으로 유도할 수 없다**는 것이 채택 근거다. 기존 `ErrorCode`를 그대로 재사용하며 `POST /api/support/players`(USER-SP-15)와 같은 처리다(QUIZ-CTAC-3/4/15).
 3. **Q3 차단 범위 → 목록 + 방 단위 경로 전부(상세·구독·전송·히스토리·신고).** 상세·구독만 막으면 `POST .../messages`(도배)와 `GET .../messages`(히스토리 전문 열람)로 우회가 그대로 성립해 차단이 화면상 가림에 그친다. 구단 변경 후 자기 과거 메시지도 못 보게 되는 결과를 인지하고 택했다("알려진 결과" 2)(QUIZ-CTAC-9~13).
 4. **Q4 상태 코드 → 403 + 신규 `ErrorCode` `CHATROOM_TEAM_MISMATCH`.** 방은 10개 구단에 1:1로 고정 공개된 자원이라 404로 존재를 숨길 실익이 작고, 403이면 클라이언트가 "권한 없음"과 "없는 방"을 구분해 처리할 수 있다. 404안은 목록 경로에 지목된 방이 없어 계약이 두 갈래로 갈리는 문제도 있었다. **신규 코드는 `common/src/main/java/com/skhynix/common/error/ErrorCode.java`의 `// 403 Forbidden` 구획(현재 `SELF_REPORT_NOT_ALLOWED` 한 줄)에 추가될 예정이다** — 제안 문구: `CHATROOM_TEAM_MISMATCH(403, "응원하는 구단의 채팅방만 이용할 수 있습니다.")`. 이유가 메시지에 드러나 프론트가 구단 변경·온보딩 유도로 연결할 수 있다는 것이 문구 선택 근거이며, 자기신고 403(`SELF_REPORT_NOT_ALLOWED`)과 `message`로 구분된다.
 5. **Q5 SSE 구독 중 구단 변경 → 다음 연결부터 적용. 근거는 "노출 창 감수"가 아니다.** 클라이언트가 채팅 화면 진입 시 구독하고 이탈 시 끊으므로 **구독이 유지된 채 구단을 바꾸는 시나리오 자체가 성립하지 않는다**(전제 A). 따라서 subscribe 시점 1회 검사로 충분하며, 하트비트 재검사나 앱간 이벤트를 통한 즉시 절단은 채택하지 않는다. 전제가 깨졌을 때 필요한 것은 전제 A의 표에 사실로 기록해 두었다(QUIZ-CTAC-16/17).
 6. **구독 수명(F·G절) — 사용자 확정 4건 + 요구사항 담당 판단 1건.**
    - **사용자 확정**: (a) 채팅방을 나가면 SSE 연결을 즉시 끊는다 → 신규 `DELETE .../subscribe`(QUIZ-CTAC-19). (b) 멱등 — 끊을 구독이 없어도 200이며 404가 아니다(QUIZ-CTAC-20). (c) 중복 연결은 last-one-wins로 기존 연결을 삭제한다(QUIZ-CTAC-24). (d) `participants`는 건드리지 않고 퇴장 응답에 인원수를 담지 않는다(QUIZ-CTAC-26).
    - **해제 경로에는 팀 가드를 걸지 않는다**(QUIZ-CTAC-21/22): 정리 요청을 403/400으로 막으면 구단을 바꾼 사용자나 구단 미선택 사용자가 자기 낡은 연결을 닫지 못한다. 차단해서 지킬 것이 없는 반면(퇴장은 자기 연결만 건드린다), 막으면 그 연결이 최대 30분 남는 실질적 손해가 생긴다.
-   - **⚠ 요구사항 담당 판단(사용자 확정 아님) — QUIZ-CTAC-23**: 존재하지 않거나 삭제된 방의 해제 요청을 404가 아니라 **200(멱등)** 으로 정했다. 근거 셋 — (1) 해제의 목표 상태("그 방에 대한 내 구독 없음")가 방이 없을 때 이미 참이다, (2) 구독 중이던 방이 삭제된 뒤 퇴장하는 경우를 404로 막으면 QUIZ-CTAC-21과 같은 모순(정리 차단)이 생긴다, (3) 프로젝트에 같은 판단의 선례가 있다 — `PUT /api/member/support/players/oppose`의 "응원한 적 없는 선수 취소 → 404가 아니라 no-op 200"(USER-SP-27). 404를 원하면 이 한 줄만 바꾸면 되며, 그 경우 QUIZ-CTAC-14와의 예외 표기도 함께 지운다.
+   - **⚠ 요구사항 담당 판단(사용자 확정 아님) — QUIZ-CTAC-23**: 존재하지 않거나 삭제된 방의 해제 요청을 404가 아니라 **200(멱등)** 으로 정했다. 근거 셋 — (1) 해제의 목표 상태("그 방에 대한 내 구독 없음")가 방이 없을 때 이미 참이다, (2) 구독 중이던 방이 삭제된 뒤 퇴장하는 경우를 404로 막으면 QUIZ-CTAC-21과 같은 모순(정리 차단)이 생긴다, (3) 프로젝트에 같은 판단의 선례가 있다 — `PUT /api/support/players/oppose`의 "응원한 적 없는 선수 취소 → 404가 아니라 no-op 200"(USER-SP-27). 404를 원하면 이 한 줄만 바꾸면 되며, 그 경우 QUIZ-CTAC-14와의 예외 표기도 함께 지운다.
 
 ## 기존 정책과의 충돌 / 계약 성립 제약 (구현 방법 지시가 아니라 지켜야 할 사실)
 1. **QUIZ-CHAT-5는 이 문서로 대체되었다(2026-08-04 처리 완료).** 해당 요구사항은 "인증된 모든 사용자에게 모든 구단 방의 조회·입장·전송을 허용한다(구단 소속에 따른 접근 제한 없음)"를 승인된 계약으로 못박고 있었다. 사용자 승인에 따라 `docs/requirements/quiz/chat.md`의 QUIZ-CHAT-5에 `철회됨(2026-08-04, chat-team-access-control.md로 대체)` 표기를 달고 확정 전제 4·결정 근거 Q1을 무효 표기했으며, `docs/requirements/quiz/chat-acceptance.md`의 AC-CHAT-5-1도 무효 시나리오로 표기했다. 그 외 승인 항목은 건드리지 않았다.

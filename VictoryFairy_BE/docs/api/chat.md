@@ -1,8 +1,8 @@
 # 채팅(chat) API 명세
 
 > **도메인** `chat` — 구단별 채팅방, 메시지 전송·히스토리·신고, SSE 실시간 구독.
-> **모듈** quiz (포트 8081) · **경로 접두사** `/api/game/chat` · **엔드포인트** 7개
-> **컨트롤러** `quiz/src/main/java/com/skhynix/quiz/chat/controller/ChatController.java` (`@RequestMapping("/api/game/chat")`) — 현재 quiz 모듈의 유일한 컨트롤러.
+> **모듈** quiz (포트 8081) · **경로 접두사** `/rt/chat` · **엔드포인트** 7개
+> **컨트롤러** `quiz/src/main/java/com/skhynix/quiz/chat/controller/ChatController.java` (`@RequestMapping("/chat")` — `/rt`는 context-path가 붙인다) — 현재 quiz 모듈의 유일한 컨트롤러.
 > **최종 갱신** 2026-08-04 — **구단 접근 제어 도입**: 방 목록 `teamId` 필터·403 구단 가드(신규 `CHATROOM_TEAM_MISMATCH`)를 6개 기존 경로에 추가하고, 명시적 퇴장 `DELETE /rooms/{roomUid}/subscribe`를 신설(직전 변경: 2026-08-01 `RoomResponse`에서 `participants` 필드 제거)
 > **요구사항** `docs/requirements/quiz/chat.md`(QUIZ-CHAT, 도입 시점 계약) · `docs/requirements/quiz/chat-team-access-control.md`(QUIZ-CTAC-1~29, 이번 변경의 단일 출처)
 > 공통 규약(응답 래퍼·JWT payload·401 정책)은 [README.md](README.md)를 먼저 볼 것.
@@ -11,13 +11,13 @@
 
 | 메서드 | 경로 | 성공 | 용도 |
 |---|---|---|---|
-| GET | [/api/game/chat/rooms](#get-apigamechatrooms) | 200 | 채팅방 목록(응원 구단 기준, `teamId` 선택) |
-| GET | [/api/game/chat/rooms/{roomUid}](#get-apigamechatroomsroomuid) | 200 | 채팅방 상세 |
-| GET | [/api/game/chat/rooms/{roomUid}/subscribe](#get-apigamechatroomsroomuidsubscribe) | 200 (SSE) | 방 실시간 구독 |
-| **DELETE** | [/api/game/chat/rooms/{roomUid}/subscribe](#delete-apigamechatroomsroomuidsubscribe) | 200 | **명시적 퇴장(구독 종료)** — 신규 |
-| POST | [/api/game/chat/rooms/{roomUid}/messages](#post-apigamechatroomsroomuidmessages) | 201 | 메시지 전송 |
-| GET | [/api/game/chat/rooms/{roomUid}/messages](#get-apigamechatroomsroomuidmessages) | 200 | 히스토리 조회(페이징) |
-| POST | [/api/game/chat/rooms/{roomUid}/messages/{messageId}/report](#post-apigamechatroomsroomuidmessagesmessageidreport) | 200 | 메시지 신고 → 즉시 blind |
+| GET | [/rt/chat/rooms](#get-rtchatrooms) | 200 | 채팅방 목록(응원 구단 기준, `teamId` 선택) |
+| GET | [/rt/chat/rooms/{roomUid}](#get-rtchatroomsroomuid) | 200 | 채팅방 상세 |
+| GET | [/rt/chat/rooms/{roomUid}/subscribe](#get-rtchatroomsroomuidsubscribe) | 200 (SSE) | 방 실시간 구독 |
+| **DELETE** | [/rt/chat/rooms/{roomUid}/subscribe](#delete-rtchatroomsroomuidsubscribe) | 200 | **명시적 퇴장(구독 종료)** — 신규 |
+| POST | [/rt/chat/rooms/{roomUid}/messages](#post-rtchatroomsroomuidmessages) | 201 | 메시지 전송 |
+| GET | [/rt/chat/rooms/{roomUid}/messages](#get-rtchatroomsroomuidmessages) | 200 | 히스토리 조회(페이징) |
+| POST | [/rt/chat/rooms/{roomUid}/messages/{messageId}/report](#post-rtchatroomsroomuidmessagesmessageidreport) | 200 | 메시지 신고 → 즉시 blind |
 
 ## 이 도메인의 특이사항
 
@@ -53,7 +53,7 @@ blind 해제(unblind), 메시지/방 삭제를 수행하는 엔드포인트는 �
 
 ---
 
-## GET /api/game/chat/rooms
+## GET /rt/chat/rooms
 > 최종 변경: 2026-08-04 — `teamId` 쿼리 파라미터(선택) + 응원 구단 필터링 추가. 생략 시 응원 구단으로 간주, 불일치 시 403(직전: 2026-08-01(추정) `ChatController` 마지막 커밋)
 
 채팅방 목록(소프트삭제 제외, 요청자의 응원 구단 기준).
@@ -89,10 +89,10 @@ blind 해제(unblind), 메시지/방 삭제를 수행하는 엔드포인트는 �
 **예시**
 ```bash
 # 생략 — 내 응원 구단 방
-curl -i http://localhost:8081/api/game/chat/rooms \
+curl -i http://localhost:8081/rt/chat/rooms \
   -H 'Authorization: Bearer eyJ...'
 # 명시 — 응원 구단과 같아야 통과
-curl -i "http://localhost:8081/api/game/chat/rooms?teamId=6" \
+curl -i "http://localhost:8081/rt/chat/rooms?teamId=6" \
   -H 'Authorization: Bearer eyJ...'
 ```
 구단 불일치 실패 예시(403):
@@ -102,7 +102,7 @@ curl -i "http://localhost:8081/api/game/chat/rooms?teamId=6" \
 
 ---
 
-## GET /api/game/chat/rooms/{roomUid}
+## GET /rt/chat/rooms/{roomUid}
 > 최종 변경: 2026-08-04 — 구단 일치 검사 추가(내 응원 구단 방이 아니면 403). 판정 순서: 404 → 400(응원 구단 없음) → 403(직전: 2026-08-01(추정) `ChatController` 마지막 커밋)
 
 채팅방 상세.
@@ -127,13 +127,13 @@ curl -i "http://localhost:8081/api/game/chat/rooms?teamId=6" \
 
 **예시**
 ```bash
-curl -i http://localhost:8081/api/game/chat/rooms/3f9c2e10-... \
+curl -i http://localhost:8081/rt/chat/rooms/3f9c2e10-... \
   -H 'Authorization: Bearer eyJ...'
 ```
 
 ---
 
-## GET /api/game/chat/rooms/{roomUid}/subscribe
+## GET /rt/chat/rooms/{roomUid}/subscribe
 > 최종 변경: 2026-08-04 — 구독 시점 1회 구단 일치 검사 추가(스트림을 열기 전, 트랜잭션 안에서 완결) + 같은 사용자의 기존 구독을 축출(last-one-wins)(직전: 2026-08-01(추정) `ChatController` 마지막 커밋)
 
 방 실시간 구독(SSE). `produces = text/event-stream`. 반환 타입은 `SseEmitter`이며 `ApiResponse`로 감싸지 않는다(다른 6개 엔드포인트와 다름 — 이벤트 스트림이라 JSON 래핑 대상이 아님).
@@ -176,14 +176,14 @@ curl -i http://localhost:8081/api/game/chat/rooms/3f9c2e10-... \
 
 **예시(fetch 기반 폴리필 개념 — 실제 라이브러리는 프로젝트마다 다름)**
 ```bash
-curl -i -N http://localhost:8081/api/game/chat/rooms/3f9c2e10-.../subscribe \
+curl -i -N http://localhost:8081/rt/chat/rooms/3f9c2e10-.../subscribe \
   -H 'Authorization: Bearer eyJ...' \
   -H 'Accept: text/event-stream'
 ```
 
 ---
 
-## DELETE /api/game/chat/rooms/{roomUid}/subscribe
+## DELETE /rt/chat/rooms/{roomUid}/subscribe
 > 최종 변경: 2026-08-04 — 신규 추가
 
 명시적 퇴장 — 요청자의 이 방에 대한 SSE 구독을 즉시 끊는다. **협조적 정리(cooperative cleanup)이지 보안 통제가 아니다.** 클라이언트가 이 경로를 호출하지 않아도 종전 안전망(하트비트 실패·`onCompletion`·30분 타임아웃)이 그대로 회수한다 — 이 경로는 그 회수를 더 빠르게 만드는 협조 수단일 뿐, 이 경로로 막히는 접근 통제는 없다(접근 차단은 구단 가드가 담당).
@@ -221,7 +221,7 @@ curl -i -N http://localhost:8081/api/game/chat/rooms/3f9c2e10-.../subscribe \
 
 **예시**
 ```bash
-curl -i -X DELETE http://localhost:8081/api/game/chat/rooms/3f9c2e10-.../subscribe \
+curl -i -X DELETE http://localhost:8081/rt/chat/rooms/3f9c2e10-.../subscribe \
   -H 'Authorization: Bearer eyJ...'
 ```
 ```json
@@ -230,7 +230,7 @@ curl -i -X DELETE http://localhost:8081/api/game/chat/rooms/3f9c2e10-.../subscri
 
 ---
 
-## POST /api/game/chat/rooms/{roomUid}/messages
+## POST /rt/chat/rooms/{roomUid}/messages
 > 최종 변경: 2026-08-04 — 구단 일치 검사 추가(내 응원 구단 방이 아니면 403, 저장하지 않음). 판정 순서: content 검증(400) → 방 존재(404) → 응원 구단 없음(400) → 구단 불일치(403)(직전: 2026-08-01(추정) `ChatController` 마지막 커밋)
 
 메시지 전송. 저장 후 발신자를 제외한 같은 방 구독자에게 SSE `message` 이벤트로 전달(fire-and-forget)하고, 저장된 메시지를 응답으로 반환한다.
@@ -275,7 +275,7 @@ curl -i -X DELETE http://localhost:8081/api/game/chat/rooms/3f9c2e10-.../subscri
 
 **예시**
 ```bash
-curl -i -X POST http://localhost:8081/api/game/chat/rooms/3f9c2e10-.../messages \
+curl -i -X POST http://localhost:8081/rt/chat/rooms/3f9c2e10-.../messages \
   -H 'Authorization: Bearer eyJ...' \
   -H 'Content-Type: application/json' \
   -d '{"content":"안녕하세요"}'
@@ -294,7 +294,7 @@ curl -i -X POST http://localhost:8081/api/game/chat/rooms/3f9c2e10-.../messages 
 
 ---
 
-## GET /api/game/chat/rooms/{roomUid}/messages
+## GET /rt/chat/rooms/{roomUid}/messages
 > 최종 변경: 2026-08-04 — 구단 일치 검사 추가(내 응원 구단 방이 아니면 403, 메시지가 실리지 않음)(직전: 2026-08-01(추정) `ChatController` 마지막 커밋)
 
 방 히스토리 조회(페이징).
@@ -340,13 +340,13 @@ curl -i -X POST http://localhost:8081/api/game/chat/rooms/3f9c2e10-.../messages 
 
 **예시**
 ```bash
-curl -i "http://localhost:8081/api/game/chat/rooms/3f9c2e10-.../messages?page=0" \
+curl -i "http://localhost:8081/rt/chat/rooms/3f9c2e10-.../messages?page=0" \
   -H 'Authorization: Bearer eyJ...'
 ```
 
 ---
 
-## POST /api/game/chat/rooms/{roomUid}/messages/{messageId}/report
+## POST /rt/chat/rooms/{roomUid}/messages/{messageId}/report
 > 최종 변경: 2026-08-04 — 구단 일치 검사 추가(내 응원 구단 방이 아니면 403, blind 미적용). 신규 403은 기존 자기신고 403과 `message` 문구로 구분됨(직전: 2026-08-01(추정) `ChatController` 마지막 커밋)
 
 메시지 신고 → 즉시 blind 전환(자동, 관리자 개입 없음, 멱등).
@@ -380,7 +380,7 @@ curl -i "http://localhost:8081/api/game/chat/rooms/3f9c2e10-.../messages?page=0"
 
 **예시**
 ```bash
-curl -i -X POST http://localhost:8081/api/game/chat/rooms/3f9c2e10-.../messages/42/report \
+curl -i -X POST http://localhost:8081/rt/chat/rooms/3f9c2e10-.../messages/42/report \
   -H 'Authorization: Bearer eyJ...'
 ```
 
