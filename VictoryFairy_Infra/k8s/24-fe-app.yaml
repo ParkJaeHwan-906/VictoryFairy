@@ -1,5 +1,11 @@
 # fe-app: Vite 빌드 산출물(dist)을 nginx 가 서비스하는 정적 프런트엔드.
 #
+# ⚠ 이 워크로드는 폐기 예정이다. FE 는 S3+CloudFront 가 서비스하고(docs/fe-cdn-migration.md),
+#   CloudFront 는 '/' 를 ALB 로 보내지 않으므로 이 파드는 평소 트래픽을 받지 않는다.
+#   루트 도메인을 다시 ALB 로 되돌리는 전환 롤백을 위해서만 남겨 둔 것이며, 정리 3단계에서
+#   victoryfairy-fe Ingress 와 함께 삭제한다. 배포 워크플로(deploy-fe.yml)는 더 이상 이
+#   Deployment 의 이미지를 갱신하지 않는다 — 여기 박힌 이미지는 전환 직전 버전에서 멈춘다.
+#
 # 인프라 커플링:
 #   app 노드그룹(label workload=app, taint 없음)에 user·quiz 와 동거 → nodeSelector 만으로 스케줄.
 #   컨테이너 포트가 80 이 아니라 8080 인 이유: 이미지가 nginx-unprivileged(비루트 uid 101) 기반이라
