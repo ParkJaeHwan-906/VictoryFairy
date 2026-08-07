@@ -6,8 +6,8 @@
 
 시각은 전부 KST 기준이고 괄호 안이 실제 등록값(UTC)이다.
 
-> **2026-08-07 현재, 아래 다섯은 아직 안 돈다** — `kbo-records`, `game-schedule`,
-> `export-game-result`, `export-player-profile`, `export-player-meme`. terraform
+> **2026-08-07 현재, 아래 넷은 아직 안 돈다** — `kbo-records`, `game-schedule`,
+> `export-game-result`, `export-player-profile`. terraform
 > 정의는 PR #171에 있지만 `quiz_source_jobs_enabled` 기본값이 `false`이고, 배포
 > 이미지의 `handler.py`가 아직 이 `job` 값들을 모른다(모르는 job은 예외 없이 빈
 > summary만 내므로 지금 켜면 "매일 성공하는데 산출물은 없는" 룰이 된다). 컷오버
@@ -28,7 +28,6 @@
 08:50  vf-quiz-daily          퀴즈 후보 → S3 quiz-candidates/ + 통계·casebook → WIKI dev
 11:00  registrations          KBO 1군 등록명단 → players (RDB)
 11:30  export-player-profile  players → S3 question-source/player_profile/
-11:40  export-player-meme     config/memes.yaml + players → S3 question-source/player_meme/
 17:00~23:50  games-sync-live  경기 상태 폴링(10분) → games (RDB)
   ―    community              커뮤니티 증분 크롤
 ```
@@ -38,11 +37,11 @@
 뒤에 있어야 그날 갱신된 위키를 읽는다. `export-game-result`(04:00)는
 `records`(03:30)가 RDB에 넣은 완료 경기를 읽으므로 그 뒤여야 한다.
 
-`export-player-profile`·`export-player-meme`만 퀴즈보다 **뒤**에 있다.
-둘 다 `registrations`(11:00)가 갱신한 `players` 를 읽어야 하는데 등록 변동은
-오전 늦게 확정되기 때문이다. 퀴즈 루틴은 이 두 docType을 "가장 최신 파티션
-하나"로 읽으므로 전날 것을 쓰게 된다 — 스냅샷 성격이라 하루 지연은 무해하지만,
-**당일 신규 등록 선수는 다음 날 퀴즈부터 반영된다**는 뜻이다.
+`export-player-profile`만 퀴즈보다 **뒤**에 있다. `registrations`(11:00)가 갱신한
+`players` 를 읽어야 하는데 등록 변동은 오전 늦게 확정되기 때문이다. 퀴즈 루틴은
+이 docType을 "가장 최신 파티션 하나"로 읽으므로 전날 것을 쓰게 된다 — 스냅샷
+성격이라 하루 지연은 무해하지만, **당일 신규 등록 선수는 다음 날 퀴즈부터
+반영된다**는 뜻이다.
 
 두 루틴 모두 `VictoryFairy_WIKI`의 `dev`에 커밋한다. 건드리는 파일이 다르고
 (빌더는 `players/`·`graph.json`, 퀴즈는 `stats/`·`_meta/`) 시각도 겹치지 않아
@@ -62,7 +61,6 @@
 | `games-sync-*` | 당일 경기 상태 → RDB | Lambda | 〃 |
 | `export-game-result` | 경기결과 export | Lambda | 〃 |
 | `export-player-profile` | 선수 프로필 export | Lambda | 〃 |
-| `export-player-meme` | 선수 밈 export | Lambda | 〃 |
 | `vf-quiz-daily` | 퀴즈 후보 생성 | Claude Code 루틴 | `VictoryFairy_AI/deploy/routines/vf-quiz-daily.prompt.md` |
 | `vf-wiki-builder` | 위키 문서 갱신 | Claude Code 루틴 | `VictoryFairy_AI/deploy/routines/vf-wiki-builder.prompt.md` |
 
@@ -82,6 +80,13 @@ Claude Code 루틴 2개는 프롬프트가 곧 코드다. **정본은 리포의 
 지시하는 상태였고, 루틴 세션이 그 지시를 수상하게 여겨 보고해서야 발견됐다.
 
 ## 여기 없는 것
+
+- **`export-player-meme`** — 퀴즈 원천 4종 중 이것만 크론이 없다. 원본이 사람이
+  손으로 쓰는 `py-collector/config/memes.yaml` 이고 그 파일은 이미지에 구워지므로
+  (Dockerfile 의 `COPY config/`), 내용이 바뀌는 계기는 "시드 수정 → `main` 머지 →
+  이미지 재배포" 뿐이다. 소비자도 매일 도는 퀴즈가 아니라 주 2회 도는 위키
+  빌더 하나다. 시드를 고쳤을 때만 `kbo-collector-db` 를 1회 직접 부른다 —
+  명령은 `VictoryFairy_Infra/collector-lambda/lambda_db.tf` 주석 참고.
 
 - **EKS CronJob** — 2026-08-03 Bedrock 러너 스펙 시절의 `deploy/runner/
   cronjob-quiz.yaml`이 있었으나 실행체가 클라우드 루틴으로 확정되며 폐기했다
