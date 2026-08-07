@@ -277,10 +277,21 @@ top 10을 뽑아 `.work/wiki-repo/wiki/stats/trending.md`로 요약한다. 이�
 토픽(음주·폭행·마약·도박·승부조작·사생활·병역·학폭·건강 문제 등)은 후보에서
 제외한 뒤 작성한다.
 
+화제 선수 top 10 **표에는 `playerId` 컬럼을 반드시 포함**한다(순위·선수명·playerId·
+언급 수·주요 토픽 순 권장). `playerId`는 KBO playerId — `.work/player_profile/`
+명단(`payload.playerId`)과 이름을 대조해 채우며, 위키 문서 파일명
+(`wiki/players/{kboPlayerId}.md`)·퀴즈 후보 `subject.playerIds`(스펙 4.3 v2)와
+같은 축이다. **이름 문자열 집계는 동명이인을 구분하지 못한다** — 명단 매칭이
+정확히 1명으로 떨어질 때만 id를 적고, 동명이인 등으로 확신이 없으면 그 행의
+`playerId`는 비워 둔다(빈 칸인 행은 퀴즈 생성기가 `subject.playerIds`로 쓰지
+않는다 — 잘못된 id보다 빈 칸이 낫다, merge-rules.md 규칙 6과 같은 원칙).
+
 ```bash
 mkdir -p .work/wiki-repo/wiki/stats
 cat question-gen/config/banned-topics.txt   # 제외 목록 확인(이 세션이 직접 대조)
 # -> .work/wiki-repo/wiki/stats/trending.md 작성(Write 도구)
+#    (화제 선수 표: | 순위 | 선수명 | playerId | 언급 수 | 주요 토픽 | — playerId는
+#     player_profile 명단 매칭이 유일 확정일 때만, 동명이인이면 빈 칸)
 ```
 
 ### 5. all-time-records.md 렌더
