@@ -83,12 +83,16 @@ variable "game_schedule" {
   default     = "cron(0 18 * * ? *)"
 }
 
-# --- 퀴즈 원천 잡 (kbo_records / game_schedule / export) ---
-# 세 잡 모두 quiz_source_jobs_enabled 하나로 켜고 끈다. 켜기 전 조건은
+# --- 퀴즈 원천 잡 (kbo_records / game_schedule / export ×3) ---
+# 다섯 룰 모두 quiz_source_jobs_enabled 하나로 켜고 끈다. 켜기 전 조건은
 # schedules.tf 의 "퀴즈 원천 잡" 주석 참고.
+#
+# export 는 docType 하나당 룰 하나다 — game_result / player_profile / player_meme.
+# 퀴즈 루틴이 읽는 question-source/ 네 갈래 중 game_schedule 을 뺀 나머지 셋이며,
+# 셋 다 DB 를 읽으므로 lambda_db.tf 쪽(-db 함수)에 있다.
 
 variable "quiz_source_jobs_enabled" {
-  description = "퀴즈 원천 잡(kbo_records/game_schedule/export)의 EventBridge 룰 생성 여부. 배포 이미지의 handler.py 가 이 job 값들을 아는 뒤에 true 로 올린다."
+  description = "퀴즈 원천 잡(kbo_records/game_schedule/export ×3)의 EventBridge 룰 생성 여부. 배포 이미지의 handler.py 가 이 job 값들을 아는 뒤에 true 로 올린다."
   type        = bool
   default     = false
 }
@@ -185,6 +189,18 @@ variable "export_game_result_schedule" {
   description = "game_result envelope -> S3 question-source/. 기본 04:00 KST = 19:00 UTC (records 03:30 이후)."
   type        = string
   default     = "cron(0 19 * * ? *)"
+}
+
+variable "export_player_profile_schedule" {
+  description = "player_profile envelope -> S3 question-source/. 기본 11:30 KST = 02:30 UTC (registrations 11:00 이후)."
+  type        = string
+  default     = "cron(30 2 * * ? *)"
+}
+
+variable "export_player_meme_schedule" {
+  description = "player_meme envelope -> S3 question-source/. 기본 11:40 KST = 02:40 UTC (player_profile 직후)."
+  type        = string
+  default     = "cron(40 2 * * ? *)"
 }
 
 variable "pii_salt" {

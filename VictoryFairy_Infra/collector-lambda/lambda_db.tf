@@ -80,7 +80,10 @@ resource "aws_lambda_function" "db" {
       COLLECTOR_DB_USER      = var.db_user
       COLLECTOR_DB_PASSWORD  = var.db_password
       COLLECTOR_TARGETS_FILE = "/var/task/config/targets.yaml"
-      JOURNAL_DIR            = "/tmp/journal" # Lambda's only writable path
+      # player_meme export 의 시드 파일. Settings 기본값이 상대경로("config/memes.yaml")라
+      # Lambda 의 cwd(/var/task)에 의존하게 되므로 targets 와 같이 절대경로로 못 박는다.
+      COLLECTOR_MEMES_FILE = "/var/task/config/memes.yaml"
+      JOURNAL_DIR          = "/tmp/journal" # Lambda's only writable path
       # records/registrations 는 S3/마스킹을 안 쓰지만 Settings 가 필수값으로 요구한다
       # (설정 로딩용). export 잡은 실제로 이 값으로 S3 에 쓴다 — 이 함수는 S3 잡 함수와
       # 같은 aws_iam_role.lambda 를 쓰고, 그 롤엔 iam.tf 의 s3-landing 인라인 정책
@@ -225,4 +228,61 @@ resource "aws_lambda_permission" "export_game_result" {
   function_name = aws_lambda_function.db[0].function_name
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.export_game_result[0].arn
+}
+
+# --- export(player_profile): players -> S3 envelope (매일 11:30 KST, registrations 11:00 이후) ---
+# 퀴즈 루틴은 question-source/player_profile/ 의 "가장 최신 파티션 하나"만 읽는다
+# (question-gen/ROUTINE.md). 이 export 를 도는 스케줄이 그동안 아예 없어서 파티션이
+# 사람이 손으로 넣은 날짜에 멈춰 있었다 — 2026-08-07 실측 시점 최신이 2026-08-01
+# 이었고 그마저 8/6 에 수동 적재된 것이었다.
+resource "aws_cloudwatch_event_rule" "export_player_profile" {
+  count               = local.db_enabled && var.quiz_source_jobs_enabled ? 1 : 0
+  name                = "${var.name}-export-player-profile"
+  description         = "player_profile envelope export -> S3 (11:30 KST)"
+  schedule_expression = var.export_player_profile_schedule
+  tags                = var.tags
+}
+
+resource "aws_cloudwatch_event_target" "export_player_profile" {
+  count = local.db_enabled && var.quiz_source_jobs_enabled ? 1 : 0
+  rule  = aws_cloudwatch_event_rule.export_player_profile[0].name
+  arn   = aws_lambda_function.db[0].arn
+  input = jsonencode({ job = "export", target = "player_profile" })
+}
+
+resource "aws_lambda_permission" "export_player_profile" {
+  count         = local.db_enabled && var.quiz_source_jobs_enabled ? 1 : 0
+  statement_id  = "AllowEventBridgeExportPlayerProfile"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.db[0].function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.export_player_profile[0].arn
+}
+
+# --- export(player_meme): config/memes.yaml -> S3 envelope (매일 11:40 KST) ---
+# 시드 파일이 원본이라 내용 자체는 매일 바뀌지 않지만, meme_dict 소스가 선수명을
+# players 로 해석해 playerUid 를 붙인다(resolve_player_uid) — 신규 등록 선수의
+# unresolved 가 풀리려면 registrations 뒤에 다시 돌아야 한다. 그래서 profile 직후.
+resource "aws_cloudwatch_event_rule" "export_player_meme" {
+  count               = local.db_enabled && var.quiz_source_jobs_enabled ? 1 : 0
+  name                = "${var.name}-export-player-meme"
+  description         = "player_meme envelope export -> S3 (11:40 KST)"
+  schedule_expression = var.export_player_meme_schedule
+  tags                = var.tags
+}
+
+resource "aws_cloudwatch_event_target" "export_player_meme" {
+  count = local.db_enabled && var.quiz_source_jobs_enabled ? 1 : 0
+  rule  = aws_cloudwatch_event_rule.export_player_meme[0].name
+  arn   = aws_lambda_function.db[0].arn
+  input = jsonencode({ job = "export", target = "player_meme" })
+}
+
+resource "aws_lambda_permission" "export_player_meme" {
+  count         = local.db_enabled && var.quiz_source_jobs_enabled ? 1 : 0
+  statement_id  = "AllowEventBridgeExportPlayerMeme"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.db[0].function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.export_player_meme[0].arn
 }

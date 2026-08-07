@@ -9,7 +9,7 @@ ECR 리포 하나의 이미지를 Lambda 함수 두 개가 공유한다:
 | 함수 | 위치 | 잡 (EventBridge) |
 |---|---|---|
 | `kbo-collector` | VPC 밖 | community `rate(10 minutes)` · game 03:00 · kbo_records 07:00 · game_schedule 08:30 → S3 적재 |
-| `kbo-collector-db` | VPC 안(프라이빗 서브넷) | export 04:00 · games_sync 08:00+경기시간대 · records 03:30 · registrations 11:00 → 운영 MySQL / S3 |
+| `kbo-collector-db` | VPC 안(프라이빗 서브넷) | records 03:30 · export game_result 04:00 · games_sync 08:00+경기시간대 · registrations 11:00 · export player_profile 11:30 · export player_meme 11:40 → 운영 MySQL / S3 |
 
 시각은 전부 KST. 하루 순서:
 
@@ -85,10 +85,21 @@ ECR 리포만 targeted apply → 이미지 CI 1회(workflow_dispatch) → 전체
 
 ## 퀴즈 원천 잡 컷오버
 
-`kbo_records`·`game_schedule`·`export` 세 잡의 룰은 `quiz_source_jobs_enabled`(기본
-`false`) 뒤에 있다. **기본값이 false 인 이유**: 핸들러가 모르는 `job` 값은 예외를 내지
-않고 빈 summary 만 남기고 끝난다. 코드가 배포되기 전에 켜면 "매일 성공하는데 산출물은
-없는" 룰이 되고, 그건 알람에도 안 걸린다.
+`kbo_records`·`game_schedule`·`export`(docType 3종 = `game_result`·`player_profile`·
+`player_meme`) 다섯 룰은 `quiz_source_jobs_enabled`(기본 `false`) 뒤에 있다.
+**기본값이 false 인 이유**: 핸들러가 모르는 `job` 값은 예외를 내지 않고 빈 summary 만
+남기고 끝난다. 코드가 배포되기 전에 켜면 "매일 성공하는데 산출물은 없는" 룰이 되고,
+그건 알람에도 안 걸린다.
+
+실제로 2026-08-07 에 배포 이미지(8/6 다이제스트)를 직접 찔러 확인했다 — 두 잡 모두
+입력만 되돌아오고 결과 키가 없다. 이미지가 코드보다 오래됐다는 증거다:
+
+```
+kbo-collector    {"job":"game_schedule","date":"2026-08-11"}
+  -> {"job": "game_schedule", "date": "2026-08-11"}   # gameSchedule 키 없음
+kbo-collector-db {"job":"export","target":"game_result"}
+  -> {"job": "export", "date": "2026-08-06"}          # exported 키 없음
+```
 
 또 하나 — 2026-08-06 확인 시점에 이 잡들은 **이미 돌고 있었다.** 다만 terraform 밖이었다:
 
