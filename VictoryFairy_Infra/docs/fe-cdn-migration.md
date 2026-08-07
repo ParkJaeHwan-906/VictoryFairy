@@ -129,27 +129,44 @@ S3 오브젝트에 헤더가 없거나 잘못 박혀 있어도 엣지가 덮어�
 
 1. **BE 배포** — 새 context-path(`/api`, `/rt`)를 담은 이미지를 롤아웃한다. 이 시점부터 옛
    Ingress 규칙(`/api/member`, `/api/game`)이 맞지 않아 API 가 끊긴다 → 곧바로 2 번을 적용한다.
-2. `kubectl apply -f k8s/22-ingress.yaml` — path 를 `/api`·`/rt` 로, 헬스체크 경로를
-   `/api/actuator/health/readiness`·`/rt/actuator/health/readiness` 로 교체하고,
-   앱 Ingress 전부에 `controller: none` 을 붙이고, `victoryfairy-dns-origin` 을 추가한다.
-   ExternalDNS 가 `origin.victoryfairy.com` A 레코드를 만든다.
-   타깃이 Healthy 로 돌아오는지 확인한다 (`aws elbv2 describe-target-health`).
+2. **앱 Ingress 3 개만** 적용한다 — path 를 `/api`·`/rt` 로, 헬스체크 경로를
+   `/api/actuator/health/readiness`·`/rt/actuator/health/readiness` 로 교체하고 `controller: none`
+   을 붙인다. 여기서 순단이 끝난다.
+   `curl https://victoryfairy.com/api/actuator/health/readiness` 가 200 인지 확인한다.
+
+   ⚠ **`victoryfairy-dns-origin` 은 이 단계에서 적용하지 말 것.** LBC 는 그룹의 모든 Ingress
+   host 에 맞는 ACM 인증서를 찾는데, origin 인증서는 3 번에서 생긴다. 없는 상태로 올리면
+   인증서 탐색이 실패해 **ALB 그룹 전체 조정이 깨질 수 있다**(API 까지 함께 죽는다).
+   그래서 4 번으로 분리한다. 부분 적용은 그 문서만 골라내 apply 하면 된다:
+   ```bash
+   python -c "import yaml;docs=[d for d in yaml.safe_load_all(open('VictoryFairy_Infra/k8s/22-ingress.yaml',encoding='utf-8')) if d and d['metadata']['name']!='victoryfairy-dns-origin'];yaml.safe_dump_all(docs,open('/tmp/ing.yaml','w',encoding='utf-8'),allow_unicode=True,sort_keys=False)"
+   kubectl -n victoryfairy apply -f /tmp/ing.yaml
+   ```
 3. `terraform apply` — 인증서 2 장(CloudFront 용 us-east-1, 오리진용 서울), S3 버킷,
    CloudFront distribution 생성. `fe_attach_apex_alias` 는 **`false` 그대로 둔다** —
    apex 는 아직 ALB 를 가리킨다.
    **plan 은 전부 신규 생성이어야 한다(파괴 0 건).** 파괴가 잡히면 멈추고 원인을 볼 것.
-   ⚠ 2 번보다 먼저 하지 말 것. `origin` A 레코드가 없으면 CloudFront 가 오리진에 닿지 못한다.
-   apply 후 LBC 가 오리진 인증서를 리스너에 붙였는지 확인한다 — 안 붙었으면 Ingress 를 한 번
-   건드려 재조정시킨다(`kubectl annotate ingress victoryfairy-dns-origin ... --overwrite`).
-4. FE 를 S3 에 올리고(워크플로 `workflow_dispatch`) CloudFront 배포 도메인으로 **직접 접속해
+4. `kubectl apply -f k8s/22-ingress.yaml` — 이제 전체를 적용해 `victoryfairy-dns-origin` 을
+   추가한다. ExternalDNS 가 `origin.victoryfairy.com` A 레코드를 만들고, LBC 가 3 번에서 생긴
+   origin 인증서를 리스너에 붙인다.
+   붙었는지 확인한다 — 안 붙었으면 Ingress 를 건드려 재조정시킨다:
+   ```bash
+   aws elbv2 describe-listener-certificates --listener-arn <https-listener>
+   ```
+   `origin.victoryfairy.com` 이 ALB 로 해석되는지도 확인한다(`dig`/`nslookup`).
+   ⚠ 이것이 안 되면 CloudFront 가 오리진에 닿지 못해 `/api/*` 가 전부 502 가 된다.
+5. FE 를 S3 에 올리고(#192 머지 후 `deploy-fe.yml` 실행) CloudFront 배포 도메인으로 **직접 접속해
    검증한다** (`terraform output fe_cloudfront_domain_name`).
    딥링크 새로고침, `/api` 로그인, `/rt` 채팅 SSE 를 모두 확인한다.
-   ⚠ 이 단계에서는 아직 사용자 트래픽이 ALB→fe-app(옛 번들)로 간다. 옛 번들은 `/api/member` 를
-   부르므로 **이 시점의 실서비스 FE 는 깨져 있다.** 1~4 를 한 세션에 이어서 끝낼 것.
+   ⚠ 이 단계까지 사용자 트래픽은 ALB→fe-app(옛 번들)로 간다. 옛 번들은 `/api/member` 를 부르고
+   그 경로는 이제 `/api` 규칙에 걸려 401 이 되므로 **1 번부터 이 시점까지 실서비스 로그인이
+   불가하다.** 1~6 을 한 세션에 이어서 끝낼 것.
+   순단을 줄이려면 1 번 전에 옛 워크플로의 base URL 만 `/api`·`/rt` 로 고쳐 fe-app 에 새 번들을
+   먼저 배포하는 방법이 있다. 그러면 6 번 롤백 시에도 FE 가 온전히 동작한다(아래 롤백 항목 참고).
 
 ### 2 단계 — 전환 (유일한 위험 구간)
 
-5. `fe_attach_apex_alias = true` 로 `terraform apply` — apex A/AAAA(ALIAS)를 CloudFront 로 교체
+6. `fe_attach_apex_alias = true` 로 `terraform apply` — apex A/AAAA(ALIAS)를 CloudFront 로 교체
    (`allow_overwrite = true` 로 ExternalDNS 가 남긴 레코드의 소유권을 가져온다).
    DNS TTL(60 초)이 지나면 트래픽이 CloudFront 로 넘어간다.
 
@@ -164,12 +181,12 @@ FE 화면은 정상이어도 API 호출이 실패한다 — 완전 복구에는 
 
 ### 3 단계 — 정리 (안정화 확인 후)
 
-6. `22-ingress.yaml` 에서 `victoryfairy-fe` Ingress 제거.
-7. `24-fe-app.yaml` 삭제 — `kubectl -n victoryfairy delete -f k8s/24-fe-app.yaml`
+7. `22-ingress.yaml` 에서 `victoryfairy-fe` Ingress 제거.
+8. `24-fe-app.yaml` 삭제 — `kubectl -n victoryfairy delete -f k8s/24-fe-app.yaml`
    (Deployment·Service·HPA). 파일도 저장소에서 제거한다.
-8. apex 에 남은 ExternalDNS 소유권 TXT 레코드 정리.
+9. apex 에 남은 ExternalDNS 소유권 TXT 레코드 정리.
    ExternalDNS 는 `--policy=upsert-only` 라 레코드를 지우지 않으므로 수동 정리가 필요하다.
-9. ECR `victoryfairy-fe` 리포지토리 제거(선택) — 롤백 여지를 남기려면 보류해도 된다.
+10. ECR `victoryfairy-fe` 리포지토리 제거(선택) — 롤백 여지를 남기려면 보류해도 된다.
    `environments/dev/main.tf` 의 `repository_names` 에서 `"fe"` 를 빼면 리포지토리와 이미지가
    함께 삭제된다.
 
