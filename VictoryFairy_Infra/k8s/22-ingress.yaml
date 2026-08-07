@@ -1,11 +1,15 @@
 # ALB Ingress: AWS Load Balancer Controller 가 이 Ingress 들을 보고 실제 ALB 를 만든다.
-#   /api/member -> user-app, /api/game -> quiz-app (pathType: Prefix 라 하위 경로 전부 포함).
+#   /api/member -> user-app, /api/game -> quiz-app, 그 외 전부 -> fe-app
+#   (pathType: Prefix 라 하위 경로 전부 포함).
 #
-# ⚠ Ingress 가 2개인 이유 — 헬스체크 경로가 앱마다 다르기 때문이다.
+# ⚠ Ingress 가 3개인 이유 — 헬스체크 경로가 앱마다 다르기 때문이다.
 #   healthcheck-path 는 Ingress 단위 어노테이션이라 하나로는 두 값을 담을 수 없다. 앱이
 #   server.servlet.context-path(/api/member, /api/game)를 쓰므로 actuator 경로도 접두사를
 #   따라 갈린다. 그래서 Ingress 를 쪼개되 group.name 을 같게 주어 ALB 는 하나로 유지한다.
 #   (group.order 로 리스너 규칙 평가 순서를 고정한다.)
+#
+# ⚠ group.order 는 곧 규칙 평가 순서다. FE 의 '/' 는 모든 경로를 삼키므로 반드시 API 보다
+#   뒤(=큰 값)여야 한다. 10 user → 20 quiz → 30 fe. FE 를 앞으로 옮기면 API 가 전부 FE 로 간다.
 #
 # ⚠ ALB 는 forward 시 경로를 rewrite 하지 않는다(redirect 만 가능). 여기의 path 는 앱이 실제로
 #   서비스하는 경로와 문자 그대로 일치해야 한다 — 다르면 파드까지 도달해도 404 다.
@@ -92,5 +96,41 @@ spec:
             backend:
               service:
                 name: quiz-app
+                port:
+                  number: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: victoryfairy-fe
+  namespace: victoryfairy
+  annotations:
+    # user Ingress 하나만 이 host 의 DNS 를 소유한다(위 quiz 주석과 같은 이유).
+    external-dns.alpha.kubernetes.io/controller: none
+    alb.ingress.kubernetes.io/group.name: victoryfairy
+    # ⚠ 반드시 API(10·20)보다 뒤. '/' 가 모든 경로를 삼키므로 앞에 오면 API 가 전부 FE 로 간다.
+    alb.ingress.kubernetes.io/group.order: "30"
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: '443'
+    #
+    # 헬스체크: nginx.conf 가 제공하는 전용 엔드포인트(정적 파일 배치와 무관하게 nginx 생존만 본다).
+    # ⚠ 종전 BE Ingress 가 쓰다 폐기한 것과 경로 이름은 같지만 이쪽은 실제로 200 을 돌려준다.
+    alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
+    alb.ingress.kubernetes.io/healthcheck-path: /healthz
+spec:
+  ingressClassName: alb
+  rules:
+    - host: victoryfairy.com
+      http:
+        paths:
+          # SPA 라 딥링크(/login, /chat/…)가 서버 경로로 존재하지 않는다. 전부 fe-app 으로 보내면
+          # nginx 의 try_files fallback 이 index.html 을 내주고 react-router 가 해석한다.
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: fe-app
                 port:
                   number: 80

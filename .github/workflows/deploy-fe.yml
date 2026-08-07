@@ -1,0 +1,105 @@
+name: Deploy FE to EKS
+
+# FE(정적 SPA) 배포 파이프라인. BE 와 같은 클러스터·같은 ALB 를 쓰지만 워크플로는 분리한다
+# (빌드 도구·트리거 경로·롤아웃 대상이 전부 다르고, BE 변경이 FE 를 재배포할 이유가 없다).
+#
+#   push(main) → Docker 빌드(Vite) → ECR push(커밋 SHA 태그, IMMUTABLE)
+#   → kubectl set image → 블루-그린식 롤아웃 → 실패 시 자동 rollout undo
+#
+# 인증은 deploy-eks.yml 과 동일한 OIDC 역할(victoryfairy-dev-github-actions). ECR push 대상에
+# victoryfairy-fe 가 포함되는 것은 terraform modules/security 가 module.ecr 의 리포지토리 ARN
+# 전체를 넘기기 때문이라 별도 IAM 변경이 필요 없다.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "VictoryFairy_FE/**"
+      - ".github/workflows/deploy-fe.yml"
+  workflow_dispatch:
+
+permissions:
+  id-token: write # OIDC 토큰 발급 (AWS AssumeRole)
+  contents: read
+
+env:
+  AWS_REGION: ap-northeast-2
+  ROLE_ARN: arn:aws:iam::555209622409:role/victoryfairy-dev-github-actions
+  CLUSTER: victoryfairy-dev
+  NAMESPACE: victoryfairy
+  ECR_REPO: victoryfairy-fe
+
+  # ⚠ 절대 URL 이 아니라 상대 경로다. FE 와 API 가 같은 오리진(victoryfairy.com)에서 서비스되므로
+  #   도메인이 필요 없고, 박지 않아야 이미지가 특정 도메인에 묶이지 않는다.
+  #   이 값은 Vite 가 번들에 문자열로 굽는다 — 바꾸면 재배포가 아니라 재빌드가 필요하고,
+  #   FE 를 다른 도메인으로 분리하는 순간 CORS 없이는 깨진다(그때는 BE CORS 설정이 선행돼야 한다).
+  VITE_API_USER_BASE_URL: /api/member
+  VITE_API_GAME_BASE_URL: /api/game
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Resolve FE dir
+        id: fe
+        run: |
+          [ -f "VictoryFairy_FE/Dockerfile" ] || { echo "::error::VictoryFairy_FE/Dockerfile 를 찾지 못했습니다"; exit 1; }
+          echo "dir=VictoryFairy_FE" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build & push image
+        id: img
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          TAG="${GITHUB_SHA::7}"
+          IMG="$REGISTRY/$ECR_REPO:$TAG"
+          echo "image=$IMG" >> "$GITHUB_OUTPUT"
+          # IMMUTABLE 태그: 이미 존재하면(재실행 등) 빌드/푸시 생략
+          if aws ecr describe-images --repository-name "$ECR_REPO" --image-ids imageTag="$TAG" >/dev/null 2>&1; then
+            echo "태그 $TAG 이미 존재 — 빌드 생략"; exit 0
+          fi
+          docker build \
+            --build-arg VITE_API_USER_BASE_URL="$VITE_API_USER_BASE_URL" \
+            --build-arg VITE_API_GAME_BASE_URL="$VITE_API_GAME_BASE_URL" \
+            -t "$IMG" "${{ steps.fe.outputs.dir }}"
+          docker push "$IMG"
+
+      # 빌드 인자가 실제로 번들에 박혔는지 확인한다. 값이 누락돼도 Vite 는 실패하지 않고
+      # src/api/config.ts 의 localhost:8080 폴백을 구워버려, 배포는 성공하고 브라우저에서
+      # API 호출만 전부 죽는다 — 롤아웃 전에 잡는다.
+      - name: Verify baked API base URL
+        run: |
+          docker create --name fe-verify "${{ steps.img.outputs.image }}" >/dev/null
+          docker cp fe-verify:/usr/share/nginx/html/assets ./_assets >/dev/null
+          docker rm fe-verify >/dev/null
+          if grep -rq "localhost:8080" ./_assets; then
+            echo "::error::번들에 localhost 폴백이 박혔습니다 — build-arg 주입 실패"; exit 1
+          fi
+          grep -rq "$VITE_API_USER_BASE_URL" ./_assets \
+            || { echo "::error::번들에서 $VITE_API_USER_BASE_URL 를 찾지 못했습니다"; exit 1; }
+          echo "OK: $VITE_API_USER_BASE_URL · $VITE_API_GAME_BASE_URL"
+
+      - name: Deploy to EKS (blue-green rollout)
+        run: |
+          aws eks update-kubeconfig --region "$AWS_REGION" --name "$CLUSTER"
+          kubectl -n "$NAMESPACE" set image deploy/fe-app fe="${{ steps.img.outputs.image }}"
+          kubectl -n "$NAMESPACE" rollout status deploy/fe-app --timeout=180s
+
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          echo "::warning::롤아웃 실패 — 직전 버전으로 자동 롤백"
+          kubectl -n "$NAMESPACE" rollout undo deploy/fe-app || true
+          kubectl -n "$NAMESPACE" rollout status deploy/fe-app --timeout=120s || true

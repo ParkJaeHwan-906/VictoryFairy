@@ -70,7 +70,8 @@ module "ecr" {
   name_prefix = "victoryfairy"
   # user/quiz 는 BE Gradle 모듈과 1:1 (Dockerfile ARG MODULE).
   # pipeline 은 정제 러너 이미지 — 패턴·Bedrock Lambda 가 같은 이미지를 공유한다(ARCHITECTURE §4).
-  repository_names = ["user", "quiz", "pipeline"]
+  # fe 는 JVM 이 아니라 Vite 빌드 산출물을 구운 nginx 정적 이미지다(k8s/24-fe-app.yaml).
+  repository_names = ["user", "quiz", "pipeline", "fe"]
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
