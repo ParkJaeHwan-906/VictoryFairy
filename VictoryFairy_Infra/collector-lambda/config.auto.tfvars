@@ -18,6 +18,16 @@ community_delay_ms    = 400
 # Game data (schedule/result/relay) once a day at 03:00 KST (18:00 UTC).
 game_schedule = "cron(0 18 * * ? *)"
 
+# --- 퀴즈 원천 잡 게이트 ---
+# 2026-08-07 에 켰다. 선행 조건 둘을 실제로 확인한 뒤다(README "퀴즈 원천 잡 컷오버"):
+#   1. 이미지 배포 — sha256:88c074e2 로 두 함수 갱신(15:31 KST). 그 전 이미지
+#      (edc3de25)엔 kbo_records/game_schedule/export 분기가 없었다.
+#   2. 응답에 결과 키 확인 — kboRecords{loaded:8}, gameSchedule:0(당일 5경기 전부
+#      취소라 0 이 정상), exported:499(game_result), exported:558(player_profile).
+#      모르는 job 은 StatusCode 200 에 빈 summary 라 이 확인 없이는 구분이 안 된다.
+# 버킷 일원화(3번)도 같은 날 끝났다 — 루틴 S3_BUCKET → -dev, 과거분 65건 이관.
+quiz_source_jobs_enabled = true
+
 # --- DB 적재 잡 (records/registrations) — 2026-07-29 조회값 ---
 # 서브넷/SG는 infra 스택 소유. db_host 는 데이터 EC2 프라이빗 IP —
 # 인스턴스 재생성(프라이빗 복귀 등) 시 여기와 k8s/30-external-data.yaml 둘 다 갱신.
