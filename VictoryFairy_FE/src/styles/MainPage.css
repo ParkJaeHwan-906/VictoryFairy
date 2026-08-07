@@ -1,0 +1,15 @@
+/**
+ * MainPage(홈 메인) 스타일.
+ * Figma: SWM / [Home] 홈 메인 (node 443:4359), 기준 프레임 402 x 874.
+ *
+ * 본문은 아직 자리표시다. 높이와 하단 NavBar 자리는 AppLayout 이 잡아 준다.
+ * 디자인 최상단의 iOS 상태 바(47px)는 단말 크롬이라 옮기지 않았다(CommunityPage 와 동일).
+ */
+
+.main-page {
+  width: 100%;
+  max-width: var(--layout-app-width);
+  margin-inline: auto;
+  padding-inline: var(--layout-gutter);
+  background-color: var(--color-background-basic);
+}

@@ -1,0 +1,18 @@
+/**
+ * AppLayout(NavBar 가 붙는 화면들의 공통 껍데기) 스타일.
+ *
+ * NavBar 는 고정 배치라 흐름에서 빠져 있다. 그래서 여기서 바 높이만큼 아래를 비워
+ * 콘텐츠 끝이 가리지 않게 한다. 안쪽 페이지는 높이를 스스로 정하지 않고
+ * 남은 자리를 채우기만 하면 된다(그래야 화면 높이 + 바 높이만큼 헛스크롤이 안 생긴다).
+ */
+
+.app-layout {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  padding-bottom: calc(var(--layout-navbar-height) + env(safe-area-inset-bottom, 0px));
+}
+
+.app-layout > * {
+  flex: 1 0 auto;
+}

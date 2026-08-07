@@ -1,0 +1,14 @@
+# 빌드 컨텍스트에서 뺄 것. node_modules 는 npm ci 결과를 덮어쓰지 않게 하려는 목적도 겸한다.
+node_modules
+dist
+.git
+
+# ⚠ .env 계열은 반드시 제외한다. 컨텍스트에 섞이면 Vite 가 그 값을 읽어 개발자 로컬 설정이
+#   프로덕션 이미지에 박힐 수 있다. API base URL 은 Dockerfile 의 build-arg 로만 주입한다.
+.env
+.env.*
+
+.claude
+docs
+README.md
+*.log

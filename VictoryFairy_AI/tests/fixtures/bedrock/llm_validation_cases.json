@@ -1,0 +1,1848 @@
+{
+  "meta": {
+    "purpose": "BRK-LLM-47 대표 케이스 확정 — 전건 validation_service 로 패턴 검열 통과 확인 완료",
+    "verified_with": "validation.services.validation.validation_service (실제 다중뷰 매칭 로직)",
+    "corpus_sample": "victoryfairy-crawl-dev community/{dcinside,fmkorea} 2026-07-24~25 (dc 5959건 + fm 116건, 7938 판정단위)",
+    "recall_case_count": 25,
+    "fp_case_count": 34,
+    "normal_set_count": 103,
+    "all_recall_candidates_passed_pattern": true,
+    "note": "패턴에 걸려 탈락한 재현율 후보는 0건 — 상세는 test-data 보고 참조"
+  },
+  "recall_cases": [
+    {
+      "req_id": "BRK-LLM-20",
+      "case_tag": "20a",
+      "unit_kind": "body",
+      "text": "쟤는 사람 자체가 쓰레기라 야구도 저 모양이지",
+      "source": "doc-tentative",
+      "note": "문서 잠정 예문 그대로",
+      "expect": {
+        "is_valid": false,
+        "axis": "abuse"
+      }
+    },
+    {
+      "req_id": "BRK-LLM-20",
+      "case_tag": "20b",
+      "unit_kind": "body",
+      "text": "쟤보다 훨씬 쓰레기면서 ㅋㅋ",
+      "source": "corpus:dc/18544550 (실명 익명화: 특정선수명→'쟤')",
+      "note": "원문 '장현식보다 훨씬 쓰레기면서 ㅋㅋ'에서 실명을 대명사로 치환",
+      "expect": {
+        "is_valid": false,
+        "axis": "abuse"
+      }
+    },
+    {
+      "req_id": "BRK-LLM-20",
+      "case_tag": "20c",
+      "unit_kind": "body",
+      "text": "감독이 저능아임",
+      "source": "corpus:dc/18549622 (원문 그대로, 직책명이라 익명 처리 불필요)",
+      "note": "사전 미등재 신조어 '저능아' — BRK-LLM-24 와 이중 태깅",
+      "expect": {
+        "is_valid": false,
+        "axis": "abuse"
+      }
+    },
+    {
+      "req_id": "BRK-LLM-21",
+      "case_tag": "21a",
+      "unit_kind": "body",
+      "text": "거기 사람들은 원래 다 저 모양이야",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": false,
+        "axis": "abuse"
+      }
+    },
+    {
+      "req_id": "BRK-LLM-21",
+      "case_tag": "21b",
+      "unit_kind": "body",
+      "text": "홍어가 나대면",
+      "source": "corpus:dc/2701443 (원문 그대로)",
+      "note": "'홍어'=전라도 지역비하어. 실제 크롤 표본에 반복 출현(dc 17411249/17412595 등)",
+      "expect": {
+        "is_valid": false,
+        "axis": "abuse"
+      }
+    },
+    {
+      "req_id": "BRK-LLM-21",
+      "case_tag": "21c",
+      "unit_kind": "body",
+      "text": "멍청도 출신이라 그런가 본인들 주제 모르고 깝치고 다니는게",
+      "source": "corpus:dc/18122359 계열 (원문 발췌, 실명 없음)",
+      "note": "지역명+'멍청' 합성 신조 비하어 — BRK-LLM-24 와 이중 태깅",
+      "expect": {
+        "is_valid": false,
+        "axis": "abuse"
+      }
+    },
+    {
+      "req_id": "BRK-LLM-21",
+      "case_tag": "21d",
+      "unit_kind": "body",
+      "text": "여자들은 원래 야구 룰도 모르면서 오빠들 보러오는거잖아",
+      "source": "synthetic (성별 비하 일반화 — 표본에 명확한 성별비하 사례 없어 구성)",
+      "expect": {
+        "is_valid": false,
+        "axis": "abuse"
+      }
+    },
+    {
+      "req_id": "BRK-LLM-22",
+      "case_tag": "22a",
+      "unit_kind": "body",
+      "text": "치어리더는 야구는 안중에도 없고 몸매만 보러 오는 거임",
+      "source": "synthetic (비노골적 — 요구사항 문서 지침에 따라 노골적 예문 배제)",
+      "expect": {
+        "is_valid": false,
+        "axis": "abuse"
+      }
+    },
+    {
+      "req_id": "BRK-LLM-22",
+      "case_tag": "22b",
+      "unit_kind": "body",
+      "text": "저 여자 아나운서는 얼굴 보려고 중계 트는거지 실력은 아무도 안 봄",
+      "source": "synthetic (비노골적)",
+      "expect": {
+        "is_valid": false,
+        "axis": "abuse"
+      }
+    },
+    {
+      "req_id": "BRK-LLM-23",
+      "case_tag": "23a",
+      "unit_kind": "body",
+      "text": "경기장 앞에서 기다린다 각오해라",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": false,
+        "axis": "abuse"
+      }
+    },
+    {
+      "req_id": "BRK-LLM-23",
+      "case_tag": "23b",
+      "unit_kind": "body",
+      "text": "다음에 마주치면 그냥 안 넘어간다 각오하고 다녀라",
+      "source": "synthetic (표본에 '사전 미등재 어휘로 된 명확한 개인 위협' 사례 없음 — 아래 한계 보고 참조)",
+      "expect": {
+        "is_valid": false,
+        "axis": "abuse"
+      }
+    },
+    {
+      "req_id": "BRK-LLM-24",
+      "case_tag": "24a",
+      "unit_kind": "body",
+      "text": "감독이 저능아임",
+      "source": "corpus:dc/18549622 (중복 태깅, 20c 참조)",
+      "expect": {
+        "is_valid": false,
+        "axis": "abuse"
+      }
+    },
+    {
+      "req_id": "BRK-LLM-24",
+      "case_tag": "24b",
+      "unit_kind": "body",
+      "text": "찐따수치가 진짜 의심스럽습니다",
+      "source": "corpus:fm/10127655613 comment (원문 그대로)",
+      "expect": {
+        "is_valid": false,
+        "axis": "abuse"
+      }
+    },
+    {
+      "req_id": "BRK-LLM-24",
+      "case_tag": "24c",
+      "unit_kind": "body",
+      "text": "우르크 100정도 치는 수비 폐급 외야수",
+      "source": "corpus:dc/8788786 (원문 그대로)",
+      "note": "⚠️ 인격비하/성적비판 경계 엣지케이스로 의도 — accuracy-tuner 참고",
+      "expect": {
+        "is_valid": false,
+        "axis": "abuse"
+      }
+    },
+    {
+      "req_id": "BRK-LLM-24",
+      "case_tag": "24d",
+      "unit_kind": "body",
+      "text": "듣보잡 우타 백업들한테 개쳐맞겠네",
+      "source": "corpus:dc/11247906 (원문 그대로)",
+      "expect": {
+        "is_valid": false,
+        "axis": "abuse"
+      }
+    },
+    {
+      "req_id": "BRK-LLM-25",
+      "case_tag": "25a",
+      "unit_kind": "body",
+      "text": "유니폼 정품 최저가 판매합니다 카톡 ○○○ 문의주세요",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": false,
+        "axis": "spam"
+      }
+    },
+    {
+      "req_id": "BRK-LLM-25",
+      "case_tag": "25b",
+      "unit_kind": "body",
+      "text": "정품 배트 싸게 팝니다 관심있으신분 쪽지주세요",
+      "source": "synthetic (표본에 실제 판매유도 광고 없음 — 한계 보고 참조)",
+      "expect": {
+        "is_valid": false,
+        "axis": "spam"
+      }
+    },
+    {
+      "req_id": "BRK-LLM-25",
+      "case_tag": "25c",
+      "unit_kind": "body",
+      "text": "오늘 3루 응원석 2연석 웃돈 얹어드립니다 연락주세요",
+      "source": "synthetic (암표 유형 변형)",
+      "expect": {
+        "is_valid": false,
+        "axis": "spam"
+      }
+    },
+    {
+      "req_id": "BRK-LLM-26",
+      "case_tag": "26a",
+      "unit_kind": "body",
+      "text": "첫충 30% 꽁머니 지급 지금 가입하세요",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": false,
+        "axis": "spam"
+      }
+    },
+    {
+      "req_id": "BRK-LLM-26",
+      "case_tag": "26b",
+      "unit_kind": "body",
+      "text": "가입비 없이 첫충 이벤트 진행중인 사이트 있습니다 지금 신청하세요",
+      "source": "synthetic (표본에 도박 광고 없음 — 한계 보고 참조)",
+      "expect": {
+        "is_valid": false,
+        "axis": "spam"
+      }
+    },
+    {
+      "req_id": "BRK-LLM-27",
+      "case_tag": "27a",
+      "unit_kind": "body",
+      "text": "주식 종목 추천 좀 해주세요 요즘 뭐 사야 됨?",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": false,
+        "axis": "offtopic"
+      }
+    },
+    {
+      "req_id": "BRK-LLM-27",
+      "case_tag": "27b",
+      "unit_kind": "body",
+      "text": "이사 갈 집 추천 좀 해주세요 전세 대출 얼마나 나올까요",
+      "source": "synthetic (표본에 완전 무관 본문 없음 — 한계 보고 참조)",
+      "expect": {
+        "is_valid": false,
+        "axis": "offtopic"
+      }
+    },
+    {
+      "req_id": "BRK-LLM-20",
+      "case_tag": "20-bonus1",
+      "text": "그 감독 진짜 싸패임",
+      "source": "corpus:dc/18546952 (실명 익명화: '염'→'그 감독')",
+      "note": "원문 '근데 쓰는 염이 싸패임'에서 실명 약칭을 역할명으로 치환",
+      "unit_kind": "body",
+      "expect": {
+        "is_valid": false,
+        "axis": "abuse"
+      }
+    },
+    {
+      "req_id": "BRK-LLM-20",
+      "case_tag": "20-bonus2",
+      "text": "진짜 이분 인성 생긴거처럼 드러우실듯",
+      "source": "corpus:fm/10127771940 comment (원문 그대로, 익명 pronoun 사용이라 추가 익명화 불필요)",
+      "note": "외모 기반 인격 추정 — 욕설 사전 무매칭",
+      "unit_kind": "body",
+      "expect": {
+        "is_valid": false,
+        "axis": "abuse"
+      }
+    },
+    {
+      "req_id": "BRK-LLM-20",
+      "case_tag": "20-bonus3(cross-23)",
+      "text": "홈런 한번씩 떄리고 3루에서 배치기 세레머니 할떄마다 개패고싶음 출렁출렁 거리는 뱃살을 보며 저게 스포츠 선수인가싶음",
+      "source": "corpus:dc/5754623 (원문 그대로, 실명 없음)",
+      "note": "⚠️ 바디셰이밍+폭력적 표현 복합 — BRK-LLM-20/23 경계 사례",
+      "unit_kind": "body",
+      "expect": {
+        "is_valid": false,
+        "axis": "abuse"
+      }
+    }
+  ],
+  "false_positive_cases": [
+    {
+      "req_id": "BRK-LLM-30",
+      "case_tag": "30a",
+      "unit_kind": "body",
+      "text": "불펜이 또 방화했다",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-30",
+      "case_tag": "30b",
+      "unit_kind": "body",
+      "text": "타선이 완전히 죽었다",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-30",
+      "case_tag": "30c",
+      "unit_kind": "body",
+      "text": "살인적인 일정이네",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-30",
+      "case_tag": "30d",
+      "unit_kind": "body",
+      "text": "오늘 투수들 다 죽었음",
+      "source": "corpus:dc/18544564 (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-31",
+      "case_tag": "31a",
+      "unit_kind": "body",
+      "text": "오늘 감독 용병술은 최악이었다",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-31",
+      "case_tag": "31b",
+      "unit_kind": "body",
+      "text": "수비가 오늘 진짜 최악이었네",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-31",
+      "case_tag": "31c",
+      "unit_kind": "body",
+      "text": "타선이 왜 1.5군이냐ㅠㅠㅠㅠㅠ",
+      "source": "corpus:dc/18115655 (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-31",
+      "case_tag": "31d",
+      "unit_kind": "body",
+      "text": "감독만 포기한 게임",
+      "source": "corpus:dc/17421614 (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-32",
+      "case_tag": "32a",
+      "unit_kind": "body",
+      "text": "부산 원정 가서 이겨야 직성이 풀린다",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-32",
+      "case_tag": "32b",
+      "unit_kind": "body",
+      "text": "직관가는 팬들 더울텐데 더위 조심하고 이번에도 붙어보자",
+      "source": "corpus:dc/18115631 (팀 은어 일반화)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-33",
+      "case_tag": "33a",
+      "unit_kind": "body",
+      "text": "미쳤다 이 타구",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-33",
+      "case_tag": "33b",
+      "unit_kind": "body",
+      "text": "역대급 경기였다",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-33",
+      "case_tag": "33c",
+      "unit_kind": "body",
+      "text": "말도 안되는 수비",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-33",
+      "case_tag": "33d",
+      "unit_kind": "body",
+      "text": "미쳤냐",
+      "source": "corpus:dc/18548426 (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-33",
+      "case_tag": "33e",
+      "unit_kind": "body",
+      "text": "그팀 진짜 레전드를 찍고있노",
+      "source": "corpus:dc/18122359 (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-40",
+      "case_tag": "40a",
+      "unit_kind": "body",
+      "text": "○○선수 인터뷰 태도 좋더라",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-40",
+      "case_tag": "40b",
+      "unit_kind": "body",
+      "text": "내년 유니폼 디자인 어떻게 나올까",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-40",
+      "case_tag": "40c",
+      "unit_kind": "body",
+      "text": "직관 갔는데 자리 뷰 좋았음",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-40",
+      "case_tag": "40d",
+      "unit_kind": "body",
+      "text": "블타 유니폼 - 개추 300홈런 유니폼 - 비추",
+      "source": "corpus:dc/2700841 (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-40",
+      "case_tag": "40e",
+      "unit_kind": "body",
+      "text": "우리가 이런 유니폼이 있었냐 ??",
+      "source": "corpus:dc/11248585 (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-40",
+      "case_tag": "40f",
+      "unit_kind": "body",
+      "text": "관중석 많이 널널하기 시작함",
+      "source": "corpus:dc/18116022 (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-41",
+      "case_tag": "41a",
+      "unit_kind": "body",
+      "text": "오늘 경기 요약.jpg",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-41",
+      "case_tag": "41b",
+      "unit_kind": "body",
+      "text": "이 짤 아직도 웃김",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-41",
+      "case_tag": "41c",
+      "unit_kind": "body",
+      "text": "짤 웃기면 개추",
+      "source": "corpus:dc/17419056 (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-41",
+      "case_tag": "41d",
+      "unit_kind": "body",
+      "text": "슬슬 뇌절같으면 개추 ㅋㅋㅋ",
+      "source": "corpus:fm/10127743462 body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-41",
+      "case_tag": "41e",
+      "unit_kind": "body",
+      "text": "위 링크들어가서 추천누르면 엄마 평생 치매면역.",
+      "source": "corpus:dc/18122591 (원문 그대로)",
+      "note": "⚠️ 표면은 스팸/클릭베이트처럼 보이나 실제로는 커뮤니티 밈(카피파스타) — spam 오탐 유발 엣지케이스로 의도",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-42",
+      "case_tag": "42a",
+      "unit_kind": "body",
+      "text": "가자!!",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-42",
+      "case_tag": "42b",
+      "unit_kind": "body",
+      "text": "오늘은 이긴다",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-42",
+      "case_tag": "42c",
+      "unit_kind": "body",
+      "text": "ㅋㅋㅋㅋ",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-42",
+      "case_tag": "42d",
+      "unit_kind": "body",
+      "text": "오늘 못이기겠네",
+      "source": "corpus:dc/5832631 (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-42",
+      "case_tag": "42e",
+      "unit_kind": "body",
+      "text": "오늘 완봉 가능하냐",
+      "source": "corpus:dc/5834340 (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-43",
+      "case_tag": "43a",
+      "unit_kind": "body",
+      "text": "굿즈 어디서 사는 게 제일 싸요?",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-43",
+      "case_tag": "43b",
+      "unit_kind": "body",
+      "text": "티켓팅 몇 시에 열려요?",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-43",
+      "case_tag": "43c",
+      "unit_kind": "body",
+      "text": "3루 응원석 자리 어떻게 예매하는지 아시는 분 계세요?",
+      "source": "synthetic",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    }
+  ],
+  "normal_set": [
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-11247652-body",
+      "unit_kind": "body",
+      "text": "야구에 통달하고 스카우트라된 되는 마냥 얘는 진짜다 스탯 분석질하더니 ㅋㅋ",
+      "source": "corpus:dc/11247652/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-11248827-body",
+      "unit_kind": "body",
+      "text": "퉁 휴식에 구자욱 지타 넣고 김헌곤에 신인 심재훈 넣어볼 정도임?",
+      "source": "corpus:dc/11248827/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-11250542-body",
+      "unit_kind": "body",
+      "text": "쟤 장타가 있었나? 뚝딱이 아니였어.. ㄷㄷ",
+      "source": "corpus:dc/11250542/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-11251765-body",
+      "unit_kind": "body",
+      "text": "똥통에 진주 빠졌네 ㅇㅇ",
+      "source": "corpus:dc/11251765/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-11253498-body",
+      "unit_kind": "body",
+      "text": "칩) 범싸개 한짤 요약..........jpg",
+      "source": "corpus:dc/11253498/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-17410883-body",
+      "unit_kind": "body",
+      "text": "예능쪽으로만 활동하려고하나",
+      "source": "corpus:dc/17410883/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-17411356-body",
+      "unit_kind": "body",
+      "text": "우리 갤주 그냥 하주석으로 하자",
+      "source": "corpus:dc/17411356/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-17412811-body",
+      "unit_kind": "body",
+      "text": "바로 업보 쳐맞는거 봐라 ㅉㅉ",
+      "source": "corpus:dc/17412811/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-17414348-body",
+      "unit_kind": "body",
+      "text": "단체로 쥐약 처먹은거 마냥 신나게털림 ㅋㅋㅋ",
+      "source": "corpus:dc/17414348/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-17415798-body",
+      "unit_kind": "body",
+      "text": "야수들이 얼마를 하든",
+      "source": "corpus:dc/17415798/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-17417627-body",
+      "unit_kind": "body",
+      "text": "염경엽은 추가 실점하기전에 플루크 해서 바로 바꿔쓴ㄴ데 돌경문은 어 저거 좋아보이네 하고 그냥 아무이유없이 바꿈ㅋㅋ",
+      "source": "corpus:dc/17417627/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-17419184-body",
+      "unit_kind": "body",
+      "text": "경문이 판단이면 미스다 4이닝이라도 100구 채웠어야지 딱 보니까 타격전인데 불펜 최대한 아껴놓고 안되면 바꿔야지",
+      "source": "corpus:dc/17419184/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-17420875-body",
+      "unit_kind": "body",
+      "text": "그이닝 9실점 안했다 - dc official App",
+      "source": "corpus:dc/17420875/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-17421819-body",
+      "unit_kind": "body",
+      "text": "이미 갸전드 반열로 들어서고 있다 갸맙다",
+      "source": "corpus:dc/17421819/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-18113769-body",
+      "unit_kind": "body",
+      "text": "대답해야지 개웃기네 ㄹㅇ ㅋㅋ",
+      "source": "corpus:dc/18113769/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-18115435-body",
+      "unit_kind": "body",
+      "text": "우리의 비밀병기 김 백 산",
+      "source": "corpus:dc/18115435/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-18116445-body",
+      "unit_kind": "body",
+      "text": "선수들이 서울원정만 오면 삼튜브에서 표정 밝아지는 이유가..",
+      "source": "corpus:dc/18116445/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-18118022-body",
+      "unit_kind": "body",
+      "text": "좀 심하네 요즘",
+      "source": "corpus:dc/18118022/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-18119428-body",
+      "unit_kind": "body",
+      "text": "뺌웅이 아니라 그냥 뺌",
+      "source": "corpus:dc/18119428/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-18120607-body",
+      "unit_kind": "body",
+      "text": "방금 돡녀.webp",
+      "source": "corpus:dc/18120607/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-18121636-body",
+      "unit_kind": "body",
+      "text": "안타 안나오고 안되니까 수비도 안된다고함",
+      "source": "corpus:dc/18121636/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-18123051-body",
+      "unit_kind": "body",
+      "text": "우리가 이길거 같냐 - dc official App",
+      "source": "corpus:dc/18123051/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-18124662-body",
+      "unit_kind": "body",
+      "text": "솔직히 눈웃음 예쁜편이긴 함.webp",
+      "source": "corpus:dc/18124662/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-18125391-body",
+      "unit_kind": "body",
+      "text": "박한이 자가분열설 ㅋㅋㅋㅋㅋ",
+      "source": "corpus:dc/18125391/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-18539724-body",
+      "unit_kind": "body",
+      "text": "타르타르소스라고 오피셜 뜸",
+      "source": "corpus:dc/18539724/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-18540778-body",
+      "unit_kind": "body",
+      "text": "끈적 거리는 물질 발견!!!! - dc official App",
+      "source": "corpus:dc/18540778/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-18541789-body",
+      "unit_kind": "body",
+      "text": "고소한 명란 바게트",
+      "source": "corpus:dc/18541789/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-18543076-body",
+      "unit_kind": "body",
+      "text": "아니 내가 잘못한거임? - dc official App",
+      "source": "corpus:dc/18543076/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-18545057-body",
+      "unit_kind": "body",
+      "text": "2026 제6회 월드베이스볼클래식(WBC) 국가대표",
+      "source": "corpus:dc/18545057/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-18548704-body",
+      "unit_kind": "body",
+      "text": "하루종일 경기하는데 1루보네 - dc official App",
+      "source": "corpus:dc/18548704/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-18549761-body",
+      "unit_kind": "body",
+      "text": "니네팀 경기 가끔 보는데 볼때마다 홈런침",
+      "source": "corpus:dc/18549761/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-2700841-body",
+      "unit_kind": "body",
+      "text": "블타 유니폼 - 개추 300홈런 유니폼 - 비추",
+      "source": "corpus:dc/2700841/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-2702334-body",
+      "unit_kind": "body",
+      "text": "호령신 기아 남고 싶어서 자체 디스카운트 중 이잖오 외쳐 갓호령",
+      "source": "corpus:dc/2702334/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-2704217-body",
+      "unit_kind": "body",
+      "text": "요즘 왤케 야구에 집중을 못하는것 같냐?",
+      "source": "corpus:dc/2704217/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-2705530-body",
+      "unit_kind": "body",
+      "text": "아버디가 좋아하시겠네 ㅋㅋㅋㅋ - dc official App",
+      "source": "corpus:dc/2705530/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-5755413-body",
+      "unit_kind": "body",
+      "text": "7) 스쿠류바 어디 아프냐?",
+      "source": "corpus:dc/5755413/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-5757583-body",
+      "unit_kind": "body",
+      "text": "보인다 - dc official App",
+      "source": "corpus:dc/5757583/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-5759092-body",
+      "unit_kind": "body",
+      "text": "박승욱은 그래도 팀배팅 생각해서 타구 외야로 보내기라도 했는데 윤동희,노진혁은 삼진ㅋㅋㅋ",
+      "source": "corpus:dc/5759092/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-5832631-body",
+      "unit_kind": "body",
+      "text": "오늘 못이기겠네",
+      "source": "corpus:dc/5832631/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-5833030-body",
+      "unit_kind": "body",
+      "text": "꼴데 ㄹㅇㅇ.jpg",
+      "source": "corpus:dc/5833030/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-5834120-body",
+      "unit_kind": "body",
+      "text": "저 암흑들 빨리 치워버려야지 뭐 별수있노",
+      "source": "corpus:dc/5834120/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-5835330-body",
+      "unit_kind": "body",
+      "text": "온 몸 비틀어서 이길수 없다는듯이ㅋㅋㅋ",
+      "source": "corpus:dc/5835330/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-6994937-body",
+      "unit_kind": "body",
+      "text": "자기 글러브임? 준비한단 얘기 전혀 못들었는데 하다못해 최준우 내는것도 아니고 1드리스도 아니고 쟤가 그대로했냐",
+      "source": "corpus:dc/6994937/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-6996949-body",
+      "unit_kind": "body",
+      "text": "오늘 건우 형우 요약..",
+      "source": "corpus:dc/6996949/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-6998675-body",
+      "unit_kind": "body",
+      "text": "접대는 그냥 이분있을때가 빡셌음 ㅇㅈ?",
+      "source": "corpus:dc/6998675/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-8788879-body",
+      "unit_kind": "body",
+      "text": "이거 빠는애들은 진심",
+      "source": "corpus:dc/8788879/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-8790050-body",
+      "unit_kind": "body",
+      "text": "구속만 안나온다지 1회 뭐했냐 - dc official App",
+      "source": "corpus:dc/8790050/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-8791707-body",
+      "unit_kind": "body",
+      "text": "경기장 불 켜주고 갈테니까 특타 2시간해라 ㅇㅇ..",
+      "source": "corpus:dc/8791707/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "fm-10124755673-comment",
+      "unit_kind": "comment",
+      "text": "15년 1조 정도는 되야 희대의 먹튀죠",
+      "source": "corpus:fm/10124755673/comment (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "fm-10125955055-body",
+      "unit_kind": "body",
+      "text": "https://x.com/i/status/2080639688340283494",
+      "source": "corpus:fm/10125955055/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "fm-10126190961-comment",
+      "unit_kind": "comment",
+      "text": "리턴하는애들은 크보에서 스텝업이라 할만큼 확실한 변화가 있었는데 페덱은 없음 ㅇㅇ 1년더 증명해야함",
+      "source": "corpus:fm/10126190961/comment (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "fm-10126445232-comment",
+      "unit_kind": "comment",
+      "text": "처음에 '세호신' 이란 표현이랑 갤주로 칭하는 분위기에 실력이 애매한 줄 알았는데 소속팀에 대한 높은 충성도 + MVP 컨텐더라 더 매력적인 선수",
+      "source": "corpus:fm/10126445232/comment (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "fm-10127316277-comment",
+      "unit_kind": "comment",
+      "text": "와 야갤 이거도 통제하네ㄷㄷㄷㄷㄷㄷㄷㄷㄷ",
+      "source": "corpus:fm/10127316277/comment (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "fm-10127511711-comment",
+      "unit_kind": "comment",
+      "text": "닌자종열 친구생겼네 닌자명석",
+      "source": "corpus:fm/10127511711/comment (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "fm-10127598368-comment",
+      "unit_kind": "comment",
+      "text": "포에 관심없다는 사람을 제일 조심하라 그랬어",
+      "source": "corpus:fm/10127598368/comment (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "fm-10127634275-comment",
+      "unit_kind": "comment",
+      "text": "채푸뱓루야 아무도 통제 안 했는데 통제했다고 욕먹음 ㅋㅋ",
+      "source": "corpus:fm/10127634275/comment (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "fm-10127648002-comment",
+      "unit_kind": "comment",
+      "text": "관리자가 허락한거임???",
+      "source": "corpus:fm/10127648002/comment (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "fm-10127669290-comment",
+      "unit_kind": "comment",
+      "text": "포텐개척시대열린",
+      "source": "corpus:fm/10127669290/comment (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "fm-10127686295-comment",
+      "unit_kind": "comment",
+      "text": "정보: ㅇㅅㅇㅌㅅ 중 ㅌㅅ 키워드 때문에 저 인기글 올라온거 마저도 담장 못넘어가는 중 ㅋㅋㅋㅋ",
+      "source": "corpus:fm/10127686295/comment (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "fm-10127718490-body",
+      "unit_kind": "body",
+      "text": "Video 태그를 지원하지 않는 브라우저입니다. 1억개~~",
+      "source": "corpus:fm/10127718490/body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "fm-10127737580-comment",
+      "unit_kind": "comment",
+      "text": "정보)근 메시가 4년에 한번 열리는 월드컵 결승 3번 갈동안 한국시리즈 못간 선수 중 최다 경기수 찍으셨다 아",
+      "source": "corpus:fm/10127737580/comment (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "fm-10127790604-comment",
+      "unit_kind": "comment",
+      "text": "얘가 누구냐고 21번째 여쭙습니디",
+      "source": "corpus:fm/10127790604/comment (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "fm-10127802773-comment",
+      "unit_kind": "comment",
+      "text": "홀인원 잘할거같네",
+      "source": "corpus:fm/10127802773/comment (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "fm-10127858726-comment",
+      "unit_kind": "comment",
+      "text": "https://m.fmkorea.com/10104248176 https://m.fmkorea.com/10105165779 -6 타점은 가능하던데...",
+      "source": "corpus:fm/10127858726/comment (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "fm-10128004562-comment",
+      "unit_kind": "comment",
+      "text": "주석아 기아에서 잘해라 너 응원 엄청했다 우리랑 안할땐 항상 응원할께",
+      "source": "corpus:fm/10128004562/comment (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "fm-10128174732-comment",
+      "unit_kind": "comment",
+      "text": "솔직히 발랐는데 저거면 아예 포심이 맛탱이가 가버린거라 그것도 문제긴함",
+      "source": "corpus:fm/10128174732/comment (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-18540079-title_as_body",
+      "unit_kind": "body",
+      "text": "소신)그래도 오승환처럼 도박은 안했잖아",
+      "source": "corpus:dc/18540079 title (빈 본문 글의 제목, 원문 그대로)",
+      "note": "빈 본문 글 — title 이 unit_kind=body 로 판정됨(PIPE-2SB-8b)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-6995391-title_as_body",
+      "unit_kind": "body",
+      "text": "타르빗슈(29)",
+      "source": "corpus:dc/6995391 title (빈 본문 글의 제목, 원문 그대로)",
+      "note": "빈 본문 글 — title 이 unit_kind=body 로 판정됨(PIPE-2SB-8b)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-8788890-title_as_body",
+      "unit_kind": "body",
+      "text": "단독기사))키움 아시아쿼터 교체중비중",
+      "source": "corpus:dc/8788890 title (빈 본문 글의 제목, 원문 그대로)",
+      "note": "빈 본문 글 — title 이 unit_kind=body 로 판정됨(PIPE-2SB-8b)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-18540645-title_as_body",
+      "unit_kind": "body",
+      "text": "칰) 너희들은 어쩌다가 허인서를 동경하게 된거냐?",
+      "source": "corpus:dc/18540645 title (빈 본문 글의 제목, 원문 그대로)",
+      "note": "빈 본문 글 — title 이 unit_kind=body 로 판정됨(PIPE-2SB-8b)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-34/45",
+      "case_tag": "dc-18115319-title_as_body",
+      "unit_kind": "body",
+      "text": "고우석 퇴장에 참지못하고 폭동을 일으키는 팬들...gif",
+      "source": "corpus:dc/18115319 title (빈 본문 글의 제목, 원문 그대로)",
+      "note": "빈 본문 글 — title 이 unit_kind=body 로 판정됨(PIPE-2SB-8b)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      }
+    },
+    {
+      "req_id": "BRK-LLM-30",
+      "case_tag": "30a",
+      "unit_kind": "body",
+      "text": "불펜이 또 방화했다",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      },
+      "also_normal_set": true
+    },
+    {
+      "req_id": "BRK-LLM-30",
+      "case_tag": "30b",
+      "unit_kind": "body",
+      "text": "타선이 완전히 죽었다",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      },
+      "also_normal_set": true
+    },
+    {
+      "req_id": "BRK-LLM-30",
+      "case_tag": "30c",
+      "unit_kind": "body",
+      "text": "살인적인 일정이네",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      },
+      "also_normal_set": true
+    },
+    {
+      "req_id": "BRK-LLM-30",
+      "case_tag": "30d",
+      "unit_kind": "body",
+      "text": "오늘 투수들 다 죽었음",
+      "source": "corpus:dc/18544564 (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      },
+      "also_normal_set": true
+    },
+    {
+      "req_id": "BRK-LLM-31",
+      "case_tag": "31a",
+      "unit_kind": "body",
+      "text": "오늘 감독 용병술은 최악이었다",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      },
+      "also_normal_set": true
+    },
+    {
+      "req_id": "BRK-LLM-31",
+      "case_tag": "31b",
+      "unit_kind": "body",
+      "text": "수비가 오늘 진짜 최악이었네",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      },
+      "also_normal_set": true
+    },
+    {
+      "req_id": "BRK-LLM-31",
+      "case_tag": "31c",
+      "unit_kind": "body",
+      "text": "타선이 왜 1.5군이냐ㅠㅠㅠㅠㅠ",
+      "source": "corpus:dc/18115655 (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      },
+      "also_normal_set": true
+    },
+    {
+      "req_id": "BRK-LLM-31",
+      "case_tag": "31d",
+      "unit_kind": "body",
+      "text": "감독만 포기한 게임",
+      "source": "corpus:dc/17421614 (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      },
+      "also_normal_set": true
+    },
+    {
+      "req_id": "BRK-LLM-32",
+      "case_tag": "32a",
+      "unit_kind": "body",
+      "text": "부산 원정 가서 이겨야 직성이 풀린다",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      },
+      "also_normal_set": true
+    },
+    {
+      "req_id": "BRK-LLM-32",
+      "case_tag": "32b",
+      "unit_kind": "body",
+      "text": "직관가는 팬들 더울텐데 더위 조심하고 이번에도 붙어보자",
+      "source": "corpus:dc/18115631 (팀 은어 일반화)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      },
+      "also_normal_set": true
+    },
+    {
+      "req_id": "BRK-LLM-33",
+      "case_tag": "33a",
+      "unit_kind": "body",
+      "text": "미쳤다 이 타구",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      },
+      "also_normal_set": true
+    },
+    {
+      "req_id": "BRK-LLM-33",
+      "case_tag": "33b",
+      "unit_kind": "body",
+      "text": "역대급 경기였다",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      },
+      "also_normal_set": true
+    },
+    {
+      "req_id": "BRK-LLM-33",
+      "case_tag": "33c",
+      "unit_kind": "body",
+      "text": "말도 안되는 수비",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      },
+      "also_normal_set": true
+    },
+    {
+      "req_id": "BRK-LLM-33",
+      "case_tag": "33d",
+      "unit_kind": "body",
+      "text": "미쳤냐",
+      "source": "corpus:dc/18548426 (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      },
+      "also_normal_set": true
+    },
+    {
+      "req_id": "BRK-LLM-33",
+      "case_tag": "33e",
+      "unit_kind": "body",
+      "text": "그팀 진짜 레전드를 찍고있노",
+      "source": "corpus:dc/18122359 (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      },
+      "also_normal_set": true
+    },
+    {
+      "req_id": "BRK-LLM-40",
+      "case_tag": "40a",
+      "unit_kind": "body",
+      "text": "○○선수 인터뷰 태도 좋더라",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      },
+      "also_normal_set": true
+    },
+    {
+      "req_id": "BRK-LLM-40",
+      "case_tag": "40b",
+      "unit_kind": "body",
+      "text": "내년 유니폼 디자인 어떻게 나올까",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      },
+      "also_normal_set": true
+    },
+    {
+      "req_id": "BRK-LLM-40",
+      "case_tag": "40c",
+      "unit_kind": "body",
+      "text": "직관 갔는데 자리 뷰 좋았음",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      },
+      "also_normal_set": true
+    },
+    {
+      "req_id": "BRK-LLM-40",
+      "case_tag": "40e",
+      "unit_kind": "body",
+      "text": "우리가 이런 유니폼이 있었냐 ??",
+      "source": "corpus:dc/11248585 (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      },
+      "also_normal_set": true
+    },
+    {
+      "req_id": "BRK-LLM-40",
+      "case_tag": "40f",
+      "unit_kind": "body",
+      "text": "관중석 많이 널널하기 시작함",
+      "source": "corpus:dc/18116022 (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      },
+      "also_normal_set": true
+    },
+    {
+      "req_id": "BRK-LLM-41",
+      "case_tag": "41a",
+      "unit_kind": "body",
+      "text": "오늘 경기 요약.jpg",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      },
+      "also_normal_set": true
+    },
+    {
+      "req_id": "BRK-LLM-41",
+      "case_tag": "41b",
+      "unit_kind": "body",
+      "text": "이 짤 아직도 웃김",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      },
+      "also_normal_set": true
+    },
+    {
+      "req_id": "BRK-LLM-41",
+      "case_tag": "41c",
+      "unit_kind": "body",
+      "text": "짤 웃기면 개추",
+      "source": "corpus:dc/17419056 (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      },
+      "also_normal_set": true
+    },
+    {
+      "req_id": "BRK-LLM-41",
+      "case_tag": "41d",
+      "unit_kind": "body",
+      "text": "슬슬 뇌절같으면 개추 ㅋㅋㅋ",
+      "source": "corpus:fm/10127743462 body (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      },
+      "also_normal_set": true
+    },
+    {
+      "req_id": "BRK-LLM-41",
+      "case_tag": "41e",
+      "unit_kind": "body",
+      "text": "위 링크들어가서 추천누르면 엄마 평생 치매면역.",
+      "source": "corpus:dc/18122591 (원문 그대로)",
+      "note": "⚠️ 표면은 스팸/클릭베이트처럼 보이나 실제로는 커뮤니티 밈(카피파스타) — spam 오탐 유발 엣지케이스로 의도",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      },
+      "also_normal_set": true
+    },
+    {
+      "req_id": "BRK-LLM-42",
+      "case_tag": "42a",
+      "unit_kind": "body",
+      "text": "가자!!",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      },
+      "also_normal_set": true
+    },
+    {
+      "req_id": "BRK-LLM-42",
+      "case_tag": "42b",
+      "unit_kind": "body",
+      "text": "오늘은 이긴다",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      },
+      "also_normal_set": true
+    },
+    {
+      "req_id": "BRK-LLM-42",
+      "case_tag": "42c",
+      "unit_kind": "body",
+      "text": "ㅋㅋㅋㅋ",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      },
+      "also_normal_set": true
+    },
+    {
+      "req_id": "BRK-LLM-42",
+      "case_tag": "42e",
+      "unit_kind": "body",
+      "text": "오늘 완봉 가능하냐",
+      "source": "corpus:dc/5834340 (원문 그대로)",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      },
+      "also_normal_set": true
+    },
+    {
+      "req_id": "BRK-LLM-43",
+      "case_tag": "43a",
+      "unit_kind": "body",
+      "text": "굿즈 어디서 사는 게 제일 싸요?",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      },
+      "also_normal_set": true
+    },
+    {
+      "req_id": "BRK-LLM-43",
+      "case_tag": "43b",
+      "unit_kind": "body",
+      "text": "티켓팅 몇 시에 열려요?",
+      "source": "doc-tentative",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      },
+      "also_normal_set": true
+    },
+    {
+      "req_id": "BRK-LLM-43",
+      "case_tag": "43c",
+      "unit_kind": "body",
+      "text": "3루 응원석 자리 어떻게 예매하는지 아시는 분 계세요?",
+      "source": "synthetic",
+      "expect": {
+        "is_valid": true,
+        "axis": null
+      },
+      "also_normal_set": true
+    }
+  ]
+}

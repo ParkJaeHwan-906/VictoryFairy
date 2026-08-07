@@ -1,0 +1,38 @@
+plugins {
+    id 'org.springframework.boot'
+}
+
+description = 'user'
+
+dependencies {
+    implementation project(':common')
+    implementation project(':domain')
+    implementation project(':web-support')   // JWT 발급/검증·예외 핸들러·401 엔트리포인트 공유 인프라
+
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    implementation 'org.springframework.boot:spring-boot-starter-mail'
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+    implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'     // ALB 타깃 헬스체크(/actuator/health/readiness)
+    runtimeOnly 'me.paulschwarz:spring-dotenv:4.0.0'
+
+    developmentOnly 'org.springframework.boot:spring-boot-devtools'
+    runtimeOnly 'com.mysql:mysql-connector-j'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-security-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+}
+
+// 배포 선행 SQL(infra/sql)을 그대로 클래스패스에 실어 dev 기동 시 자동 시드에 쓴다
+// (application-dev.yaml 의 spring.sql.init.data-locations 참고).
+// 복사해 쓰는 이유: 시드 SQL 의 단일 출처는 infra/sql 이고, 운영은 같은 파일을 사람이 직접 적용한다.
+// 여기에 사본을 따로 두면 두 벌이 갈라진다.
+processResources {
+    from("${rootDir}/infra/sql") {
+        into 'sql'
+        include '*.sql'
+    }
+}

@@ -1,0 +1,13 @@
+# 수집 잡 런타임 컨테이너 (Lambda 핸들러 이미지와 별개). 로컬 실행과
+# EC2 크론(deploy/ec2, GHCR victoryfairy-collector 이미지) 양쪽에서 쓴다.
+# build context = py-collector/
+FROM python:3.12-slim
+
+WORKDIR /app
+COPY pyproject.toml ./
+COPY kbo_collector/ ./kbo_collector/
+COPY config/ ./config/
+COPY deploy/sql/ ./deploy/sql/
+RUN pip install --no-cache-dir .
+
+ENTRYPOINT ["python", "-m", "kbo_collector.run"]
