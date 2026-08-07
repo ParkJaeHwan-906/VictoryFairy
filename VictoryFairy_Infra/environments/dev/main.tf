@@ -161,6 +161,40 @@ module "cdn" {
   attach_apex_alias = var.fe_attach_apex_alias
 }
 
+# 상시 감시 — 배포 스모크(수십 초)가 닫힌 뒤를 맡는다.
+# EventBridge → 점검 Lambda → 커스텀 지표 → 알람 → SNS → 대응 Lambda(FE 롤백·Slack·티켓).
+# ⚠ FE 알람만 롤백을 유발한다. BE(user·quiz) 알람은 알림만 보낸다 — 원인이 BE 인데 FE 를
+#   되돌리면 정상 FE 만 잃는다. 상세는 docs/fe-release-rollback.md.
+module "fe_watchdog" {
+  source = "../../modules/fe-watchdog"
+
+  name_prefix = local.cluster_name
+
+  # ⚠ CloudFront 배포 도메인이 아니라 apex 다. Host 헤더가 ALB 규칙과 맞아야 /api 점검이 성립한다.
+  site_url = "https://${var.domain_name}"
+
+  fe_bucket_name = module.cdn.bucket_name
+  fe_bucket_arn  = module.cdn.bucket_arn
+
+  # 키가 지표 차원(Target)이 되어 Slack 알림에 어느 모듈이 죽었는지 그대로 드러난다.
+  # 경로는 BE 의 context-path 와 문자 그대로 일치해야 한다(/api·/rt).
+  api_targets = {
+    user = "/api/actuator/health/readiness"
+    quiz = "/rt/actuator/health/readiness"
+  }
+
+  # 5분 주기 × 연속 2회 = 최대 10분 내 감지. 1회로 낮추면 단발 흔들림에 롤백한다.
+  schedule_expression  = "rate(5 minutes)"
+  alarm_period_seconds = 300
+  datapoints_to_alarm  = 2
+
+  # 시크릿은 코드에 두지 않는다. SSM SecureString 을 콘솔/CLI 로 넣고 이름만 참조한다.
+  # 파라미터가 없으면 해당 기능(Slack 알림 / 티켓)만 생략되고 롤백은 계속 동작한다.
+  slack_webhook_param = "/victoryfairy/dev/slack-webhook-url"
+  github_token_param  = "/victoryfairy/dev/github-token"
+  github_repo         = "ParkJaeHwan-906/VictoryFairy"
+}
+
 module "security" {
   source = "../../modules/security"
 
