@@ -22,14 +22,14 @@ server:
   port: 8080
   servlet:
     # 이 앱의 모든 경로에 붙는 외부 접두사. 컨트롤러는 자기 자원 이름만 갖는다
-    # (@RequestMapping("/auth") → 외부 /api/member/auth/**).
+    # (@RequestMapping("/auth") → 외부 /api/auth/**).
     #
     # ⚠ 서블릿 컨테이너가 필터 체인 '이전에' 이 접두사를 떼므로:
     #   - SecurityConfig 의 requestMatchers 는 접두사를 뺀 경로(/auth/**)를 쓴다.
     #   - MockMvc 는 context-path 를 적용하지 않으므로 슬라이스 테스트도 /auth/** 로 요청한다.
     # ⚠ ALB 는 forward 시 경로 rewrite 를 못 하므로 k8s/22-ingress.yaml 의 path 와
     #   이 값이 문자 그대로 일치해야 한다.
-    context-path: /api/member
+    context-path: /api
 
 # 인증번호 메일 발신자 주소. 실제 SMTP 발송은 prod 프로파일에서만 일어난다(dev/test는 mock 로그).
 app:
@@ -39,11 +39,11 @@ app:
 # ALB 타깃 그룹 헬스체크용. health 만 노출한다(그 외 액추에이터 엔드포인트는 닫힘).
 #
 # ⚠ ALB 는 /actuator/health 가 아니라 '/actuator/health/readiness' 를 본다
-#   (k8s/22-ingress.yaml 의 healthcheck-path = /api/member/actuator/health/readiness).
+#   (k8s/22-ingress.yaml 의 healthcheck-path = /api/actuator/health/readiness).
 #   전체 health 는 db·redis·mail 인디케이터를 모두 합산해 DOWN 을 내므로, MySQL EC2 가 잠깐
 #   흔들리면 살아있는 파드까지 타깃에서 빠져 전면 503 이 된다. readiness 그룹은 기본적으로
 #   readinessState 만 보므로 그런 연쇄를 만들지 않는다.
-# ⚠ context-path(/api/member) 아래로 들어가므로 외부 경로에는 접두사가 붙는다.
+# ⚠ context-path(/api) 아래로 들어가므로 외부 경로에는 접두사가 붙는다.
 management:
   endpoints:
     web:

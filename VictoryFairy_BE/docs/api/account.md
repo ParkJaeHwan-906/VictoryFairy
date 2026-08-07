@@ -1,21 +1,21 @@
 # 계정(account) API 명세
 
 > **도메인** `account` — 로그인 계정 자체의 생명주기(탈퇴) + 내 프로필 요약 조회.
-> **모듈** user (포트 8080) · **경로 접두사** `/api/member/users` · **엔드포인트** 2개
+> **모듈** user (포트 8080) · **경로 접두사** `/api/users` · **엔드포인트** 2개
 > **컨트롤러** `user/src/main/java/com/skhynix/user/account/controller/UserAccountController.java` (`@RequestMapping("/users")`)
-> **최종 갱신** 2026-08-06 — `GET /api/member/users/me` 응답에 `supportPlayers`(현재 응원 중인 선수 목록) 추가, 응답 키 4개→5개, SELECT 횟수 4회→5회로 정정.
+> **최종 갱신** 2026-08-06 — `GET /api/users/me` 응답에 `supportPlayers`(현재 응원 중인 선수 목록) 추가, 응답 키 4개→5개, SELECT 횟수 4회→5회로 정정.
 > 공통 규약(응답 래퍼·JWT payload·401 4종)은 [README.md](README.md)를 먼저 볼 것.
 
 ## 엔드포인트 목록
 
 | 메서드 | 경로 | 성공 | 용도 |
 |---|---|---|---|
-| DELETE | [/api/member/users/me](#delete-apimemberusersme) | 204 | 회원 탈퇴(soft delete) |
-| GET | [/api/member/users/me](#get-apimemberusersme) | 200 | 내 요약 프로필 조회(닉네임·응원 구단·응원 선수·포인트·누적 점수) |
+| DELETE | [/api/users/me](#delete-apiusersme) | 204 | 회원 탈퇴(soft delete) |
+| GET | [/api/users/me](#get-apiusersme) | 200 | 내 요약 프로필 조회(닉네임·응원 구단·응원 선수·포인트·누적 점수) |
 
 ## 이 도메인의 특이사항
 
-**user 모듈에서 `anyRequest().authenticated()`에 실제로 걸리는 첫 엔드포인트**가 여기다. `/api/member/auth/**`는 전부 permitAll이라 탈퇴를 [auth](auth.md) 도메인에 두면 인증이 걸리지 않으므로, 의도적으로 `/api/member/users/me`에 배치했다(`SecurityConfig` 변경 없이 기존 규칙에 자연히 포함됨).
+**user 모듈에서 `anyRequest().authenticated()`에 실제로 걸리는 첫 엔드포인트**가 여기다. `/api/auth/**`는 전부 permitAll이라 탈퇴를 [auth](auth.md) 도메인에 두면 인증이 걸리지 않으므로, 의도적으로 `/api/users/me`에 배치했다(`SecurityConfig` 변경 없이 기존 규칙에 자연히 포함됨).
 
 **대상 계정은 URL이 아니라 access 토큰에서만 정해진다.** 경로에 식별자가 없고, `@AuthenticationPrincipal Long userAccountId`로 주입된 내부 PK만으로 동작한다.
 
@@ -23,12 +23,12 @@
 
 ---
 
-## DELETE /api/member/users/me
+## DELETE /api/users/me
 > 최종 변경: 2026-07-27 (추정) — 도메인 분리 이전 이력이 없어 `UserAccountController` 마지막 커밋 기준
 
 회원 탈퇴(soft delete). `UserAccountController` → `UserAccountService.withdraw()`.
 
-**인증 필요** — `Authorization: Bearer <accessToken>`. **user 모듈에서 `anyRequest().authenticated()`에 실제로 걸리는 첫 엔드포인트**다([응원(support)](support.md)의 3개가 뒤이어 같은 규칙에 걸린다). [`/api/member/auth/**`](auth.md)는 전부 permitAll이라 탈퇴를 그쪽에 두면 인증이 걸리지 않으므로, 의도적으로 `/api/member/users/me`에 배치했다(`SecurityConfig` 변경 없이 기존 `anyRequest().authenticated()` 규칙에 자연히 포함됨).
+**인증 필요** — `Authorization: Bearer <accessToken>`. **user 모듈에서 `anyRequest().authenticated()`에 실제로 걸리는 첫 엔드포인트**다([응원(support)](support.md)의 3개가 뒤이어 같은 규칙에 걸린다). [`/api/auth/**`](auth.md)는 전부 permitAll이라 탈퇴를 그쪽에 두면 인증이 걸리지 않으므로, 의도적으로 `/api/users/me`에 배치했다(`SecurityConfig` 변경 없이 기존 `anyRequest().authenticated()` 규칙에 자연히 포함됨).
 
 **왜 경로에 대상 식별자가 없는가**: 탈퇴 대상 계정은 URL이 아니라 access 토큰에서만 정해진다. `JwtAuthenticationFilter`가 토큰 `sub`(uid)를 활성 계정의 내부 `id`로 해석해 `@AuthenticationPrincipal Long userAccountId`로 주입하고, 컨트롤러는 이 `id`만으로 `UserAccountService.withdraw()`를 호출한다. `uid`는 여전히 응답 body나 URL 어디에도 노출되지 않는다.
 
@@ -54,15 +54,15 @@
 
 | 이후 호출 | 결과 | 문서 |
 |---|---|---|
-| 같은 access 토큰으로 `DELETE /api/member/users/me` 재호출 | 401 `UNAUTHENTICATED` | 이 문서 |
-| 그 계정의 refresh 토큰으로 `POST /api/member/auth/refresh` | 401 `EXPIRED_REFRESH_TOKEN` | [auth](auth.md#post-apimemberauthrefresh) |
-| 그 계정의 이메일 + 정확한 비밀번호로 `POST /api/member/auth/login` | 401 `INVALID_CREDENTIALS` (미가입 이메일과 응답 동일) | [auth](auth.md#post-apimemberauthlogin) |
-| 그 계정의 email/tel/nickname으로 `POST /api/member/auth/signup` | 409 `DUPLICATE_EMAIL`/`DUPLICATE_TEL`/`DUPLICATE_NICKNAME` (영구 재가입 불가) | [auth](auth.md#post-apimemberauthsignup) |
+| 같은 access 토큰으로 `DELETE /api/users/me` 재호출 | 401 `UNAUTHENTICATED` | 이 문서 |
+| 그 계정의 refresh 토큰으로 `POST /api/auth/refresh` | 401 `EXPIRED_REFRESH_TOKEN` | [auth](auth.md#post-apiauthrefresh) |
+| 그 계정의 이메일 + 정확한 비밀번호로 `POST /api/auth/login` | 401 `INVALID_CREDENTIALS` (미가입 이메일과 응답 동일) | [auth](auth.md#post-apiauthlogin) |
+| 그 계정의 email/tel/nickname으로 `POST /api/auth/signup` | 409 `DUPLICATE_EMAIL`/`DUPLICATE_TEL`/`DUPLICATE_NICKNAME` (영구 재가입 불가) | [auth](auth.md#post-apiauthsignup) |
 | 그 계정의 토큰으로 [응원(support)](support.md)·[채팅(chat)](chat.md)의 인증 필수 엔드포인트 | 401 `UNAUTHENTICATED` | [README](README.md) |
 
 **예시**
 ```bash
-curl -i -X DELETE http://localhost:8080/api/member/users/me \
+curl -i -X DELETE http://localhost:8080/api/users/me \
   -H 'Authorization: Bearer eyJ...'
 ```
 성공: `204 No Content`, 본문 없음.
@@ -74,12 +74,12 @@ curl -i -X DELETE http://localhost:8080/api/member/users/me \
 
 ---
 
-## GET /api/member/users/me
+## GET /api/users/me
 > 최종 변경: 2026-08-06 — 응답에 `supportPlayers`(현재 응원 중인 선수 목록) 추가. 키 4개→5개, SELECT 4회→5회로 정정
 
 내 요약 프로필 조회(닉네임·응원 구단·응원 선수·보유 포인트·누적 획득 점수). `UserAccountController.getMyProfile()` → `UserProfileService.getMyProfile()`(클래스 레벨 `@Transactional(readOnly = true)`, 쓰기 경로 없음 — 아래 안전망이 작동해도 행을 만들지 않는다). 응원 선수 목록은 `SupportService.currentSupportedPlayers()`에 위임한다(같은 목록을 두 곳에서 따로 만들면 한쪽만 고쳐질 때 응원 API 응답과 갈라지기 때문).
 
-**인증 필요** — `Authorization: Bearer <accessToken>`. `DELETE /api/member/users/me`와 같은 경로라 `SecurityConfig` 변경 없이 기존 `anyRequest().authenticated()`에 자연히 걸린다.
+**인증 필요** — `Authorization: Bearer <accessToken>`. `DELETE /api/users/me`와 같은 경로라 `SecurityConfig` 변경 없이 기존 `anyRequest().authenticated()`에 자연히 걸린다.
 
 **대상 계정은 URL·쿼리·본문이 아니라 access 토큰에서만 정해진다.** 요청 파라미터가 0개다 — `?userId=`·`?uid=`를 붙여도 무시되고 토큰 주체 본인의 프로필만 반환된다.
 
@@ -91,7 +91,7 @@ curl -i -X DELETE http://localhost:8080/api/member/users/me \
 |---|---|---|
 | data.nickname | String | `users_account.nickname` 현재 값 |
 | data.supportTeam | `{id, name}` \| null | 현재 응원 중인(`oppose is null`) 구단. [`team.md`](team.md)의 `TeamResponse`를 재사용. **응원 구단을 아직 선택하지 않은 계정에서는 `null`**이며 이는 오류가 아니라 200 — "가입 완료 ~ 구단 선택 전" 윈도우의 안전망 |
-| data.supportPlayers | `PlayerResponse[]` | **현재 응원 중인**(`oppose is null`) 선수 전체, `playerName` 오름차순. 항목은 [선수(player)](player.md#get-apimemberplayers)·[응원(support)](support.md) API와 **완전히 동일한 `PlayerResponse` 재사용**(전용 DTO 없음) — 키 6개 `{teamId, teamName, playerId, playerName, playerNumber, playerPosition}`. `playerNumber`·`playerPosition`은 nullable이라 `null`이 그대로 나갈 수 있다 |
+| data.supportPlayers | `PlayerResponse[]` | **현재 응원 중인**(`oppose is null`) 선수 전체, `playerName` 오름차순. 항목은 [선수(player)](player.md#get-apiplayers)·[응원(support)](support.md) API와 **완전히 동일한 `PlayerResponse` 재사용**(전용 DTO 없음) — 키 6개 `{teamId, teamName, playerId, playerName, playerNumber, playerPosition}`. `playerNumber`·`playerPosition`은 nullable이라 `null`이 그대로 나갈 수 있다 |
 | data.point | long(JSON 숫자) | 보유 포인트. `users_account.point` |
 | data.bqScore | long(JSON 숫자) | 누적 획득 점수. `users_bq.bq_score`. **그 계정의 `users_bq` 행이 없으면 `null`이 아니라 `0`**(배포 직후~백필 사이의 안전망, 아래 각주 참고) |
 
@@ -99,7 +99,7 @@ curl -i -X DELETE http://localhost:8080/api/member/users/me \
 
 ⚠ **`supportTeam`(단일 값)과 `supportPlayers`(목록)의 "없음" 표현은 비대칭이다.** 구단은 단일 값이라 "없음"을 `null`로만 표현할 수 있지만, 목록은 빈 배열이 그대로 "0건"이라 `supportPlayers`는 응원 선수가 없어도 `null`이 아니라 **빈 배열 `[]`**이다. 응원 구단이 아예 없는 계정(구단 선택 전)에서도 `supportPlayers`는 (구단이 없으므로 당연히) `[]`이며 200이다 — 400 `SUPPORT_TEAM_REQUIRED`가 아니다.
 
-⚠ **`supportPlayers`의 길이는 보통 4 이하지만, 그 상한을 강제하는 주체는 이 엔드포인트가 아니다.** 4명 상한은 [`POST /api/member/support/players`](support.md#post-apimembersupportplayers)가 추가 시점에 거부하는 것으로만 강제되며, `/me`는 "있는 그대로" 반환한다. 상한 도입(2026-08-06) 이전에 이미 5명 이상을 응원 중이던 계정은 그 초과분이 그대로 반환된다(마이그레이션 없음) — **클라이언트가 `supportPlayers.length <= 4`를 불변으로 가정하면 안 된다.**
+⚠ **`supportPlayers`의 길이는 보통 4 이하지만, 그 상한을 강제하는 주체는 이 엔드포인트가 아니다.** 4명 상한은 [`POST /api/support/players`](support.md#post-apisupportplayers)가 추가 시점에 거부하는 것으로만 강제되며, `/me`는 "있는 그대로" 반환한다. 상한 도입(2026-08-06) 이전에 이미 5명 이상을 응원 중이던 계정은 그 초과분이 그대로 반환된다(마이그레이션 없음) — **클라이언트가 `supportPlayers.length <= 4`를 불변으로 가정하면 안 된다.**
 
 응원 선수가 있는 경우:
 ```json
@@ -121,7 +121,7 @@ curl -i -X DELETE http://localhost:8080/api/member/users/me \
 
 **예시**
 ```bash
-curl -i http://localhost:8080/api/member/users/me \
+curl -i http://localhost:8080/api/users/me \
   -H 'Authorization: Bearer eyJ...'
 ```
 
@@ -137,8 +137,8 @@ curl -i http://localhost:8080/api/member/users/me \
 ## 확인 필요 / 코드 미확인
 
 - **탈퇴 취소(복구) API·하드 딜리트·개인정보 파기 배치는 코드에 없다**(`docs/requirements/user/withdraw.md`가 범위 제외로 명시). `exit_at`은 표식만 남기고 행을 삭제하지 않는다.
-- `uid`를 응답 body/URL에 노출하는 엔드포인트는 아직 없다. `GET /api/member/users/me`도 `uid`가 아니라 access 토큰으로만 대상을 식별하며 응답에 `uid`를 담지 않는다.
-- 프로필 **수정**(`PATCH`/`PUT /api/member/users/me` 류) 엔드포인트는 아직 없다.
+- `uid`를 응답 body/URL에 노출하는 엔드포인트는 아직 없다. `GET /api/users/me`도 `uid`가 아니라 access 토큰으로만 대상을 식별하며 응답에 `uid`를 담지 않는다.
+- 프로필 **수정**(`PATCH`/`PUT /api/users/me` 류) 엔드포인트는 아직 없다.
 - `point`·`bqScore`를 증감시키는 주체·경로는 이 문서 범위 밖이다(`docs/requirements/user/me-profile.md`가 명시적으로 제외 — 현재는 가입 시 `point=0`/`bqScore=0`으로 생성된 뒤 증감 경로가 없다).
 - (과거 기록, 정정됨) 이전 버전 문서에는 "user 모듈에 실제로 인증이 걸리는 엔드포인트는 현재 없다"고 적혀 있었다 — 탈퇴 엔드포인트 추가로 더 이상 사실이 아니다.
 

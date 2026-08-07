@@ -60,7 +60,7 @@ model: sonnet
 > 공통 규약(응답 래퍼·인증·401 정책)은 [README.md](README.md) 참고.
 > 대상 컨트롤러: `<파일 경로>`
 
-## POST /api/member/auth/login
+## POST /api/auth/login
 > 최종 변경: 2026-08-03 — 신규 추가
 
 로그인하고 토큰 쌍을 발급받는다.
@@ -87,7 +87,7 @@ model: sonnet
 
 **예시**
 ```bash
-curl -X POST http://localhost:8080/api/member/auth/login \
+curl -X POST http://localhost:8080/api/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"email":"user@example.com","password":"password123"}'
 ```

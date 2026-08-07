@@ -55,10 +55,10 @@ user·quiz 파드가 `envFrom`으로 ConfigMap `app-config` + Secret `app-secret
 AWS Load Balancer Controller + ExternalDNS(`k8s/23-external-dns.yaml`, apex A(ALIAS)→ALB 자동 레코드).
 모듈: `VictoryFairy_Infra/modules/{dns,alb}`. runbook: `VictoryFairy_Infra/docs/domain-https-setup.md`.
 
-- **Ingress는 2개다**(`k8s/22-ingress.yaml`): `victoryfairy-user`(`/api/member`) / `victoryfairy-quiz`(`/api/game`).
+- **Ingress는 2개다**(`k8s/22-ingress.yaml`): `victoryfairy-user`(`/api`) / `victoryfairy-quiz`(`/rt`).
   `group.name: victoryfairy`를 같게 줘서 **ALB는 하나**로 묶인다. 쪼갠 이유는 헬스체크 경로가 앱마다 다르기
   때문 — `healthcheck-path`는 Ingress 단위 어노테이션이라 하나로는 두 값을 담을 수 없다.
-- ALB 헬스체크: `/api/member/actuator/health/readiness`, `/api/game/actuator/health/readiness`.
+- ALB 헬스체크: `/api/actuator/health/readiness`, `/rt/actuator/health/readiness`.
   ⚠ `/actuator/health` 전체가 아니라 **readiness 그룹**이다(전체는 db·redis 인디케이터를 합산해 DOWN을 내므로
   MySQL EC2가 흔들리면 멀쩡한 파드까지 타깃에서 빠진다).
 - ⚠ **ALB는 forward 시 경로 rewrite를 못 한다**(redirect만 가능). Ingress path와 앱의
