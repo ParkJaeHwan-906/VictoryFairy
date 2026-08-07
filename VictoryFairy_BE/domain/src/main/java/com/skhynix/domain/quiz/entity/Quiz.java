@@ -101,7 +101,7 @@ public class Quiz {
     private Integer answer;
 
     // 난이도 가중 점수 — MVP 이후 도입이라 지금은 null
-    @Column(name = "score")
+    @Column(name = "score", nullable = true)
     private Double score;
 
     @CreationTimestamp
