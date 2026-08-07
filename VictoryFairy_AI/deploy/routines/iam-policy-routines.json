@@ -1,0 +1,38 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadInputs",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject"],
+      "Resource": [
+        "arn:aws:s3:::${BUCKET}/question-source/*",
+        "arn:aws:s3:::${BUCKET}/kbo-records/*",
+        "arn:aws:s3:::${BUCKET}/validation/bedrock/success/*"
+      ]
+    },
+    {
+      "Sid": "ReadWriteOutputs",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject"],
+      "Resource": [
+        "arn:aws:s3:::${BUCKET}/wiki/*",
+        "arn:aws:s3:::${BUCKET}/quiz-candidates/*"
+      ]
+    },
+    {
+      "Sid": "ListPrefixes",
+      "Effect": "Allow",
+      "Action": ["s3:ListBucket"],
+      "Resource": "arn:aws:s3:::${BUCKET}",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": [
+            "question-source/*", "kbo-records/*",
+            "validation/bedrock/success/*", "wiki/*", "quiz-candidates/*"
+          ]
+        }
+      }
+    }
+  ]
+}
