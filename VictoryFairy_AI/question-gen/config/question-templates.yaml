@@ -1,0 +1,325 @@
+# 질문 템플릿 카탈로그 (v0 초안 — 34종)
+#
+# 퀴즈 생성기의 "메뉴판". 생성기는 이 파일에 있는 유형만 문제로 만들 수 있다.
+# - id:         템플릿 식별자 (quiz-candidates JSON의 templateId로 기록됨)
+# - kind:       KNOWLEDGE(정답 확정) | PREDICTION(경기 전 예측, settlement 필수)
+# - format:     OX | BINARY(2지선다) | MULTI4(4지선다) — 주관식 없음
+# - needs:      필요한 데이터 (envelope.* / schedule.* / stats.* / wiki.* / graph)
+# - intent:     문제 의도. 문구는 LLM이 자유 작성하되 이 의도를 벗어나지 않는다
+# - distractor: 오답 보기 전략 (MULTI4일 때. "그럴듯하지만 틀린" 보기의 출처)
+# - settlement: 예측 퀴즈의 정산 지표 (BE가 RDB로 판정 가능한 것만)
+# - enabled:    false면 출제 제외 (전제조건 미충족 등)
+#
+# 안전 규칙(스펙 4.2): 사건사고·법적 논란·사생활·건강 소재 금지.
+# graph 관계는 밈공유·커리어 교차 등 안전한 엣지만 사용, 사건연루 엣지 사용 금지.
+#
+# needs 어휘 → 데이터 위치 (Task 10 실측 반영, 리뷰 C1 반영)
+#   envelope.game_result.*  → question-source/game_result/ (최신 파티션 1개 — date
+#                             미지정 export가 시즌 전체를 그 파티션 하나에 통째로
+#                             적재하므로 이거 하나로 어제 경기·최근 7일 모두 커버된다.
+#                             yesterday/recent7d 세분화는 개별 envelope의 gameId
+#                             날짜로 필터링해서 만든다)
+#   envelope.player_profile → question-source/player_profile/ (최신 파티션 — 실측: 이름·팀뿐,
+#                             등번호·투타·생년월일 없음. 운영 S3에도 아직 파티션 없음)
+#   schedule.today          → question-source/game_schedule/{오늘}/ (payload.stadium은
+#                             실측상 항상 빈 문자열 — 문구에 구장명 쓰지 말 것)
+#   schedule.starters       → 위 envelope payload.awayStarter/homeStarter — 실측: 네이버
+#                             스케줄 API에 선발투수 필드 자체가 없어 항상 None
+#                             (소스 확보 시 PRED_SP_WIN 활성화)
+#   schedule.lineup         → (미지원 — 경기 전 타자 라인업 소스 없음)
+#   stats.head_to_head|standings|streaks|home_away|monthly|standings_trend|recent_scoring|yoy
+#                           → wiki/stats/season.json (camelCase 키: headToHead/standings/
+#                             streaks/homeAway/monthly/standingsTrend/recentScoring/yoy)
+#   stats.season_leaders|milestone_watch|team_history → wiki/stats/kbo-official.json
+#                             (seasonLeaders.top5·recordCorrect는 상시 None — 페이지 파싱 불가)
+#   stats.all_time_records  → question-gen/config/all-time-records.yaml (⚠️ v0 초안, 사람
+#                             검수 전 — rankBasis: "chronological"=MILESTONE_FIRST(최초달성)용,
+#                             "true-rank"=ALL_TIME_LEADER(역대 순위)용, 혼용 금지)
+#   stats.trending          → wiki/stats/trending.md (위키 빌더 미등록 — 아직 S3에 없음)
+#   wiki.*                  → wiki/players/{kboPlayerId}.md 해당 섹션 (위키 빌더 미등록 —
+#                             아직 S3에 없음)
+#   graph                   → wiki/graph.json (위키 빌더 미등록 — 아직 S3에 없음)
+
+# ── 지식 · 최근 경기 (시의성 층) ──────────────────────────────
+
+- id: YESTERDAY_WINNER
+  kind: KNOWLEDGE
+  format: BINARY
+  needs: [envelope.game_result.yesterday]
+  intent: "어제 경기의 승리 팀을 맞힌다. 보기는 맞대결 두 팀"
+  difficulty: EASY
+
+- id: YESTERDAY_SCORE
+  kind: KNOWLEDGE
+  format: MULTI4
+  needs: [envelope.game_result.yesterday]
+  intent: "어제 경기의 최종 스코어를 맞힌다"
+  distractor: "실제 스코어와 한두 점 차이 나는 그럴듯한 스코어"
+  difficulty: MEDIUM
+
+- id: WINNING_PITCHER
+  kind: KNOWLEDGE
+  format: MULTI4
+  needs: [envelope.game_result.recent7d]
+  intent: "최근 경기의 승리투수를 맞힌다"
+  distractor: "같은 경기 출전 투수 또는 같은 팀 다른 투수"
+  difficulty: MEDIUM
+
+- id: LAST_MATCHUP
+  kind: KNOWLEDGE
+  format: MULTI4
+  needs: [stats.head_to_head]
+  intent: "두 팀의 직전 맞대결 결과(승자·스코어)를 묻는다. 오늘 매치업 팀 우선"
+  distractor: "반대 결과 또는 근접 스코어"
+  difficulty: MEDIUM
+
+# ── 지식 · 시즌 통계 (축적 층) ────────────────────────────────
+
+- id: H2H_SEASON_RECORD
+  kind: KNOWLEDGE
+  format: BINARY
+  needs: [stats.head_to_head]
+  intent: "올해 두 팀의 상대전적 우위를 묻는다. 오늘 매치업 팀 우선, 의외성 있는 조합 선호"
+  difficulty: MEDIUM
+
+- id: STREAK_CURRENT
+  kind: KNOWLEDGE
+  format: OX
+  needs: [stats.streaks]
+  intent: "현재 연승/연패 중인 팀에 대한 사실 확인 (예: '○○은 현재 5연승 중이다')"
+  difficulty: EASY
+
+- id: STANDINGS_NOW
+  kind: KNOWLEDGE
+  format: MULTI4
+  needs: [stats.standings]
+  intent: "현재 리그 특정 순위의 팀을 맞힌다"
+  distractor: "인접 순위 팀들"
+  difficulty: EASY
+
+- id: STANDINGS_CLIMB
+  kind: KNOWLEDGE
+  format: MULTI4
+  needs: [stats.standings_trend]
+  intent: "시즌 초 대비 순위 상승/하락 폭이 가장 큰 팀을 맞힌다"
+  distractor: "변동 폭이 작은 팀들"
+  difficulty: HARD
+
+- id: MONTHLY_BEST
+  kind: KNOWLEDGE
+  format: MULTI4
+  needs: [stats.monthly]
+  intent: "특정 월의 승률 1위 팀을 맞힌다"
+  distractor: "해당 월 상위권의 다른 팀"
+  difficulty: HARD
+
+- id: HOME_AWAY_SPLIT
+  kind: KNOWLEDGE
+  format: BINARY
+  needs: [stats.home_away]
+  intent: "특정 팀이 홈/원정 어느 쪽에서 강한지 묻는다. 격차 큰 팀 선호"
+  difficulty: MEDIUM
+
+- id: RECENT_VS_EARLY
+  kind: KNOWLEDGE
+  format: OX
+  needs: [stats.monthly]
+  intent: "특정 팀의 최근 한 달 성적이 시즌 초반보다 좋아졌는지 사실 확인"
+  difficulty: HARD
+
+- id: YOY_TEAM
+  kind: KNOWLEDGE
+  format: MULTI4
+  needs: [stats.yoy]
+  intent: "작년 같은 시점 대비 승률 변화가 가장 큰 팀을 맞힌다"
+  distractor: "변화 폭이 작은 팀들"
+  difficulty: EXPERT
+  enabled: false   # 2025 시즌 백필 완료 후 활성화 (스펙 리스크 참조)
+
+# ── 지식 · 선수 (프로필·라인업·위키) ──────────────────────────
+
+- id: BACK_NUMBER
+  kind: KNOWLEDGE
+  format: OX
+  needs: [envelope.player_profile]
+  intent: "선수 등번호 사실 확인 (예: '김도영의 등번호는 5번이다'). O/X 절반씩 섞을 것"
+  difficulty: EASY
+  enabled: false   # players 테이블에 상세정보 없음 — 스키마 확장(dev_be 협의) 후 활성화
+
+- id: THROW_BAT
+  kind: KNOWLEDGE
+  format: OX
+  needs: [envelope.player_profile]
+  intent: "선수의 투타(우투좌타 등) 사실 확인. 오늘 선발 출전 선수 우선"
+  difficulty: MEDIUM
+  enabled: false   # players 테이블에 상세정보 없음 — 스키마 확장(dev_be 협의) 후 활성화
+
+- id: TODAY_CLEANUP
+  kind: KNOWLEDGE
+  format: MULTI4
+  needs: [schedule.lineup]
+  intent: "오늘 특정 팀 선발 라인업의 특정 타순(4번 등) 타자를 맞힌다"
+  distractor: "같은 팀 라인업의 다른 타자"
+  difficulty: MEDIUM
+  enabled: false   # 경기 전 타자 라인업 소스 없음 — game_schedule은 선발투수까지만
+
+- id: POSITION_WHO
+  kind: KNOWLEDGE
+  format: MULTI4
+  needs: [schedule.lineup]
+  intent: "오늘 특정 팀 선발 라인업에서 특정 포지션을 맡는 선수를 맞힌다"
+  distractor: "같은 팀의 다른 포지션 선수"
+  difficulty: MEDIUM
+  enabled: false   # 경기 전 타자 라인업 소스 없음 — game_schedule은 선발투수까지만
+
+- id: BIRTHDAY_TODAY
+  kind: KNOWLEDGE
+  format: MULTI4
+  needs: [envelope.player_profile]
+  intent: "오늘(또는 이번 주) 생일인 선수를 맞힌다. 가벼운 재미용"
+  distractor: "생일이 다른 달인 유명 선수"
+  difficulty: EASY
+  enabled: false   # players 테이블에 상세정보 없음 — 스키마 확장(dev_be 협의) 후 활성화
+
+- id: CAREER_PATH
+  kind: KNOWLEDGE
+  format: MULTI4
+  needs: [wiki.커리어이력]
+  intent: "선수가 거쳐간 팀 순서 또는 데뷔 팀을 맞힌다"
+  distractor: "그럴듯하지만 순서가 틀린 조합"
+  difficulty: HARD
+
+# ── 지식 · 밈·관계·여론 (위키·그래프) ─────────────────────────
+
+- id: MEME_ORIGIN
+  kind: KNOWLEDGE
+  format: MULTI4
+  needs: [wiki.별명밈]
+  intent: "선수 별명/밈의 유래를 맞힌다. evidence로 위키 원문 인용 필수"
+  distractor: "그럴듯한 가짜 유래 (LLM 창작)"
+  difficulty: EASY
+
+- id: MEME_OWNER
+  kind: KNOWLEDGE
+  format: MULTI4
+  needs: [wiki.별명밈]
+  intent: "별명/밈의 주인공 선수를 맞힌다"
+  distractor: "같은 팀 또는 같은 포지션 선수"
+  difficulty: EASY
+
+- id: RELATION_LINK
+  kind: KNOWLEDGE
+  format: MULTI4
+  needs: [graph, wiki]
+  intent: "두 선수의 공통점(같은 팀 출신·밈 공유 등)을 맞힌다. 사건연루 엣지 사용 금지"
+  distractor: "사실이 아닌 그럴듯한 공통점"
+  difficulty: EXPERT
+
+- id: TRENDING_WHO
+  kind: KNOWLEDGE
+  format: MULTI4
+  needs: [stats.trending]
+  intent: "이번 주 커뮤니티 최다 화제 선수를 맞힌다. trending.md 스냅샷 기준으로 정답 확정"
+  distractor: "화제성이 낮았던 선수"
+  difficulty: MEDIUM
+
+# ── 지식 · 역대 기록 / KBO 공식 ──────────────────────────────
+
+- id: ALL_TIME_LEADER
+  kind: KNOWLEDGE
+  format: MULTI4
+  needs: [stats.all_time_records]
+  intent: "KBO 통산 부문별 1위(홈런·안타·세이브 등)를 맞힌다. 수치가 아닌 인물을 묻는다"
+  distractor: "같은 부문 top 5의 다른 선수"
+  difficulty: MEDIUM
+
+- id: MILESTONE_FIRST
+  kind: KNOWLEDGE
+  format: MULTI4
+  needs: [stats.all_time_records]
+  intent: "KBO 최초 달성 기록(최초 500홈런 등)의 주인공을 맞힌다"
+  distractor: "같은 마일스톤의 후속 달성자 또는 근접자"
+  difficulty: HARD
+
+- id: RECORD_OX
+  kind: KNOWLEDGE
+  format: OX
+  needs: [stats.all_time_records]
+  intent: "역대 기록 사실 확인 (예: '오승환은 KBO 통산 세이브 1위다'). 순위·달성 여부만, 정확 수치 금지"
+  difficulty: MEDIUM
+
+- id: SEASON_STAT_LEADER
+  kind: KNOWLEDGE
+  format: MULTI4
+  needs: [stats.season_leaders]
+  intent: "현재 시즌 부문별 선두(타율·홈런·ERA 등)를 맞힌다. '오늘 기준' 명시 필수"
+  distractor: "같은 부문 top 5의 다른 선수"
+  difficulty: MEDIUM
+
+- id: TEAM_RECORD_HISTORY
+  kind: KNOWLEDGE
+  format: MULTI4
+  needs: [stats.team_history]
+  intent: "역대 팀 기록(단일 시즌 최다승 등)의 주인공 팀을 맞힌다"
+  distractor: "그 시대의 다른 강팀"
+  difficulty: HARD
+
+- id: MILESTONE_WATCH
+  kind: KNOWLEDGE
+  format: MULTI4
+  needs: [stats.milestone_watch]
+  intent: "기록 달성이 임박한 선수를 맞힌다 (KBO 기록달성예상 기준). 달성 여부 예측은 금지(정산 불가)"
+  distractor: "임박하지 않은 동급 선수"
+  difficulty: MEDIUM
+  enabled: false  # expectation-week 스냅샷이 게시판 제목 목록뿐 — 크롤 포맷 재설계 후 활성화
+
+# ── 예측 (경기 전 · settlement = 스코어/승패/투수 decision) ────
+
+- id: PRED_WIN_LOSE
+  kind: PREDICTION
+  format: BINARY
+  needs: [schedule.today, stats.head_to_head]
+  intent: "오늘 경기 승자를 예측하게 한다. 상대전적·최근 폼을 문구 양념으로"
+  settlement: WIN_TEAM
+  difficulty: MEDIUM
+
+- id: PRED_TOTAL_RUNS
+  kind: PREDICTION
+  format: BINARY
+  needs: [schedule.today, stats.recent_scoring]
+  intent: "오늘 경기 총득점이 기준선(예: 10점) 이상/이하일지 예측하게 한다"
+  settlement: TOTAL_RUNS
+  difficulty: MEDIUM
+
+- id: PRED_SCORE_GAP
+  kind: PREDICTION
+  format: BINARY
+  needs: [schedule.today]
+  intent: "오늘 경기가 기준 점수차(예: 3점) 이상의 승부일지 예측하게 한다"
+  settlement: SCORE_GAP
+  difficulty: HARD
+
+- id: PRED_SP_WIN
+  kind: PREDICTION
+  format: BINARY
+  needs: [schedule.starters]
+  intent: "오늘 선발투수가 승리투수가 될지 예측하게 한다"
+  settlement: PITCHER_DECISION
+  difficulty: HARD
+  enabled: false   # 선발투수 데이터 없음(네이버 스케줄 API 미제공) — 소스 확보 시 활성화
+
+- id: PRED_UNDERDOG
+  kind: PREDICTION
+  format: BINARY
+  needs: [schedule.today, stats.head_to_head]
+  intent: "상대전적 열세 팀이 오늘 이길지 예측하게 한다. 열세 수치를 문구에 제시"
+  settlement: WIN_TEAM
+  difficulty: MEDIUM
+
+- id: PRED_STREAK
+  kind: PREDICTION
+  format: BINARY
+  needs: [schedule.today, stats.streaks]
+  intent: "연승/연패 중인 팀의 흐름이 오늘도 이어질지 예측하게 한다"
+  settlement: WIN_TEAM
+  difficulty: MEDIUM
