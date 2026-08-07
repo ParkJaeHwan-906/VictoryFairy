@@ -70,10 +70,12 @@ module "ecr" {
   name_prefix = "victoryfairy"
   # user/quiz 는 BE Gradle 모듈과 1:1 (Dockerfile ARG MODULE).
   # pipeline 은 정제 러너 이미지 — 패턴·Bedrock Lambda 가 같은 이미지를 공유한다(ARCHITECTURE §4).
-  # ⚠ fe 는 S3+CloudFront 전환으로 더 이상 쓰이지 않는다(docs/fe-cdn-migration.md).
-  #   전환을 되돌릴 때 fe-app 파드가 pull 할 이미지가 남아 있어야 하므로 정리 3단계까지 남긴다.
-  #   여기서 지우면 리포지토리와 그 안의 이미지가 함께 삭제돼 롤백 경로가 끊긴다.
-  repository_names = ["user", "quiz", "pipeline", "fe"]
+  # fe 리포지토리는 2026-08-07 제거했다. FE 는 S3+CloudFront 가 서비스하므로 이미지를 pull 할
+  # 주체(fe-app 파드)가 없어졌다(docs/fe-cdn-migration.md).
+  # ⚠ 여기서 이름을 빼면 리포지토리가 destroy 된다. 이 모듈은 force_delete 를 켜지 않으므로
+  #   이미지가 남아 있으면 RepositoryNotEmptyException 으로 apply 가 실패한다 —
+  #   aws ecr batch-delete-image 로 먼저 비워야 한다(fe 는 그렇게 처리했다).
+  repository_names = ["user", "quiz", "pipeline"]
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
