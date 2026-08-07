@@ -28,12 +28,13 @@ spring:
   #   teams-init.sql         : 10개 구단
   #   chat-init.sql          : (chatrooms/chats DDL) + SYSTEM 계정 + 구단별 채팅방 10개
   #   game-statuses-init.sql : 경기 상태 코드 5행(SCHEDULED/IN_PROGRESS/FINISHED/DRAW/CANCELED)
+  #   quiz-type-init.sql     : 퀴즈 유형 코드 2행(객관식/O·X)
   # 종전에는 quiz 가 들고 있었으나, **테이블을 만드는 앱과 기본 데이터를 넣는 앱을 하나로 모으려고**
   # user 로 옮겼다 — prod 에서 DDL 을 내는 앱은 user 뿐이고(quiz 는 ddl-auto=none), dev 에서도
   # UserApplication 이 @EntityScan("com.skhynix") 로 domain 엔티티를 전부 스캔해 채팅 테이블까지
   # 만드는 주체가 user 다. 만드는 쪽과 채우는 쪽이 갈라져 있으면 어느 앱을 먼저 띄우느냐에 따라
   # 결과가 달라진다.
-  # 세 파일 모두 배포 선행 SQL 원본(infra/sql)이며 build.gradle 의 processResources 가 클래스패스로
+  # 네 파일 모두 배포 선행 SQL 원본(infra/sql)이며 build.gradle 의 processResources 가 클래스패스로
   # 복사한다. ⚠ 이미지 빌드에서는 Dockerfile 이 infra 를 빌드 컨텍스트에 넣어줘야 한다 — Gradle 의
   # from() 은 없는 디렉터리를 조용히 무시해 sql 만 빠진 jar 가 만들어지고, 그 이미지는 아래 명시
   # 경로를 못 찾아 기동 자체가 실패한다(2026-08-04 운영 롤아웃 실패의 원인).
@@ -41,9 +42,9 @@ spring:
   # → 매 기동마다 돌아도 중복 행이 생기지 않는다(그래서 mode: always 로 둔다).
   # ⚠ 적용 순서가 있다: teams-init 이 먼저다. teams 가 0행이면 chat-init 의 구단별 채팅방 생성이
   #   에러 없이 0행만 넣고 끝난다(팀 이름으로 조인하므로). data-locations 순서를 바꾸지 말 것.
-  #   game-statuses-init 은 다른 시드와 참조 관계가 없어 순서 의존이 없다(그래서 맨 뒤).
-  # ⚠ encoding 을 지정하지 않으면 플랫폼 기본 인코딩으로 읽어 한글 팀명이 깨진 채 저장된다.
-  # ⚠ 이 블록은 dev 전용이 아니다 — prod 프로파일도 같은 세 파일을 같은 순서로 실행한다
+  #   game-statuses-init·quiz-type-init 은 다른 시드와 참조 관계가 없어 순서 의존이 없다(그래서 뒤).
+  # ⚠ encoding 을 지정하지 않으면 플랫폼 기본 인코딩으로 읽어 한글 팀명·퀴즈 유형명이 깨진 채 저장된다.
+  # ⚠ 이 블록은 dev 전용이 아니다 — prod 프로파일도 같은 네 파일을 같은 순서로 실행한다
   #   (application-prod.yaml). 한쪽만 고치면 환경 사이에 시드가 갈리니 함께 볼 것.
   sql:
     init:
@@ -53,6 +54,7 @@ spring:
         - classpath:sql/teams-init.sql
         - classpath:sql/chat-init.sql
         - classpath:sql/game-statuses-init.sql
+        - classpath:sql/quiz-type-init.sql
 
   web:
     error:
