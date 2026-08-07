@@ -183,16 +183,27 @@ module "fe_watchdog" {
     quiz = "/rt/actuator/health/readiness"
   }
 
-  # 5분 주기 × 연속 2회 = 최대 10분 내 감지. 1회로 낮추면 단발 흔들림에 롤백한다.
-  schedule_expression  = "rate(5 minutes)"
-  alarm_period_seconds = 300
-  datapoints_to_alarm  = 2
+  # 1분 주기 × 연속 3회 = 최대 3~4분 내 감지.
+  #
+  # ⚠ EventBridge 의 최소 주기가 1분이다. 이보다 짧게 하려면 Lambda 안에서 루프를 돌며
+  #   고해상도 지표를 써야 하는데, 컴퓨팅이 Lambda 무료 한도(계정 전체 공유)를 크게 먹고
+  #   고해상도 지표·알람 요금도 붙는다. 얻는 것은 몇 분 차이고, 감지 창이 좁아질수록 일시적
+  #   흔들림에 롤백하는 오탐 위험이 오른다 — 정상 버전을 잃는 쪽이 몇 분 더 겪는 쪽보다 나쁘다.
+  # ⚠ 5분 → 1분으로 내리면서 확인 횟수를 2 → 3 으로 올렸다. 1분 간격에서 2회는 확인 창이
+  #   2분뿐이라 짧다. 3회면 '3분 연속 실패' 라 오탐 위험은 종전과 비슷하면서 감지가 3배 빠르다.
+  schedule_expression  = "rate(1 minute)"
+  alarm_period_seconds = 60
+  datapoints_to_alarm  = 3
 
   # 시크릿은 코드에 두지 않는다. SSM SecureString 을 콘솔/CLI 로 넣고 이름만 참조한다.
   # 파라미터가 없으면 해당 기능(Slack 알림 / 티켓)만 생략되고 롤백은 계속 동작한다.
   slack_webhook_param = "/victoryfairy/dev/slack-webhook-url"
   github_token_param  = "/victoryfairy/dev/github-token"
   github_repo         = "ParkJaeHwan-906/VictoryFairy"
+
+  # 장애 알림에서 호출할 사람. ⚠ 표시 이름(@박재환)은 알림을 울리지 않으므로 사용자 ID 여야 한다.
+  #   박재환 · 소태호 · 손동현
+  mention_user_ids = ["U0BGJAW7TGR", "U0B5RBDPN1K", "U0BGD4H2W2H"]
 }
 
 module "security" {

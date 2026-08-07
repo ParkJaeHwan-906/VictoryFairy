@@ -67,6 +67,18 @@ variable "github_token_param" {
   default     = ""
 }
 
+variable "mention_user_ids" {
+  description = <<-EOT
+    장애 알림에서 멘션할 Slack 사용자 ID 목록.
+
+    ⚠ 표시 이름(@박재환)은 알림을 울리지 않는다 — 일반 텍스트로만 보인다. 반드시 사용자 ID 여야
+      <@U...> 멘션이 되어 실제로 호출된다. ID 는 Slack 프로필 → 더보기(⋮) → '멤버 ID 복사'.
+    ⚠ 복구(OK) 알림에는 멘션하지 않는다. 좋은 소식으로 사람을 부르면 다음 진짜 호출이 무시된다.
+  EOT
+  type        = list(string)
+  default     = []
+}
+
 variable "log_retention_days" {
   description = "Lambda 로그 보존 일수. 무기한 보존은 비용만 늘린다."
   type        = number

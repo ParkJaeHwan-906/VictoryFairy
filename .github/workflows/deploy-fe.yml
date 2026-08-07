@@ -164,9 +164,17 @@ jobs:
       - name: Publish to root (전환)
         id: publish
         working-directory: ${{ steps.fe.outputs.dir }}
+        env:
+          VERSION: ${{ steps.rel.outputs.version }}
         run: |
           aws s3 sync ./dist "s3://$S3_BUCKET" --exclude "index.html" --no-progress
           aws s3 cp ./dist/index.html "s3://$S3_BUCKET/index.html" --no-progress
+
+          # ⚠ CURRENT 마커를 반드시 갱신한다. 상시 감시 Lambda 가 '지금 무엇이 서비스 중인가' 를
+          #   이 값으로 판단해 그 직전 버전으로 되돌린다. 갱신하지 않으면 롤백이 한 번 일어난 뒤
+          #   마커가 옛 버전에 멈춰, 다음 알람에서 실제 서비스본이 아니라 그보다 두 단계 이전으로
+          #   되돌아간다. 쿨다운 판정(마커 최종수정시각)도 여기에 의존한다.
+          printf '%s' "$VERSION" | aws s3 cp - "s3://$S3_BUCKET/releases/CURRENT" --no-progress
 
       # 실서비스 도메인으로 실제 동작을 단정한다. 여기서 실패하면 다음 단계가 자동으로 되돌린다.
       #
@@ -230,6 +238,9 @@ jobs:
           fi
           echo "::warning::스모크 실패 — $PREV 로 자동 롤백합니다"
           aws s3 cp "s3://$S3_BUCKET/releases/$PREV/index.html" "s3://$S3_BUCKET/index.html" --no-progress
+          # 마커도 함께 되돌린다 — 안 하면 상시 감시가 '지금 서비스 중' 을 잘못 알고 다음 롤백에서
+          # 한 단계를 건너뛴다.
+          printf '%s' "$PREV" | aws s3 cp - "s3://$S3_BUCKET/releases/CURRENT" --no-progress
           SERVED=$(curl -s --max-time 20 https://victoryfairy.com/ | grep -o 'assets/index-[A-Za-z0-9]*\.js' | head -1 || true)
           echo "롤백 후 서비스 중인 번들: ${SERVED:-확인 실패}"
 
