@@ -68,12 +68,17 @@ variable "fe_attach_apex_alias" {
     (terraform output fe_cloudfront_domain_name)으로 직접 접속해 검증하는 단계.
     true = 루트 도메인 A/AAAA 를 CloudFront 로 교체한다.
 
-    ⚠ true 로 바꾸기 전에 k8s/22-ingress.yaml 의 host 가 origin.<domain> 으로 내려가 있어야 한다.
+    ⚠ true 로 바꾸기 전에 앱 Ingress 전부에 external-dns controller: none 이 붙어 있어야 한다.
       순서를 뒤집으면 ExternalDNS 가 1분 내 레코드를 ALB 로 되돌려 계속 다툰다.
       절차는 docs/fe-cdn-migration.md §4.
+
+    ⚠ 기본값이 true 인 이유: 2026-08-07 전환 완료 후 코드가 현실과 일치해야 한다. false 로
+      되돌려 apply 하면 Terraform 이 apex 레코드를 '삭제'해 도메인이 어디도 가리키지 않는다.
+      롤백은 이 값을 내리는 것이 아니라 레코드를 ALB 로 수동 UPSERT 하는 것이다(문서 §4 롤백).
+      terraform.tfvars 는 gitignore 라 공유되지 않으므로 이 값은 반드시 기본값으로 들고 있어야 한다.
   EOT
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "crawl_bucket_name" {
