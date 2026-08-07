@@ -5,8 +5,8 @@ name: Deploy KBO collector image
 #   push(main) → 변경 감지 → arm64 빌드 → ECR push(:latest + 커밋 SHA)
 #   → Lambda 두 함수 update-function-code → 실패 시 직전 이미지로 자동 롤백
 #
-# 이 이미지의 리소스(ECR/Lambda/EventBridge)는 infra 스택이 아니라
-# VictoryFairy_AI/py-collector/deploy/lambda/terraform 이 소유한다(state 가 다르다).
+# 이 이미지의 리소스(ECR/Lambda/EventBridge)는 environments/dev 가 아니라
+# VictoryFairy_Infra/collector-lambda 가 소유한다(같은 버킷의 별도 state).
 # 여기서 쓰는 ARN 은 그래서 modules/security 에 리터럴로 박혀 있다.
 #
 # ⚠ :latest 를 반드시 함께 push 해야 한다. 저쪽 스택은 image_uri 를
