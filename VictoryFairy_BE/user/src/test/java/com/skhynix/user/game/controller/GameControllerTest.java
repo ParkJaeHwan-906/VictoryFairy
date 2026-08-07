@@ -28,7 +28,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
- * {@code GET /games}(외부 노출 경로 {@code /api/member/games})를 검증한다. 계약 문서는 없고
+ * {@code GET /games}(외부 노출 경로 {@code /api/games})를 검증한다. 계약 문서는 없고
  * (요구사항 문서 없이 구현) 태스크로 확정된 동작 계약을 기준으로 삼는다.
  *
  * <p>슬라이스 구성은 {@link com.skhynix.user.team.controller.TeamControllerTest}와 동일한 패턴이다:
@@ -36,7 +36,7 @@ import org.springframework.test.web.servlet.MockMvc;
  * {@code UserApplication}의 자동 컨텍스트 병합을 우회하고, {@code SecurityFilterChain} 빈 구성에 필요한
  * {@link JwtTokenProvider}·{@link UserAccountRepository}를 {@code @MockitoBean}으로 함께 등록한다.
  *
- * <p><b>MockMvc는 context-path를 적용하지 않는다</b> — 외부 경로는 {@code /api/member/games}지만
+ * <p><b>MockMvc는 context-path를 적용하지 않는다</b> — 외부 경로는 {@code /api/games}지만
  * 이 슬라이스에서 호출하는 경로는 {@code /games}다.
  *
  * <p>실제 {@link SecurityConfig}(따라서 실제 {@code JwtAuthenticationFilter})를 태우므로 permitAll

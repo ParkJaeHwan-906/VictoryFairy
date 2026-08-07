@@ -29,7 +29,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/", "/error").permitAll()
                         // ALB 헬스체크. 종전 "/health"는 핸들러가 없어 항상 404(Unhealthy)였다 — actuator로 교체.
-                        // context-path(/api/member)는 필터 이전에 떨어지므로 이 아래 경로들도 접두사를 붙이지 않는다.
+                        // context-path(/api)는 필터 이전에 떨어지므로 이 아래 경로들도 접두사를 붙이지 않는다.
                         .requestMatchers(HttpMethod.GET, "/actuator/health/**").permitAll()
                         .requestMatchers("/auth/**").permitAll()
                         // GET 으로 좁혀 열어 이후 같은 경로에 쓰기 엔드포인트가 인증 없이 추가되는 사고를 막는다

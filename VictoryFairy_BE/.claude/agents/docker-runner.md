@@ -13,7 +13,7 @@ model: sonnet
 - `SPRING_PROFILES_ACTIVE=prod`에서만 뜨는 빈·설정(로컬 dev 프로파일은 mock으로 우회한다)
 - 컨테이너 네트워크 기준의 호스트명(`DB_HOST=mysql`, `SPRING_DATA_REDIS_HOST=redis`)과 누락된 환경변수
 - `ddl-auto`가 관여하지 않는 실제 스키마와 엔티티의 불일치
-- context-path를 포함한 실제 경로(`/api/member/...`)
+- context-path를 포함한 실제 경로(`/api/...`)
 
 따라서 **"gradle에서 통과했다"는 통과가 아니다.** 네가 이미지를 빌드해 띄우고 응답을 받아야 검증이 끝난다. 코드 모듈 검증으로 호출됐다면 바뀐 모듈(user·quiz)의 이미지를 대상으로 잡고, domain·web-support처럼 앱이 아닌 모듈이면 **그것을 품는 user·quiz 이미지**를 띄워 확인한다.
 
@@ -92,8 +92,8 @@ COMPOSE=/Applications/Docker.app/Contents/Resources/cli-plugins/docker-compose
    ```
    - ⚠️ **`/health`·`/healthz`를 기동 확인에 쓰지 말 것.** 둘 다 핸들러가 없어 **404가 돌아온다.**
    - ✅ 대신 **actuator readiness**를 쓴다(2026-07-27 도입). 앱이 `server.servlet.context-path`를 쓰므로 경로가 모듈마다 다르다:
-     - user → `http://localhost:8080/api/member/actuator/health/readiness`
-     - quiz → `http://localhost:8081/api/game/actuator/health/readiness`
+     - user → `http://localhost:8080/api/actuator/health/readiness`
+     - quiz → `http://localhost:8081/rt/actuator/health/readiness`
      - 200 `{"status":"UP"}`이면 기동 완료. 접두사를 빼면(`/actuator/health/readiness`) 404다.
    - → **기동 판정은 포트 LISTEN + 컨테이너 상태 + 로그의 "Started ...Application"**으로 하고, 동작 검증은 **모듈 컨텍스트에 실재하는 엔드포인트**로 한다.
    - 검증할 경로는 **모듈 컨텍스트 + 실제 컨트롤러를 대조해** 정한다. 없는 경로를 지어내지 말 것.

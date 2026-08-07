@@ -27,7 +27,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
- * {@code GET /games/lineup}(외부 노출 경로 {@code /api/member/games/lineup})를 검증한다. 계약 출처는
+ * {@code GET /games/lineup}(외부 노출 경로 {@code /api/games/lineup})를 검증한다. 계약 출처는
  * {@code docs/requirements/user/game-lineup.md}(USER-GL-1~29)이되, 승인 시점(2026-08-04) 지시로
  * 빈/공백 {@code gameId}는 400이 아니라 404 {@code GAME_NOT_FOUND}로 고정한다(문서 개정 이력 참고).
  *
@@ -37,7 +37,7 @@ import org.springframework.test.web.servlet.MockMvc;
  * {@link JwtTokenProvider}·{@link UserAccountRepository}를 {@code @MockitoBean}으로 함께 등록한다
  * (빠뜨리면 컨텍스트 로딩 자체가 실패한다).
  *
- * <p><b>MockMvc는 context-path를 적용하지 않는다</b> — 외부 경로는 {@code /api/member/games/lineup}지만
+ * <p><b>MockMvc는 context-path를 적용하지 않는다</b> — 외부 경로는 {@code /api/games/lineup}지만
  * 이 슬라이스에서 호출하는 경로는 {@code /games/lineup}이다.
  *
  * <p>실제 {@link SecurityConfig}를 태우므로 {@code GET /games/lineup} permitAll 배선이 이 슬라이스가

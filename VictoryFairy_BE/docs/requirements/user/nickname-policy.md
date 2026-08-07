@@ -9,7 +9,7 @@
   - `NicknamePolicy` 단일 출처 정책(허용 문자·길이·위반 메시지·`findViolation`) — `PasswordPolicy` 미러
   - 커스텀 제약(`@ValidNickname` + Validator) — `@ValidPassword`/`PasswordValidator` 미러
   - `SignupRequest.nickname`의 검증을 새 제약 하나로 교체(기존 `@NotBlank @Size(max=100)` 제거)
-  - 사전 검사 API `POST /api/member/auth/nickname/validate` — 임의 문자열을 받아 **정책 검사 → 중복 검사 2단 파이프라인**을 거쳐 **항상 200 + valid 결과** 반환(아래 "validate 2단 파이프라인" 참고)
+  - 사전 검사 API `POST /api/auth/nickname/validate` — 임의 문자열을 받아 **정책 검사 → 중복 검사 2단 파이프라인**을 거쳐 **항상 200 + valid 결과** 반환(아래 "validate 2단 파이프라인" 참고)
   - **닉네임 중복(DB) 검사를 validate에 포함** — `userAccountRepository.existsByNickname` 재사용(정책 통과 시에만 수행)
 - 제외:
   - **기존 닉네임 데이터 백필/마이그레이션** — max 100 → 10 축소지만 배포 환경 초기화 예정이라 대상 행이 없다(`docs/requirements/user/withdraw.md` 제약 5와 동일 전제).
@@ -29,7 +29,7 @@
 - 중복(validate 한정): `이미 사용 중인 닉네임입니다.` (`ErrorCode.DUPLICATE_NICKNAME` 문구 그대로)
 - 통과: `사용 가능한 닉네임입니다.` (password의 `사용 가능한 비밀번호입니다.` 컨벤션을 그대로 따름)
 
-## validate 2단 파이프라인 (`POST /api/member/auth/nickname/validate`)
+## validate 2단 파이프라인 (`POST /api/auth/nickname/validate`)
 validate는 **정책 검사 → 중복 검사** 두 단계를 순서대로 수행한다. 두 단계는 각각 독립된 판정이며(구현 제약 참고 — 추후 분리 가능하도록 별도 메서드), validate 오케스트레이션이 순서대로 호출한다.
 
 | 단계 | 내용 | DB | 위반 시 |
@@ -48,20 +48,20 @@ validate는 **정책 검사 → 중복 검사** 두 단계를 순서대로 수�
 
 | ID | 유형 | 요구사항 | 인수 기준 |
 |---|---|---|---|
-| USER-NICK-1 | 유비쿼터스 | THE 시스템 SHALL 닉네임 정책(허용 문자·길이·메시지)을 `NicknamePolicy` 한 곳에서만 정의하고, 회원가입 검증과 사전 검사 API가 그 판정을 공유한다 | 같은 닉네임 X에 대해 `POST /api/member/auth/nickname/validate`가 `valid:false`+메시지 M을 내면, 같은 X로 `POST /api/member/auth/signup` 시에도 400 응답의 `data.nickname`이 정확히 M이다(문자 그대로 동일) |
-| USER-NICK-2 | 유비쿼터스 | THE 시스템 SHALL 사전 검사 API를 인증 없이 접근 가능하게 한다 | `POST /api/member/auth/nickname/validate`를 `Authorization` 헤더 없이 호출 → 200(401 아님). `/api/member/auth/**`가 이미 `permitAll`이라 `SecurityConfig` 수정 불필요 |
-| USER-NICK-3 | 이벤트 | WHEN 사전 검사 API가 정책을 통과하고 아직 점유되지 않은 닉네임을 받으면, THE 시스템 SHALL 200과 `{valid:true, message:"사용 가능한 닉네임입니다."}`를 반환한다 | `POST /api/member/auth/nickname/validate` `{"nickname":"길동gil9"}`(미점유) → 200, `{"success":true,"data":{"valid":true,"message":"사용 가능한 닉네임입니다."},"message":null}` |
-| USER-NICK-4 | 이벤트 | WHEN 회원가입 요청의 nickname이 정책을 만족하면, THE 시스템 SHALL nickname 사유로 400을 반환하지 않는다 | `POST /api/member/auth/signup`에 정책 만족 nickname + 나머지 유효 값 → 400 응답의 `data`에 `nickname` 키가 없다(중복이 아니면 201) |
-| USER-NICK-5 | 예외 | IF 사전 검사 API에 정책 위반 닉네임이 들어오면, THEN THE 시스템 SHALL 200과 `valid:false` 및 위반 메시지 1개를 반환한다(위반이어도 400이 아님) | `POST /api/member/auth/nickname/validate` `{"nickname":"hi!"}` → 200, `{"success":true,"data":{"valid":false,"message":"닉네임은 한글, 영문, 숫자만 사용할 수 있습니다."},"message":null}` |
-| USER-NICK-6 | 예외 | IF 회원가입 요청의 nickname이 정책을 위반하면, THEN THE 시스템 SHALL 400과 위반 메시지를 `data.nickname`에 담아 반환한다 | `POST /api/member/auth/signup` (nickname `"a b"`, 나머지 유효) → 400, `{"success":false,"data":{"nickname":"닉네임은 한글, 영문, 숫자만 사용할 수 있습니다."},"message":"입력값이 올바르지 않습니다."}` |
+| USER-NICK-1 | 유비쿼터스 | THE 시스템 SHALL 닉네임 정책(허용 문자·길이·메시지)을 `NicknamePolicy` 한 곳에서만 정의하고, 회원가입 검증과 사전 검사 API가 그 판정을 공유한다 | 같은 닉네임 X에 대해 `POST /api/auth/nickname/validate`가 `valid:false`+메시지 M을 내면, 같은 X로 `POST /api/auth/signup` 시에도 400 응답의 `data.nickname`이 정확히 M이다(문자 그대로 동일) |
+| USER-NICK-2 | 유비쿼터스 | THE 시스템 SHALL 사전 검사 API를 인증 없이 접근 가능하게 한다 | `POST /api/auth/nickname/validate`를 `Authorization` 헤더 없이 호출 → 200(401 아님). `/api/auth/**`가 이미 `permitAll`이라 `SecurityConfig` 수정 불필요 |
+| USER-NICK-3 | 이벤트 | WHEN 사전 검사 API가 정책을 통과하고 아직 점유되지 않은 닉네임을 받으면, THE 시스템 SHALL 200과 `{valid:true, message:"사용 가능한 닉네임입니다."}`를 반환한다 | `POST /api/auth/nickname/validate` `{"nickname":"길동gil9"}`(미점유) → 200, `{"success":true,"data":{"valid":true,"message":"사용 가능한 닉네임입니다."},"message":null}` |
+| USER-NICK-4 | 이벤트 | WHEN 회원가입 요청의 nickname이 정책을 만족하면, THE 시스템 SHALL nickname 사유로 400을 반환하지 않는다 | `POST /api/auth/signup`에 정책 만족 nickname + 나머지 유효 값 → 400 응답의 `data`에 `nickname` 키가 없다(중복이 아니면 201) |
+| USER-NICK-5 | 예외 | IF 사전 검사 API에 정책 위반 닉네임이 들어오면, THEN THE 시스템 SHALL 200과 `valid:false` 및 위반 메시지 1개를 반환한다(위반이어도 400이 아님) | `POST /api/auth/nickname/validate` `{"nickname":"hi!"}` → 200, `{"success":true,"data":{"valid":false,"message":"닉네임은 한글, 영문, 숫자만 사용할 수 있습니다."},"message":null}` |
+| USER-NICK-6 | 예외 | IF 회원가입 요청의 nickname이 정책을 위반하면, THEN THE 시스템 SHALL 400과 위반 메시지를 `data.nickname`에 담아 반환한다 | `POST /api/auth/signup` (nickname `"a b"`, 나머지 유효) → 400, `{"success":false,"data":{"nickname":"닉네임은 한글, 영문, 숫자만 사용할 수 있습니다."},"message":"입력값이 올바르지 않습니다."}` |
 | USER-NICK-7 | 예외 | IF 닉네임 길이가 1자 미만 또는 10자 초과이면, THEN THE 시스템 SHALL 길이 위반 메시지 `"닉네임은 1~10자여야 합니다."`를 반환한다 | `{"nickname":"가나다라마바사아자차카"}`(11자) → `valid:false`, `message`=`"닉네임은 1~10자여야 합니다."`. 경계: 10자 통과, 1자 통과 |
 | USER-NICK-8 | 예외 | IF 닉네임에 허용 문자(한글 완성형·낱자, 영문, 숫자) 외의 문자가 하나라도 포함되면, THEN THE 시스템 SHALL 문자 구성 위반 메시지 `"닉네임은 한글, 영문, 숫자만 사용할 수 있습니다."`를 반환한다 | `{"nickname":"굿🎉"}` → `valid:false`, `message`=문자 구성 메시지. `{"nickname":"ㄱㅏ힣aZ9"}`(한글 낱자+완성형+영문+숫자) → `valid:true` |
 | USER-NICK-9 | 예외 | IF 닉네임이 길이와 문자 구성을 동시에 위반하면, THEN THE 시스템 SHALL 길이 위반 메시지 1개만 반환한다(길이 우선) | `{"nickname":"!@#$%^&*()!"}`(11자, 특수문자) → `valid:false`, `message`=`"닉네임은 1~10자여야 합니다."`(문자 구성 메시지 아님). 위반이 정확히 1개만 뜬다 |
 | USER-NICK-10 | 예외 | IF 닉네임이 `null`이거나 빈 문자열이면, THEN THE 시스템 SHALL 예외를 던지지 않고 길이 위반으로 처리한다 | `{"nickname":""}` → 200, `valid:false`, `message`=`"닉네임은 1~10자여야 합니다."`. signup에서 nickname 생략/`null` → 400 `data.nickname`=길이 메시지(`@NotBlank`의 `"공백일 수 없습니다"` 류 아님) |
 | USER-NICK-11 | 예외 | IF 닉네임이 공백 문자로만 이루어지면, THEN THE 시스템 SHALL 이를 거부한다 | `{"nickname":"   "}`(공백 3칸) → `valid:false`. 공백은 화이트리스트 밖이라 **문자 구성 위반**으로 걸린다(길이는 통과). `{"nickname":" 홍길동"}`(선행 공백) → `valid:false`, 문자 구성 메시지 |
-| USER-NICK-12 | 예외 | IF 사전 검사 API가 정책은 통과하나 이미 사용 중인 닉네임을 받으면, THEN THE 시스템 SHALL 200과 `valid:false` 및 `"이미 사용 중인 닉네임입니다."`를 반환한다 | 기존 가입/탈퇴 계정이 점유한 닉네임으로 `POST /api/member/auth/nickname/validate` → 200, `{"success":true,"data":{"valid":false,"message":"이미 사용 중인 닉네임입니다."},"message":null}` |
+| USER-NICK-12 | 예외 | IF 사전 검사 API가 정책은 통과하나 이미 사용 중인 닉네임을 받으면, THEN THE 시스템 SHALL 200과 `valid:false` 및 `"이미 사용 중인 닉네임입니다."`를 반환한다 | 기존 가입/탈퇴 계정이 점유한 닉네임으로 `POST /api/auth/nickname/validate` → 200, `{"success":true,"data":{"valid":false,"message":"이미 사용 중인 닉네임입니다."},"message":null}` |
 | USER-NICK-13 | 예외 | IF 사전 검사 요청 닉네임이 정책(길이·문자)을 위반하면, THEN THE 시스템 SHALL 중복(DB) 검사를 수행하지 않고 정책 위반 메시지를 반환한다 | 정책 위반 닉네임(예 `"hi!"`)으로 validate → 응답 `message`가 정책 메시지(문자/길이)이며 `"이미 사용 중인 닉네임입니다."`가 아니다. 판정 우선순위: 길이 → 문자 → 중복 |
-| USER-NICK-14 | 유비쿼터스 | THE 시스템 SHALL validate의 중복 판정에 signup과 동일한 `existsByNickname`을 사용한다 | 탈퇴 계정이 점유한 닉네임으로 validate → `valid:false`+중복 메시지, 같은 닉네임으로 `POST /api/member/auth/signup` → 409 `DUPLICATE_NICKNAME`. `existsByNickname`이 `exit_at`을 거르지 않아 두 경로 모두 탈퇴 닉네임을 점유로 판정(재가입 불가 현행 동작과 일치) |
+| USER-NICK-14 | 유비쿼터스 | THE 시스템 SHALL validate의 중복 판정에 signup과 동일한 `existsByNickname`을 사용한다 | 탈퇴 계정이 점유한 닉네임으로 validate → `valid:false`+중복 메시지, 같은 닉네임으로 `POST /api/auth/signup` → 409 `DUPLICATE_NICKNAME`. `existsByNickname`이 `exit_at`을 거르지 않아 두 경로 모두 탈퇴 닉네임을 점유로 판정(재가입 불가 현행 동작과 일치) |
 | USER-NICK-15 | 유비쿼터스 | THE 시스템 SHALL validate가 중복 닉네임에도 HTTP 200을 반환한다(signup의 중복은 409 유지) | 중복 닉네임으로 validate → 200(409 아님), 같은 닉네임으로 signup → 409 `DUPLICATE_NICKNAME`. 두 엔드포인트의 중복 상태코드 차이는 의도됨 |
 
 ### 메시지 결정성에 관한 주의 (모듈 컨텍스트 반영)

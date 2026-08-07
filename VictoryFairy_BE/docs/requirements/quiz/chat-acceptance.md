@@ -11,7 +11,7 @@
 - 각 시나리오는 `docs/requirements/quiz/chat.md`의 EARS 요구사항 하나(또는 소수)를 Given-When-Then으로 관찰 가능한 사실까지 펼친 것이다. 이 문서는 **계약(무엇이 참이어야 하는가)**까지이고, 이를 테스트 코드로 옮기는 것은 `test-writer`의 일이다.
 - **구분** 열: `정상`=요구사항의 정상 경로 / `예외`=원치 않는 동작(검증 실패·권한 없음·중복·삭제·만료) / `경계`=값의 임계에서 판정이 갈리는 지점.
 - 시나리오 ID: `AC-CHAT-<요구사항번호>-<n>`. 요구사항 번호는 `QUIZ-CHAT-<n>`과 대응한다.
-- 모든 값은 확정값이다(Q1~Q11 종결, 2026-07-20). 엔드포인트 경로·상태코드·수치: content 최대 500자, 히스토리 페이지 30·최신순, `/api/game/chat/rooms`·`.../subscribe`·`.../messages`·`.../messages/{messageId}/report`.
+- 모든 값은 확정값이다(Q1~Q11 종결, 2026-07-20). 엔드포인트 경로·상태코드·수치: content 최대 500자, 히스토리 페이지 30·최신순, `/rt/chat/rooms`·`.../subscribe`·`.../messages`·`.../messages/{messageId}/report`.
 - **관리자 기능(unblind/메시지 soft-delete)은 이번 범위에서 제외**되어 관련 시나리오는 삭제했다(하단 "삭제된 시나리오" 참고).
 
 ---
@@ -20,7 +20,7 @@
 
 | 흐름 | 시작 | 관찰 결과 |
 |---|---|---|
-| 방 목록 | `GET /api/game/chat/rooms` (인증) | 200, 삭제 안 된 방만, 정수 PK 없음, `participants` 키 없음 |
+| 방 목록 | `GET /rt/chat/rooms` (인증) | 200, 삭제 안 된 방만, 정수 PK 없음, `participants` 키 없음 |
 | 입장 | `GET .../{roomUid}/subscribe` (fetch 폴리필로 Bearer 헤더) | 200 `text/event-stream`, 연결 유지 |
 | 전송 | `POST .../{roomUid}/messages {content}` (인증) | 201 저장, **발신자 제외** 구독자 SSE 수신 |
 | 히스토리 | `GET .../{roomUid}/messages` (인증) | 200 페이징(30·최신순), blind·삭제 제외 |
@@ -34,11 +34,11 @@
 | 시나리오 ID | 요구사항 | 구분 | Given | When | Then |
 |---|---|---|---|---|---|
 | AC-CHAT-1-1 | QUIZ-CHAT-1 | 정상 | 팀 시드와 함께 생성된 10개 구단 방(owner=시스템 계정), 유효 토큰 | 방 목록·구독·전송 응답을 관찰한다 | 방이 team↔room 1:1로 존재. 응답·경로에 정수 PK가 없고 36자 UUID(`roomUid`)만 나타난다 |
-| AC-CHAT-2-1 | QUIZ-CHAT-2 | 정상 | 삭제 안 된 방 N개, 삭제된 방 1개 | `GET /api/game/chat/rooms` | 200, N개만 반환, 각 항목에 `roomUid`·`team`·`name` 포함(2026-08-01 개정: `participants` 제거 — AC-CHAT-52-1) |
-| AC-CHAT-2-2 | QUIZ-CHAT-2 | 경계 | 삭제 안 된 방이 0개 | `GET /api/game/chat/rooms` | 200, 빈 배열(404 아님) |
-| AC-CHAT-3-1 | QUIZ-CHAT-3 | 예외 | 존재하지 않는 임의 UUID | `GET /api/game/chat/rooms/{uuid}` | 404 |
-| AC-CHAT-3-2 | QUIZ-CHAT-3 | 예외 | `deletedAt`이 채워진 방의 `roomUid` | `GET /api/game/chat/rooms/{roomUid}` | 404 (삭제된 방도 없는 방과 동일 취급) |
-| AC-CHAT-3-3 | QUIZ-CHAT-3 | 경계 | UUID 형식이 아닌 문자열(`abc`) | `GET /api/game/chat/rooms/abc` | 404 (500이 아니라 정상적 미존재 처리) |
+| AC-CHAT-2-1 | QUIZ-CHAT-2 | 정상 | 삭제 안 된 방 N개, 삭제된 방 1개 | `GET /rt/chat/rooms` | 200, N개만 반환, 각 항목에 `roomUid`·`team`·`name` 포함(2026-08-01 개정: `participants` 제거 — AC-CHAT-52-1) |
+| AC-CHAT-2-2 | QUIZ-CHAT-2 | 경계 | 삭제 안 된 방이 0개 | `GET /rt/chat/rooms` | 200, 빈 배열(404 아님) |
+| AC-CHAT-3-1 | QUIZ-CHAT-3 | 예외 | 존재하지 않는 임의 UUID | `GET /rt/chat/rooms/{uuid}` | 404 |
+| AC-CHAT-3-2 | QUIZ-CHAT-3 | 예외 | `deletedAt`이 채워진 방의 `roomUid` | `GET /rt/chat/rooms/{roomUid}` | 404 (삭제된 방도 없는 방과 동일 취급) |
+| AC-CHAT-3-3 | QUIZ-CHAT-3 | 경계 | UUID 형식이 아닌 문자열(`abc`) | `GET /rt/chat/rooms/abc` | 404 (500이 아니라 정상적 미존재 처리) |
 
 ## B. 인증·인가
 
@@ -49,7 +49,7 @@
 | AC-CHAT-4-3 | QUIZ-CHAT-4 | 예외 | 리프레시 토큰을 액세스 자리에 사용 | `POST .../{roomUid}/messages` | 401 (필터가 `isRefreshToken`이면 인증 안 함) |
 | AC-CHAT-4-4 | QUIZ-CHAT-4 | 예외 | `Bearer ` 접두사 없는/깨진 헤더 | `POST .../{roomUid}/messages` | 401 |
 | AC-CHAT-4-5 | QUIZ-CHAT-4 | 경계 | 서명은 유효하나 **탈퇴 계정**의 uid 토큰 | `POST .../{roomUid}/messages` | 401 (`findActiveIdByUid`가 빈 결과 → SecurityContext 미설정) |
-| AC-CHAT-4-6 | QUIZ-CHAT-4 | 정상 | 유효한 액세스 토큰(활성 계정) | `GET /api/game/chat/rooms` | 200 (인증 통과) |
+| AC-CHAT-4-6 | QUIZ-CHAT-4 | 정상 | 유효한 액세스 토큰(활성 계정) | `GET /rt/chat/rooms` | 200 (인증 통과) |
 | ~~AC-CHAT-5-1~~ | ~~QUIZ-CHAT-5~~ | **무효 (2026-08-04)** | ~~인증 사용자, 임의 구단 방(자신의 응원팀과 무관)~~ | ~~입장·전송 시도~~ | **무효 사유**: QUIZ-CHAT-5가 철회되어(응원 구단 기반 접근 제어 도입) 이 시나리오는 이제 **반대 결과**를 요구한다 — 응원 구단과 다른 방은 403이다. 대체 시나리오는 `docs/requirements/quiz/chat-team-access-control.md`의 QUIZ-CTAC-6/9~15 인수 기준에 있다. 테스트 대상이 아니다 |
 
 ## C. 입장(SSE 구독)·퇴장·연결 유지
@@ -129,7 +129,7 @@
 
 | 시나리오 ID | 요구사항 | 구분 | Given | When | Then |
 |---|---|---|---|---|---|
-| AC-CHAT-24-1 | QUIZ-CHAT-24 | 예외 | 소프트삭제된 방 | `GET /api/game/chat/rooms` | 목록에 없음 |
+| AC-CHAT-24-1 | QUIZ-CHAT-24 | 예외 | 소프트삭제된 방 | `GET /rt/chat/rooms` | 목록에 없음 |
 | AC-CHAT-24-2 | QUIZ-CHAT-24 | 예외 | 소프트삭제된 방 | `GET .../{roomUid}/subscribe` | 404 |
 | AC-CHAT-24-3 | QUIZ-CHAT-24 | 예외 | 소프트삭제된 방 | `POST .../{roomUid}/messages` | 404 |
 | AC-CHAT-24-4 | QUIZ-CHAT-24 | 예외 | 소프트삭제된 방 | `GET .../{roomUid}/messages`(히스토리) | 404(삭제 전 메시지도 조회 불가) |
@@ -153,8 +153,8 @@
 
 | 시나리오 ID | 요구사항 | 구분 | Given | When | Then |
 |---|---|---|---|---|---|
-| AC-CHAT-52-1 | QUIZ-CHAT-52 | 정상 | 인증 사용자, 삭제 안 된 방 N개 | `GET /api/game/chat/rooms` | 200, 각 항목의 키 집합이 `roomUid`·`team`·`name`이고 `participants` 키가 **없다** |
-| AC-CHAT-52-2 | QUIZ-CHAT-52 | 정상 | 인증 사용자, 존재하는 방 | `GET /api/game/chat/rooms/{roomUid}` | 200, 본문 키 집합에 `participants`가 없다 |
+| AC-CHAT-52-1 | QUIZ-CHAT-52 | 정상 | 인증 사용자, 삭제 안 된 방 N개 | `GET /rt/chat/rooms` | 200, 각 항목의 키 집합이 `roomUid`·`team`·`name`이고 `participants` 키가 **없다** |
+| AC-CHAT-52-2 | QUIZ-CHAT-52 | 정상 | 인증 사용자, 존재하는 방 | `GET /rt/chat/rooms/{roomUid}` | 200, 본문 키 집합에 `participants`가 없다 |
 | AC-CHAT-52-3 | QUIZ-CHAT-52 | 경계 | 방에 구독자가 여러 명 있는 상태(값이 존재할 여지가 있는 상황) | 방 목록·상세 조회 | 그래도 `participants` 키가 나타나지 않는다(값 `0`/`null`을 싣는 것이 아니라 키 자체 부재) |
 | AC-CHAT-53-1 | QUIZ-CHAT-53 | 정상 | 방 행의 `participants` 컬럼 값이 `k` | 사용자가 구독을 시작한다 | 컬럼 값이 여전히 `k`(방 행에 UPDATE 없음, `Chatroom.join()` 미호출) |
 | AC-CHAT-53-2 | QUIZ-CHAT-53 | 정상 | 구독 중, 방 행의 `participants` 컬럼 값이 `k` | 구독 연결이 종료(정상 종료·타임아웃·오류)된다 | 컬럼 값이 여전히 `k`(`Chatroom.leave()` 미호출) |

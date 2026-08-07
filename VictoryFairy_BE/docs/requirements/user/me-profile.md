@@ -7,7 +7,7 @@
 > **2026-08-06 3차 개정(참조만)**: 응원 쓰기 경로에 계정 행 비관적 락이 도입됐다(`support-selection.md` USER-SP-38~46). **이 엔드포인트의 계약은 바뀌지 않는다** — `/me`는 읽기라 락을 타지 않는다(USER-SP-44). 그 사실을 "제약"과 "테스트 대응"에 한 줄씩 참조로만 추가했다. **USER-ME-* 번호는 신설되지 않았고 미해결 질문도 여전히 0건이다.**
 
 ## 배경 / 목적
-`/api/member/users/me`는 지금 `DELETE`(탈퇴) 하나뿐이고, `docs/api/account.md`가 "프로필 조회·수정 엔드포인트는 아직 없다 — 이 도메인에 생길 자리다"라고 적어 둔 자리를 채운다.
+`/api/users/me`는 지금 `DELETE`(탈퇴) 하나뿐이고, `docs/api/account.md`가 "프로필 조회·수정 엔드포인트는 아직 없다 — 이 도메인에 생길 자리다"라고 적어 둔 자리를 채운다.
 
 계약의 쟁점은 "네 값을 준다"가 아니라 **세 가지**다.
 
@@ -17,9 +17,9 @@
 
 ## 범위
 - 포함
-  - `GET /api/member/users/me` 1개(access 토큰 필수) — 닉네임 · 응원 구단 · **현재 응원 중인 선수 목록**(2026-08-06 개정) · 보유 포인트 · 누적 획득 점수
+  - `GET /api/users/me` 1개(access 토큰 필수) — 닉네임 · 응원 구단 · **현재 응원 중인 선수 목록**(2026-08-06 개정) · 보유 포인트 · 누적 획득 점수
   - 선행 스키마 2건: `users_account.point` 컬럼 추가, `users_bq` 테이블 신설(엔티티·리포지토리는 `:domain`)
-  - **회원가입 경로 변경** — `POST /api/member/auth/signup` 트랜잭션이 `users_bq` 행을 함께 만든다(USER-ME-23~25·30). 이 문서는 조회 엔드포인트만의 계약이 아니다
+  - **회원가입 경로 변경** — `POST /api/auth/signup` 트랜잭션이 `users_bq` 행을 함께 만든다(USER-ME-23~25·30). 이 문서는 조회 엔드포인트만의 계약이 아니다
   - **기존 계정 백필** — 배포 시 운영자가 1회 수동 실행 + 검증(USER-ME-26~29). 스크립트는 `infra/sql/users-bq-backfill.sql`에 둔다
   - 응답 DTO(`user.account.dto`)
 - 제외
@@ -37,9 +37,9 @@
 
 | 메서드 | 경로 | 인증 | 성공 |
 |---|---|---|---|
-| GET | `/api/member/users/me` | 필수(access) | 200 `ApiResponse<프로필>` |
+| GET | `/api/users/me` | 필수(access) | 200 `ApiResponse<프로필>` |
 
-**이 문서는 기존 엔드포인트 하나의 동작도 바꾼다**: `POST /api/member/auth/signup`(`docs/api/auth.md`)의 **요청·응답 계약은 그대로지만 트랜잭션이 하는 일이 늘어난다** — 계정 생성과 같은 트랜잭션에서 `users_bq` 행이 만들어진다(USER-ME-23~25·30). 가입 API 문서에도 이 부수 효과를 반영해야 한다.
+**이 문서는 기존 엔드포인트 하나의 동작도 바꾼다**: `POST /api/auth/signup`(`docs/api/auth.md`)의 **요청·응답 계약은 그대로지만 트랜잭션이 하는 일이 늘어난다** — 계정 생성과 같은 트랜잭션에서 `users_bq` 행이 만들어진다(USER-ME-23~25·30). 가입 API 문서에도 이 부수 효과를 반영해야 한다.
 
 **응답 래퍼는 `ApiResponse<T>`다.** 근거: `docs/api/README.md`의 래퍼 표에서 **raw인 것은 auth의 signup/login/refresh/logout 4개와 본문이 없는 탈퇴(204)뿐**이고, 도메인 데이터를 본문으로 돌려주는 엔드포인트(team·player·game·support·validate·email·chat)는 **예외 없이 전부 `ApiResponse`**다. 이 엔드포인트는 후자다. 같은 `account` 도메인의 탈퇴가 raw인 것은 "본문이 없어서"이지 도메인 규칙이 아니다.
 
@@ -56,7 +56,7 @@
 | USER-ME-5 | 유비쿼터스 | THE 시스템 SHALL `users_bq.user_account_id`에 UNIQUE 제약을 두어 계정당 행이 1개를 넘지 않도록 보장한다 | 같은 `user_account_id`로 2번째 행을 INSERT 하면 UNIQUE 제약 위반. `SELECT user_account_id, COUNT(*) FROM users_bq GROUP BY 1 HAVING COUNT(*) > 1` = 0건 |
 | USER-ME-6 | 유비쿼터스 | THE 시스템 SHALL `users_bq` 행 생성 시 `created_at`을, `bq_score` 변경 시 `updated_at`을 갱신한다 | 신규 행에서 `created_at`·`updated_at` 둘 다 non-null. `bq_score`를 바꾼 뒤 `updated_at > created_at`, `created_at` 불변 |
 
-### 회원가입 시 `users_bq` 행 생성 — `POST /api/member/auth/signup`
+### 회원가입 시 `users_bq` 행 생성 — `POST /api/auth/signup`
 
 > 이 절은 `/me` 조회가 아니라 **가입 경로의 계약**이다. "모든 계정에 `users_bq` 행이 있다"는 전제를 만드는 주체가 여기다.
 
@@ -91,7 +91,7 @@ WHERE NOT EXISTS (SELECT 1 FROM users_bq b WHERE b.user_account_id = ua.id);
 - **시각은 `NOW(6)`이다.** Hibernate가 `LocalDateTime`을 `datetime(6)`으로 매핑하므로 `NOW()`(초 단위)를 쓰면 백필 행만 마이크로초가 0으로 잘린다.
 - **탈퇴 계정도 포함한다.** `exit_at is not null`을 제외하면 "계정 1행 = bq 1행" 불변식이 깨져 USER-ME-26의 검증 쿼리가 복잡해지고, 탈퇴는 soft delete라 행이 그대로 남아 있어 제외할 실익이 없다.
 
-### 인증 — `GET /api/member/users/me`
+### 인증 — `GET /api/users/me`
 
 | ID | 유형 | 요구사항 | 인수 기준 |
 |---|---|---|---|
@@ -125,7 +125,7 @@ WHERE NOT EXISTS (SELECT 1 FROM users_bq b WHERE b.user_account_id = ua.id);
 
 **USER-ME-16 (응원 구단 없음)** — "응원 구단은 필수"는 **온보딩 제품 정책이지 스키마·코드 제약이 아니다.** 코드에서 직접 확인한 사실:
 - `SignupRequest`(`user/src/main/java/com/skhynix/user/auth/dto/SignupRequest.java`)의 필드는 `name`·`tel`·`email`·`gender`·`nickname`·`password` **6개뿐이며 구단 필드가 없다.**
-- 구단 선택은 별도 엔드포인트 `POST /api/member/support/team`(`support-selection.md`)이고, 그 문서는 "가입 직후 미선택 상태를 서버가 추적해 다른 경로를 막는 것은 별도 요구사항"이라며 강제를 이미 범위 밖으로 두었다.
+- 구단 선택은 별도 엔드포인트 `POST /api/support/team`(`support-selection.md`)이고, 그 문서는 "가입 직후 미선택 상태를 서버가 추적해 다른 경로를 막는 것은 별도 요구사항"이라며 강제를 이미 범위 밖으로 두었다.
 
 즉 **"가입 완료 ~ 구단 선택 전" 윈도우가 스키마·코드상 실재한다.** 그 사이에 프로필 화면을 여는 것은 정상적인 앱 사용 흐름이며(온보딩 이탈 후 재진입 포함), 이때 `/me`가 400/404/500을 내면 사용자가 복구 화면조차 못 본다. **정상 경로에서는 `supportTeam`이 항상 non-null**이고, `null`은 이 윈도우와 데이터 이상에서만 나온다.
 
@@ -133,8 +133,8 @@ WHERE NOT EXISTS (SELECT 1 FROM users_bq b WHERE b.user_account_id = ua.id);
 
 | ID | 유형 | 요구사항 | 인수 기준 |
 |---|---|---|---|
-| USER-ME-31 | 유비쿼터스 | THE 시스템 SHALL `supportPlayers`에 그 계정이 **현재 응원 중인**(`user_support_player.oppose is null`) 선수만 담는다 | 선수 3명 응원 중 그 중 1명을 `PUT /api/member/support/players/oppose`로 취소 → `supportPlayers.length() == 2`이며 취소된 선수의 `playerId`가 배열에 없음 |
-| USER-ME-32 | 유비쿼터스 | THE 시스템 SHALL `supportPlayers`의 각 항목을 `GET /api/member/players`·응원 API와 **동일한 선수 표현**으로 담아 키 집합을 정확히 `{teamId, teamName, playerId, playerName, playerNumber, playerPosition}` 6개로 한정한다 | `supportPlayers[0]`의 키가 위 6개뿐(`length() == 6`). 같은 선수를 `GET /api/member/players`로 조회한 항목과 키·값이 일치. 프로필 전용 선수 키(`id`·`name` 등)가 없음 |
+| USER-ME-31 | 유비쿼터스 | THE 시스템 SHALL `supportPlayers`에 그 계정이 **현재 응원 중인**(`user_support_player.oppose is null`) 선수만 담는다 | 선수 3명 응원 중 그 중 1명을 `PUT /api/support/players/oppose`로 취소 → `supportPlayers.length() == 2`이며 취소된 선수의 `playerId`가 배열에 없음 |
+| USER-ME-32 | 유비쿼터스 | THE 시스템 SHALL `supportPlayers`의 각 항목을 `GET /api/players`·응원 API와 **동일한 선수 표현**으로 담아 키 집합을 정확히 `{teamId, teamName, playerId, playerName, playerNumber, playerPosition}` 6개로 한정한다 | `supportPlayers[0]`의 키가 위 6개뿐(`length() == 6`). 같은 선수를 `GET /api/players`로 조회한 항목과 키·값이 일치. 프로필 전용 선수 키(`id`·`name` 등)가 없음 |
 | USER-ME-33 | 유비쿼터스 | THE 시스템 SHALL `supportPlayers`를 `playerName` 오름차순으로 정렬해 담는다 | 응원 선수가 `박OO`·`김OO`·`이OO`일 때 응답 순서가 `김OO`·`박OO`·`이OO`. 응원한 순서(`user_support_player` 생성 순서)와 무관 |
 | USER-ME-34 | 예외 | IF 현재 응원 중인 선수가 없으면, THEN THE 시스템 SHALL `supportPlayers`를 `null`이 아니라 **빈 배열**로 담아 200을 반환한다 | 선수 미선택 계정(또는 전원 취소 후) → 200, `"supportPlayers":[]`. `null`·키 누락·`{}`가 아님 |
 | USER-ME-35 | 예외 | IF 그 계정에 현재 응원 중인 구단 행이 없으면(USER-ME-16 상황), THEN THE 시스템 SHALL `supportPlayers`를 빈 배열로 담아 200을 반환한다 | 가입 직후(구단 선택 전) 계정 → 200, `"supportTeam":null` **이면서** `"supportPlayers":[]`. 400 `SUPPORT_TEAM_REQUIRED`가 아니며 500도 아님 |
@@ -144,7 +144,7 @@ WHERE NOT EXISTS (SELECT 1 FROM users_bq b WHERE b.user_account_id = ua.id);
 
 **USER-ME-35는 세 번째 안전망이 아니다.** 위 `[안전망]` 두 조항이 다루는 "가입 완료 ~ 구단 선택 전" 윈도우를 선수 목록 쪽에서 받는 조항일 뿐이다. 응원 선수는 응원 구단 소속이어야 하므로(`support-selection.md` USER-SP-17) 구단이 없으면 응원 선수도 있을 수 없고, 따라서 이 조회는 **구단 유무를 전제로 삼지 않는다** — 쓰기 경로(`POST /support/players`)가 구단 미선택을 400 `SUPPORT_TEAM_REQUIRED`로 막는 것과 다르다. **읽기가 쓰기의 사전조건을 흉내 내면 안 된다**: `/me`는 프로필 화면의 진입점이라 여기서 400이 나면 사용자가 구단 선택 화면으로 갈 통로를 잃는다.
 
-**USER-ME-36 — 배열 길이는 4로 닫히지만 그것을 닫는 주체가 이 엔드포인트는 아니다.** 2026-08-06 결정으로 응원 선수는 최대 4명이 됐고(`support-selection.md` USER-SP-30~37) 따라서 정상 계정의 `supportPlayers`는 4건을 넘지 않는다. **그러나 이 계약은 "`/me`가 4건까지만 준다"가 아니라 "있는 그대로 준다"이다.** 상한을 강제하는 곳은 `POST /api/member/support/players` 하나뿐이며(USER-SP-33), 상한 도입 이전 데이터가 4건을 넘는 계정에서 `/me`가 목록을 자르면 **사용자가 자기 상태를 볼 수도, 초과분을 취소할 수도 없게 된다**(취소하려면 `playerId`를 알아야 하는데 그 출처가 이 응답이다). 읽기가 쓰기의 정책을 흉내 내지 않는다는 점에서 USER-ME-35와 같은 판단이다. **클라이언트는 `supportPlayers.length > 4`를 불가능으로 가정하면 안 된다.**
+**USER-ME-36 — 배열 길이는 4로 닫히지만 그것을 닫는 주체가 이 엔드포인트는 아니다.** 2026-08-06 결정으로 응원 선수는 최대 4명이 됐고(`support-selection.md` USER-SP-30~37) 따라서 정상 계정의 `supportPlayers`는 4건을 넘지 않는다. **그러나 이 계약은 "`/me`가 4건까지만 준다"가 아니라 "있는 그대로 준다"이다.** 상한을 강제하는 곳은 `POST /api/support/players` 하나뿐이며(USER-SP-33), 상한 도입 이전 데이터가 4건을 넘는 계정에서 `/me`가 목록을 자르면 **사용자가 자기 상태를 볼 수도, 초과분을 취소할 수도 없게 된다**(취소하려면 `playerId`를 알아야 하는데 그 출처가 이 응답이다). 읽기가 쓰기의 정책을 흉내 내지 않는다는 점에서 USER-ME-35와 같은 판단이다. **클라이언트는 `supportPlayers.length > 4`를 불가능으로 가정하면 안 된다.**
 
 **USER-ME-20(조회가 행을 만들지 않는다)은 이 경로에도 그대로 적용된다.** 응원 선수를 읽는 과정에서 `user_support_player`에 행이 생기거나 `oppose`가 바뀌지 않는다(USER-ME-20의 인수 기준이 이 테이블까지 포함하도록 함께 개정됐다).
 
@@ -177,7 +177,7 @@ WHERE NOT EXISTS (SELECT 1 FROM users_bq b WHERE b.user_account_id = ua.id);
 - **엔티티를 응답에 그대로 실으면 USER-ME-13이 깨진다.** `UserAccount`를 직렬화하면 `password`(bcrypt 해시)·`uid`·`id`·`exitAt`이 함께 나가고, 이는 `docs/api/README.md`의 전역 서술("어떤 엔드포인트도 응답 본문에 `uid`를 노출하지 않는다")을 무효화한다. 응답 DTO는 앱 모듈(`user.account.dto`)에 둔다 — `:domain`은 `user`·`quiz` 공유 모듈이라 API 계약을 두면 quiz까지 끌려간다(`player-list.md`·`support-selection.md`와 동일한 결정).
 - **가입 트랜잭션은 이미 `@Transactional`이다.** `AuthService.signup`이 `userRepository.save` → `userAccountRepository.save` 순으로 한 트랜잭션 안에서 돈다 — USER-ME-24는 새 트랜잭션 전략을 요구하는 것이 아니라 **`users_bq` INSERT를 이 경계 밖(별도 커밋·비동기·after-commit 이벤트)으로 빼지 말라**는 뜻이다. 밖으로 빼면 USER-ME-25/30의 원자성이 깨져 "계정은 있는데 bq 행이 없는" 계정이 생기고, 그 계정은 USER-ME-19 안전망에 영구히 의존하게 된다.
 - **가입 경로 변경은 기존 테스트를 건드린다.** `AuthServiceTest`·`AuthControllerSignupTest` 등 가입 경로 테스트는 현재 `UserRepository`/`UserAccountRepository` 목만 세운다 — `users_bq` 리포지토리 협력자가 늘면 이 테스트들이 함께 수정 대상이 된다(계약 변경이 아니라 파급 범위 고지).
-- **`supportPlayers` 항목이 `PlayerResponse`(`user.player.dto`)를 재사용하므로, `PlayerResponse` 변경은 세 곳에 동시에 번진다** — `GET /api/member/players`(`player-list.md`) · 응원 API 3개(`support-selection.md`) · 이 엔드포인트. **이것이 USER-ME-32가 감수한 위험이다.** 2026-08-06에 항목 키가 `{id, name}`에서 6개로 바뀐 파괴적 변경이 실제로 그렇게 번졌고, 앞으로도 선수 표현을 고칠 때는 세 계약 문서를 함께 봐야 한다. 그럼에도 전용 DTO를 두지 않은 이유는 반대쪽 대가가 더 크기 때문이다: 같은 자원이 경로마다 다른 모양으로 나가고, 키를 추가할 때 두 곳을 맞추다 한쪽만 고쳐지면 **문서에는 안 드러나는 방식으로** 응답이 갈라진다.
+- **`supportPlayers` 항목이 `PlayerResponse`(`user.player.dto`)를 재사용하므로, `PlayerResponse` 변경은 세 곳에 동시에 번진다** — `GET /api/players`(`player-list.md`) · 응원 API 3개(`support-selection.md`) · 이 엔드포인트. **이것이 USER-ME-32가 감수한 위험이다.** 2026-08-06에 항목 키가 `{id, name}`에서 6개로 바뀐 파괴적 변경이 실제로 그렇게 번졌고, 앞으로도 선수 표현을 고칠 때는 세 계약 문서를 함께 봐야 한다. 그럼에도 전용 DTO를 두지 않은 이유는 반대쪽 대가가 더 크기 때문이다: 같은 자원이 경로마다 다른 모양으로 나가고, 키를 추가할 때 두 곳을 맞추다 한쪽만 고쳐지면 **문서에는 안 드러나는 방식으로** 응답이 갈라진다.
 - **응원 선수 목록은 응원 API가 돌려주는 목록과 같은 규칙(현재 응원 중만·`playerName` 오름차순)을 따른다.** 두 곳이 각자 목록을 만들면 한쪽만 고쳐질 때 조용히 갈라지므로, 이 계약은 "같은 규칙"이 아니라 **같은 결과**를 요구한다 — 같은 계정에 대해 `/me`의 `supportPlayers`와 `POST /support/players`(빈 배열 요청, USER-SP-21)의 응답이 항상 동일해야 한다. **현재는 `/me`가 목록을 직접 만들지 않고 응원 API와 같은 조회(`SupportService.currentSupportedPlayers` → `findAllActiveWithPlayerAndTeam`)를 그대로 쓴다** — 정렬(`order by p.name`)도 DB가 한 번만 정한다. 이 위임을 풀어 `/me`가 자기 조회를 갖게 되면 "같은 결과"가 규약으로만 남고 코드가 보장하지 않게 된다.
 - **동명이인의 상대 순서는 정해져 있지 않다.** USER-ME-33의 정렬 키는 `playerName` 하나뿐이라 이름이 같은 선수 둘의 순서는 비결정적이다(2차 정렬 키 없음). 응원 선수 규모상 실사용 영향이 없다고 보고 두었으나, **동명이인을 포함한 순서 단언 테스트를 쓰면 불안정해진다.**
 - **`UserSupportTeam.team`·`UserSupportPlayer.player`·`Player.team`은 모두 LAZY다.** 응답에 구단명·선수 표현이 들어가므로 세 연관 모두 트랜잭션 안에서 초기화돼야 한다(USER-ME-21). 현재는 **두 조회가 각각 필요한 연관을 함께 끌고 온다** — 응원 구단 행은 구단까지(`@EntityGraph`, USER-ME-22 내역 3번), 응원 선수 행은 선수와 그 소속 구단까지(fetch join, 내역 4번). **둘 중 어느 쪽이든 "함께 가져오기"를 되돌리면 SELECT가 늘어 USER-ME-22가 깨진다**(선수 쪽은 1회가 아니라 **행 수만큼** 늘어 N+1이 된다). prod는 `open-in-view: false`(`user/src/main/resources/application-prod.yaml`)라 **컨트롤러가 DTO를 만들면 늦다** — USER-ME-21은 이 함정을 계약으로 고정한 것이다. dev에는 이 설정이 없어(기본 `true`) **dev에서만 우연히 통과하는 코드가 나올 수 있다.**
@@ -229,7 +229,7 @@ WHERE NOT EXISTS (SELECT 1 FROM users_bq b WHERE b.user_account_id = ua.id);
 9. **`supportPlayers` 항목은 전용 DTO 없이 `PlayerResponse`를 재사용한다**(USER-ME-32, 2026-08-06). 사용자 요청으로 추가된 키이며, 재사용 판단은 `supportTeam`이 `TeamResponse`를 재사용한 것(결정 4)·응원 API가 전용 DTO를 안 만든 것과 같은 결이다. **대가는 위 "제약"에 적은 3중 파급**이다.
 10. **빈 목록은 `null`이 아니라 빈 배열이다**(USER-ME-34, 2026-08-06). `supportTeam`의 `null`과 비대칭이며 그 근거는 "응답 본문 — `supportPlayers`" 절에 적었다. 단일 값은 `null`밖에 표현 수단이 없고, 목록은 빈 배열이 그대로 "0건"이다.
 11. **USER-ME-22의 SELECT 횟수는 필터 포함 요청 단위로 센다**(2026-08-06). 개정 전까지 "4회"가 필터 포함인지 서비스 단독인지가 미확정 해석 쟁점이었다 — **필터 포함으로 확정했다.** 클라이언트가 관찰하는 단위가 요청 1건이기 때문이다. 상수는 같은 날 2차 개정에서 **5회 고정**으로 다시 정정됐다(결정 13).
-12. **응원 선수 개수 상한은 4명이며, 강제 주체는 `/me`가 아니라 `POST /api/member/support/players`다**(2026-08-06 2차 개정). 사용자 결정 = 미해결 질문 1번의 **C안**. B안(`/me`에서만 상위 N명)은 폐기했다 — 두 응답이 갈라져 위 "제약"의 **"같은 결과"** 조항이 깨지고 "무엇을 기준으로 상위 N명인가"라는 정렬 계약이 새로 필요해진다. A안(상한 없음)은 결정 자체가 뒤집혔다. **이 문서 쪽 변경은 USER-ME-36 하나뿐이다**: `/me`는 여전히 전량을 싣고, 배열 길이가 4로 닫히는 것은 쓰기 경로가 만든 **결과**일 뿐이다. 상한 계약 본체는 `support-selection.md` USER-SP-30~37에 있다(그 문서의 USER-SP-22는 폐기됐다).
+12. **응원 선수 개수 상한은 4명이며, 강제 주체는 `/me`가 아니라 `POST /api/support/players`다**(2026-08-06 2차 개정). 사용자 결정 = 미해결 질문 1번의 **C안**. B안(`/me`에서만 상위 N명)은 폐기했다 — 두 응답이 갈라져 위 "제약"의 **"같은 결과"** 조항이 깨지고 "무엇을 기준으로 상위 N명인가"라는 정렬 계약이 새로 필요해진다. A안(상한 없음)은 결정 자체가 뒤집혔다. **이 문서 쪽 변경은 USER-ME-36 하나뿐이다**: `/me`는 여전히 전량을 싣고, 배열 길이가 4로 닫히는 것은 쓰기 경로가 만든 **결과**일 뿐이다. 상한 계약 본체는 `support-selection.md` USER-SP-30~37에 있다(그 문서의 USER-SP-22는 폐기됐다).
 13. **USER-ME-22의 상수는 5회 고정이다**(2026-08-06 2차 개정). 응원 선수 목록 조회가 2쿼리에서 **fetch join 1쿼리**로 바뀌면서 조건부 항목이 사라졌다 — 직전 개정의 "6회 이하 / 0건 5회·1건 이상 6회"는 **더 이상 실측과 맞지 않는다.** 0건이어도 fetch join 쿼리 1회는 나가므로 "≤" 가 아니라 **등호**로 적었다. 부수 효과로 **1차 캐시 적중에 기대던 부분이 없어져** "행 수와 무관한 고정 횟수"가 단서 없이 성립한다(위 "제약" 참조).
 
 ## 미해결 질문

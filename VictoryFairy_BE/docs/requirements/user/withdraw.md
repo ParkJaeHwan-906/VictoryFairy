@@ -11,25 +11,25 @@
   - **하드 딜리트 / 개인정보 파기 배치** — `exit_at`은 표식만 남기며 실제 행 삭제는 이번 범위 밖
   - **탈퇴 취소(복구) API** — 탈퇴는 **즉시 완료·유예 기간 없음·취소 불가**로 확정(사용자 결정). `exit_at`은 "탈퇴 예정 시각"이 아니라 "탈퇴 완료 시각"이다 — USER-WD-4가 이를 고정한다
   - **탈퇴 사유 수집** — 요청에 없었음
-  - **`POST /api/member/auth/logout` 변경** — 탈퇴 시 refresh 토큰이 이미 만료되므로 기존 멱등 동작(항상 204)으로 충분
-  - **`POST /api/member/auth/password/validate` 변경** — DB를 조회하지 않는 순수 정책 검사라 탈퇴와 무관
+  - **`POST /api/auth/logout` 변경** — 탈퇴 시 refresh 토큰이 이미 만료되므로 기존 멱등 동작(항상 204)으로 충분
+  - **`POST /api/auth/password/validate` 변경** — DB를 조회하지 않는 순수 정책 검사라 탈퇴와 무관
 
 ## 요구사항 (EARS)
 
 | ID | 유형 | 요구사항 | 인수 기준 |
 |---|---|---|---|
-| USER-WD-1 | 이벤트 | WHEN 인증된 사용자가 탈퇴를 요청하면, THE 시스템 SHALL 해당 계정의 `exit_at`에 서버의 현재 시각을 기록한다 | `DELETE /api/member/users/me` + `Authorization: Bearer <유효 access>` → 해당 `users_account.exit_at`이 NULL이 아닌 값(요청 시각)으로 설정됨 |
-| USER-WD-2 | 이벤트 | WHEN 인증된 사용자가 탈퇴를 요청하면, THE 시스템 SHALL 본문 없이 204를 반환한다 | `DELETE /api/member/users/me` + 유효 access → `204 No Content`, 본문 없음. 요청 본문도 없음(비밀번호 재확인 없음) |
-| USER-WD-3 | 이벤트 | WHEN 인증된 사용자가 탈퇴를 요청하면, THE 시스템 SHALL 해당 계정의 유효한 refresh 토큰을 모두 만료시킨다 | 탈퇴 직전 발급받은 refreshToken으로 `POST /api/member/auth/refresh` → 401 (USER-WD-7과 동일) |
+| USER-WD-1 | 이벤트 | WHEN 인증된 사용자가 탈퇴를 요청하면, THE 시스템 SHALL 해당 계정의 `exit_at`에 서버의 현재 시각을 기록한다 | `DELETE /api/users/me` + `Authorization: Bearer <유효 access>` → 해당 `users_account.exit_at`이 NULL이 아닌 값(요청 시각)으로 설정됨 |
+| USER-WD-2 | 이벤트 | WHEN 인증된 사용자가 탈퇴를 요청하면, THE 시스템 SHALL 본문 없이 204를 반환한다 | `DELETE /api/users/me` + 유효 access → `204 No Content`, 본문 없음. 요청 본문도 없음(비밀번호 재확인 없음) |
+| USER-WD-3 | 이벤트 | WHEN 인증된 사용자가 탈퇴를 요청하면, THE 시스템 SHALL 해당 계정의 유효한 refresh 토큰을 모두 만료시킨다 | 탈퇴 직전 발급받은 refreshToken으로 `POST /api/auth/refresh` → 401 (USER-WD-7과 동일) |
 | USER-WD-4 | 유비쿼터스 | THE 시스템 SHALL 한 번 설정된 `exit_at` 값을 이후 변경하지 않는다 | 탈퇴한 계정의 `exit_at`은 이후 어떤 API 호출로도 NULL로 되돌아가거나 다른 시각으로 갱신되지 않음 |
-| USER-WD-5 | 예외 | IF 인증되지 않은 요청이 탈퇴를 요청하면, THEN THE 시스템 SHALL 401과 `"인증이 필요합니다."`를 반환한다 | `DELETE /api/member/users/me` (Authorization 헤더 없음) → 401, `{"success":false,"data":null,"message":"인증이 필요합니다."}` (`UNAUTHENTICATED`) |
-| USER-WD-6 | 예외 | IF 탈퇴한 계정의 access 토큰으로 인증이 필요한 요청이 들어오면, THEN THE 시스템 SHALL 401과 `"인증이 필요합니다."`를 반환한다 | 탈퇴 후 **탈퇴 전에 발급받은** access 토큰으로 `DELETE /api/member/users/me` → 401, `message`가 `"인증이 필요합니다."` (`UNAUTHENTICATED`) |
-| USER-WD-7 | 예외 | IF 탈퇴한 계정의 refresh 토큰으로 재발급을 요청하면, THEN THE 시스템 SHALL 401과 `"만료되었거나 이미 무효화된 리프레시 토큰입니다."`를 반환한다 | 탈퇴 후 `POST /api/member/auth/refresh` `{"refreshToken":"<탈퇴 전 발급분>"}` → 401, `message`가 `"만료되었거나 이미 무효화된 리프레시 토큰입니다."` (`EXPIRED_REFRESH_TOKEN`) |
-| USER-WD-8 | 예외 | IF 탈퇴한 계정의 이메일로 로그인을 요청하면, THEN THE 시스템 SHALL 401과 `"이메일 또는 비밀번호가 올바르지 않습니다."`를 반환한다 | 탈퇴한 계정의 이메일 + **올바른 비밀번호**로 `POST /api/member/auth/login` → 401, `message`가 `"이메일 또는 비밀번호가 올바르지 않습니다."` (`INVALID_CREDENTIALS`). 미가입 이메일로 로그인했을 때와 응답이 **완전히 동일** |
-| USER-WD-9 | 예외 | IF 이미 탈퇴한 계정의 access 토큰으로 탈퇴를 재요청하면, THEN THE 시스템 SHALL 401과 `"인증이 필요합니다."`를 반환한다 | `DELETE /api/member/users/me`를 같은 access 토큰으로 연속 2회 → 1회차 204, 2회차 401 (`UNAUTHENTICATED`). 2회차에 `exit_at`은 1회차 값에서 갱신되지 않음(USER-WD-4) |
-| USER-WD-10 | 예외 | IF 탈퇴한 계정이 점유한 이메일로 회원가입을 요청하면, THEN THE 시스템 SHALL 409와 `"이미 사용 중인 이메일입니다."`를 반환한다 | 탈퇴한 계정의 이메일로 `POST /api/member/auth/signup` → 409, `message`가 `"이미 사용 중인 이메일입니다."` (`DUPLICATE_EMAIL`) |
-| USER-WD-11 | 예외 | IF 탈퇴한 계정이 점유한 전화번호로 회원가입을 요청하면, THEN THE 시스템 SHALL 409와 `"이미 사용 중인 전화번호입니다."`를 반환한다 | 탈퇴한 계정의 `tel`로 `POST /api/member/auth/signup` → 409, `message`가 `"이미 사용 중인 전화번호입니다."` (`DUPLICATE_TEL`) |
-| USER-WD-12 | 예외 | IF 탈퇴한 계정이 점유한 닉네임으로 회원가입을 요청하면, THEN THE 시스템 SHALL 409와 `"이미 사용 중인 닉네임입니다."`를 반환한다 | 탈퇴한 계정의 `nickname`으로 `POST /api/member/auth/signup` → 409, `message`가 `"이미 사용 중인 닉네임입니다."` (`DUPLICATE_NICKNAME`) |
+| USER-WD-5 | 예외 | IF 인증되지 않은 요청이 탈퇴를 요청하면, THEN THE 시스템 SHALL 401과 `"인증이 필요합니다."`를 반환한다 | `DELETE /api/users/me` (Authorization 헤더 없음) → 401, `{"success":false,"data":null,"message":"인증이 필요합니다."}` (`UNAUTHENTICATED`) |
+| USER-WD-6 | 예외 | IF 탈퇴한 계정의 access 토큰으로 인증이 필요한 요청이 들어오면, THEN THE 시스템 SHALL 401과 `"인증이 필요합니다."`를 반환한다 | 탈퇴 후 **탈퇴 전에 발급받은** access 토큰으로 `DELETE /api/users/me` → 401, `message`가 `"인증이 필요합니다."` (`UNAUTHENTICATED`) |
+| USER-WD-7 | 예외 | IF 탈퇴한 계정의 refresh 토큰으로 재발급을 요청하면, THEN THE 시스템 SHALL 401과 `"만료되었거나 이미 무효화된 리프레시 토큰입니다."`를 반환한다 | 탈퇴 후 `POST /api/auth/refresh` `{"refreshToken":"<탈퇴 전 발급분>"}` → 401, `message`가 `"만료되었거나 이미 무효화된 리프레시 토큰입니다."` (`EXPIRED_REFRESH_TOKEN`) |
+| USER-WD-8 | 예외 | IF 탈퇴한 계정의 이메일로 로그인을 요청하면, THEN THE 시스템 SHALL 401과 `"이메일 또는 비밀번호가 올바르지 않습니다."`를 반환한다 | 탈퇴한 계정의 이메일 + **올바른 비밀번호**로 `POST /api/auth/login` → 401, `message`가 `"이메일 또는 비밀번호가 올바르지 않습니다."` (`INVALID_CREDENTIALS`). 미가입 이메일로 로그인했을 때와 응답이 **완전히 동일** |
+| USER-WD-9 | 예외 | IF 이미 탈퇴한 계정의 access 토큰으로 탈퇴를 재요청하면, THEN THE 시스템 SHALL 401과 `"인증이 필요합니다."`를 반환한다 | `DELETE /api/users/me`를 같은 access 토큰으로 연속 2회 → 1회차 204, 2회차 401 (`UNAUTHENTICATED`). 2회차에 `exit_at`은 1회차 값에서 갱신되지 않음(USER-WD-4) |
+| USER-WD-10 | 예외 | IF 탈퇴한 계정이 점유한 이메일로 회원가입을 요청하면, THEN THE 시스템 SHALL 409와 `"이미 사용 중인 이메일입니다."`를 반환한다 | 탈퇴한 계정의 이메일로 `POST /api/auth/signup` → 409, `message`가 `"이미 사용 중인 이메일입니다."` (`DUPLICATE_EMAIL`) |
+| USER-WD-11 | 예외 | IF 탈퇴한 계정이 점유한 전화번호로 회원가입을 요청하면, THEN THE 시스템 SHALL 409와 `"이미 사용 중인 전화번호입니다."`를 반환한다 | 탈퇴한 계정의 `tel`로 `POST /api/auth/signup` → 409, `message`가 `"이미 사용 중인 전화번호입니다."` (`DUPLICATE_TEL`) |
+| USER-WD-12 | 예외 | IF 탈퇴한 계정이 점유한 닉네임으로 회원가입을 요청하면, THEN THE 시스템 SHALL 409와 `"이미 사용 중인 닉네임입니다."`를 반환한다 | 탈퇴한 계정의 `nickname`으로 `POST /api/auth/signup` → 409, `message`가 `"이미 사용 중인 닉네임입니다."` (`DUPLICATE_NICKNAME`) |
 
 **USER-WD-10~12은 "새로 만드는 규칙"이 아니라 현행 동작을 명문화한 것이다.** `existsByEmail`/`existsByTel`/`existsByNickname`이 탈퇴 여부를 구분하지 않으므로, 아무것도 하지 않으면 자동으로 이 동작이 된다. 이 3건이 왜 뒤집히지 않는지는 아래 "결정 근거 1"에 있다.
 
@@ -65,7 +65,7 @@
 
 ## 제약 (구현이 지켜야 할 사실 — 구현 방법 지시가 아님)
 
-1. **`/api/member/auth/**`는 전부 `permitAll`이다.** 그래서 탈퇴는 `/api/member/users/me`에 둔다. `/api/member/auth/withdraw`에 두면 **인증이 걸리지 않아** USER-WD-5가 성립하지 않는다. `/api/member/users/**`는 기존 `anyRequest().authenticated()`에 그대로 걸리므로 **`SecurityConfig` 수정이 필요 없다.** 이 경로가 user 모듈의 첫 `/api/member/auth/**` 밖 엔드포인트이자 **`anyRequest().authenticated()`에 실제로 걸리는 첫 경로**가 된다.
+1. **`/api/auth/**`는 전부 `permitAll`이다.** 그래서 탈퇴는 `/api/users/me`에 둔다. `/api/auth/withdraw`에 두면 **인증이 걸리지 않아** USER-WD-5가 성립하지 않는다. `/api/users/**`는 기존 `anyRequest().authenticated()`에 그대로 걸리므로 **`SecurityConfig` 수정이 필요 없다.** 이 경로가 user 모듈의 첫 `/api/auth/**` 밖 엔드포인트이자 **`anyRequest().authenticated()`에 실제로 걸리는 첫 경로**가 된다.
 2. **탈퇴 계정 차단 지점은 필터 1곳이 아니라 3곳이다.** 사용자 요청은 "필터"였으나 `login`은 `permitAll`이라 `JwtAuthenticationFilter`를 타지 않는다(USER-WD-8은 `login` 자체에서 판정해야 함). `refresh`(USER-WD-7)도 마찬가지다. **필터·`login`·`refresh` 각각**에 판정이 필요하다.
 3. **uid 해석 계약이 바뀐다**: "uid로 계정 id를 조회한다" → **"uid로 *활성*(`exit_at IS NULL`) 계정의 id를 조회한다."** 기존 `findIdByUid`의 **유일한 소비처가 필터**이므로 이 메서드는 추가가 아니라 **대체**된다(메서드명은 구현 단계에서 결정). uid로 활성 계정을 못 찾으면 필터는 기존과 동일하게 `SecurityContext`를 비운 채 체인을 통과시키고, `anyRequest().authenticated()`에 걸려 `RestAuthenticationEntryPoint`가 401을 응답한다 — 그래서 USER-WD-6·USER-WD-9에 새 에러 코드가 필요 없다.
 4. **`UserAccount`에 `@Setter`가 없고, domain 컨벤션상 두지 않는다.** 따라서 `exit_at` 기록은 **엔티티가 자신의 탈퇴 상태 전이를 책임지는** 형태여야 한다 — 의도를 드러내는 메서드(예: `withdraw(LocalDateTime)`)를 `UserAccount`에 추가하고, 그 메서드가 USER-WD-4(이미 설정된 `exit_at`을 덮어쓰지 않음)를 보장한다. 서비스가 setter로 상태를 밀어넣는 형태는 컨벤션 위반이다.

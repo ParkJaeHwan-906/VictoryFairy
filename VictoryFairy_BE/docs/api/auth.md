@@ -1,28 +1,28 @@
 # 인증(auth) API 명세
 
 > **도메인** `auth` — 회원가입 전 사전 검사, 이메일 소유 확인, 가입, 로그인/토큰 수명 관리.
-> **모듈** user (포트 8080) · **경로 접두사** `/api/member/auth` · **엔드포인트** 9개
+> **모듈** user (포트 8080) · **경로 접두사** `/api/auth` · **엔드포인트** 9개
 > **컨트롤러** `user/src/main/java/com/skhynix/user/auth/controller/AuthController.java` (`@RequestMapping("/auth")`)
-> **최종 갱신** 2026-08-04 — `POST /api/member/auth/signup`에 `users_bq` 행 생성 부수 효과 반영(요청·응답 계약은 변경 없음).
+> **최종 갱신** 2026-08-04 — `POST /api/auth/signup`에 `users_bq` 행 생성 부수 효과 반영(요청·응답 계약은 변경 없음).
 > 공통 규약(응답 래퍼·JWT payload·401 4종·403 부재)은 [README.md](README.md)를 먼저 볼 것.
 
 ## 엔드포인트 목록
 
 | 메서드 | 경로 | 성공 | 용도 |
 |---|---|---|---|
-| POST | [/api/member/auth/password/validate](#post-apimemberauthpasswordvalidate) | 200 | 비밀번호 정책 사전 검사(DB 미조회) |
-| POST | [/api/member/auth/nickname/validate](#post-apimemberauthnicknamevalidate) | 200 | 닉네임 정책 + 중복 2단 검사 |
-| POST | [/api/member/auth/nickname/duplicate](#post-apimemberauthnicknameduplicate) | 200 | 닉네임 중복 단독 검사 |
-| POST | [/api/member/auth/email/send-code](#post-apimemberauthemailsend-code) | 200 | 이메일 인증번호 발송 |
-| POST | [/api/member/auth/email/verify](#post-apimemberauthemailverify) | 200 | 이메일 인증번호 대조 |
-| POST | [/api/member/auth/signup](#post-apimemberauthsignup) | 201 | 회원가입 |
-| POST | [/api/member/auth/login](#post-apimemberauthlogin) | 200 | 로그인(토큰 쌍 발급) |
-| POST | [/api/member/auth/refresh](#post-apimemberauthrefresh) | 200 | 토큰 쌍 재발급(rotate) |
-| POST | [/api/member/auth/logout](#post-apimemberauthlogout) | 204 | refresh 토큰 무효화 |
+| POST | [/api/auth/password/validate](#post-apiauthpasswordvalidate) | 200 | 비밀번호 정책 사전 검사(DB 미조회) |
+| POST | [/api/auth/nickname/validate](#post-apiauthnicknamevalidate) | 200 | 닉네임 정책 + 중복 2단 검사 |
+| POST | [/api/auth/nickname/duplicate](#post-apiauthnicknameduplicate) | 200 | 닉네임 중복 단독 검사 |
+| POST | [/api/auth/email/send-code](#post-apiauthemailsend-code) | 200 | 이메일 인증번호 발송 |
+| POST | [/api/auth/email/verify](#post-apiauthemailverify) | 200 | 이메일 인증번호 대조 |
+| POST | [/api/auth/signup](#post-apiauthsignup) | 201 | 회원가입 |
+| POST | [/api/auth/login](#post-apiauthlogin) | 200 | 로그인(토큰 쌍 발급) |
+| POST | [/api/auth/refresh](#post-apiauthrefresh) | 200 | 토큰 쌍 재발급(rotate) |
+| POST | [/api/auth/logout](#post-apiauthlogout) | 204 | refresh 토큰 무효화 |
 
 ## 이 도메인의 특이사항
 
-**9개 전부 인증 불필요.** `SecurityConfig`에서 `/api/member/auth/**` 전체가 `permitAll()`이다(로그인/재발급/가입 전 단계이므로 당연함). 다른 도메인의 GET 한정 `permitAll`과 달리 메서드 제한이 없다.
+**9개 전부 인증 불필요.** `SecurityConfig`에서 `/api/auth/**` 전체가 `permitAll()`이다(로그인/재발급/가입 전 단계이므로 당연함). 다른 도메인의 GET 한정 `permitAll`과 달리 메서드 제한이 없다.
 
 **응답 래퍼가 이 도메인 안에서 갈린다** — 사전 검사 5개(`password/validate`, `nickname/validate`, `nickname/duplicate`, `email/send-code`, `email/verify`)는 `ApiResponse<T>`로 감싸고, 가입·로그인·재발급·로그아웃 4개는 **raw**로 반환한다. 반면 실패는 9개 모두 `ApiResponse`다.
 
@@ -34,7 +34,7 @@
 
 ---
 
-## POST /api/member/auth/password/validate
+## POST /api/auth/password/validate
 > 최종 변경: 2026-07-27 (추정) — 도메인 분리 이전 이력이 없어 `AuthController` 마지막 커밋 기준
 
 비밀번호 정책 **사전 검사**. 프론트가 비밀번호 입력창에 문자가 들어올 때마다(타이핑마다) 실시간으로 호출하는 용도로, DB 조회 없이 순수하게 정책만 판정한다.
@@ -66,7 +66,7 @@
 
 **예시**
 ```bash
-curl -i -X POST http://localhost:8080/api/member/auth/password/validate \
+curl -i -X POST http://localhost:8080/api/auth/password/validate \
   -H 'Content-Type: application/json' \
   -d '{"password":"Passw0rd!"}'
 ```
@@ -85,7 +85,7 @@ curl -i -X POST http://localhost:8080/api/member/auth/password/validate \
 
 ---
 
-## POST /api/member/auth/nickname/validate
+## POST /api/auth/nickname/validate
 > 최종 변경: 2026-07-27 (추정) — 도메인 분리 이전 이력이 없어 `AuthController` 마지막 커밋 기준
 
 닉네임 사전 검사(정책 → 중복 **2단 파이프라인**). 회원가입 전 프론트가 닉네임 사용 가능 여부를 미리 확인하는 용도.
@@ -94,7 +94,7 @@ curl -i -X POST http://localhost:8080/api/member/auth/password/validate \
 
 **`/password/validate`와의 차이**: 비밀번호 사전 검사는 순수 정책 판정만(DB 미조회)이지만, 이 엔드포인트는 **1단계 정책 판정 후 2단계로 DB 중복 조회까지 수행**한다(`AuthController.validateNickname()` → `AuthService.validateNickname()`). 정책을 위반하면 그 시점에 즉시 반환하고 **중복(DB) 검사는 수행하지 않는다** — 우선순위는 길이 → 문자 구성 → 중복.
 
-**계약: 이 엔드포인트는 정책 위반이든 중복이든 항상 HTTP 200을 반환한다.** "위반"·"중복" 모두 검사가 정상적으로 수행된 하나의 결과일 뿐 요청 자체의 오류가 아니므로 400/409가 아니다(`NicknameValidationRequest`에는 `@Valid`/Bean Validation 애노테이션을 의도적으로 붙이지 않는다). **주의: signup(`POST /api/member/auth/signup`)의 닉네임 중복은 이와 달리 409(`DUPLICATE_NICKNAME`)를 반환한다** — 사전검사와 실제 가입은 상태 코드 계약이 다르다(의도된 설계). 프론트는 이 엔드포인트를 4xx/5xx catch 대상이 아니라 `data.valid`/`data.message`로만 판정하면 된다.
+**계약: 이 엔드포인트는 정책 위반이든 중복이든 항상 HTTP 200을 반환한다.** "위반"·"중복" 모두 검사가 정상적으로 수행된 하나의 결과일 뿐 요청 자체의 오류가 아니므로 400/409가 아니다(`NicknameValidationRequest`에는 `@Valid`/Bean Validation 애노테이션을 의도적으로 붙이지 않는다). **주의: signup(`POST /api/auth/signup`)의 닉네임 중복은 이와 달리 409(`DUPLICATE_NICKNAME`)를 반환한다** — 사전검사와 실제 가입은 상태 코드 계약이 다르다(의도된 설계). 프론트는 이 엔드포인트를 4xx/5xx catch 대상이 아니라 `data.valid`/`data.message`로만 판정하면 된다.
 
 **요청** `NicknameValidationRequest`
 
@@ -126,7 +126,7 @@ curl -i -X POST http://localhost:8080/api/member/auth/password/validate \
 
 **예시**
 ```bash
-curl -i -X POST http://localhost:8080/api/member/auth/nickname/validate \
+curl -i -X POST http://localhost:8080/api/auth/nickname/validate \
   -H 'Content-Type: application/json' \
   -d '{"nickname":"길동이"}'
 ```
@@ -149,16 +149,16 @@ curl -i -X POST http://localhost:8080/api/member/auth/nickname/validate \
 
 ---
 
-## POST /api/member/auth/nickname/duplicate
+## POST /api/auth/nickname/duplicate
 > 최종 변경: 2026-07-27 (추정) — 도메인 분리 이전 이력이 없어 `AuthController` 마지막 커밋 기준
 
 닉네임 중복 **단독** 검사(정책 미검사, DB 중복만). `AuthController.checkNicknameDuplicate()` → `AuthService.checkNicknameDuplicate()`가 담당. 프론트가 정책 검사를 이미 통과시킨 화면에서 "중복 확인" 버튼처럼 중복만 다시 확인하는 용도.
 
 **인증** 불필요
 
-**`/nickname/validate`와의 차이(핵심)**: `/nickname/validate`는 정책(길이→문자 구성) → 중복 **2단계**를 모두 수행하지만, 이 엔드포인트는 **`AuthService.checkNicknameDuplicate()`가 `isNicknameDuplicated()`(= `existsByNickname`) 딱 하나만** 호출한다 — 정책은 아예 판정하지 않는다. 그 결과 **정책 위반이지만 미점유인 닉네임(예: `"hi!"`)에도 이 엔드포인트는 `valid:true`를 반환할 수 있다.** 이때 `valid:true`("사용 가능한 닉네임입니다.")는 **"DB에 중복이 없다"는 뜻일 뿐 가입 가능을 보장하지 않는다** — 같은 닉네임으로 실제 `/signup`을 호출하면 `@ValidNickname`(정책)에 걸려 400이 날 수 있다. 정책까지 포함해 판정하려면 `POST /api/member/auth/nickname/validate`를 쓸 것.
+**`/nickname/validate`와의 차이(핵심)**: `/nickname/validate`는 정책(길이→문자 구성) → 중복 **2단계**를 모두 수행하지만, 이 엔드포인트는 **`AuthService.checkNicknameDuplicate()`가 `isNicknameDuplicated()`(= `existsByNickname`) 딱 하나만** 호출한다 — 정책은 아예 판정하지 않는다. 그 결과 **정책 위반이지만 미점유인 닉네임(예: `"hi!"`)에도 이 엔드포인트는 `valid:true`를 반환할 수 있다.** 이때 `valid:true`("사용 가능한 닉네임입니다.")는 **"DB에 중복이 없다"는 뜻일 뿐 가입 가능을 보장하지 않는다** — 같은 닉네임으로 실제 `/signup`을 호출하면 `@ValidNickname`(정책)에 걸려 400이 날 수 있다. 정책까지 포함해 판정하려면 `POST /api/auth/nickname/validate`를 쓸 것.
 
-**계약: 이 엔드포인트는 중복이어도 항상 HTTP 200을 반환한다.** "중복"도 검사가 정상 수행된 결과일 뿐 요청 자체의 오류가 아니므로 409가 아니다(`NicknameValidationRequest`에 `@Valid`/Bean Validation 애노테이션을 붙이지 않는다 — 임의 문자열 허용). **주의: signup(`POST /api/member/auth/signup`)의 닉네임 중복은 이와 달리 여전히 409(`DUPLICATE_NICKNAME`)를 반환한다** — 사전검사와 실제 가입은 상태 코드 계약이 다르다(`/nickname/validate`와 동일한 설계).
+**계약: 이 엔드포인트는 중복이어도 항상 HTTP 200을 반환한다.** "중복"도 검사가 정상 수행된 결과일 뿐 요청 자체의 오류가 아니므로 409가 아니다(`NicknameValidationRequest`에 `@Valid`/Bean Validation 애노테이션을 붙이지 않는다 — 임의 문자열 허용). **주의: signup(`POST /api/auth/signup`)의 닉네임 중복은 이와 달리 여전히 409(`DUPLICATE_NICKNAME`)를 반환한다** — 사전검사와 실제 가입은 상태 코드 계약이 다르다(`/nickname/validate`와 동일한 설계).
 
 **요청** `NicknameValidationRequest` (`/nickname/validate`와 동일한 DTO를 재사용)
 
@@ -181,7 +181,7 @@ curl -i -X POST http://localhost:8080/api/member/auth/nickname/validate \
 
 **예시**
 ```bash
-curl -i -X POST http://localhost:8080/api/member/auth/nickname/duplicate \
+curl -i -X POST http://localhost:8080/api/auth/nickname/duplicate \
   -H 'Content-Type: application/json' \
   -d '{"nickname":"길동이"}'
 ```
@@ -196,7 +196,7 @@ curl -i -X POST http://localhost:8080/api/member/auth/nickname/duplicate \
 
 ---
 
-## POST /api/member/auth/email/send-code
+## POST /api/auth/email/send-code
 > 최종 변경: 2026-07-27 (추정) — 도메인 분리 이전 이력이 없어 `AuthController` 마지막 커밋 기준
 
 회원가입용 이메일 소유 확인 절차의 1단계. 입력한 이메일로 6자리 인증번호를 발송한다.
@@ -232,7 +232,7 @@ curl -i -X POST http://localhost:8080/api/member/auth/nickname/duplicate \
 
 **예시**
 ```bash
-curl -i -X POST http://localhost:8080/api/member/auth/email/send-code \
+curl -i -X POST http://localhost:8080/api/auth/email/send-code \
   -H 'Content-Type: application/json' \
   -d '{"email":"user@example.com"}'
 ```
@@ -244,7 +244,7 @@ curl -i -X POST http://localhost:8080/api/member/auth/email/send-code \
 
 ---
 
-## POST /api/member/auth/email/verify
+## POST /api/auth/email/verify
 > 최종 변경: 2026-07-27 (추정) — 도메인 분리 이전 이력이 없어 `AuthController` 마지막 커밋 기준
 
 회원가입용 이메일 소유 확인 절차의 2단계. 발송받은 6자리 인증번호를 이메일과 함께 제출해 대조한다.
@@ -267,7 +267,7 @@ curl -i -X POST http://localhost:8080/api/member/auth/email/send-code \
 1. 저장된 코드가 없으면(발송한 적이 없거나, TTL 5분이 지나 만료됐거나, 이미 검증에 성공/무효화되어 소비된 경우) 즉시 `EXPIRED_VERIFICATION_CODE`(400)를 던진다.
 2. 코드는 있지만 그 이메일의 누적 시도 횟수가 이미 5회 이상이면(직전 요청까지 한도에 도달한 상태) 코드를 무효화하고 `VERIFICATION_ATTEMPTS_EXCEEDED`(400)를 던진다 — 정답을 보내도 차단된다.
 3. 코드가 요청한 `code`와 다르면 시도 횟수를 1 증가시킨다. 증가 후 값이 5 이상이면 코드를 무효화하고 `VERIFICATION_ATTEMPTS_EXCEEDED`(400)를, 아니면 `INVALID_VERIFICATION_CODE`(400)를 던진다.
-4. 코드가 일치하면 코드(및 시도 카운터)를 무효화하고, 그 이메일을 **인증완료 상태**로 TTL 30분 저장한다. 이 인증완료 상태가 `POST /api/member/auth/signup`의 선행 조건이다(아래 signup 절 참고).
+4. 코드가 일치하면 코드(및 시도 카운터)를 무효화하고, 그 이메일을 **인증완료 상태**로 TTL 30분 저장한다. 이 인증완료 상태가 `POST /api/auth/signup`의 선행 조건이다(아래 signup 절 참고).
 
 시도 횟수 한도에 걸리면(`VERIFICATION_ATTEMPTS_EXCEEDED`) 코드가 무효화되므로, 같은 코드로 다시 시도해도 소용없고 **`send-code`를 다시 호출해 새 코드를 받아야** 한다(단, 60초 쿨다운은 별도로 적용).
 
@@ -282,7 +282,7 @@ curl -i -X POST http://localhost:8080/api/member/auth/email/send-code \
 
 **예시**
 ```bash
-curl -i -X POST http://localhost:8080/api/member/auth/email/verify \
+curl -i -X POST http://localhost:8080/api/auth/email/verify \
   -H 'Content-Type: application/json' \
   -d '{"email":"user@example.com","code":"123456"}'
 ```
@@ -294,12 +294,12 @@ curl -i -X POST http://localhost:8080/api/member/auth/email/verify \
 
 ---
 
-## POST /api/member/auth/signup
+## POST /api/auth/signup
 > 최종 변경: 2026-08-04 — 부수 효과 추가: 같은 트랜잭션에서 `users_bq` 행(누적 점수 0)을 함께 생성. **요청·응답 계약·상태 코드·검사 순서는 변경 없음**
 
-회원가입. `User`(개인정보)와 `UserAccount`(로그인 계정)를 함께 생성한다. **같은 트랜잭션에서 `users_bq` 행(`bq_score=0`)도 함께 생성한다**(`AuthService.signup()`, `UserBqRepository.save()`) — 이 행은 [계정(account)](account.md#get-apimemberusersme)의 `GET /api/member/users/me`가 `bqScore`로 노출하는 누적 획득 점수의 출처다. 트랜잭션이 어느 단계에서든 실패하면(형식 위반·`EMAIL_NOT_VERIFIED`·중복 409 등) `users_bq` 행도 남지 않는다. 이 부수 효과는 **응답 바디·상태 코드·요청 필드·검사 순서에 아무 영향을 주지 않는다** — 여전히 `Boolean` 201, 아래 요청/실패 표 그대로다.
+회원가입. `User`(개인정보)와 `UserAccount`(로그인 계정)를 함께 생성한다. **같은 트랜잭션에서 `users_bq` 행(`bq_score=0`)도 함께 생성한다**(`AuthService.signup()`, `UserBqRepository.save()`) — 이 행은 [계정(account)](account.md#get-apiusersme)의 `GET /api/users/me`가 `bqScore`로 노출하는 누적 획득 점수의 출처다. 트랜잭션이 어느 단계에서든 실패하면(형식 위반·`EMAIL_NOT_VERIFIED`·중복 409 등) `users_bq` 행도 남지 않는다. 이 부수 효과는 **응답 바디·상태 코드·요청 필드·검사 순서에 아무 영향을 주지 않는다** — 여전히 `Boolean` 201, 아래 요청/실패 표 그대로다.
 
-**선행 조건: 이메일 인증 완료.** `request.email`이 `POST /api/member/auth/email/verify`로 검증 성공한 뒤 TTL 30분 이내(인증완료 상태가 살아 있는 동안)여야 가입할 수 있다. `email/send-code`를 호출한 적이 없거나, `verify`에 성공하지 못했거나, 성공했더라도 30분이 지나 인증완료 상태가 만료됐으면 `EMAIL_NOT_VERIFIED`(400)로 거부된다 — 미인증과 만료가 코드상 동일하게 취급된다(`store.isVerified()`가 키 부재를 구분하지 않음).
+**선행 조건: 이메일 인증 완료.** `request.email`이 `POST /api/auth/email/verify`로 검증 성공한 뒤 TTL 30분 이내(인증완료 상태가 살아 있는 동안)여야 가입할 수 있다. `email/send-code`를 호출한 적이 없거나, `verify`에 성공하지 못했거나, 성공했더라도 30분이 지나 인증완료 상태가 만료됐으면 `EMAIL_NOT_VERIFIED`(400)로 거부된다 — 미인증과 만료가 코드상 동일하게 취급된다(`store.isVerified()`가 키 부재를 구분하지 않음).
 
 **인증** 불필요
 
@@ -320,7 +320,7 @@ true
 ```
 참고: `AuthService.signup()`은 생성된 `userAccountId`(Long)를 반환하지만 컨트롤러는 이를 쓰지 않고 항상 `true`만 응답한다. `SignupResponse` DTO(`userAccountId` 필드)는 `AuthController`에 import만 되어 있고 실제로 응답에 쓰이지 않는다(미사용 DTO).
 
-**닉네임 정책** (`com.skhynix.user.auth.policy.NicknamePolicy` — 단일 출처, 위 `POST /api/member/auth/nickname/validate` 절의 정책 단계와 완전히 동일한 규칙·메시지를 공유. **변경 이력: 과거 `@Size(max=100)`만으로 느슨했던 제약이 아래 정책으로 강화됨**)
+**닉네임 정책** (`com.skhynix.user.auth.policy.NicknamePolicy` — 단일 출처, 위 `POST /api/auth/nickname/validate` 절의 정책 단계와 완전히 동일한 규칙·메시지를 공유. **변경 이력: 과거 `@Size(max=100)`만으로 느슨했던 제약이 아래 정책으로 강화됨**)
 
 | 규칙 | 내용 | 위반 메시지 |
 |---|---|---|
@@ -330,9 +330,9 @@ true
 - 두 규칙을 동시에 위반해도 위반 메시지는 **항상 1개만** 응답한다. **길이 위반이 문자 구성 위반보다 우선**한다.
 - `nickname`이 `null`이거나 `""`인 경우도 `NicknamePolicy.findViolation()`이 예외 없이 처리하며, **길이 위반 메시지**로 응답한다(`@NotBlank`를 걸지 않으므로 "공백일 수 없습니다" 류의 메시지는 나오지 않는다).
 - `SignupRequest.nickname`에는 `@ValidNickname` 단일 애노테이션만 붙어 있다. `@NotBlank`·`@Size`·`@Pattern`을 겹쳐 걸면 동시 위반 시 `GlobalExceptionHandler`가 `Map`에 `put`하는 순서가 비결정적이라 응답 메시지가 호출마다 달라지는 문제(`password`가 이미 겪은 문제)가 있어 의도적으로 배제했다.
-- **이 정책은 signup(Bean Validation, 400)과 `POST /api/member/auth/nickname/validate`(2단 파이프라인 1단계, 200)가 `NicknamePolicy.findViolation()`을 문자 그대로 공유**하므로, 사전 검사가 특정 닉네임에 대해 정책 위반 메시지를 반환하면 같은 닉네임으로 signup을 호출했을 때도 반드시 400 + 동일 메시지가 난다. **단, 중복은 상태 코드가 다르다**(사전 검사 200 vs signup 409) — 아래 "실패" 표와 `POST /api/member/auth/nickname/validate` 절 참고.
+- **이 정책은 signup(Bean Validation, 400)과 `POST /api/auth/nickname/validate`(2단 파이프라인 1단계, 200)가 `NicknamePolicy.findViolation()`을 문자 그대로 공유**하므로, 사전 검사가 특정 닉네임에 대해 정책 위반 메시지를 반환하면 같은 닉네임으로 signup을 호출했을 때도 반드시 400 + 동일 메시지가 난다. **단, 중복은 상태 코드가 다르다**(사전 검사 200 vs signup 409) — 아래 "실패" 표와 `POST /api/auth/nickname/validate` 절 참고.
 
-**비밀번호 정책** (`com.skhynix.user.auth.policy.PasswordPolicy` — 단일 출처, 위 `POST /api/member/auth/password/validate` 절과 완전히 동일한 규칙·메시지를 공유)
+**비밀번호 정책** (`com.skhynix.user.auth.policy.PasswordPolicy` — 단일 출처, 위 `POST /api/auth/password/validate` 절과 완전히 동일한 규칙·메시지를 공유)
 
 | 규칙 | 내용 | 위반 메시지 |
 |---|---|---|
@@ -361,7 +361,7 @@ true
 
 **예시**
 ```bash
-curl -i -X POST http://localhost:8080/api/member/auth/signup \
+curl -i -X POST http://localhost:8080/api/auth/signup \
   -H 'Content-Type: application/json' \
   -d '{
     "name": "홍길동",
@@ -395,7 +395,7 @@ curl -i -X POST http://localhost:8080/api/member/auth/signup \
 
 ---
 
-## POST /api/member/auth/login
+## POST /api/auth/login
 > 최종 변경: 2026-07-27 (추정) — 도메인 분리 이전 이력이 없어 `AuthController` 마지막 커밋 기준
 
 이메일/비밀번호로 로그인하고 access/refresh 토큰 쌍을 발급받는다.
@@ -431,14 +431,14 @@ curl -i -X POST http://localhost:8080/api/member/auth/signup \
 
 **예시**
 ```bash
-curl -i -X POST http://localhost:8080/api/member/auth/login \
+curl -i -X POST http://localhost:8080/api/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"email":"user@example.com","password":"password123"}'
 ```
 
 ---
 
-## POST /api/member/auth/refresh
+## POST /api/auth/refresh
 > 최종 변경: 2026-07-27 (추정) — 도메인 분리 이전 이력이 없어 `AuthController` 마지막 커밋 기준
 
 refresh 토큰으로 access/refresh 토큰 쌍을 재발급한다(refresh 토큰도 함께 갱신됨 — rotate).
@@ -465,14 +465,14 @@ refresh 토큰으로 access/refresh 토큰 쌍을 재발급한다(refresh 토큰
 
 **예시**
 ```bash
-curl -i -X POST http://localhost:8080/api/member/auth/refresh \
+curl -i -X POST http://localhost:8080/api/auth/refresh \
   -H 'Content-Type: application/json' \
   -d '{"refreshToken":"eyJ..."}'
 ```
 
 ---
 
-## POST /api/member/auth/logout
+## POST /api/auth/logout
 > 최종 변경: 2026-07-27 (추정) — 도메인 분리 이전 이력이 없어 `AuthController` 마지막 커밋 기준
 
 전달받은 refresh 토큰을 DB에서 삭제해 무효화한다.
@@ -497,7 +497,7 @@ curl -i -X POST http://localhost:8080/api/member/auth/refresh \
 
 **예시**
 ```bash
-curl -i -X POST http://localhost:8080/api/member/auth/logout \
+curl -i -X POST http://localhost:8080/api/auth/logout \
   -H 'Content-Type: application/json' \
   -d '{"refreshToken":"eyJ..."}'
 ```
@@ -513,5 +513,5 @@ curl -i -X POST http://localhost:8080/api/member/auth/logout \
 
 ## 관련 문서
 
-- [계정(account)](account.md) — 회원탈퇴, 그리고 `GET /api/member/users/me`(내 프로필 요약 조회 — signup이 만든 `users_bq` 행의 `bq_score`를 `bqScore`로 노출). 탈퇴가 이 도메인의 login/refresh/signup 응답에 미치는 영향도 정리돼 있다.
+- [계정(account)](account.md) — 회원탈퇴, 그리고 `GET /api/users/me`(내 프로필 요약 조회 — signup이 만든 `users_bq` 행의 `bq_score`를 `bqScore`로 노출). 탈퇴가 이 도메인의 login/refresh/signup 응답에 미치는 영향도 정리돼 있다.
 - 요구사항: `docs/requirements/user/email-verification.md`, `docs/requirements/user/nickname-policy.md`, `docs/requirements/user/withdraw.md`, `docs/requirements/user/me-profile.md`(USER-ME-23~25·30 — signup의 `users_bq` 생성 계약)
