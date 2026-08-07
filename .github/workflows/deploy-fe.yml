@@ -30,6 +30,7 @@ on:
 permissions:
   id-token: write # OIDC 토큰 발급 (AWS AssumeRole)
   contents: read
+  issues: write # 자동 롤백 시 원인 추적 티켓 발행
 
 env:
   AWS_REGION: ap-northeast-2
@@ -123,6 +124,22 @@ jobs:
         id: rel
         run: echo "version=$(date -u +%Y%m%dT%H%M%SZ)-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
+      # 자동 롤백 대상을 '올리기 전에' 확정한다. 업로드 후에 계산하면 새 릴리스가 목록에 끼어들어
+      # '끝에서 두 번째' 를 골라야 하는데, 그 시점에 이미 실패했다면 목록 상태를 신뢰하기 어렵다.
+      # 지금 시점의 최신 = 이전 버전이다(이름이 UTC 고정폭 타임스탬프라 정렬 = 시간순).
+      - name: Capture rollback target
+        id: prev
+        run: |
+          PREV=$(aws s3api list-objects-v2 --bucket "$S3_BUCKET" --prefix releases/ --delimiter / \
+                   --query 'CommonPrefixes[].Prefix' --output text \
+                 | tr '\t' '\n' | sed 's#^releases/##; s#/$##' | grep -v '^$' | sort | tail -1)
+          echo "version=$PREV" >> "$GITHUB_OUTPUT"
+          if [ -z "$PREV" ]; then
+            echo "::warning::이전 릴리스가 없습니다(최초 배포) — 스모크 실패 시 자동 롤백할 대상이 없어 수동 대응이 필요합니다"
+          else
+            echo "자동 롤백 대상: $PREV"
+          fi
+
       # ⚠ 업로드 순서가 중요하다. index.html 에 자산의 해시 파일명이 적혀 있으므로 자산을 먼저
       #   올려 존재하게 만든 뒤 진입점을 넣는다.
       # ⚠ --delete 를 쓰지 않는다(CI 에 DeleteObject 권한 자체가 없다 — modules/security 참고).
@@ -145,23 +162,167 @@ jobs:
       #   (CI 에 DeleteObject 권한 자체가 없다 — modules/security 참고)
       # ⚠ 순서: 자산 먼저, index.html 마지막. 뒤집으면 그 사이 접속자가 없는 청크를 받는다.
       - name: Publish to root (전환)
+        id: publish
         working-directory: ${{ steps.fe.outputs.dir }}
         run: |
           aws s3 sync ./dist "s3://$S3_BUCKET" --exclude "index.html" --no-progress
           aws s3 cp ./dist/index.html "s3://$S3_BUCKET/index.html" --no-progress
 
+      # 실서비스 도메인으로 실제 동작을 단정한다. 여기서 실패하면 다음 단계가 자동으로 되돌린다.
+      #
+      # ⚠ 에러율 알람으로는 이 실패를 못 잡는다 — 번들이 깨져도 S3·CloudFront 는 200 을 준다.
+      #   그래서 '응답이 왔는지' 가 아니라 '올바른 것이 왔는지' 를 확인한다.
+      #
+      # 배포된 자산 해시가 실제로 서비스되는지 대조하는 것이 핵심이다. 이걸 빼면 엣지에 옛 응답이
+      # 남아 있어도 통과해버려 검증이 무의미해진다.
+      # /api·/rt 확인은 FE 범위를 넘는 것처럼 보이지만, base path 를 잘못 구우면 화면은 뜨고 API 만
+      # 죽는 형태로 깨진다 — 2026-08-07 에 실제로 그랬다. 그 유형을 잡으려면 여기서 봐야 한다.
+      - name: Smoke test (실서비스 경유)
+        id: smoke
+        working-directory: ${{ steps.fe.outputs.dir }}
+        env:
+          SITE: https://victoryfairy.com
+        run: |
+          set -u
+          EXPECTED=$(grep -o 'assets/index-[A-Za-z0-9]*\.js' ./dist/index.html | head -1)
+          [ -n "$EXPECTED" ] || { echo "::error::빌드 산출물에서 진입 번들 이름을 찾지 못했습니다"; exit 1; }
+          echo "기대 번들: $EXPECTED"
+
+          # 실패 사유를 파일로 남긴다 — 뒤의 티켓 단계가 읽어 본문에 넣는다.
+          # ($GITHUB_ENV 는 실패한 스텝에서 반영 시점이 애매해 파일을 쓴다)
+          fail() {
+            printf '%s\n' "$1" > "$RUNNER_TEMP/smoke-failure.txt"
+            echo "::error::스모크 실패 — $1"
+            exit 1
+          }
+
+          code() { curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$1"; }
+
+          # index.html 은 엣지 TTL 0 이라 즉시 반영되지만, 전파 흔들림에 몇 초 여유를 준다.
+          for i in 1 2 3 4 5; do
+            SERVED=$(curl -s --max-time 20 "$SITE/" | grep -o 'assets/index-[A-Za-z0-9]*\.js' | head -1 || true)
+            [ "$SERVED" = "$EXPECTED" ] && break
+            echo "  ($i/5) 아직 옛 번들: ${SERVED:-없음}"
+            sleep 5
+          done
+          [ "$SERVED" = "$EXPECTED" ] || fail "새 번들이 서비스되지 않습니다 (서비스 중: ${SERVED:-없음})"
+
+          [ "$(code "$SITE/")" = 200 ]                                  || fail "/ 가 200 이 아닙니다"
+          [ "$(code "$SITE/$EXPECTED")" = 200 ]                         || fail "진입 번들 $EXPECTED 를 받을 수 없습니다"
+          [ "$(code "$SITE/login")" = 200 ]                             || fail "딥링크 /login 이 200 이 아닙니다 (SPA fallback)"
+          [ "$(code "$SITE/api/actuator/health/readiness")" = 200 ]     || fail "/api 라우팅이 깨졌습니다"
+          [ "$(code "$SITE/rt/actuator/health/readiness")" = 200 ]      || fail "/rt 라우팅이 깨졌습니다"
+
+          echo "스모크 통과"
+
+      # deploy-eks.yml 의 'Rollback on failure'(rollout undo)와 같은 규약.
+      # 발행에 성공한 뒤 실패했을 때만 되돌린다 — 빌드 단계에서 죽었으면 루트를 건드리지 않았으므로
+      # 되돌릴 것이 없다(조건에서 steps.publish 성공을 확인하는 이유).
+      # 자산은 누적돼 있으므로 index.html 하나만 되돌리면 옛 번들이 참조하는 청크가 그대로 살아 있다.
+      - name: Auto-rollback on failure
+        id: rollback
+        if: failure() && steps.publish.outcome == 'success'
+        run: |
+          PREV="${{ steps.prev.outputs.version }}"
+          if [ -z "$PREV" ]; then
+            echo "::error::되돌릴 이전 릴리스가 없습니다 — 수동 대응이 필요합니다(docs/fe-release-rollback.md)"
+            exit 1
+          fi
+          echo "::warning::스모크 실패 — $PREV 로 자동 롤백합니다"
+          aws s3 cp "s3://$S3_BUCKET/releases/$PREV/index.html" "s3://$S3_BUCKET/index.html" --no-progress
+          SERVED=$(curl -s --max-time 20 https://victoryfairy.com/ | grep -o 'assets/index-[A-Za-z0-9]*\.js' | head -1 || true)
+          echo "롤백 후 서비스 중인 번들: ${SERVED:-확인 실패}"
+
+      # 롤백은 배포본만 되돌리고 git 은 그대로다. main 과 서비스 중인 버전이 어긋난 상태이며,
+      # 고치지 않은 채 다른 변경을 배포하면 롤백이 조용히 취소된다. 그래서 추적 티켓을 강제로 남긴다.
+      #
+      # 발행 이후의 실패에만 티켓을 만든다 — 빌드·검증 단계에서 죽은 것은 루트를 건드리지 않았으므로
+      # 장애가 아니고, 실패한 워크플로 실행 자체로 충분히 드러난다.
+      # 롤백 단계가 실패했을 때도 이 단계는 실행된다(그때가 오히려 더 급하다).
+      - name: Open incident ticket
+        if: failure() && steps.publish.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEW_VERSION: ${{ steps.rel.outputs.version }}
+          PREV_VERSION: ${{ steps.prev.outputs.version }}
+          ROLLBACK_OUTCOME: ${{ steps.rollback.outcome }}
+        run: |
+          REASON=$(cat "$RUNNER_TEMP/smoke-failure.txt" 2>/dev/null || echo "스모크 단계 이전/이외의 실패 — 워크플로 로그 확인 필요")
+          RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+
+          if [ "$ROLLBACK_OUTCOME" = "success" ]; then
+            STATE="✅ \`$PREV_VERSION\` 으로 자동 롤백됨 — 서비스는 복구된 상태입니다."
+          else
+            STATE="🔴 **자동 롤백 실패.** 서비스가 깨진 버전을 계속 내보내고 있을 수 있습니다 — 즉시 수동 대응이 필요합니다."
+          fi
+
+          BODY="$RUNNER_TEMP/issue.md"
+          {
+            echo "$STATE"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| 실패 사유 | $REASON |"
+            echo "| 배포하려던 버전 | \`$NEW_VERSION\` |"
+            echo "| 되돌린 버전 | \`${PREV_VERSION:-없음}\` |"
+            echo "| 커밋 | $GITHUB_SHA |"
+            echo "| 워크플로 실행 | $RUN_URL |"
+            echo ""
+            echo "## ⚠ 지금 상태"
+            echo ""
+            echo "롤백은 **배포본만** 되돌립니다. \`main\` 은 그대로이므로 코드와 서비스 중인 버전이 어긋나 있습니다."
+            echo "**원인을 고치지 않은 채 다른 변경을 배포하면 롤백이 조용히 취소됩니다.**"
+            echo ""
+            echo "## 할 일"
+            echo ""
+            echo "- [ ] 실패 사유 재현 및 원인 파악"
+            echo "- [ ] 수정 후 배포 (성공하면 이 티켓을 닫는다)"
+            echo "- [ ] 스모크 테스트가 이 유형을 잡았는지 확인 — 못 잡았다면 검사 항목 추가"
+            echo ""
+            echo "절차: \`VictoryFairy_Infra/docs/fe-release-rollback.md\`"
+          } > "$BODY"
+
+          TITLE="[FE 롤백] $NEW_VERSION 배포 실패 — $REASON"
+          # 라벨이 없으면 issue create 가 실패하므로 먼저 보장한다(있으면 갱신).
+          gh label create fe-rollback --color B60205 --description "FE 자동 롤백 발생" --force >/dev/null 2>&1 || true
+          gh issue create --title "$TITLE" --body-file "$BODY" --label fe-rollback \
+            || gh issue create --title "$TITLE" --body-file "$BODY"
+
+      # always() — 실패했을 때도 무엇이 어떻게 됐는지 요약에 남긴다.
       - name: Summary
+        if: always()
         env:
           VERSION: ${{ steps.rel.outputs.version }}
+          PREV_VERSION: ${{ steps.prev.outputs.version }}
+          PUBLISH_OUTCOME: ${{ steps.publish.outcome }}
+          SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
+          ROLLBACK_OUTCOME: ${{ steps.rollback.outcome }}
         run: |
           {
-            echo "### FE 배포 완료"
+            if [ "$SMOKE_OUTCOME" = "success" ]; then
+              echo "### FE 배포 완료"
+              echo ""
+              echo "- 릴리스: \`$VERSION\` (스모크 통과)"
+            elif [ "$ROLLBACK_OUTCOME" = "success" ]; then
+              echo "### FE 배포 실패 — 자동 롤백됨"
+              echo ""
+              echo "- 배포하려던 버전: \`$VERSION\`"
+              echo "- 되돌린 버전: \`$PREV_VERSION\` — **서비스는 복구된 상태입니다**"
+              echo "- 원인 추적 티켓이 자동 발행됐습니다(\`fe-rollback\` 라벨)."
+            elif [ "$PUBLISH_OUTCOME" = "success" ]; then
+              echo "### 🔴 FE 배포 실패 — 자동 롤백도 실패"
+              echo ""
+              echo "- 배포하려던 버전: \`$VERSION\`"
+              echo "- **즉시 수동 대응이 필요합니다.** 아래 명령으로 되돌리십시오:"
+              echo '  ```bash'
+              echo "  aws s3 cp s3://$S3_BUCKET/releases/<이전버전>/index.html s3://$S3_BUCKET/index.html"
+              echo '  ```'
+            else
+              echo "### FE 배포 중단 (발행 전)"
+              echo ""
+              echo "- 루트를 건드리지 않았으므로 **서비스에 영향이 없습니다.**"
+            fi
             echo ""
-            echo "- 릴리스: \`$VERSION\`"
-            echo "- 롤백 (한 줄, 수 초):"
-            echo '  ```bash'
-            echo "  aws s3 cp s3://$S3_BUCKET/releases/<이전버전>/index.html s3://$S3_BUCKET/index.html"
-            echo '  ```'
-            echo "- 이전 버전 목록: \`aws s3 ls s3://$S3_BUCKET/releases/\` (정렬 = 시간순)"
-            echo "- 절차는 \`VictoryFairy_Infra/docs/fe-release-rollback.md\`."
+            echo "이전 버전 목록: \`aws s3 ls s3://$S3_BUCKET/releases/\` (정렬 = 시간순)"
+            echo "절차: \`VictoryFairy_Infra/docs/fe-release-rollback.md\`"
           } >> "$GITHUB_STEP_SUMMARY"
