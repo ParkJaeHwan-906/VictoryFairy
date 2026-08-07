@@ -27,8 +27,8 @@ resource "aws_s3_bucket" "fe" {
   })
 }
 
-# 옛 번들로 되돌릴 최후의 수단. 배포 롤백의 1순위는 이전 커밋 재배포(빌드가 수십 초)지만,
-# S3 는 kubectl rollout undo 같은 한 방이 없어 버저닝이 유일한 안전망이다.
+# 롤백의 1순위는 KVS 의 current 를 옛 릴리스로 바꾸는 것이다(§3). 버저닝은 그보다 아래,
+# 오브젝트를 실수로 덮어썼을 때의 최후 수단으로 남긴다.
 resource "aws_s3_bucket_versioning" "fe" {
   bucket = aws_s3_bucket.fe.id
 
@@ -57,11 +57,11 @@ resource "aws_s3_bucket_public_access_block" "fe" {
   restrict_public_buckets = true
 }
 
-# ⚠ 현재 오브젝트(assets/*)에는 만료 규칙을 걸지 않는다. 배포 워크플로가 --delete 없이 sync 하므로
-#   옛 자산 파일이 그대로 남는데, 이는 의도된 것이다(캐시된 옛 index.html 이 참조하는 청크가
-#   사라지면 화면이 깨진다). 수명주기로 지우면 '오래됐지만 아직 참조되는' 자산까지 삭제된다 —
-#   sync 는 변경 없는 파일의 타임스탬프를 갱신하지 않으므로 나이로는 참조 여부를 알 수 없다.
-#   누적량은 빌드당 수백 KB 수준이라 필요할 때 수동 정리한다.
+# ⚠ releases/ 에 만료 규칙을 걸지 않는다. 규칙으로는 "KVS 의 current 가 가리키는 것만 제외" 를
+#   표현할 수 없어서, 배포가 한동안 없으면 '지금 서비스 중인 릴리스' 가 삭제된다 —
+#   그 순간 함수가 없는 접두사를 가리켜 사이트가 통째로 403 이 된다.
+#   누적량은 배포당 수백 KB 수준이라 필요할 때 수동 정리하는 편이 안전하다.
+#   (루트 사본도 같은 이유로 건드리지 않는다. 그쪽은 KVS 장애 시의 폴백이다.)
 resource "aws_s3_bucket_lifecycle_configuration" "fe" {
   bucket = aws_s3_bucket.fe.id
 
@@ -123,6 +123,11 @@ resource "aws_s3_bucket_policy" "fe" {
 
 # ---------------------------------------------------------------------------
 # 3) SPA fallback 함수 — 코드와 근거는 functions/spa-fallback.js
+#
+# 릴리스 롤백은 이 함수가 담당하지 않는다. 배포가 releases/<타임스탬프>-<SHA>/ 에 사본을 남기고,
+# 되돌릴 때 그 안의 index.html 을 루트로 복사한다(docs/fe-release-rollback.md).
+# ⚠ KVS 로 버전 접두사를 붙이는 방식을 구현했다가 되돌렸다 — 조직 SCP 가
+#   cloudfront-keyvaluestore 네임스페이스를 명시적으로 거부해 키를 쓸 수 없다. 다시 시도하지 말 것.
 # ---------------------------------------------------------------------------
 resource "aws_cloudfront_function" "spa_fallback" {
   name    = "${var.name_prefix}-spa-fallback"

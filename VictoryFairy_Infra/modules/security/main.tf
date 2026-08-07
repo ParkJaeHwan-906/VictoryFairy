@@ -123,8 +123,8 @@ data "aws_iam_policy_document" "github_actions" {
     }
   }
 
-  # index.html 의 엣지 TTL 이 짧아 무효화 없이도 대체로 갱신되지만, 배포 직후 확정적으로
-  # 반영시키려면 필요하다. Get* 은 `aws cloudfront wait invalidation-completed` 용.
+  # index.html 은 엣지 TTL 0 이라 배포·롤백에 무효화가 필요하지 않다(오브젝트를 바꾸면 바로 반영된다).
+  # 그래도 남겨두는 것은 비상용이다 — 엣지에 잘못된 응답이 붙었을 때 강제로 떼어내야 할 수 있다.
   dynamic "statement" {
     for_each = var.fe_distribution_arn != "" ? [1] : []
 

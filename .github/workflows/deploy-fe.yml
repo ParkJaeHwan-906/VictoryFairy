@@ -2,17 +2,22 @@ name: Deploy FE to S3 + CloudFront
 
 # FE(정적 SPA) 배포 파이프라인.
 #
-#   push(main) → Vite 빌드 → 번들 검증 → S3 sync → CloudFront 무효화
+#   push(main) → Vite 빌드 → 번들 검증
+#              → 릴리스 아카이브 업로드(releases/<타임스탬프>-<SHA>/)  ← 되돌릴 대상 보존
+#              → 루트에 발행                                          ← 여기가 실제 전환
 #
 # 종전에는 Docker 이미지를 구워 ECR 에 올리고 EKS 의 nginx 파드를 롤아웃했다. 정적 파일을
 # 서비스하는 데 컨테이너 런타임과 파드가 필요하지 않아 S3+CloudFront 로 옮겼다
 # (설계·전환 절차: VictoryFairy_Infra/docs/fe-cdn-migration.md).
 #
-# 인증은 deploy-eks.yml 과 동일한 OIDC 역할(victoryfairy-dev-github-actions). S3 쓰기와
-# CloudFront 무효화 권한은 terraform modules/security 가 부여한다(fe_bucket_arn·fe_distribution_arn).
+# 인증은 deploy-eks.yml 과 동일한 OIDC 역할(victoryfairy-dev-github-actions). S3 쓰기·무효화
+# 권한은 terraform modules/security 가 부여한다.
 #
-# ⚠ 롤백에 kubectl rollout undo 같은 한 방이 없다. 즉시 되돌려야 하면 이전 커밋으로
-#   workflow_dispatch 를 돌린다(빌드가 수십 초라 실용적이다). 버킷 버저닝이 최후의 수단.
+# 롤백은 아카이브의 index.html 을 루트로 복사하는 것이다 — 한 줄, 수 초, 재빌드도 CI 도 git 도
+# 필요 없다. 절차는 VictoryFairy_Infra/docs/fe-release-rollback.md.
+#
+# ⚠ 무효화 단계가 없는 것은 누락이 아니다. index.html 은 엣지 TTL 0 이라 오브젝트를 바꾸면 바로
+#   반영되고, 해시 자산은 이름이 바뀌므로 옛 캐시와 충돌하지 않는다.
 
 on:
   push:
@@ -34,8 +39,8 @@ env:
   S3_BUCKET: victoryfairy-dev-fe
 
   # = terraform output fe_cloudfront_distribution_id
-  # 비우면 무효화 단계를 건너뛰고 경고만 남긴다 — index.html 의 엣지 TTL 이 0 이라 치명적이지는
-  # 않지만, 배포가 즉시 반영되지 않는 구간이 생긴다.
+  # 평소 배포에는 쓰지 않는다(index.html 이 엣지 TTL 0 이라 오브젝트를 바꾸면 바로 반영된다).
+  # 엣지에 잘못된 응답이 붙었을 때 수동으로 떼어내기 위해 남겨 둔 값이다.
   CLOUDFRONT_DISTRIBUTION_ID: E1ZZQDZFGJGL2K
 
   # ⚠ 절대 URL 이 아니라 상대 경로다. CloudFront 가 단일 진입점이 되어 /api/*·/rt/* 를 ALB 로,
@@ -108,34 +113,55 @@ jobs:
           role-to-assume: ${{ env.ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # ⚠ --delete 를 쓰지 않는다. 캐시된 옛 index.html 을 들고 있는 브라우저가 사라진 청크를
-      #   요청해 화면이 깨진다. 옛 자산은 남겨두고 필요할 때 사람이 정리한다(CI 에 DeleteObject
-      #   권한 자체가 없다 — modules/security 참고).
-      # ⚠ 순서가 중요하다. index.html 에 새 자산의 해시 파일명이 적혀 있으므로, 자산을 먼저 올려
-      #   존재하게 만든 뒤 마지막에 진입점을 바꾼다. 뒤집으면 그 사이 접속자가 없는 청크를 받는다.
+      # 릴리스 버전: <타임스탬프>-<커밋SHA>. AWS 가 권하는 '디렉터리 이름에 버전' 방식이다
+      # (UpdatingExistingObjects). 두 조각을 붙이는 이유:
+      #   타임스탬프(UTC 고정폭) → 사전순 정렬이 곧 시간순이라 `aws s3 ls` 의 끝에서 두 번째가
+      #                            바로 '이전 버전' 이 된다. 롤백 대상을 찾는 비용이 0 이다.
+      #   커밋 SHA              → 디렉터리 이름만 보고 어떤 코드인지 알 수 있고, 같은 커밋을
+      #                            재배포해도 디렉터리가 겹치지 않는다.
+      - name: Compute release version
+        id: rel
+        run: echo "version=$(date -u +%Y%m%dT%H%M%SZ)-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      # ⚠ 업로드 순서가 중요하다. index.html 에 자산의 해시 파일명이 적혀 있으므로 자산을 먼저
+      #   올려 존재하게 만든 뒤 진입점을 넣는다.
+      # ⚠ --delete 를 쓰지 않는다(CI 에 DeleteObject 권한 자체가 없다 — modules/security 참고).
+      #   옛 릴리스 디렉터리는 롤백 대상이므로 남아 있어야 한다.
       # Cache-Control 은 오브젝트 메타데이터로 박지 않는다 — CloudFront Response Headers Policy 가
       # override 로 덮어쓰므로(modules/cdn), 캐시 정책은 인프라 코드 한 곳에서만 관리된다.
-      - name: Upload assets (index.html 제외)
+      - name: Upload release
         working-directory: ${{ steps.fe.outputs.dir }}
-        run: aws s3 sync ./dist "s3://$S3_BUCKET" --exclude "index.html" --no-progress
-
-      - name: Upload index.html (진입점 — 반드시 마지막)
-        working-directory: ${{ steps.fe.outputs.dir }}
-        run: aws s3 cp ./dist/index.html "s3://$S3_BUCKET/index.html" --no-progress
-
-      - name: Invalidate CloudFront
+        env:
+          PREFIX: releases/${{ steps.rel.outputs.version }}
         run: |
-          if [ -z "$CLOUDFRONT_DISTRIBUTION_ID" ]; then
-            echo "::warning::CLOUDFRONT_DISTRIBUTION_ID 가 비어 무효화를 건너뜁니다 — 새 번들 반영이 지연될 수 있습니다(워크플로 env 의 TODO 참고)"
-            exit 0
-          fi
-          ID=$(aws cloudfront create-invalidation \
-                 --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID" \
-                 --paths "/" "/index.html" \
-                 --query "Invalidation.Id" --output text)
-          echo "무효화 $ID 대기"
-          aws cloudfront wait invalidation-completed \
-            --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID" --id "$ID"
+          aws s3 sync ./dist "s3://$S3_BUCKET/$PREFIX" --exclude "index.html" --no-progress
+          aws s3 cp ./dist/index.html "s3://$S3_BUCKET/$PREFIX/index.html" --no-progress
 
-      # 해시 자산은 immutable 로 영구 캐시되므로 무효화 대상이 아니다 — 새 배포는 새 파일명을 쓴다.
-      # 무효화는 진입점(index.html)에만 필요하다.
+      # 루트가 실제로 서비스되는 사본이다. 여기에 index.html 을 넣는 순간이 '전환' 이며,
+      # 엣지 TTL 0 이라 즉시 반영된다(그래서 무효화 단계가 없다).
+      #
+      # ⚠ 자산을 --delete 없이 누적시키는 것이 롤백의 전제다. 모든 버전의 해시 자산이 루트에 함께
+      #   남아 있어야, 옛 index.html 을 되돌려 놓았을 때 그것이 참조하는 청크가 살아 있다.
+      #   (CI 에 DeleteObject 권한 자체가 없다 — modules/security 참고)
+      # ⚠ 순서: 자산 먼저, index.html 마지막. 뒤집으면 그 사이 접속자가 없는 청크를 받는다.
+      - name: Publish to root (전환)
+        working-directory: ${{ steps.fe.outputs.dir }}
+        run: |
+          aws s3 sync ./dist "s3://$S3_BUCKET" --exclude "index.html" --no-progress
+          aws s3 cp ./dist/index.html "s3://$S3_BUCKET/index.html" --no-progress
+
+      - name: Summary
+        env:
+          VERSION: ${{ steps.rel.outputs.version }}
+        run: |
+          {
+            echo "### FE 배포 완료"
+            echo ""
+            echo "- 릴리스: \`$VERSION\`"
+            echo "- 롤백 (한 줄, 수 초):"
+            echo '  ```bash'
+            echo "  aws s3 cp s3://$S3_BUCKET/releases/<이전버전>/index.html s3://$S3_BUCKET/index.html"
+            echo '  ```'
+            echo "- 이전 버전 목록: \`aws s3 ls s3://$S3_BUCKET/releases/\` (정렬 = 시간순)"
+            echo "- 절차는 \`VictoryFairy_Infra/docs/fe-release-rollback.md\`."
+          } >> "$GITHUB_STEP_SUMMARY"
