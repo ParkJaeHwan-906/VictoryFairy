@@ -1,5 +1,6 @@
 # ALB Ingress: AWS Load Balancer Controller 가 이 Ingress 들을 보고 실제 ALB 를 만든다.
-#   /api -> user-app, /rt -> quiz-app, 그 외 전부 -> fe-app (pathType: Prefix 라 하위 경로 포함).
+#   /api -> user-app, /rt -> quiz-app (pathType: Prefix 라 하위 경로 포함).
+#   그 외 경로는 이 ALB 로 오지 않는다 — CloudFront 가 S3 로 보낸다.
 #
 # ⚠ 이 ALB 는 더 이상 사용자의 첫 관문이 아니다. FE 정적 호스팅 전환(docs/fe-cdn-migration.md)
 #   이후 브라우저는 CloudFront 에 붙고, CloudFront 가 /api/*·/rt/* 만 이 ALB 로 넘긴다.
@@ -11,8 +12,10 @@
 #   server.servlet.context-path(/api, /rt)를 쓰므로 actuator 경로도 접두사를 따라 갈린다.
 #   그래서 Ingress 를 쪼개되 group.name 을 같게 주어 ALB 는 하나로 유지한다.
 #
-# ⚠ group.order 는 곧 규칙 평가 순서다. FE 의 '/' 는 모든 경로를 삼키므로 반드시 API 보다
-#   뒤(=큰 값)여야 한다. 10 user → 20 quiz → 30 fe. FE 를 앞으로 옮기면 API 가 전부 FE 로 간다.
+# group.order 는 규칙 평가 순서다(10 user → 20 quiz → 40 dns-origin). 지금은 경로가 서로
+# 겹치지 않아 순서가 결과를 바꾸지 않지만, 앞으로 '/' 처럼 모든 경로를 삼키는 규칙을 추가한다면
+# 반드시 API 보다 뒤(=큰 값)에 둬야 한다. 앞에 두면 API 가 전부 그리로 빨려 들어간다.
+# (fe-app 의 '/' 규칙이 order 30 이었고, 전환 정리로 제거됐다.)
 #
 # ⚠ ALB 는 forward 시 경로를 rewrite 하지 않는다(redirect 만 가능). 여기의 path 는 앱이 실제로
 #   서비스하는 context-path 와 문자 그대로 일치해야 한다 — 다르면 파드까지 도달해도 404 다.
@@ -114,45 +117,6 @@ spec:
             backend:
               service:
                 name: quiz-app
-                port:
-                  number: 80
----
-# ⚠ 이 Ingress 는 전환 롤백용으로만 남아 있다.
-#   FE 는 이제 S3+CloudFront 가 서비스한다. CloudFront 는 '/' 를 이 ALB 로 보내지 않으므로 이
-#   규칙은 평소 트래픽을 받지 않는다. 루트 도메인을 다시 ALB 로 되돌릴 때(전환 롤백) 비로소
-#   사용된다 — 그래서 fe-app 워크로드(24-fe-app.yaml)와 함께 정리 3단계까지 남긴다.
-#   제거 절차: docs/fe-cdn-migration.md §4 3단계.
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: victoryfairy-fe
-  namespace: victoryfairy
-  annotations:
-    external-dns.alpha.kubernetes.io/controller: none
-    alb.ingress.kubernetes.io/group.name: victoryfairy
-    # ⚠ 반드시 API(10·20)보다 뒤. '/' 가 모든 경로를 삼키므로 앞에 오면 API 가 전부 FE 로 간다.
-    alb.ingress.kubernetes.io/group.order: "30"
-    alb.ingress.kubernetes.io/scheme: internet-facing
-    alb.ingress.kubernetes.io/target-type: ip
-    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
-    alb.ingress.kubernetes.io/ssl-redirect: '443'
-    #
-    # 헬스체크: nginx.conf 가 제공하는 전용 엔드포인트(정적 파일 배치와 무관하게 nginx 생존만 본다).
-    alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
-    alb.ingress.kubernetes.io/healthcheck-path: /healthz
-spec:
-  ingressClassName: alb
-  rules:
-    - host: victoryfairy.com
-      http:
-        paths:
-          # SPA 라 딥링크(/login, /chat/…)가 서버 경로로 존재하지 않는다. 전부 fe-app 으로 보내면
-          # nginx 의 try_files fallback 이 index.html 을 내준다.
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: fe-app
                 port:
                   number: 80
 ---
