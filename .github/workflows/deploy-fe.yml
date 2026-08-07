@@ -90,10 +90,15 @@ jobs:
             fi
           done
 
-          # 새 base 가 문자열 리터럴로 박혔는지 확인(Vite 가 define 치환한 형태).
+          # 새 base 가 실제로 박혔는지 확인.
+          # ⚠ 따옴표로 감싸 찾지 말 것. esbuild 는 최소화 과정에서 문자열을 큰따옴표가 아니라
+          #   백틱으로 내보낸다(kr(`/api`) 처럼. 빈 문자열조차 `` 다). "$base" 로 검사하면
+          #   주입이 정상이어도 항상 실패한다.
+          #   값만 찾는 것으로 충분한 이유: 주입이 실패하면 config.ts 폴백이 구워져 위의
+          #   localhost:8080 검사가 먼저 잡고, 빈 값이면 이 검사가 잡는다.
           for base in "$VITE_API_USER_BASE_URL" "$VITE_API_GAME_BASE_URL"; do
-            grep -rq "\"$base\"" ./dist/assets \
-              || { echo "::error::번들에서 \"$base\" 를 찾지 못했습니다 — env 주입 실패"; exit 1; }
+            grep -rq -- "$base" ./dist/assets \
+              || { echo "::error::번들에서 $base 를 찾지 못했습니다 — env 주입 실패"; exit 1; }
           done
           echo "OK: $VITE_API_USER_BASE_URL · $VITE_API_GAME_BASE_URL"
 
