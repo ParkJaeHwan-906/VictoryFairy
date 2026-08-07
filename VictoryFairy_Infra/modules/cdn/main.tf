@@ -1,6 +1,6 @@
 # cdn 모듈: FE 정적 자산 버킷(S3) + CloudFront 배포.
 #
-# 이 모듈이 대체하는 것: nginx 파드(k8s/24-fe-app.yaml)와 그 nginx.conf. 정적 서버를 직접
+# 이 모듈이 대체한 것: nginx 파드(k8s/24-fe-app.yaml — 2026-08-07 제거)와 그 nginx.conf. 정적 서버를 직접
 # 운영하지 않고 S3 가 파일을 갖고 CloudFront 가 내보낸다. nginx.conf 가 하던 캐시 정책·
 # SPA fallback·압축은 아래 Response Headers Policy / CloudFront Function / compress 로 옮겨왔다.
 #

@@ -194,7 +194,8 @@ kbo-collector (Lambda)  ──▶ S3 community/{source}/{date}/{postId}.json
 - **Terraform(`.tf`, 이 레포)**: VPC·서브넷·NAT, EKS 클러스터, 노드그룹 2개(app/batch), MySQL EC2·EBS·SG·IAM, S3, **ECR 리포지토리**, 그리고 **정제 파이프라인 일체**(Lambda 2개·SQS+DLQ·DynamoDB·S3 이벤트 알림·IAM 실행 롤). **클러스터와 노드그룹까지 + 서버리스 정제 전부.**
   - ⚠️ **정제는 EKS 를 쓰지 않으므로 IRSA 가 아니라 Lambda 실행 롤**이다(§4). IRSA 는 문제 생성 단계가 EKS 로 갈 때 다시 본다.
   - ⚠️ **`kbo-collector` Lambda 와 EventBridge 규칙은 `dev_ai` 트리의 자체 Terraform 스택 소유**다(이 레포 밖·state 분리). 한 파이프라인이 두 state 에 걸친다 — 흡수 여부는 미결정.
-- **Kubernetes(YAML/Helm, `VictoryFairy_Infra/k8s/`)**: Deployment(user/quiz), HPA(user/quiz), taint↔toleration/nodeSelector, Kubernetes Dashboard(학습용). Spring `SPRING_PROFILES_ACTIVE=prod`. (앱 코드는 별도 레포/브랜치지만, 배포 매니페스트는 결합도가 큰 Terraform과 **같은 인프라 레포에 co-locate** — 도구/레이어 경계는 유지)
+- **Kubernetes(YAML/Helm, `VictoryFairy_Infra/k8s/`)**: Deployment(user/quiz), HPA(user/quiz), taint↔toleration/nodeSelector. Spring `SPRING_PROFILES_ACTIVE=prod`. (앱 코드는 별도 레포/브랜치지만, 배포 매니페스트는 결합도가 큰 Terraform과 **같은 인프라 레포에 co-locate** — 도구/레이어 경계는 유지)
+  - FE는 이 레이어에 없다. S3+CloudFront가 서비스한다(`docs/fe-cdn-migration.md`). nginx 파드(fe-app)와 Kubernetes Dashboard는 2026-08-07 제거됐다.
   - `40~42-batch-*.yaml` 은 **정제에 쓰이지 않는다.** 문제 생성 단계용으로 보류된 뼈대다(§4 한계).
 - **애플리케이션 코드(`VictoryFairy_AI/`, `dev_ai` 브랜치)**: 판정 로직과 **Lambda 핸들러**. 인프라는 그것을 **띄우는 함수 정의·트리거 배선·권한**을 맡는다. 트리거 판단 로직(구 컨트롤러)은 **S3 이벤트와 SQS 가 대신하므로 앱에서 사라진다.**
 - **커플링 주의**: TF의 노드그룹 `taint`/label ↔ YAML의 `toleration`/`nodeSelector`가 반드시 일치해야 한다(`workload=app|batch`, app은 taint 없음). 한쪽만 바꾸면 파드가 스케줄되지 않는다.

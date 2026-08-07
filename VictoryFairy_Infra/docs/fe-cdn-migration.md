@@ -187,20 +187,29 @@ S3 오브젝트에 헤더가 없거나 잘못 박혀 있어도 엣지가 덮어�
 - (권장) 콘솔/CLI 로 apex A 를 ALB ALIAS 로 수동 UPSERT 한 뒤, 여유가 생기면 코드를 정리한다.
 - 또는 앱 Ingress 의 `controller: none` 을 걷어내 ExternalDNS 가 apex 를 되찾게 한다(1 분 내 복구).
 
-3 단계 전이라면 ALB 가 apex 규칙과 fe-app 을 그대로 갖고 있어 복구가 성립한다.
-**그래서 3 단계는 최소 며칠 미룬다.** 단, 옛 fe-app 번들은 옛 API 경로를 부르므로 롤백 시
-FE 화면은 정상이어도 API 호출이 실패한다 — 완전 복구에는 FE 재빌드가 따라야 한다.
+⚠ **3 단계(정리)를 마친 뒤에는 이 롤백이 FE 를 되살리지 못한다.** ALB 에 '/' 규칙과 fe-app 이
+없으므로 apex 를 ALB 로 돌리면 정적 파일을 줄 주체가 사라진다. 그때의 복구 수단은 apex 를
+CloudFront 로 되돌리는 것뿐이다(= 앞으로 고치기).
 
-### 3 단계 — 정리 (안정화 확인 후)
+애초에 3 단계 전이라도 이 롤백은 반쪽이었다. fe-app 에 박힌 이미지는 전환 직전 버전에서 멈춰
+있어 옛 API 경로(`/api/member`)를 부르고, 그 경로는 이제 `/api` 규칙에 걸려 401 이 된다 — 화면은
+떠도 로그인이 안 된다. 온전한 롤백을 원한다면 전환 전에 fe-app 에 새 번들을 한 번 배포해 둬야
+한다(1 단계 5 번 참고).
 
-7. `22-ingress.yaml` 에서 `victoryfairy-fe` Ingress 제거.
-8. `24-fe-app.yaml` 삭제 — `kubectl -n victoryfairy delete -f k8s/24-fe-app.yaml`
-   (Deployment·Service·HPA). 파일도 저장소에서 제거한다.
-9. apex 에 남은 ExternalDNS 소유권 TXT 레코드 정리.
+### 3 단계 — 정리 ✅ 2026-08-07 완료
+
+7. ✅ `22-ingress.yaml` 에서 `victoryfairy-fe` Ingress 제거.
+8. ✅ `24-fe-app.yaml` 삭제 (Deployment·Service·HPA). 파일도 저장소에서 제거했다.
+   ⚠ 파드만 지우는 것으로는 멈추지 않는다. Deployment 의 ReplicaSet 이 즉시 새 파드를 만들고,
+     `kubectl scale --replicas=0` 도 HPA(`minReplicas: 1`)가 되돌린다. 세 리소스를 함께 지워야 한다.
+9. apex 에 남은 ExternalDNS 소유권 TXT 레코드 정리. **(미완)**
    ExternalDNS 는 `--policy=upsert-only` 라 레코드를 지우지 않으므로 수동 정리가 필요하다.
-10. ECR `victoryfairy-fe` 리포지토리 제거(선택) — 롤백 여지를 남기려면 보류해도 된다.
-   `environments/dev/main.tf` 의 `repository_names` 에서 `"fe"` 를 빼면 리포지토리와 이미지가
-   함께 삭제된다.
+   > 부수 효과: 이걸 치우면 apex TXT 충돌 때문에 보류해 둔 Mailjet SPF 레코드
+   > (`environments/dev/main.tf` 의 `mailjet_spf_value`)를 등록할 수 있다.
+10. ECR `victoryfairy-fe` 리포지토리 제거(선택). **(미완)**
+    fe-app 이 사라져 이 이미지를 pull 할 주체가 없다. `environments/dev/main.tf` 의
+    `repository_names` 에서 `"fe"` 를 빼면 리포지토리와 이미지가 **함께 삭제**된다 —
+    되돌릴 수 없으므로 의도를 확인한 뒤 할 것.
 
 > 7 번의 부수 효과: apex TXT 를 ExternalDNS 가 더 이상 소유하지 않으므로, 충돌 때문에 보류해 둔
 > **Mailjet SPF 레코드(`mailjet_spf_value`)를 드디어 등록할 수 있다** (`environments/dev/main.tf` 참고).
