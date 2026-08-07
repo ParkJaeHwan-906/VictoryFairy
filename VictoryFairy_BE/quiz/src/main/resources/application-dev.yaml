@@ -1,6 +1,11 @@
 spring:
   datasource:
-    url: jdbc:mysql://${DB_HOST}:${DB_PORT}/${DB_NAME}?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+    # ⚠ serverTimezone(=connectionTimeZone) 을 다시 넣지 말 것. MySQL 서버는 실제로 UTC 로 도는데
+    #   Asia/Seoul 로 선언하면 preserveInstants 기본값(true) 탓에 드라이버가 DATETIME 을 KST 로
+    #   해석했다가 JVM 기본 TZ 로 변환한다 — 파드는 TZ 미설정(UTC)이라 game_date 18:30 이 09:30 으로
+    #   9시간 밀려 나갔다(로컬 JVM 은 KST 라 변환이 no-op 이 되어 재현되지 않는다).
+    #   preserveInstants=false 는 벽시계 값을 변환 없이 주고받게 해 로컬과 파드를 같게 만든다.
+    url: jdbc:mysql://${DB_HOST}:${DB_PORT}/${DB_NAME}?preserveInstants=false&characterEncoding=UTF-8
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
