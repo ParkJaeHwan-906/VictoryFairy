@@ -69,13 +69,13 @@ variable "origin_read_timeout" {
 
     ⚠ 채팅 SSE 의 생명선이다. quiz 앱이 15초마다 :ping 주석 프레임을 보내(SseEmitterRegistry.heartbeat)
       이 값에 걸리지 않는데, 하트비트 주기를 늘리면 이 값도 함께 올려야 스트림이 끊기지 않는다.
-      60 초를 넘기려면 AWS 쿼터 증설이 필요하다.
+      쿼터 문서상 조정 가능 범위는 1~120 초이고, 그 이상은 증설 요청이 필요하다.
   EOT
   type        = number
   default     = 30
   validation {
-    condition     = var.origin_read_timeout >= 1 && var.origin_read_timeout <= 60
-    error_message = "origin_read_timeout 은 1~60 이어야 합니다(초과는 AWS 쿼터 증설 후 가능)."
+    condition     = var.origin_read_timeout >= 1 && var.origin_read_timeout <= 120
+    error_message = "origin_read_timeout 은 1~120 이어야 합니다(초과는 AWS 쿼터 증설 후 가능)."
   }
 }
 
