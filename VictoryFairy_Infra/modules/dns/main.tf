@@ -63,6 +63,116 @@ resource "aws_acm_certificate_validation" "this" {
 }
 
 # ---------------------------------------------------------------------------
+# 2-1) CloudFront 오리진(ALB) 전용 인증서 — origin.<domain> (서울)
+#
+# CloudFront 는 오리진에 HTTPS 로 붙을 때 오리진 도메인 이름과 오리진이 제시한 인증서가
+# 일치하는지 검증한다. ALB 의 실제 주소(k8s-*.elb.amazonaws.com)는 apex 인증서와 이름이 어긋나
+# 거부되므로, 그 이름을 커버하는 인증서가 ALB 리스너에 붙어 있어야 한다.
+#
+# ⚠ 이 이름을 위 apex 인증서의 SAN 으로 넣지 않는 이유가 중요하다. SAN 변경은 인증서를 '교체'하고,
+#   그 인증서는 지금 운영 ALB 리스너가 물고 있다. create_before_destroy 로 새 인증서를 먼저
+#   만들어도 옛 인증서 삭제 시 ACM 이 ResourceInUseException 을 낸다(리스너가 아직 참조 중).
+#   게다가 두 인증서가 모두 apex 를 커버하는 동안 LBC 의 인증서 자동 탐색이 무엇을 고를지
+#   불확실하다. 별도 인증서로 두면 apex 인증서를 건드리지 않아 운영 TLS 가 무사하다.
+#   ALB 리스너는 SNI 로 여러 인증서를 붙일 수 있고, LBC 는 victoryfairy-dns-origin Ingress 의
+#   host 를 보고 이 인증서를 자동 탐색한다.
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# 2-2) CloudFront 용 ACM 인증서 (us-east-1)
+#
+# CloudFront 는 us-east-1 인증서만 받는다 — 위 서울 인증서를 그대로 쓸 수 없어 같은 도메인으로
+# 한 장 더 발급한다. 서울 인증서는 ALB(Ingress) TLS 종료용으로 그대로 남는다.
+#
+# 검증 레코드는 위 cert_validation 을 재사용하지 않고 이 인증서용으로 따로 만든다.
+#
+# ACM 은 보통 같은 계정·같은 도메인에 같은 검증 CNAME 을 돌려주므로 재사용도 대체로 동작하지만,
+# 그 가정이 깨지면 apply 가 검증 대기에서 45분간 멈춘 뒤 실패한다. 반면 따로 만들면 양쪽 다 안전하다 —
+# 검증 CNAME 의 '이름'에 토큰 해시가 들어가기 때문이다:
+#   토큰이 같으면  → 이름·값이 모두 같아 두 리소스의 목표 상태가 동일(덮어써도 무해, allow_overwrite)
+#   토큰이 다르면  → 이름 자체가 달라 서로 다른 레코드가 되어 충돌하지 않는다
+# ⚠ 토큰이 같은 경우 같은 레코드를 두 리소스가 관리하게 된다. 평시엔 무해하지만 destroy 시
+#   나중 것이 '이미 없는 레코드' 삭제로 실패할 수 있다.
+# ---------------------------------------------------------------------------
+resource "aws_acm_certificate" "origin" {
+  count = var.origin_host != "" ? 1 : 0
+
+  domain_name       = var.origin_host
+  validation_method = "DNS"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = merge(var.tags, {
+    Name = var.origin_host
+  })
+}
+
+resource "aws_route53_record" "origin_cert_validation" {
+  for_each = var.origin_host != "" ? {
+    for dvo in aws_acm_certificate.origin[0].domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      record = dvo.resource_record_value
+      type   = dvo.resource_record_type
+    }
+  } : {}
+
+  zone_id         = aws_route53_zone.this.zone_id
+  name            = each.value.name
+  type            = each.value.type
+  records         = [each.value.record]
+  ttl             = 60
+  allow_overwrite = true
+}
+
+resource "aws_acm_certificate_validation" "origin" {
+  count = var.origin_host != "" ? 1 : 0
+
+  certificate_arn         = aws_acm_certificate.origin[0].arn
+  validation_record_fqdns = [for r in aws_route53_record.origin_cert_validation : r.fqdn]
+}
+
+resource "aws_acm_certificate" "cloudfront" {
+  provider = aws.us_east_1
+
+  domain_name       = var.domain_name
+  validation_method = "DNS"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = merge(var.tags, {
+    Name = "${var.domain_name}-cloudfront"
+  })
+}
+
+resource "aws_route53_record" "cloudfront_cert_validation" {
+  for_each = {
+    for dvo in aws_acm_certificate.cloudfront.domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      record = dvo.resource_record_value
+      type   = dvo.resource_record_type
+    }
+  }
+
+  zone_id         = aws_route53_zone.this.zone_id
+  name            = each.value.name
+  type            = each.value.type
+  records         = [each.value.record]
+  ttl             = 60
+  allow_overwrite = true
+}
+
+resource "aws_acm_certificate_validation" "cloudfront" {
+  provider = aws.us_east_1
+
+  certificate_arn         = aws_acm_certificate.cloudfront.arn
+  validation_record_fqdns = [for r in aws_route53_record.cloudfront_cert_validation : r.fqdn]
+}
+
+# ---------------------------------------------------------------------------
 # 3) ExternalDNS 용 IRSA — 이 존의 레코드만 조작 가능(최소 권한, SKILL §7)
 # ---------------------------------------------------------------------------
 data "aws_iam_policy_document" "external_dns_assume" {

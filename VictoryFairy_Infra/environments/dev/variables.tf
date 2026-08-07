@@ -60,6 +60,22 @@ variable "domain_name" {
   default     = "victoryfairy.com"
 }
 
+variable "fe_attach_apex_alias" {
+  description = <<-EOT
+    루트 도메인을 CloudFront 로 넘길지 여부. FE 정적 호스팅 전환의 실서비스 스위치다.
+
+    false(기본) = CloudFront·S3 는 만들되 트래픽은 그대로 ALB 로 간다. 배포 도메인
+    (terraform output fe_cloudfront_domain_name)으로 직접 접속해 검증하는 단계.
+    true = 루트 도메인 A/AAAA 를 CloudFront 로 교체한다.
+
+    ⚠ true 로 바꾸기 전에 k8s/22-ingress.yaml 의 host 가 origin.<domain> 으로 내려가 있어야 한다.
+      순서를 뒤집으면 ExternalDNS 가 1분 내 레코드를 ALB 로 되돌려 계속 다툰다.
+      절차는 docs/fe-cdn-migration.md §4.
+  EOT
+  type        = bool
+  default     = false
+}
+
 variable "crawl_bucket_name" {
   description = "크롤 원본과 정제 산출물이 함께 있는 S3 버킷. ⚠ Terraform 관리 밖이며 refine-pipeline 은 알림 설정만 붙인다"
   type        = string
