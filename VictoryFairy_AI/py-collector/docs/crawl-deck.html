@@ -1,0 +1,382 @@
+<style>
+  :root{
+    color-scheme: light;
+    --canvas:#fffefb; --canvas-soft:#f8f4f0;
+    --ink:#201515; --ink-soft:#2f2a26; --ink-mid:#36342e;
+    --body:#605d52; --body-mid:#939084; --mute:#c5c0b1;
+    --primary:#ff4f00; --on-primary:#fffefb;
+    --line:#e7e1d8; --line-strong:#201515;
+    --sans:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,"Apple SD Gothic Neo","Pretendard","Noto Sans KR","Malgun Gothic",sans-serif;
+    --r-sm:6px; --r-md:12px; --r-pill:9999px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--canvas); color:var(--ink); font-family:var(--sans);
+    font-size:16px; line-height:1.5; -webkit-font-smoothing:antialiased; overflow:hidden;
+  }
+  .deck{position:fixed; inset:0; overflow:hidden; background:var(--canvas)}
+
+  /* ---- top bar ---- */
+  .bar{
+    position:absolute; top:0; left:0; right:0; height:54px; z-index:20;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:0 clamp(18px,3.2vw,44px); border-bottom:1px solid var(--line);
+    background:color-mix(in srgb,var(--canvas) 88%,transparent); backdrop-filter:blur(6px);
+  }
+  .brand{display:flex; align-items:center; gap:11px; font-size:13px; font-weight:600; letter-spacing:.04em; color:var(--body)}
+  .brand b{color:var(--ink); font-weight:700}
+  .mk{width:14px;height:14px;border-radius:4px;background:var(--primary);flex:none}
+  .barR{font-size:13px; letter-spacing:.02em; color:var(--body-mid)}
+
+  /* ---- stage / slides ---- */
+  .stage{position:absolute; inset:54px 0 48px}
+  .slide{
+    position:absolute; inset:0; padding:clamp(22px,4.4vh,52px) clamp(22px,6vw,84px);
+    display:flex; flex-direction:column; justify-content:center;
+    opacity:0; visibility:hidden; transform:translateY(12px);
+    transition:opacity .4s ease, transform .4s ease, visibility .4s; overflow:auto;
+  }
+  .slide.active{opacity:1; visibility:visible; transform:none}
+  .wrap{width:100%; max-width:1120px; margin:0 auto; display:flex; flex-direction:column; gap:clamp(14px,2.4vh,26px)}
+
+  .eyebrow{font-size:14px; font-weight:500; letter-spacing:1px; text-transform:uppercase; color:var(--body); display:flex; align-items:center; gap:11px}
+  .eyebrow i{width:9px;height:9px;background:var(--primary);border-radius:2px;flex:none;font-style:normal}
+  .eyebrow b{color:var(--ink-mid); font-weight:600}
+  h1{font-size:clamp(2.3rem,5.6vw,3.55rem); line-height:1.03; letter-spacing:-.02em; margin:0; font-weight:600; text-wrap:balance; color:var(--ink)}
+  h2{font-size:clamp(1.55rem,3.4vw,2.15rem); line-height:1.1; letter-spacing:-.015em; margin:0; font-weight:600; text-wrap:balance; color:var(--ink)}
+  .lede{font-size:clamp(1rem,1.5vw,1.18rem); color:var(--body); max-width:60ch; line-height:1.55}
+  p{margin:0}
+  .num{font-variant-numeric:tabular-nums}
+  .accent{color:var(--primary)}
+
+  /* cards */
+  .grid{display:grid; gap:14px}
+  .card{background:var(--canvas-soft); border-radius:var(--r-md); padding:18px 20px; display:flex; flex-direction:column; gap:8px}
+  .card.outline{background:var(--canvas); border:1px solid var(--line-strong)}
+  .card.dark{background:var(--ink); color:var(--on-primary)}
+  .card.dark p, .card.dark .l{color:var(--mute)}
+  .card h3{margin:0; font-size:1.05rem; font-weight:600; letter-spacing:-.02em; display:flex; align-items:center; gap:9px; color:inherit}
+  .card p{font-size:.92rem; color:var(--body); line-height:1.5}
+  .card .l{color:var(--body-mid)}
+
+  .pill{display:inline-flex; align-items:center; font-size:12px; font-weight:600; letter-spacing:.02em; padding:2px 11px; border-radius:var(--r-pill); line-height:1.6; white-space:nowrap}
+  .p-s3{background:var(--canvas); color:var(--ink); border:1px solid var(--line-strong)}
+  .p-sql{background:var(--ink); color:var(--on-primary)}
+  .p-src{background:var(--canvas-soft); color:var(--ink-mid); border:1px solid var(--mute)}
+  .dot{width:9px;height:9px;border-radius:3px;background:var(--primary);flex:none}
+
+  /* tables */
+  .tbl-wrap{overflow-x:auto; border-radius:var(--r-md); border:1px solid var(--line)}
+  table{border-collapse:collapse; width:100%; font-size:.9rem; min-width:520px; background:var(--canvas)}
+  th,td{text-align:left; padding:11px 16px; border-bottom:1px solid var(--line)}
+  thead th{font-size:12px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--body-mid); background:var(--canvas-soft)}
+  tbody tr:last-child td{border-bottom:none}
+  td{color:var(--ink-mid)}
+  td strong{color:var(--ink); font-weight:600}
+  .code{font-feature-settings:"tnum"; font-size:.86em; background:var(--canvas-soft); padding:1px 6px; border-radius:var(--r-sm); color:var(--ink-soft)}
+
+  /* flow */
+  .flow{display:flex; align-items:stretch; gap:11px; flex-wrap:wrap}
+  .node{flex:1 1 0; min-width:150px; background:var(--canvas-soft); border-radius:var(--r-md); padding:15px 17px; display:flex; flex-direction:column; gap:6px}
+  .node .k{font-size:12px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--body-mid)}
+  .node .v{font-size:1rem; font-weight:600; color:var(--ink)}
+  .node small{font-size:.82rem; color:var(--body); line-height:1.45}
+  .arrow{align-self:center; color:var(--primary); font-size:1.35rem; flex:none; font-weight:600}
+
+  .chips{display:flex; flex-wrap:wrap; gap:9px}
+  .chip{font-size:.82rem; padding:7px 13px; border-radius:var(--r-pill); background:var(--canvas-soft); border:1px solid var(--line); color:var(--body)}
+  .chip b{color:var(--ink); font-weight:600}
+
+  /* stats */
+  .stats{display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:12px}
+  .stat{background:var(--canvas-soft); border-radius:var(--r-md); padding:16px}
+  .stat .n{font-size:clamp(1.6rem,3.6vw,2.3rem); font-weight:700; letter-spacing:-.02em; line-height:1; color:var(--ink); font-variant-numeric:tabular-nums}
+  .stat.hl .n{color:var(--primary)}
+  .stat .l{font-size:.78rem; color:var(--body-mid); margin-top:7px; line-height:1.35}
+  .stat.dark{background:var(--ink)} .stat.dark .n{color:var(--on-primary)} .stat.dark .l{color:var(--mute)}
+
+  .two{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+  .split{display:grid; grid-template-columns:1.02fr .98fr; gap:clamp(16px,3vw,34px); align-items:center}
+  @media (max-width:760px){ .two,.split{grid-template-columns:1fr} }
+  .note{font-size:.84rem; color:var(--body-mid); line-height:1.5}
+  .rule{height:1px;background:var(--line);border:none;margin:0}
+  .legend{display:flex;gap:20px;flex-wrap:wrap;font-size:.84rem;color:var(--body)}
+  .legend span{display:flex;align-items:center;gap:8px}
+
+  /* title stat strip */
+  .strip{display:flex; flex-wrap:wrap; gap:10px}
+  .strip .b{background:var(--canvas-soft); border-radius:var(--r-md); padding:12px 18px; display:flex; flex-direction:column; gap:3px}
+  .strip .b .bn{font-size:1.5rem; font-weight:700; color:var(--ink); font-variant-numeric:tabular-nums; line-height:1}
+  .strip .b.hl .bn{color:var(--primary)}
+  .strip .b .bl{font-size:12px; letter-spacing:.05em; text-transform:uppercase; color:var(--body-mid)}
+
+  /* ---- bottom bar ---- */
+  .foot{position:absolute; left:0; right:0; bottom:0; height:48px; z-index:20;
+    display:flex; align-items:center; gap:16px; padding:0 clamp(18px,3.2vw,44px);
+    border-top:1px solid var(--line); background:color-mix(in srgb,var(--canvas) 88%,transparent); backdrop-filter:blur(6px)}
+  .prog{flex:1; height:3px; background:var(--canvas-soft); border-radius:var(--r-pill); overflow:hidden}
+  .prog i{display:block; height:100%; width:0; background:var(--primary); transition:width .4s ease}
+  .nav{display:flex; gap:8px}
+  .nav button{font-size:1.05rem; width:36px; height:31px; border-radius:var(--r-md); border:1px solid var(--line-strong); background:var(--canvas); color:var(--ink); cursor:pointer; line-height:1}
+  .nav button:hover{background:var(--primary); color:var(--on-primary); border-color:var(--primary)}
+  .nav button:focus-visible{outline:2px solid var(--primary); outline-offset:2px}
+  .count{font-size:13px; letter-spacing:.04em; color:var(--body-mid); min-width:66px; text-align:right; font-variant-numeric:tabular-nums}
+
+  @media (prefers-reduced-motion:reduce){ .slide{transition:opacity .01s} .prog i{transition:none} }
+</style>
+
+<div class="deck">
+  <header class="bar">
+    <div class="brand"><span class="mk"></span> VICTORY FAIRY <b>· KBO 데이터 수집</b></div>
+    <div class="barR">py-collector</div>
+  </header>
+
+  <main class="stage" id="stage">
+
+    <!-- 1 · TITLE -->
+    <section class="slide active">
+      <div class="wrap">
+        <div class="eyebrow"><i></i> 발표 개요</div>
+        <h1>KBO 경기·커뮤니티<br>데이터 수집 파이프라인</h1>
+        <p class="lede">3개 소스에서 긁어 2개 싱크에 적재한다 — 무엇을 수집하고, 어떻게 처리하며, 어디에 쌓는가.</p>
+        <div class="strip">
+          <div class="b"><span class="bn num">3</span><span class="bl">소스</span></div>
+          <div class="b"><span class="bn num">5</span><span class="bl">데이터 포맷</span></div>
+          <div class="b"><span class="bn">S3·SQL</span><span class="bl">싱크</span></div>
+          <div class="b hl"><span class="bn num">448</span><span class="bl">2026 경기</span></div>
+          <div class="b"><span class="bn num">7.7K+</span><span class="bl">커뮤니티 글</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 · OVERVIEW -->
+    <section class="slide">
+      <div class="wrap">
+        <div class="eyebrow"><i></i> <b>02</b> 한눈에 · 소스 → 싱크</div>
+        <h2>어디서 긁어 어디에 쌓는가</h2>
+        <div class="split">
+          <div class="grid" style="gap:10px">
+            <div class="card"><h3><span class="dot"></span>네이버 스포츠 API</h3><p>일정·결과·문자중계·박스스코어(record). 안정적 JSON, 종료 경기도 영구 조회 → 백필 가능.</p></div>
+            <div class="card"><h3><span class="dot"></span>KBO 공식 사이트</h3><p>구단별 1군 등록 명단·포지션. 일자별 제출되는 유일한 신뢰 소스.</p></div>
+            <div class="card"><h3><span class="dot"></span>DCInside · FMKorea</h3><p>팬 반응·여론. 구단별 갤러리 = 팀 단위 세그먼트.</p></div>
+          </div>
+          <div class="grid" style="gap:10px">
+            <div class="card outline"><h3><span class="pill p-s3">S3</span> 원본 랜딩존</h3><p>일정·결과·문자중계 원본 JSON + 커뮤니티 글. 가공 없이 멱등 적재.</p></div>
+            <div class="card dark"><h3><span class="pill p-sql">MySQL</span> 정규화 저장소</h3><p>구단·선수 로스터 + 경기 박스스코어. 즉시 질의·조인 가능한 관계형.</p></div>
+            <p class="note">→ 성격에 따라 <b style="color:var(--ink)">원본 보존(S3)</b> 과 <b style="color:var(--ink)">정규화(MySQL)</b> 로 갈린다.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 · CRAWL FLOW -->
+    <section class="slide">
+      <div class="wrap">
+        <div class="eyebrow"><i></i> <b>03</b> 크롤링 플로우</div>
+        <h2>CLI job → 코어 → 싱크</h2>
+        <div class="flow">
+          <div class="node"><span class="k">1 · fetch</span><span class="v">원천 요청</span><small>브라우저 UA·Referer, 타임아웃, tenacity 지수 백오프(429·5xx)</small></div>
+          <span class="arrow">→</span>
+          <div class="node"><span class="k">2 · parse</span><span class="v">추출·정형화</span><small>네이버 JSON / KBO·커뮤니티 HTML → 필요 형태로</small></div>
+          <span class="arrow">→</span>
+          <div class="node"><span class="k">3 · sink</span><span class="v">적재</span><small>S3 멱등 PUT · MySQL upsert</small></div>
+        </div>
+        <hr class="rule">
+        <div class="chips">
+          <span class="chip"><b>증분</b> 커뮤니티 날짜 조기중단 + exists skip</span>
+          <span class="chip"><b>백필</b> --date / --from --to</span>
+          <span class="chip"><b>멱등</b> 콘텐츠 키 · upsert</span>
+          <span class="chip"><b>예의</b> 딜레이·직렬목록/병렬상세·cap</span>
+          <span class="chip"><b>격리</b> dead-letter · 경기 단위</span>
+        </div>
+        <p class="note">* 상세 플로우(이닝 순회·페이징·스레드 등)는 <b style="color:var(--ink-mid)">crawl-flow.md</b> 참조 — 이 자리에선 개념만.</p>
+      </div>
+    </section>
+
+    <!-- 4 · PROCESSING PIPELINE -->
+    <section class="slide">
+      <div class="wrap">
+        <div class="eyebrow"><i></i> <b>04</b> 데이터 처리 파이프라인</div>
+        <h2>어디까지 가공하나 — 두 가지 모드</h2>
+        <div class="two">
+          <div class="card outline">
+            <h3><span class="pill p-s3">원본 보존</span> schema-on-read</h3>
+            <p>네이버 <strong style="color:var(--ink)">schedule·result·relay</strong> → 응답 byte-for-byte로 S3. 가공 0.</p>
+            <p class="l">원본 손실 방지·스키마 결합 최소화. 필드 추출은 분석 시점으로 미룸.</p>
+          </div>
+          <div class="card dark">
+            <h3><span class="pill p-sql">적재 시 정규화</span> schema-on-write</h3>
+            <p style="color:var(--on-primary)"><strong>record·로스터·커뮤니티</strong> → 파싱·정형화해 MySQL / RawPost로.</p>
+            <p>즉시 질의·조인·집계가 필요한 데이터.</p>
+          </div>
+        </div>
+        <div class="flow" style="margin-top:2px">
+          <div class="node"><span class="k">원천</span><span class="v">3 소스</span></div>
+          <span class="arrow">→</span>
+          <div class="node"><span class="k">브론즈 (현재)</span><span class="v" style="font-size:.9rem;line-height:1.5;font-weight:500">S3 원본 JSON · MySQL 정규화 · RawPost(+마스킹)</span></div>
+          <span class="arrow">→</span>
+          <div class="node"><span class="k">소비</span><span class="v">Spring</span><small>읽기전용 엔티티가 MySQL 직접 조회</small></div>
+        </div>
+        <p class="note">향후: S3 브론즈 → <b style="color:var(--ink-mid)">Silver/Gold 분석계층</b>(집계·Parquet·relay play-by-play 파싱) — 원본 보존돼 소급 처리 가능.</p>
+      </div>
+    </section>
+
+    <!-- 5 · NORMALIZATION -->
+    <section class="slide">
+      <div class="wrap">
+        <div class="eyebrow"><i></i> <b>05</b> 정규화 계층 처리</div>
+        <h2>정규화 단계에서 실제로 하는 일</h2>
+        <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(235px,1fr))">
+          <div class="card"><h3><span class="dot"></span>PII 마스킹</h3><p>댓글 작성자 <span class="code">salt+SHA-256[:12]</span> 익명화(역추적 불가). 본문·제목은 무필터 보존.</p></div>
+          <div class="card"><h3><span class="dot"></span>식별자 해소</h3><p>네이버 pcode 종속 제거 → 자체 <span class="code">player_uid</span> 발급, 로스터 <span class="code">kbo_player_id</span>와 이름+팀 유일매칭 링크.</p></div>
+          <div class="card"><h3><span class="dot"></span>JSON → 관계형</h3><p>record 중첩 JSON을 5개 평면 테이블로. 이닝 배열은 JSON 컬럼 대신 <span class="code">game_innings</span> 행으로.</p></div>
+          <div class="card"><h3><span class="dot"></span>시계열 모델링</h3><p><span class="code">players</span>(현재상태) + <span class="code">player_registrations</span>(일자 스냅샷) → 특정일 등록현황 재현.</p></div>
+          <div class="card"><h3><span class="dot"></span>멱등 병합</h3><p>전 경로 upsert/멱등 키 → 재수집·재백필해도 중복 없이 갱신.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 · DATA FORMATS -->
+    <section class="slide">
+      <div class="wrap">
+        <div class="eyebrow"><i></i> <b>06</b> 데이터 포맷</div>
+        <h2>수집 데이터 5종</h2>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th>데이터</th><th>봉투 최상위</th><th>단위</th><th>평균 크기</th><th>저장</th><th>스키마 소유</th></tr></thead>
+            <tbody>
+              <tr><td><strong>schedule</strong> 일정</td><td><span class="code">result.games[]</span></td><td>날짜 1파일</td><td class="num">≈2.6KB</td><td><span class="pill p-s3">S3</span></td><td>네이버</td></tr>
+              <tr><td><strong>result</strong> 경기결과</td><td><span class="code">result.game</span></td><td>경기 1파일</td><td class="num">≈2.4KB</td><td><span class="pill p-s3">S3</span></td><td>네이버</td></tr>
+              <tr><td><strong>relay</strong> 문자중계</td><td><span class="code">textRelayData</span></td><td>경기×이닝</td><td class="num">≈168KB</td><td><span class="pill p-s3">S3</span></td><td>네이버</td></tr>
+              <tr><td><strong>record</strong> 박스스코어</td><td><span class="code">recordData</span></td><td>경기 1응답</td><td class="num">≈18KB</td><td><span class="pill p-sql">MySQL</span></td><td>네이버→우리</td></tr>
+              <tr><td><strong>RawPost</strong> 커뮤니티</td><td><span class="code">(평면)</span></td><td>글 1파일</td><td class="num">≈0.4KB</td><td><span class="pill p-s3">S3</span></td><td class="accent" style="font-weight:600">우리 v2</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="note">relay가 큰 이유는 <b style="color:var(--ink-mid)">textRelays</b>(타석·투구 단위 play-by-play)이지 games[] 때문이 아님.</p>
+      </div>
+    </section>
+
+    <!-- 7 · STORE: games -->
+    <section class="slide">
+      <div class="wrap">
+        <div class="eyebrow"><i></i> <b>07</b> 실제 적재 데이터 · 경기</div>
+        <h2>record에서 뽑아 <span class="accent">MySQL</span> 5테이블로</h2>
+        <div class="split">
+          <div class="tbl-wrap">
+            <table style="min-width:0">
+              <thead><tr><th>테이블</th><th>담는 것</th></tr></thead>
+              <tbody>
+                <tr><td><span class="code">games</span></td><td>스코어·R/H/E/BB·승자·선발·구장</td></tr>
+                <tr><td><span class="code">game_innings</span></td><td>이닝별 득점(라인스코어)</td></tr>
+                <tr><td><span class="code">game_pitching</span></td><td>투수별 이닝·자책·삼진·승패세홀</td></tr>
+                <tr><td><span class="code">game_batting</span></td><td>타자별 타수·안타·홈런·타점·도루</td></tr>
+                <tr><td><span class="code">game_players</span></td><td>독자 uid ↔ pcode ↔ 로스터</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="grid" style="gap:12px">
+            <p class="lede" style="font-size:.98rem">2026 시즌 전 경기(정규+시범) 빠짐없이 백필 — 소스 448건 = DB 448건, 날짜 불일치 0.</p>
+            <div class="stats" style="grid-template-columns:repeat(2,1fr)">
+              <div class="stat hl"><div class="n num">448</div><div class="l">경기 (정규 423·시범 25)</div></div>
+              <div class="stat"><div class="n num">4,404</div><div class="l">투수 기록</div></div>
+              <div class="stat"><div class="n num">11,579</div><div class="l">타자 기록</div></div>
+              <div class="stat"><div class="n num">7,940</div><div class="l">이닝 득점</div></div>
+            </div>
+          </div>
+        </div>
+        <p class="note">record 응답엔 그날 games[] 목록도 딸려오지만 <b style="color:var(--ink-mid)">안 씀</b> — 필요한 박스스코어만 정규화.</p>
+      </div>
+    </section>
+
+    <!-- 8 · STORE: roster + community -->
+    <section class="slide">
+      <div class="wrap">
+        <div class="eyebrow"><i></i> <b>08</b> 실제 적재 데이터 · 로스터 & 커뮤니티</div>
+        <h2>로스터는 <span class="accent">MySQL</span>, 커뮤니티 글은 S3</h2>
+        <div class="two">
+          <div class="card dark">
+            <h3><span class="pill p-sql">MySQL</span> 1군 로스터</h3>
+            <p style="color:var(--on-primary)"><span class="code" style="background:rgba(255,255,255,.1);color:#fff">players</span> 현재상태 + <span class="code" style="background:rgba(255,255,255,.1);color:#fff">player_registrations</span> 일자 스냅샷 + teams.</p>
+            <div class="stats" style="margin-top:4px">
+              <div class="stat dark"><div class="n num">10</div><div class="l">구단</div></div>
+              <div class="stat dark"><div class="n num">281</div><div class="l">선수</div></div>
+              <div class="stat dark"><div class="n num">281</div><div class="l">등록(07-13)</div></div>
+            </div>
+          </div>
+          <div class="card outline">
+            <h3><span class="pill p-s3">S3</span> 커뮤니티 RawPost</h3>
+            <p>제목·본문(무필터)·조회/추천/댓글·상위 댓글(작성자 마스킹). 우리 스키마 <span class="code">v2</span>.</p>
+            <div class="stats" style="margin-top:4px">
+              <div class="stat"><div class="n num">5,586</div><div class="l">DCInside</div></div>
+              <div class="stat"><div class="n num">2,186</div><div class="l">FMKorea</div></div>
+              <div class="stat"><div class="n num">10+1</div><div class="l">갤러리·게시판</div></div>
+            </div>
+          </div>
+        </div>
+        <p class="note">경기 원본(schedule·result·relay)은 별도로 S3에 — relay만 76파일 11.8MB(제일 큼).</p>
+      </div>
+    </section>
+
+    <!-- 9 · WHERE -->
+    <section class="slide">
+      <div class="wrap">
+        <div class="eyebrow"><i></i> <b>09</b> 적재 위치 요약</div>
+        <h2>무엇이 · 어디로 · 왜</h2>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th>데이터</th><th>싱크</th><th>키 / 테이블</th><th>왜 여기</th></tr></thead>
+            <tbody>
+              <tr><td>일정·결과·문자중계</td><td><span class="pill p-s3">S3</span></td><td><span class="code">raw-json/{종류}/…</span></td><td>원본 보존·방대한 스키마 → 지연 처리</td></tr>
+              <tr><td>커뮤니티 글</td><td><span class="pill p-s3">S3</span></td><td><span class="code">community/{소스}/{날짜}/</span></td><td>비정형 텍스트 → 원문 보관</td></tr>
+              <tr><td>경기 박스스코어</td><td><span class="pill p-sql">MySQL</span></td><td><span class="code">games · pitching · batting …</span></td><td>선수·팀 조인·집계 필요</td></tr>
+              <tr><td>구단·1군 로스터</td><td><span class="pill p-sql">MySQL</span></td><td><span class="code">teams · players · registrations</span></td><td>특정일 등록현황 질의</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="legend">
+          <span><span class="pill p-s3">S3</span> 브론즈 원본 · 멱등 키 덮어쓰기</span>
+          <span><span class="pill p-sql">MySQL</span> 정규화 · upsert 병합</span>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="foot">
+    <div class="nav">
+      <button id="prev" aria-label="이전 슬라이드">‹</button>
+      <button id="next" aria-label="다음 슬라이드">›</button>
+    </div>
+    <div class="prog"><i id="progBar"></i></div>
+    <div class="count" id="count">01 / 10</div>
+  </footer>
+</div>
+
+<script>
+  (function(){
+    var slides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
+    var i = 0, n = slides.length;
+    var count = document.getElementById('count');
+    var bar = document.getElementById('progBar');
+    var stage = document.getElementById('stage');
+    function pad(x){ return String(x).length<2 ? '0'+x : ''+x; }
+    function show(k){
+      i = Math.max(0, Math.min(n-1, k));
+      slides.forEach(function(s,idx){ s.classList.toggle('active', idx===i); });
+      count.textContent = pad(i+1)+' / '+pad(n);
+      bar.style.width = (n>1 ? (i/(n-1))*100 : 100)+'%';
+      if(stage) stage.scrollTop = 0;
+    }
+    function next(){ show(i+1); } function prev(){ show(i-1); }
+    document.getElementById('next').addEventListener('click', next);
+    document.getElementById('prev').addEventListener('click', prev);
+    document.addEventListener('keydown', function(e){
+      if(['ArrowRight',' ','PageDown'].indexOf(e.key)>-1){ e.preventDefault(); next(); }
+      else if(['ArrowLeft','PageUp'].indexOf(e.key)>-1){ e.preventDefault(); prev(); }
+      else if(e.key==='Home'){ show(0); } else if(e.key==='End'){ show(n-1); }
+    });
+    show(0);
+  })();
+</script>

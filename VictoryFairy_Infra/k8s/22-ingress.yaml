@@ -1,0 +1,136 @@
+# ALB Ingress: AWS Load Balancer Controller 가 이 Ingress 들을 보고 실제 ALB 를 만든다.
+#   /api/member -> user-app, /api/game -> quiz-app, 그 외 전부 -> fe-app
+#   (pathType: Prefix 라 하위 경로 전부 포함).
+#
+# ⚠ Ingress 가 3개인 이유 — 헬스체크 경로가 앱마다 다르기 때문이다.
+#   healthcheck-path 는 Ingress 단위 어노테이션이라 하나로는 두 값을 담을 수 없다. 앱이
+#   server.servlet.context-path(/api/member, /api/game)를 쓰므로 actuator 경로도 접두사를
+#   따라 갈린다. 그래서 Ingress 를 쪼개되 group.name 을 같게 주어 ALB 는 하나로 유지한다.
+#   (group.order 로 리스너 규칙 평가 순서를 고정한다.)
+#
+# ⚠ group.order 는 곧 규칙 평가 순서다. FE 의 '/' 는 모든 경로를 삼키므로 반드시 API 보다
+#   뒤(=큰 값)여야 한다. 10 user → 20 quiz → 30 fe. FE 를 앞으로 옮기면 API 가 전부 FE 로 간다.
+#
+# ⚠ ALB 는 forward 시 경로를 rewrite 하지 않는다(redirect 만 가능). 여기의 path 는 앱이 실제로
+#   서비스하는 경로와 문자 그대로 일치해야 한다 — 다르면 파드까지 도달해도 404 다.
+# ⚠ 적용 순서: BE 가 /api/member·/api/game 과 actuator 를 서비스하도록 배포된 뒤에 apply 할 것.
+#   먼저 apply 하면 현재 배포본(/api/auth·/api/users·/api/chat)이 전부 라우팅에서 빠진다.
+# ⚠ 종전 단일 Ingress("victoryfairy")는 이름이 달라져 apply 로 대체되지 않는다. 반드시 먼저 지울 것:
+#     kubectl -n victoryfairy delete ingress victoryfairy
+#   남겨두면 /healthz 헬스체크를 쓰는 옛 규칙이 같은 ALB 그룹에 계속 붙어 있는다.
+#
+# 전제(모두 Terraform 으로 프로비저닝됨):
+#   - LBC IRSA 역할 (modules/alb) + LBC Helm 설치 (runbook) → IngressClass "alb"
+#   - 퍼블릭 서브넷 태그 kubernetes.io/role/elb=1 (modules/network) → LBC 가 서브넷 자동 탐색
+#   - ACM 인증서 (modules/dns) → LBC 가 host(victoryfairy.com)로 인증서 자동 탐색 → HTTPS 종료
+#   - ExternalDNS (k8s/23-external-dns.yaml) → 아래 host 를 보고 A(ALIAS)→ALB 레코드 자동 생성
+#
+# 주의: LB 자체에 걸리는 어노테이션(scheme·listen-ports·ssl-redirect)은 같은 group 의 모든
+#   Ingress 에서 값이 일치해야 한다. 다르면 LBC 가 그룹 구성에 실패한다.
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: victoryfairy-user
+  namespace: victoryfairy
+  annotations:
+    alb.ingress.kubernetes.io/group.name: victoryfairy
+    alb.ingress.kubernetes.io/group.order: "10"
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: '443' # 80 → 443 자동 리다이렉트
+    # HTTPS(TLS) 인증서: 어노테이션을 생략하면 LBC 가 아래 host(victoryfairy.com)와 도메인이
+    #   일치하는 ACM 인증서를 자동 탐색해 붙인다(modules/dns 가 발급). 명시하려면 주석 해제:
+    # alb.ingress.kubernetes.io/certificate-arn: <terraform output acm_certificate_arn>
+    #
+    # 헬스체크: user-app 의 context-path(/api/member) 아래 actuator readiness.
+    #   ⚠ /actuator/health 전체가 아니라 readiness 그룹이다. 전체 health 는 db·redis 인디케이터를
+    #     합산해 DOWN 을 내므로 MySQL EC2 가 흔들리면 멀쩡한 파드까지 타깃에서 빠진다.
+    alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
+    alb.ingress.kubernetes.io/healthcheck-path: /api/member/actuator/health/readiness
+spec:
+  ingressClassName: alb
+  rules:
+    - host: victoryfairy.com
+      http:
+        paths:
+          - path: /api/member
+            pathType: Prefix
+            backend:
+              service:
+                name: user-app
+                port:
+                  number: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: victoryfairy-quiz
+  namespace: victoryfairy
+  annotations:
+    # ExternalDNS 는 이 Ingress 를 무시한다(dns-controller 가 아닌 값이면 스킵).
+    #   두 Ingress 가 같은 host(victoryfairy.com)를 갖는 탓에 ExternalDNS 가 같은 이름의 desired
+    #   endpoint 를 둘 만들어, 바꿀 게 없는데도 1분마다 UPSERT 를 반복했다(로그 노이즈 + Route53 API 낭비).
+    #   같은 ALB(group.name)를 공유하므로 A(ALIAS) 레코드는 하나면 충분하다 → user Ingress 하나만 소유하게 둔다.
+    #   ⚠ user Ingress 를 지우면 이 도메인의 DNS 소유자가 사라진다. 그때는 이 어노테이션을 걷어낼 것.
+    external-dns.alpha.kubernetes.io/controller: none
+    alb.ingress.kubernetes.io/group.name: victoryfairy
+    alb.ingress.kubernetes.io/group.order: "20"
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: '443'
+    #
+    # 헬스체크: quiz-app 의 context-path(/api/game) 아래 actuator readiness.
+    alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
+    alb.ingress.kubernetes.io/healthcheck-path: /api/game/actuator/health/readiness
+spec:
+  ingressClassName: alb
+  rules:
+    - host: victoryfairy.com
+      http:
+        paths:
+          - path: /api/game
+            pathType: Prefix
+            backend:
+              service:
+                name: quiz-app
+                port:
+                  number: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: victoryfairy-fe
+  namespace: victoryfairy
+  annotations:
+    # user Ingress 하나만 이 host 의 DNS 를 소유한다(위 quiz 주석과 같은 이유).
+    external-dns.alpha.kubernetes.io/controller: none
+    alb.ingress.kubernetes.io/group.name: victoryfairy
+    # ⚠ 반드시 API(10·20)보다 뒤. '/' 가 모든 경로를 삼키므로 앞에 오면 API 가 전부 FE 로 간다.
+    alb.ingress.kubernetes.io/group.order: "30"
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: '443'
+    #
+    # 헬스체크: nginx.conf 가 제공하는 전용 엔드포인트(정적 파일 배치와 무관하게 nginx 생존만 본다).
+    # ⚠ 종전 BE Ingress 가 쓰다 폐기한 것과 경로 이름은 같지만 이쪽은 실제로 200 을 돌려준다.
+    alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
+    alb.ingress.kubernetes.io/healthcheck-path: /healthz
+spec:
+  ingressClassName: alb
+  rules:
+    - host: victoryfairy.com
+      http:
+        paths:
+          # SPA 라 딥링크(/login, /chat/…)가 서버 경로로 존재하지 않는다. 전부 fe-app 으로 보내면
+          # nginx 의 try_files fallback 이 index.html 을 내주고 react-router 가 해석한다.
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: fe-app
+                port:
+                  number: 80

@@ -1,0 +1,42 @@
+{
+  "totalCnt": 5,
+  "code": "100",
+  "msg": "",
+  "rows": [
+    {"row": [
+      {"Text": "2026-08-04", "Class": null},
+      {"Text": "등번호 변경", "Class": null},
+      {"Text": "롯데", "Class": null},
+      {"Text": "김한결(투수)", "Class": null},
+      {"Text": "140→62", "Class": null}
+    ]},
+    {"row": [
+      {"Text": "2026-07-24", "Class": null},
+      {"Text": "트레이드", "Class": null},
+      {"Text": "한화", "Class": null},
+      {"Text": "이형범(투수)", "Class": null},
+      {"Text": "KIA→한화", "Class": null}
+    ]},
+    {"row": [
+      {"Text": "2026-07-16", "Class": null},
+      {"Text": "개명", "Class": null},
+      {"Text": "롯데", "Class": null},
+      {"Text": "박하늘(외야수)", "Class": null},
+      {"Text": "개명전:박건", "Class": null}
+    ]},
+    {"row": [
+      {"Text": "2026-07-30", "Class": null},
+      {"Text": "웨이버", "Class": null},
+      {"Text": "KT", "Class": null},
+      {"Text": "사우어(투수)", "Class": null},
+      {"Text": "", "Class": null}
+    ]},
+    {"row": [
+      {"Text": "2026-08-03", "Class": null},
+      {"Text": "부상자 명단", "Class": null},
+      {"Text": "키움", "Class": null},
+      {"Text": "김재웅(투수)", "Class": null},
+      {"Text": "10일", "Class": null}
+    ]}
+  ]
+}

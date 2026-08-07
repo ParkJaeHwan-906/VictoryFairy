@@ -1,0 +1,7 @@
+# torch 는 Dockerfile 에서 CPU 빌드로 별도 설치한다(이미지 비대화 방지).
+fastapi==0.111.0
+uvicorn[standard]==0.30.1
+pydantic==2.7.4
+pydantic-settings==2.3.4
+kiwipiepy==0.23.2
+transformers==4.44.2

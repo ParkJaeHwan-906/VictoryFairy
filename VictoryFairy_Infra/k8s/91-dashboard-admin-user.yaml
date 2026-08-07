@@ -1,0 +1,42 @@
+# Dashboard 로그인용 admin-user — 학습용 cluster-admin 토큰
+#
+# ⚠ 경고: cluster-admin 을 통째로 바인딩하는 학습용 계정이다. dev 클러스터
+#   (victoryfairy-dev) 한정으로만 쓰고, 운영 전환 전 반드시 제거할 것.
+#   (운영에서는 최소 권한 Role + OIDC 등 정식 인증으로 대체)
+# 전제: 90-kubernetes-dashboard.yaml 을 먼저 적용해 kubernetes-dashboard
+#   네임스페이스가 존재해야 한다.
+# 접근 방법:
+#   1) kubectl -n kubernetes-dashboard port-forward svc/kubernetes-dashboard 8443:443
+#   2) 브라우저 https://localhost:8443 (자체서명 인증서 경고는 무시하고 진행)
+#   3) 토큰 조회 후 로그인 화면에 붙여넣기:
+#      kubectl -n kubernetes-dashboard get secret admin-user-token -o jsonpath='{.data.token}' | base64 -d
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: admin-user
+  namespace: kubernetes-dashboard
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: admin-user
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: admin-user
+    namespace: kubernetes-dashboard
+---
+# 장기(long-lived) 토큰 — k8s 1.24+ 는 SA 생성 시 토큰을 자동 발급하지 않으므로
+# service-account-token 타입 Secret 을 명시적으로 만들어 컨트롤러가 채우게 한다.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: admin-user-token
+  namespace: kubernetes-dashboard
+  annotations:
+    kubernetes.io/service-account.name: admin-user
+type: kubernetes.io/service-account-token
