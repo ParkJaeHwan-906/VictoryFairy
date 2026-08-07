@@ -1,7 +1,6 @@
 # 문제 생성은 어떻게 동작하는가
 
-> 설계 논의(2026-07-28~30)를 정리한 해설 문서. 계약·컴포넌트 상세는
-> [스펙](superpowers/specs/2026-07-28-llm-wiki-quiz-generation-design.md) 참조.
+> 설계 논의(2026-07-28~30)를 정리한 해설 문서.
 > 이 문서는 "왜 이렇게 만들었고, 문제 하나가 어떻게 태어나는가"를 설명한다.
 
 ## 1. 목표: 쇼츠처럼 넘기는 퀴즈
@@ -126,6 +125,5 @@ H2H_SEASON_RECORD 템플릿 하나를 따라가 보자:
 
 ## 관련 문서
 
-- [설계 스펙](superpowers/specs/2026-07-28-llm-wiki-quiz-generation-design.md) — 아키텍처·계약·리스크
 - [question-templates.yaml](../question-gen/config/question-templates.yaml) — 템플릿 카탈로그 (34종)
 - [envelope-format.md](../py-collector/docs/envelope-format.md) — 수집 파이프라인 산출물 계약

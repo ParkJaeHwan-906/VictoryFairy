@@ -1,8 +1,7 @@
 # 퀴즈 생성기 routine 실행 지침
 
 > **실행체 안내 (2026-08-04)**: 실행체는 Claude Code 클라우드 루틴으로 확정됐다
-> (스펙: docs/superpowers/specs/2026-08-04-claude-routine-s3-direct-design.md —
-> 2026-08-03 Bedrock 러너 스펙을 대체). 루틴 세션이 이 문서를 그대로 따르되,
+> (2026-08-03 Bedrock 러너 방식을 대체). 루틴 세션이 이 문서를 그대로 따르되,
 > 결정적 단계(템플릿 선택·바인딩·evidence 대조·선별·quizId 부여)는 `runner/`
 > 패키지의 catalog/binding/finalize 모듈을 우선 사용한다. 구현과 이 문서가
 > 어긋나면 이 문서를 먼저 고치고 구현을 맞춘다.
