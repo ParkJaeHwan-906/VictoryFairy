@@ -55,6 +55,21 @@ output "external_dns_role_arn" {
   value       = module.dns.external_dns_role_arn
 }
 
+output "fe_bucket_name" {
+  description = "FE 정적 자산 S3 버킷 이름. .github/workflows/deploy-fe.yml 의 aws s3 sync 대상."
+  value       = module.cdn.bucket_name
+}
+
+output "fe_cloudfront_distribution_id" {
+  description = "FE CloudFront 배포 ID. deploy-fe.yml 의 무효화(create-invalidation) 대상."
+  value       = module.cdn.distribution_id
+}
+
+output "fe_cloudfront_domain_name" {
+  description = "FE CloudFront 배포 도메인(d*.cloudfront.net). apex 를 옮기기 전에 이 주소로 직접 접속해 검증한다(docs/fe-cdn-migration.md §4 1단계)."
+  value       = module.cdn.distribution_domain_name
+}
+
 output "mysql_instance_id" {
   description = "MySQL EC2 인스턴스 ID (SSM 포트포워딩 대상)"
   value       = module.mysql_ec2.instance_id

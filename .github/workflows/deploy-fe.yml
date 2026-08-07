@@ -1,14 +1,18 @@
-name: Deploy FE to EKS
+name: Deploy FE to S3 + CloudFront
 
-# FE(정적 SPA) 배포 파이프라인. BE 와 같은 클러스터·같은 ALB 를 쓰지만 워크플로는 분리한다
-# (빌드 도구·트리거 경로·롤아웃 대상이 전부 다르고, BE 변경이 FE 를 재배포할 이유가 없다).
+# FE(정적 SPA) 배포 파이프라인.
 #
-#   push(main) → Docker 빌드(Vite) → ECR push(커밋 SHA 태그, IMMUTABLE)
-#   → kubectl set image → 블루-그린식 롤아웃 → 실패 시 자동 rollout undo
+#   push(main) → Vite 빌드 → 번들 검증 → S3 sync → CloudFront 무효화
 #
-# 인증은 deploy-eks.yml 과 동일한 OIDC 역할(victoryfairy-dev-github-actions). ECR push 대상에
-# victoryfairy-fe 가 포함되는 것은 terraform modules/security 가 module.ecr 의 리포지토리 ARN
-# 전체를 넘기기 때문이라 별도 IAM 변경이 필요 없다.
+# 종전에는 Docker 이미지를 구워 ECR 에 올리고 EKS 의 nginx 파드를 롤아웃했다. 정적 파일을
+# 서비스하는 데 컨테이너 런타임과 파드가 필요하지 않아 S3+CloudFront 로 옮겼다
+# (설계·전환 절차: VictoryFairy_Infra/docs/fe-cdn-migration.md).
+#
+# 인증은 deploy-eks.yml 과 동일한 OIDC 역할(victoryfairy-dev-github-actions). S3 쓰기와
+# CloudFront 무효화 권한은 terraform modules/security 가 부여한다(fe_bucket_arn·fe_distribution_arn).
+#
+# ⚠ 롤백에 kubectl rollout undo 같은 한 방이 없다. 즉시 되돌려야 하면 이전 커밋으로
+#   workflow_dispatch 를 돌린다(빌드가 수십 초라 실용적이다). 버킷 버저닝이 최후의 수단.
 
 on:
   push:
@@ -25,16 +29,23 @@ permissions:
 env:
   AWS_REGION: ap-northeast-2
   ROLE_ARN: arn:aws:iam::555209622409:role/victoryfairy-dev-github-actions
-  CLUSTER: victoryfairy-dev
-  NAMESPACE: victoryfairy
-  ECR_REPO: victoryfairy-fe
 
-  # ⚠ 절대 URL 이 아니라 상대 경로다. FE 와 API 가 같은 오리진(victoryfairy.com)에서 서비스되므로
-  #   도메인이 필요 없고, 박지 않아야 이미지가 특정 도메인에 묶이지 않는다.
-  #   이 값은 Vite 가 번들에 문자열로 굽는다 — 바꾸면 재배포가 아니라 재빌드가 필요하고,
-  #   FE 를 다른 도메인으로 분리하는 순간 CORS 없이는 깨진다(그때는 BE CORS 설정이 선행돼야 한다).
-  VITE_API_USER_BASE_URL: /api/member
-  VITE_API_GAME_BASE_URL: /api/game
+  # = terraform output fe_bucket_name. 이름은 modules/cdn 이 "<cluster_name>-fe" 로 결정한다.
+  S3_BUCKET: victoryfairy-dev-fe
+
+  # TODO: terraform output fe_cloudfront_distribution_id 값으로 채울 것.
+  # 비어 있으면 무효화 단계를 건너뛴다 — index.html 의 엣지 TTL 이 0 이라 대체로 문제되지 않지만,
+  # 배포가 즉시 반영되지 않는 구간이 생긴다(경고를 남긴다).
+  CLOUDFRONT_DISTRIBUTION_ID: ""
+
+  # ⚠ 절대 URL 이 아니라 상대 경로다. CloudFront 가 단일 진입점이 되어 /api/*·/rt/* 를 ALB 로,
+  #   나머지를 S3 로 갈라 보내므로 FE·API 가 같은 오리진(victoryfairy.com)에 남는다. 그래서
+  #   도메인이 필요 없고 CORS 도 필요 없다.
+  #   이 값은 Vite 가 번들에 문자열로 굽는다 — 바꾸면 재배포가 아니라 재빌드가 필요하다.
+  # ⚠ BE 의 server.servlet.context-path 와 문자 그대로 일치해야 한다. ALB 도 CloudFront 도
+  #   경로를 rewrite 하지 않는다.
+  VITE_API_USER_BASE_URL: /api
+  VITE_API_GAME_BASE_URL: /rt
 
 jobs:
   build-deploy:
@@ -45,8 +56,46 @@ jobs:
       - name: Resolve FE dir
         id: fe
         run: |
-          [ -f "VictoryFairy_FE/Dockerfile" ] || { echo "::error::VictoryFairy_FE/Dockerfile 를 찾지 못했습니다"; exit 1; }
+          [ -f "VictoryFairy_FE/package.json" ] || { echo "::error::VictoryFairy_FE/package.json 를 찾지 못했습니다"; exit 1; }
           echo "dir=VictoryFairy_FE" >> "$GITHUB_OUTPUT"
+
+      # Dockerfile 이 쓰던 node:24-slim 과 메이저를 맞춘다(빌드 산출물 재현성).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: VictoryFairy_FE/package-lock.json
+
+      # build 스크립트가 tsc -b 를 먼저 돌리므로 타입 검사가 포함된다.
+      - name: Build
+        working-directory: ${{ steps.fe.outputs.dir }}
+        run: |
+          npm ci
+          npm run build
+
+      # 값이 누락돼도 Vite 는 실패하지 않고 src/api/config.ts 의 localhost:8080 폴백을
+      # 구워버려, 배포는 성공하고 브라우저에서 API 호출만 전부 죽는다 — 업로드 전에 잡는다.
+      - name: Verify baked API base URL
+        working-directory: ${{ steps.fe.outputs.dir }}
+        run: |
+          if grep -rq "localhost:8080" ./dist/assets; then
+            echo "::error::번들에 localhost 폴백이 박혔습니다 — env 주입 실패"; exit 1
+          fi
+
+          # 옛 base path 잔존 검사. 이쪽이 진짜 회귀 가드다 — BE context-path 가 이미 /api·/rt 로
+          # 바뀌었으므로 옛 경로가 하나라도 남으면 그 호출은 404 가 된다.
+          for stale in "/api/member" "/api/game"; do
+            if grep -rq "$stale" ./dist/assets; then
+              echo "::error::번들에 옛 base path $stale 가 남아 있습니다"; exit 1
+            fi
+          done
+
+          # 새 base 가 문자열 리터럴로 박혔는지 확인(Vite 가 define 치환한 형태).
+          for base in "$VITE_API_USER_BASE_URL" "$VITE_API_GAME_BASE_URL"; do
+            grep -rq "\"$base\"" ./dist/assets \
+              || { echo "::error::번들에서 \"$base\" 를 찾지 못했습니다 — env 주입 실패"; exit 1; }
+          done
+          echo "OK: $VITE_API_USER_BASE_URL · $VITE_API_GAME_BASE_URL"
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -54,52 +103,34 @@ jobs:
           role-to-assume: ${{ env.ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Login to ECR
-        id: ecr
-        uses: aws-actions/amazon-ecr-login@v2
+      # ⚠ --delete 를 쓰지 않는다. 캐시된 옛 index.html 을 들고 있는 브라우저가 사라진 청크를
+      #   요청해 화면이 깨진다. 옛 자산은 남겨두고 필요할 때 사람이 정리한다(CI 에 DeleteObject
+      #   권한 자체가 없다 — modules/security 참고).
+      # ⚠ 순서가 중요하다. index.html 에 새 자산의 해시 파일명이 적혀 있으므로, 자산을 먼저 올려
+      #   존재하게 만든 뒤 마지막에 진입점을 바꾼다. 뒤집으면 그 사이 접속자가 없는 청크를 받는다.
+      # Cache-Control 은 오브젝트 메타데이터로 박지 않는다 — CloudFront Response Headers Policy 가
+      # override 로 덮어쓰므로(modules/cdn), 캐시 정책은 인프라 코드 한 곳에서만 관리된다.
+      - name: Upload assets (index.html 제외)
+        working-directory: ${{ steps.fe.outputs.dir }}
+        run: aws s3 sync ./dist "s3://$S3_BUCKET" --exclude "index.html" --no-progress
 
-      - name: Build & push image
-        id: img
-        env:
-          REGISTRY: ${{ steps.ecr.outputs.registry }}
+      - name: Upload index.html (진입점 — 반드시 마지막)
+        working-directory: ${{ steps.fe.outputs.dir }}
+        run: aws s3 cp ./dist/index.html "s3://$S3_BUCKET/index.html" --no-progress
+
+      - name: Invalidate CloudFront
         run: |
-          TAG="${GITHUB_SHA::7}"
-          IMG="$REGISTRY/$ECR_REPO:$TAG"
-          echo "image=$IMG" >> "$GITHUB_OUTPUT"
-          # IMMUTABLE 태그: 이미 존재하면(재실행 등) 빌드/푸시 생략
-          if aws ecr describe-images --repository-name "$ECR_REPO" --image-ids imageTag="$TAG" >/dev/null 2>&1; then
-            echo "태그 $TAG 이미 존재 — 빌드 생략"; exit 0
+          if [ -z "$CLOUDFRONT_DISTRIBUTION_ID" ]; then
+            echo "::warning::CLOUDFRONT_DISTRIBUTION_ID 가 비어 무효화를 건너뜁니다 — 새 번들 반영이 지연될 수 있습니다(워크플로 env 의 TODO 참고)"
+            exit 0
           fi
-          docker build \
-            --build-arg VITE_API_USER_BASE_URL="$VITE_API_USER_BASE_URL" \
-            --build-arg VITE_API_GAME_BASE_URL="$VITE_API_GAME_BASE_URL" \
-            -t "$IMG" "${{ steps.fe.outputs.dir }}"
-          docker push "$IMG"
+          ID=$(aws cloudfront create-invalidation \
+                 --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID" \
+                 --paths "/" "/index.html" \
+                 --query "Invalidation.Id" --output text)
+          echo "무효화 $ID 대기"
+          aws cloudfront wait invalidation-completed \
+            --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID" --id "$ID"
 
-      # 빌드 인자가 실제로 번들에 박혔는지 확인한다. 값이 누락돼도 Vite 는 실패하지 않고
-      # src/api/config.ts 의 localhost:8080 폴백을 구워버려, 배포는 성공하고 브라우저에서
-      # API 호출만 전부 죽는다 — 롤아웃 전에 잡는다.
-      - name: Verify baked API base URL
-        run: |
-          docker create --name fe-verify "${{ steps.img.outputs.image }}" >/dev/null
-          docker cp fe-verify:/usr/share/nginx/html/assets ./_assets >/dev/null
-          docker rm fe-verify >/dev/null
-          if grep -rq "localhost:8080" ./_assets; then
-            echo "::error::번들에 localhost 폴백이 박혔습니다 — build-arg 주입 실패"; exit 1
-          fi
-          grep -rq "$VITE_API_USER_BASE_URL" ./_assets \
-            || { echo "::error::번들에서 $VITE_API_USER_BASE_URL 를 찾지 못했습니다"; exit 1; }
-          echo "OK: $VITE_API_USER_BASE_URL · $VITE_API_GAME_BASE_URL"
-
-      - name: Deploy to EKS (blue-green rollout)
-        run: |
-          aws eks update-kubeconfig --region "$AWS_REGION" --name "$CLUSTER"
-          kubectl -n "$NAMESPACE" set image deploy/fe-app fe="${{ steps.img.outputs.image }}"
-          kubectl -n "$NAMESPACE" rollout status deploy/fe-app --timeout=180s
-
-      - name: Rollback on failure
-        if: failure()
-        run: |
-          echo "::warning::롤아웃 실패 — 직전 버전으로 자동 롤백"
-          kubectl -n "$NAMESPACE" rollout undo deploy/fe-app || true
-          kubectl -n "$NAMESPACE" rollout status deploy/fe-app --timeout=120s || true
+      # 해시 자산은 immutable 로 영구 캐시되므로 무효화 대상이 아니다 — 새 배포는 새 파일명을 쓴다.
+      # 무효화는 진입점(index.html)에만 필요하다.

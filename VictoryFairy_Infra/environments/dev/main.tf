@@ -70,7 +70,9 @@ module "ecr" {
   name_prefix = "victoryfairy"
   # user/quiz 는 BE Gradle 모듈과 1:1 (Dockerfile ARG MODULE).
   # pipeline 은 정제 러너 이미지 — 패턴·Bedrock Lambda 가 같은 이미지를 공유한다(ARCHITECTURE §4).
-  # fe 는 JVM 이 아니라 Vite 빌드 산출물을 구운 nginx 정적 이미지다(k8s/24-fe-app.yaml).
+  # ⚠ fe 는 S3+CloudFront 전환으로 더 이상 쓰이지 않는다(docs/fe-cdn-migration.md).
+  #   전환을 되돌릴 때 fe-app 파드가 pull 할 이미지가 남아 있어야 하므로 정리 3단계까지 남긴다.
+  #   여기서 지우면 리포지토리와 그 안의 이미지가 함께 삭제돼 롤백 경로가 끊긴다.
   repository_names = ["user", "quiz", "pipeline", "fe"]
 }
 
@@ -113,10 +115,21 @@ module "alb" {
 module "dns" {
   source = "../../modules/dns"
 
+  # us-east-1 은 CloudFront 인증서 발급 전용(CloudFront 는 서울 인증서를 거부한다).
+  providers = {
+    aws           = aws
+    aws.us_east_1 = aws.us_east_1
+  }
+
   domain_name       = var.domain_name
   cluster_name      = module.eks.cluster_name
   oidc_provider_arn = module.eks.oidc_provider_arn
   oidc_provider_url = module.eks.oidc_provider_url
+
+  # CloudFront 가 ALB 오리진에 HTTPS 로 붙을 때 제시받는 이름. 전용 인증서를 따로 발급한다 —
+  # apex 인증서의 SAN 으로 넣으면 인증서가 교체되고, 그것을 물고 있는 운영 ALB 리스너 때문에
+  # 옛 인증서 삭제가 거부된다(modules/dns/main.tf §2-1). apex 인증서는 손대지 않는다.
+  origin_host = local.api_origin_host
 
   # Mailjet 이메일 발신 도메인 인증 레코드. DKIM·검증만 지금 등록(ExternalDNS/apex와 무충돌).
   # SPF(mailjet_spf_value)는 apex TXT ↔ ExternalDNS 소유권 TXT 충돌로 보류 — 미주입=미생성.
@@ -125,11 +138,36 @@ module "dns" {
   mailjet_verification_value = "bc2f75b58109420e2abf5666cdeff8f5"
 }
 
+# FE 정적 호스팅 — S3(원본) + CloudFront(단일 진입점).
+# CloudFront 가 /api/*·/rt/* 를 ALB 로, 나머지를 S3 로 갈라 보내므로 FE·API 가 같은 오리진으로 남는다.
+# 전환 절차·롤백은 docs/fe-cdn-migration.md.
+module "cdn" {
+  source = "../../modules/cdn"
+
+  name_prefix = local.cluster_name
+  domain_name = var.domain_name
+
+  # ⚠ 서울 인증서(module.dns.certificate_arn)가 아니다 — CloudFront 는 us-east-1 만 받는다.
+  certificate_arn = module.dns.cloudfront_certificate_arn
+
+  origin_domain_name = local.api_origin_host
+  api_path_patterns  = local.api_path_patterns
+  route53_zone_id    = module.dns.zone_id
+
+  # 실서비스 전환 스위치. false 인 동안은 트래픽이 그대로 ALB 로 가고 CloudFront 는 배포
+  # 도메인으로만 접근된다 — 검증을 마친 뒤 true 로 바꿔 apex 를 옮긴다(문서 §4 2단계).
+  attach_apex_alias = var.fe_attach_apex_alias
+}
+
 module "security" {
   source = "../../modules/security"
 
   name_prefix  = local.cluster_name
   cluster_name = module.eks.cluster_name # 출력 참조로 의존성 형성(Access Entry 는 클러스터 이후)
+
+  # FE 배포 경로가 ECR+kubectl 에서 S3+CloudFront 로 바뀌면서 CI 에 필요해진 권한.
+  fe_bucket_arn       = module.cdn.bucket_arn
+  fe_distribution_arn = module.cdn.distribution_arn
 
   # CI(GitHub Actions) keyless 배포: 이 레포의 지정 브랜치 워크플로만 역할을 맡는다.
   github_repository   = "ParkJaeHwan-906/VictoryFairy"
