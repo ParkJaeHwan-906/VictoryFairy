@@ -117,9 +117,9 @@ curl -s https://victoryfairy.com/ | grep -o 'assets/index-[A-Za-z0-9]*\.js'
 `modules/fe-watchdog` 가 배포와 무관하게 계속 지켜본다.
 
 ```
-EventBridge(5분) → 점검 Lambda → CloudWatch 커스텀 지표(VictoryFairy/Watchdog)
+EventBridge(1분) → 점검 Lambda → CloudWatch 커스텀 지표(VictoryFairy/Watchdog)
                                     ↓
-                          알람 (연속 2회 실패 = 최대 10분 내 감지)
+                          알람 (연속 3회 실패 = 3~4분 내 감지)
                                     ↓
                                 SNS 토픽
                                     ↓
@@ -162,7 +162,7 @@ FE 번들이 깨져도 S3·CloudFront 는 **200** 을 준다. JS 오류는 브�
 
 자동 롤백이 스스로 장애 원인이 되지 않게 하는 장치다.
 
-1. **연속 2회 실패** (`datapoints_to_alarm`) — 단발 네트워크 흔들림에 되돌리지 않는다.
+1. **연속 3회 실패** (`datapoints_to_alarm`) — 단발 네트워크 흔들림에 되돌리지 않는다.
    `1` 로 낮추지 말 것. 변수 validation 이 막고 있다.
 2. **알람은 상태 전이에만 통보한다** — ALARM 이 유지되는 동안 대응 Lambda 가 반복 호출되지 않는다.
 3. **쿨다운** (`rollback_cooldown_seconds`, 기본 600초) — 알람이 OK↔ALARM 로 요동칠 때 계단식
@@ -170,8 +170,29 @@ FE 번들이 깨져도 S3·CloudFront 는 **200** 을 준다. JS 오류는 브�
 
 그리고 되돌릴 이전 릴리스가 없으면(최초 배포 등) 롤백하지 않고 알림만 보낸다.
 
-⚠ `treat_missing_data = "breaching"` 이다. 점검 함수가 아예 못 돌아 지표가 끊긴 것도 장애로 본다 —
-`missing` 으로 두면 **감시가 죽었을 때 조용히 OK 로 남는다.** 감시의 실패가 침묵이 되는 것이 최악이다.
+### ⚠ `treat_missing_data` — 세 값 다 겪고 나서야 맞춘 곳
+
+FE·BE 알람은 **`notBreaching`** 이다. 여기서 두 번 사고가 났으므로 바꾸기 전에 아래를 읽을 것.
+
+| 값 | 실제 동작 | 결과 |
+|---|---|---|
+| `breaching` | 지표 없음 = 장애 | 최초 apply 직후, 첫 점검이 돌기 전에 알람이 `INSUFFICIENT_DATA → ALARM` 으로 튀어 **감시가 스스로 롤백했다** |
+| `missing` | 없는 데이터를 **평가에서 제외** | `datapoints_to_alarm` 이 무의미해진다. 데이터가 드물면 **1회 실패로 발화** — 위 1번 방어가 사실상 없는 상태가 된다 |
+| **`notBreaching`** | 없는 데이터를 정상으로 센다 | ALARM 에 닿으려면 **실제 실패가 그 개수만큼** 필요하다 |
+
+`missing` 의 함정이 특히 위험하다. 겉보기엔 안전해 보이는데 **점검 Lambda 가 호출을 한 번만 거르면
+단발 실패로 롤백한다.** 실제로 주기를 5분→1분으로 바꾼 직후 3개 구간 중 2개가 비어 있었고,
+유일한 0 하나로 알람이 전이했다. CloudWatch 이력에 이렇게 남아 있다:
+
+```
+"1 out of the last 3 datapoints [0.0] was less than the threshold
+ (minimum 3 datapoints for OK -> ALARM transition)"
+```
+
+3 개가 필요하다고 적힌 채 1 개로 전이한 것이다.
+
+**감시가 멈춘 것은 `watchdog-stalled` 알람이 `breaching` 으로 따로 잡아 알림만 보낸다.**
+그래야 '서비스 장애' 와 '감시 자신의 장애' 가 갈리고, 지표 공백이 롤백 트리거가 되지 않는다.
 
 ### CURRENT 마커
 
