@@ -278,12 +278,41 @@ resource "aws_cloudwatch_metric_alarm" "fe" {
   evaluation_periods  = var.datapoints_to_alarm
   datapoints_to_alarm = var.datapoints_to_alarm
 
-  # ⚠ breaching 로 둔다. 점검 함수가 아예 못 돌아 지표가 끊긴 것도 장애로 본다 —
-  #   missing 으로 두면 감시가 죽었을 때 조용히 OK 로 남는다(감시의 실패가 침묵이 되는 최악).
-  treat_missing_data = "breaching"
+  # ⚠ missing 이어야 한다. breaching 으로 두면 '지표가 없는 것' 이 곧 롤백 트리거가 된다 —
+  #   2026-08-07 최초 apply 직후 실제로 그랬다. 알람이 INSUFFICIENT_DATA → ALARM 으로 튀어
+  #   (아직 첫 점검이 돌기 전) 감시가 스스로 롤백을 실행했다. 마침 두 릴리스의 번들이 같아
+  #   사용자 영향은 없었지만, 구조적으로는 '감시 자신의 공백' 을 '서비스 장애' 로 오인한 것이다.
+  #
+  #   감시가 멈춘 것도 물론 알아야 한다. 다만 그 대응은 롤백이 아니라 알림이어야 하므로
+  #   아래 stalled 알람으로 분리했다(알람 이름이 다르므로 responder 가 롤백하지 않는다).
+  treat_missing_data = "missing"
 
   alarm_actions = [aws_sns_topic.alerts.arn]
   ok_actions    = [aws_sns_topic.alerts.arn] # 복구도 알린다
+
+  tags = var.tags
+}
+
+# 감시 자신이 멈춘 것을 잡는다 — '서비스 장애' 와 다른 사건이므로 알람을 따로 둔다.
+# 지표가 아예 안 들어오면(점검 Lambda 실패·EventBridge 중단·IAM 문제) SampleCount 가 없어
+# breaching 으로 떨어진다. FE 알람 이름이 아니므로 responder 는 알림만 보낸다.
+resource "aws_cloudwatch_metric_alarm" "stalled" {
+  alarm_name        = "${var.name_prefix}-watchdog-stalled"
+  alarm_description = "점검 지표가 들어오지 않는다 = 감시가 멈췄다. 서비스 장애와 별개이며 롤백하지 않는다. 점검 Lambda 로그를 확인할 것."
+
+  namespace   = local.metric_namespace
+  metric_name = "FeHealthy"
+  statistic   = "SampleCount"
+
+  # 점검 주기의 3배 창을 본다 — 한 번 거른 것으로 울리지 않게 한다.
+  period              = var.alarm_period_seconds * 3
+  comparison_operator = "LessThanThreshold"
+  threshold           = 1
+  evaluation_periods  = 1
+  treat_missing_data  = "breaching"
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
 
   tags = var.tags
 }
@@ -304,7 +333,9 @@ resource "aws_cloudwatch_metric_alarm" "api" {
   threshold           = 1
   evaluation_periods  = var.datapoints_to_alarm
   datapoints_to_alarm = var.datapoints_to_alarm
-  treat_missing_data  = "breaching"
+
+  # FE 알람과 같은 이유로 missing 이다 — 지표 공백은 stalled 알람이 따로 잡는다.
+  treat_missing_data = "missing"
 
   alarm_actions = [aws_sns_topic.alerts.arn]
   ok_actions    = [aws_sns_topic.alerts.arn]

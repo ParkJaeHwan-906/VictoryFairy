@@ -216,35 +216,54 @@ def read_current():
 
 
 def rollback():
-    """이전 릴리스로 되돌린다. (성공여부, 사유, 되돌린버전) 반환."""
+    """이전 릴리스로 되돌린다. (성공여부, 사유, 되돌린버전) 반환.
+
+    ⚠ 모든 분기를 로그로 남긴다. 롤백을 '하지 않은' 판단이야말로 장애 때 가장 궁금한 정보인데,
+      Slack 에만 보내고 로그에 남기지 않으면 나중에 원인을 되짚을 수 없다(2026-08-07 실제로 겪음).
+    """
     versions = list_releases()
+    print(f"[rollback] 아카이브 {len(versions)}개: {versions[-4:]}")
+
     if len(versions) < 2:
-        return False, f"릴리스가 {len(versions)}개뿐이라 되돌릴 대상이 없다", None
+        why = f"릴리스가 {len(versions)}개뿐이라 되돌릴 대상이 없다"
+        print(f"[rollback] 건너뜀 — {why}")
+        return False, why, None
 
     current, modified = read_current()
     if current is None:
         # 마커가 없으면 최신을 현재로 가정한다(배포 워크플로가 마커를 쓰기 전 상태).
         current = versions[-1]
-        print(f"CURRENT 마커 없음 — 최신({current})을 현재로 가정")
-    elif modified is not None:
-        age = (dt.datetime.now(dt.timezone.utc) - modified).total_seconds()
-        if age < COOLDOWN:
-            return False, f"쿨다운 — {int(age)}초 전에 이미 전환됐다(연속 되감기 방지)", None
+        print(f"[rollback] CURRENT 마커 없음 — 최신({current})을 현재로 가정")
+    else:
+        print(f"[rollback] CURRENT={current} (최종수정 {modified})")
+        if modified is not None:
+            age = (dt.datetime.now(dt.timezone.utc) - modified).total_seconds()
+            if age < COOLDOWN:
+                why = f"쿨다운 — {int(age)}초 전에 이미 전환됐다(연속 되감기 방지, 한계 {COOLDOWN}초)"
+                print(f"[rollback] 건너뜀 — {why}")
+                return False, why, None
+            print(f"[rollback] 쿨다운 통과 — 마지막 전환 {int(age)}초 전")
 
     if current not in versions:
-        return False, f"현재 버전 {current} 을 아카이브에서 찾을 수 없다", None
+        why = f"현재 버전 {current} 을 아카이브에서 찾을 수 없다"
+        print(f"[rollback] 건너뜀 — {why}")
+        return False, why, None
 
     idx = versions.index(current)
     if idx == 0:
-        return False, f"{current} 이 가장 오래된 릴리스라 더 되돌릴 수 없다", None
+        why = f"{current} 이 가장 오래된 릴리스라 더 되돌릴 수 없다"
+        print(f"[rollback] 건너뜀 — {why}")
+        return False, why, None
 
     target = versions[idx - 1]
+    print(f"[rollback] 실행 — {current} → {target}")
     s3.copy_object(
         Bucket=BUCKET,
         Key="index.html",
         CopySource={"Bucket": BUCKET, "Key": f"{RELEASES_PREFIX}{target}/index.html"},
     )
     s3.put_object(Bucket=BUCKET, Key=CURRENT_KEY, Body=target.encode(), ContentType="text/plain")
+    print(f"[rollback] 완료 — index.html 과 CURRENT 를 {target} 로 갱신")
     return True, "ok", target
 
 
@@ -276,7 +295,11 @@ def handler(event, context):  # noqa: ARG001
             notify_slack(f":white_check_mark: 복구됨 — `{name}`\n{reason}")
             continue
 
+        print(f"[alarm] {name} → {state} (FE={is_fe}) 사유: {reason[:200]}")
+
         rows, judgement = probe()
+        print(f"[probe] {[(l, c) for l, _, c in rows]}")
+        print(f"[judge] {judgement}")
 
         head = ":rotating_light: *FE 장애*" if is_fe else f":rotating_light: *BE 장애* — `{name}`"
         lines = [_mentions(), head, f"알람: `{name}`", "", "*지금 상태*", _table(rows), f"*판단* {judgement}"]
