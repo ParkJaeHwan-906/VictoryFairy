@@ -110,10 +110,91 @@ curl -s https://victoryfairy.com/ | grep -o 'assets/index-[A-Za-z0-9]*\.js'
 
 ### 한계
 
-배포 직후(워크플로가 도는 몇 초~1분)만 감시한다. 배포가 끝난 뒤 한참 지나 드러나는 문제는 잡지
-못한다. 그 구간까지 자동화하려면 CloudWatch Synthetics 캐너리(헤드리스 브라우저로 실제 렌더링과
-JS 오류를 확인) → 알람 → Lambda 롤백 구성이 필요하다. 캐너리 실행 비용이 붙고, 알람 오탐으로
-정상 버전을 되돌릴 위험이 있어 지금 범위에 넣지 않았다.
+배포 직후(워크플로가 도는 몇 초~1분)만 본다. 그 창이 닫힌 뒤는 아래 상시 감시가 맡는다.
+
+## 상시 감시 (배포 이후)
+
+`modules/fe-watchdog` 가 배포와 무관하게 계속 지켜본다.
+
+```
+EventBridge(5분) → 점검 Lambda → CloudWatch 커스텀 지표(VictoryFairy/Watchdog)
+                                    ↓
+                          알람 (연속 2회 실패 = 최대 10분 내 감지)
+                                    ↓
+                                SNS 토픽
+                                    ↓
+                          대응 Lambda
+                             ├ FE 알람 → S3 롤백 + GitHub Issue
+                             └ 항상    → Slack 알림
+```
+
+### 무엇을 보는가
+
+| 지표 | 검사 | 알람 시 동작 |
+|---|---|---|
+| `FeHealthy` | `/` 200 → **참조된 번들을 실제로 받아봄** → `/login` 200 | **자동 롤백** + 티켓 + Slack |
+| `ApiHealthy{Target=user}` | `/api/actuator/health/readiness` 200 | Slack 알림만 |
+| `ApiHealthy{Target=quiz}` | `/rt/actuator/health/readiness` 200 | Slack 알림만 |
+| `FeLatency`·`ApiLatency` | 응답 시간 | 알람 없음 (추이 관찰용) |
+
+⚠ **BE 실패에는 FE 롤백을 하지 않는다.** 원인이 BE 인데 FE 를 되돌리면 정상 FE 만 잃는다.
+그래서 지표를 나눠 발행하고 알람도 갈라 두었다. 대응 Lambda 는 알람 **이름**으로 분기한다.
+
+### 왜 CloudFront 에러율 알람이 아닌가
+
+FE 번들이 깨져도 S3·CloudFront 는 **200** 을 준다. JS 오류는 브라우저에서 터지므로 서버 측
+4xx/5xx 신호가 발생하지 않는다. 그래서 "응답이 왔는지" 가 아니라 **"올바른 것이 왔는지"** 를
+단정하는 능동 점검이어야 한다. `index.html` 이 가리키는 자산을 실제로 받아보는 것이 그 핵심이고,
+이 확인을 빼면 자산이 사라져도 통과해 점검이 무의미해진다.
+
+### 왜 ALB 타깃그룹 지표를 쓰지 않았나
+
+`UnHealthyHostCount` 가 가장 직접적인 신호지만, 타깃그룹은 AWS Load Balancer Controller 가
+소유해 이름(`k8s-victoryf-userapp-391a85ab29`)이 Ingress 재생성 때 바뀐다. Terraform 이 안정적으로
+붙잡을 수 없다. 사용자 대면 URL 로 때리는 점검은 DNS→CloudFront→ALB→파드→앱 전 구간을 통과하므로
+타깃이 죽으면 503 으로 잡힌다.
+
+⚠ 다만 **일부 파드만 죽은 상태**는 ALB 가 우회해 이 점검을 통과한다. 지금은 user·quiz 가 각
+1 레플리카라 1대 실패 = 전면 장애여서 차이가 없지만, 상시 2대 이상으로 올리면 그때는 타깃그룹
+지표가 따로 필요하다.
+
+### 오탐·되감기 방어 (3중)
+
+자동 롤백이 스스로 장애 원인이 되지 않게 하는 장치다.
+
+1. **연속 2회 실패** (`datapoints_to_alarm`) — 단발 네트워크 흔들림에 되돌리지 않는다.
+   `1` 로 낮추지 말 것. 변수 validation 이 막고 있다.
+2. **알람은 상태 전이에만 통보한다** — ALARM 이 유지되는 동안 대응 Lambda 가 반복 호출되지 않는다.
+3. **쿨다운** (`rollback_cooldown_seconds`, 기본 600초) — 알람이 OK↔ALARM 로 요동칠 때 계단식
+   되감기를 막는다. `CURRENT` 마커의 최종 수정 시각으로 판정한다.
+
+그리고 되돌릴 이전 릴리스가 없으면(최초 배포 등) 롤백하지 않고 알림만 보낸다.
+
+⚠ `treat_missing_data = "breaching"` 이다. 점검 함수가 아예 못 돌아 지표가 끊긴 것도 장애로 본다 —
+`missing` 으로 두면 **감시가 죽었을 때 조용히 OK 로 남는다.** 감시의 실패가 침묵이 되는 것이 최악이다.
+
+### CURRENT 마커
+
+`s3://<버킷>/releases/CURRENT` 에 현재 서비스 중인 버전 문자열이 들어 있다. 배포 워크플로와
+대응 Lambda 가 갱신한다.
+
+⚠ **손으로 `aws s3 cp` 만 해서 되돌리면 마커가 낡아 거짓 정보가 된다.** 없는 것보다 나쁘다.
+수동 롤백 시에는 마커도 함께 갱신할 것:
+
+```bash
+aws s3 cp s3://$B/releases/<버전>/index.html s3://$B/index.html
+printf '%s' '<버전>' | aws s3 cp - s3://$B/releases/CURRENT
+```
+
+### 시크릿
+
+코드에 두지 않고 SSM SecureString 이름만 참조한다. **파라미터가 없으면 그 기능만 생략되고 감시와
+롤백은 계속 동작한다** — 토큰 하나 때문에 감시 전체가 멈추지 않게 하려는 것이다.
+
+| 파라미터 | 용도 | 없으면 |
+|---|---|---|
+| `/victoryfairy/dev/slack-webhook-url` | Slack Incoming Webhook | 알림 생략 (롤백은 됨) |
+| `/victoryfairy/dev/github-token` | 티켓 발행 (`issues:write` 만) | 티켓 생략 (롤백은 됨) |
 
 ## 주의할 것
 
