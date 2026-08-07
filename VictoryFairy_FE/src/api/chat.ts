@@ -18,7 +18,7 @@ import type {
  *
  * 6개 엔드포인트 전부 인증이 필수이므로 모두 `requiresAuth: true`로 보낸다 —
  * 토큰 주입·refresh 회전·에러 정규화는 gameClient 인터셉터가 처리한다.
- * 경로는 GAME_BASE_URL 기준 상대 경로다(`/chat/rooms` → `.../api/game/chat/rooms`).
+ * 경로는 GAME_BASE_URL 기준 상대 경로다(`/chat/rooms` → `.../rt/chat/rooms`).
  *
  * SSE 구독만 axios가 아닌 fetch로 연다(스트림 처리 필요). 이때만 절대 URL이 필요하다.
  *
