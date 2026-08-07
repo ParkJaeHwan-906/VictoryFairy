@@ -80,8 +80,9 @@ resource "aws_lambda_function" "db" {
       COLLECTOR_DB_USER      = var.db_user
       COLLECTOR_DB_PASSWORD  = var.db_password
       COLLECTOR_TARGETS_FILE = "/var/task/config/targets.yaml"
-      # player_meme export 의 시드 파일. Settings 기본값이 상대경로("config/memes.yaml")라
-      # Lambda 의 cwd(/var/task)에 의존하게 되므로 targets 와 같이 절대경로로 못 박는다.
+      # player_meme export 의 시드 파일. 크론은 없지만(아래 "export(player_meme)" 주석)
+      # 수동 invoke 로 도는 경로라 필요하다. Settings 기본값이 상대경로
+      # ("config/memes.yaml")라 Lambda 의 cwd 에 의존하게 되므로 절대경로로 못 박는다.
       COLLECTOR_MEMES_FILE = "/var/task/config/memes.yaml"
       JOURNAL_DIR          = "/tmp/journal" # Lambda's only writable path
       # records/registrations 는 S3/마스킹을 안 쓰지만 Settings 가 필수값으로 요구한다
@@ -259,30 +260,18 @@ resource "aws_lambda_permission" "export_player_profile" {
   source_arn    = aws_cloudwatch_event_rule.export_player_profile[0].arn
 }
 
-# --- export(player_meme): config/memes.yaml -> S3 envelope (매일 11:40 KST) ---
-# 시드 파일이 원본이라 내용 자체는 매일 바뀌지 않지만, meme_dict 소스가 선수명을
-# players 로 해석해 playerUid 를 붙인다(resolve_player_uid) — 신규 등록 선수의
-# unresolved 가 풀리려면 registrations 뒤에 다시 돌아야 한다. 그래서 profile 직후.
-resource "aws_cloudwatch_event_rule" "export_player_meme" {
-  count               = local.db_enabled && var.quiz_source_jobs_enabled ? 1 : 0
-  name                = "${var.name}-export-player-meme"
-  description         = "player_meme envelope export -> S3 (11:40 KST)"
-  schedule_expression = var.export_player_meme_schedule
-  tags                = var.tags
-}
-
-resource "aws_cloudwatch_event_target" "export_player_meme" {
-  count = local.db_enabled && var.quiz_source_jobs_enabled ? 1 : 0
-  rule  = aws_cloudwatch_event_rule.export_player_meme[0].name
-  arn   = aws_lambda_function.db[0].arn
-  input = jsonencode({ job = "export", target = "player_meme" })
-}
-
-resource "aws_lambda_permission" "export_player_meme" {
-  count         = local.db_enabled && var.quiz_source_jobs_enabled ? 1 : 0
-  statement_id  = "AllowEventBridgeExportPlayerMeme"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.db[0].function_name
-  principal     = "events.amazonaws.com"
-  source_arn    = aws_cloudwatch_event_rule.export_player_meme[0].arn
-}
+# --- export(player_meme) 는 일부러 크론이 없다 ---
+#
+# 원본이 사람이 손으로 쓰는 시드 파일(config/memes.yaml)이고, 그 파일은 이미지에
+# 구워진다(Dockerfile 의 COPY config/). 즉 내용이 바뀌는 계기는 "시드를 고쳐
+# main 에 머지 -> 이미지 재배포" 뿐이고, 크론이 매일 돈다고 새 밈이 생기지 않는다.
+# 2026-08-07 기준 시드는 선수 2명·밈 2개짜리 스텁이고 이관 커밋 외 편집 이력이 없다.
+#
+# 소비자도 매일 도는 퀴즈가 아니라 주 2회 도는 위키 빌더 하나뿐이다
+# (wiki-builder/ROUTINE.md 2단계 — 선수 문서의 밈 시드로 읽는다).
+#
+# 시드를 고쳤을 때만 -db 함수를 1회 직접 부른다:
+#   aws lambda invoke --function-name kbo-collector-db \
+#     --cli-binary-format raw-in-base64-out \
+#     --payload '{"job":"export","target":"player_meme"}' /dev/stdout
+# 시드가 커져 사람이 자주 채워 넣게 되면 그때 크론을 다시 검토한다.
