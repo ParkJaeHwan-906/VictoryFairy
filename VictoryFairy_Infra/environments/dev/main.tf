@@ -112,6 +112,20 @@ module "alb" {
   oidc_provider_url = module.eks.oidc_provider_url
 }
 
+# quiz-app 파드용 IRSA — S3 quiz-candidates/ 읽기 전용.
+# BE :quiz 모듈의 퀴즈 적재기가 매일 crawl 버킷의 후보 JSON 을 RDB 로 옮긴다.
+# 역할 ARN 을 k8s/21-quiz-app.yaml 의 SA 어노테이션에 지정한다(출력 quiz_app_role_arn).
+module "quiz_irsa" {
+  source = "../../modules/quiz-irsa"
+
+  name_prefix       = local.cluster_name
+  oidc_provider_arn = module.eks.oidc_provider_arn
+  oidc_provider_url = module.eks.oidc_provider_url
+
+  # ⚠ 이름의 -dev 에 속지 말 것 — crawl-dev 가 크롤 파이프라인의 운영 버킷이다(crawl-local 이 테스트).
+  crawl_bucket_name = var.crawl_bucket_name
+}
+
 # 퍼블릭 DNS(Route53) + TLS(ACM) + ExternalDNS IRSA.
 # apply 후 name_servers 를 레지스트라에 등록해야 존이 활성화되고 ACM 검증이 완료된다(runbook).
 module "dns" {

@@ -1,4 +1,4 @@
-# quiz-app: 실시간 채팅/퀴즈 Spring 모듈(:quiz, 컨테이너 포트 8081, 경로 /api/game)
+# quiz-app: 실시간 채팅/퀴즈 Spring 모듈(:quiz, 컨테이너 포트 8081, 경로 /rt — BE PR #191)
 #
 # 인프라 커플링(설계 변경 2026-07 — user·quiz 공용 app 노드풀):
 #   app 노드그룹 = label workload=app, taint 없음. user·quiz 파드가 같은 노드에 동거.
@@ -11,6 +11,21 @@
 #
 # 다중 파드 팬아웃: 실시간 SSE는 파드가 여러 개면 서비스 Redis pub/sub 로 파드 간 이벤트를
 #   팬아웃한다(ARCHITECTURE §3). 그래서 세션 어피니티 없이도 수평 확장 안전.
+---
+# IRSA: 이 역할이 S3 크롤 버킷의 quiz-candidates/* 읽기 권한을 준다 — 퀴즈 적재기(BE :quiz)가
+#   매일 후보 JSON 을 RDB 로 옮긴다. 역할 정의는 modules/quiz-irsa,
+#   ARN = terraform output quiz_app_role_arn (이름 기반이라 값이 고정됨 — external-dns 와 동일 방식).
+# ⚠ 토큰 주입은 파드 '생성' 시점이다 — 기존 파드에는 적용되지 않으니 SA 를 새로 붙였다면
+#   kubectl rollout restart deployment/quiz-app -n victoryfairy 로 파드를 재생성해야 한다.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: quiz-app
+  namespace: victoryfairy
+  labels:
+    app: quiz-app
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::555209622409:role/victoryfairy-dev-quiz-app
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -38,6 +53,7 @@ spec:
       labels:
         app: quiz-app
     spec:
+      serviceAccountName: quiz-app # IRSA — 위 SA 의 role-arn 어노테이션이 S3 읽기 자격증명을 준다
       # ── 인프라 커플링: app 공용 노드그룹 label 과 정확히 일치 ──
       nodeSelector:
         workload: app
