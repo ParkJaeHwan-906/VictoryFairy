@@ -1,0 +1,223 @@
+/**
+ * EmailVerifySheet(회원가입 이메일 인증번호 입력 바텀시트) 스타일.
+ *
+ * 딤 · 시트 모서리 · 핸들 · rise 애니메이션은 PlayerSearchSheet / GameDetailSheet 와 같은 값을 쓴다.
+ * 세 시트가 한 앱 안에서 번갈아 뜨므로 열리는 모양이 서로 달라 보이면 안 된다.
+ *
+ * 높이는 고정하지 않는다 — 내용이 짧고 개수도 고정이라 GameDetailSheet 처럼 내용에 맡기고
+ * 최대치만 둔다(에러 문구가 한 줄 늘어나는 정도라 스크롤이 생길 일은 거의 없다).
+ */
+
+.email-sheet {
+  position: fixed;
+  z-index: 10;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+/* 딤 — 클릭하면 닫힌다. 버튼이지만 화면에는 어두운 면으로만 보인다. */
+.email-sheet__dim {
+  position: absolute;
+  inset: 0;
+  border: none;
+  padding: 0;
+  background-color: var(--color-dim);
+  cursor: default;
+}
+
+.email-sheet__sheet {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--layout-app-width);
+  max-height: 90dvh;
+  border-radius: var(--radius-40) var(--radius-40) 0 0;
+  background-color: var(--color-surface);
+  /* 키보드가 올라오면 시트가 눌리므로 넘칠 때만 안쪽에서 스크롤한다 */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  animation: email-sheet-rise 0.24s ease-out;
+}
+
+@keyframes email-sheet-rise {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+/* 화면에는 감추고 보조기기에만 남기는 텍스트 */
+.email-sheet__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------ *
+ * Handle — 시트 상단 고정
+ * ------------------------------------------------------------------ */
+.email-sheet__handle {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 12px 0;
+}
+
+.email-sheet__handle-bar {
+  width: 48px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-label-assistive);
+}
+
+/* ------------------------------------------------------------------ *
+ * 안내 문구
+ * ------------------------------------------------------------------ */
+/* Title/Title2 — SemiBold 20 / 1.4 / -1% */
+.email-sheet__title {
+  margin: 20px 0 0;
+  padding-inline: var(--layout-gutter);
+  color: var(--color-label-normal);
+  font-size: var(--font-size-title2);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title2);
+}
+
+/* Body/Body4 — Regular 14 / 1.5 */
+.email-sheet__guide {
+  margin: 8px 0 0;
+  padding-inline: var(--layout-gutter);
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-body4);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body4);
+}
+
+/* 어느 주소로 보냈는지가 이 화면에서 가장 확인이 필요한 값이다 */
+.email-sheet__email {
+  color: var(--color-label-neutral);
+  font-weight: var(--font-weight-medium);
+  overflow-wrap: anywhere;
+}
+
+/* ------------------------------------------------------------------ *
+ * 인증번호 입력 · CTA
+ * ------------------------------------------------------------------ */
+.email-sheet__form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 24px;
+  padding-inline: var(--layout-gutter);
+}
+
+/*
+ * 여섯 자리를 눈으로 세기 쉽도록 가운데 정렬 + 자간을 넓힌다.
+ * 마지막 글자 뒤에도 자간이 붙어 오른쪽으로 밀리므로 그만큼 왼쪽 여백을 더해 상쇄한다.
+ */
+.email-sheet__input {
+  width: 100%;
+  padding: 16px 12px;
+  padding-left: calc(12px + 0.4em);
+  border: none;
+  border-radius: var(--radius-12);
+  background-color: var(--color-background-gray);
+  color: var(--color-label-normal);
+  font-family: var(--font-family-base);
+  font-size: var(--font-size-title3);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  letter-spacing: 0.4em;
+  text-align: center;
+}
+
+.email-sheet__input::placeholder {
+  color: var(--color-label-disable);
+  font-weight: var(--font-weight-regular);
+}
+
+.email-sheet__message {
+  margin: 0;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-label2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+.email-sheet__message--error {
+  color: var(--color-error-strong);
+}
+
+.email-sheet__submit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 60px;
+  margin-top: 8px;
+  padding-inline: 16px;
+  border-radius: var(--radius-15);
+  background-color: var(--color-primary-400);
+  color: var(--color-white);
+  font-size: var(--font-size-button2);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  transition: background-color 0.15s ease-in-out;
+}
+
+.email-sheet__submit:disabled {
+  background-color: var(--color-action-disabled);
+  color: var(--color-label-disable);
+  cursor: not-allowed;
+}
+
+/* 보조 동작이라 CTA 와 달리 배경 없이 밑줄 텍스트로 둔다 */
+.email-sheet__resend {
+  align-self: center;
+  margin-top: 16px;
+  margin-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  padding: 8px;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-label2);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.email-sheet__resend:disabled {
+  color: var(--color-label-disable);
+  cursor: not-allowed;
+}
+
+/* ------------------------------------------------------------------ *
+ * 반응형 · 접근성
+ * ------------------------------------------------------------------ */
+@media (max-width: 359px) {
+  .email-sheet__title,
+  .email-sheet__guide,
+  .email-sheet__form {
+    padding-inline: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .email-sheet__sheet {
+    animation: none;
+  }
+
+  .email-sheet__submit {
+    transition: none;
+  }
+}
