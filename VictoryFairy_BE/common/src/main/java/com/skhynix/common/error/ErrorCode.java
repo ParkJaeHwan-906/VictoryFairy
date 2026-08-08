@@ -29,6 +29,7 @@ public enum ErrorCode {
     // 400 Bad Request - 응원 선택
     SUPPORT_TEAM_REQUIRED(400, "응원하는 구단을 먼저 선택해 주세요."),
     PLAYER_NOT_IN_SUPPORT_TEAM(400, "응원하는 구단 소속 선수만 선택할 수 있습니다."),
+    SUPPORT_PLAYER_LIMIT_EXCEEDED(400, "응원 선수는 최대 4명까지 선택할 수 있습니다."),
 
     // 404 Not Found
     CHATROOM_NOT_FOUND(404, "존재하지 않는 채팅방입니다."),

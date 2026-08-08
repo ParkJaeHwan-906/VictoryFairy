@@ -31,6 +31,23 @@ export { getTeamList } from './team';
 // 경기(user 모듈) 엔드포인트 함수 — 인증 없이 호출한다
 export { getGameList, getLineUp, isGameNotFound, GAME_ERROR_MESSAGE } from './game';
 
+// 선수(user 모듈) 엔드포인트 함수 — 인증 없이 호출한다
+export { getPlayerList } from './player';
+
+// 응원(user 모듈) 엔드포인트 함수 — 세 개 전부 인증이 필수다
+export {
+  selectSupportTeam,
+  addSupportPlayers,
+  cancelSupportPlayers,
+  isSupportTeamNotFound,
+  isSupportTeamNotSelected,
+  isSupportPlayerTeamMismatch,
+  isSupportPlayerLimitExceeded,
+  isSupportPlayerNotFound,
+  SUPPORT_ERROR_MESSAGE,
+  SUPPORT_PLAYER_MAX,
+} from './support';
+
 // 채팅(game 모듈) 엔드포인트 함수
 export {
   getChatRooms,
@@ -89,6 +106,13 @@ export type {
   LineUpPitcher,
   LineUpBatter,
 } from '../types/game';
+export type { Player, PlayerPosition, PlayerListParams } from '../types/player';
+export type {
+  SupportTeamRequest,
+  SupportPlayersRequest,
+  SupportTeamSelection,
+  SupportPlayer,
+} from '../types/support';
 export type {
   ChatRoom,
   ChatMessage,

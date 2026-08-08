@@ -31,7 +31,7 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/", "/error").permitAll()
-                        // ALB 타깃 헬스체크. context-path(/api/game)는 필터 이전에 떨어지므로 접두사 없이 쓴다.
+                        // ALB 타깃 헬스체크. context-path(/rt)는 필터 이전에 떨어지므로 접두사 없이 쓴다.
                         .requestMatchers(HttpMethod.GET, "/actuator/health/**").permitAll()
                         .anyRequest().authenticated()
                 )

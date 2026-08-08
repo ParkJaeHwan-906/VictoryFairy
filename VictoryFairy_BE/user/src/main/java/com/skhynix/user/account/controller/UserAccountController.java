@@ -13,12 +13,12 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 계정 자원({@code /api/member/users}). {@code /api/member/auth/**} 는 전부 {@code permitAll} 이라
+ * 계정 자원({@code /api/users}). {@code /api/auth/**} 는 전부 {@code permitAll} 이라
  * 탈퇴를 그쪽에 두면 인증이 걸리지 않아 이 경로에 둔다.
  */
 @RestController
 @RequiredArgsConstructor
-// 접두사 /api/member 는 server.servlet.context-path 가 붙인다 → 실제 노출 경로는 /api/member/users/**
+// 접두사 /api 는 server.servlet.context-path 가 붙인다 → 실제 노출 경로는 /api/users/**
 @RequestMapping("/users")
 public class UserAccountController {
 

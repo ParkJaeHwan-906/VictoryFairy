@@ -1,0 +1,274 @@
+/**
+ * PlayerSearchSheet(선호 선수 검색 바텀시트) 스타일.
+ * Figma: SWM / [Onboarding] 선호 선수 선택-검색x — `Bottom Area` 402 x 760.
+ *
+ * 목록이 길고(페이징 없이 전 구단이면 500명대) 검색창은 늘 보여야 하므로,
+ * GameDetailSheet 처럼 높이를 내용에 맡기지 않고 고정한 뒤 목록만 스크롤한다.
+ *
+ * 세로 간격은 Figma 좌표에서 앞 요소의 아랫변을 빼서 얻었다
+ * (핸들 30 → 검색창 62 = 32 / 검색창 118 → 목록 제목 142 = 24 / 제목 163 → 목록 171 = 8).
+ */
+
+.player-sheet {
+  position: fixed;
+  z-index: 10;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+/* 딤 — 클릭하면 닫힌다. 버튼이지만 화면에는 어두운 면으로만 보인다. */
+.player-sheet__dim {
+  position: absolute;
+  inset: 0;
+  border: none;
+  padding: 0;
+  background-color: var(--color-dim);
+  cursor: default;
+}
+
+.player-sheet__sheet {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--layout-app-width);
+  /* 디자인 높이(760)를 쓰되 작은 화면에서는 화면을 넘지 않게 잘라낸다 */
+  height: min(var(--layout-player-sheet-height), 90dvh);
+  border-radius: var(--radius-40) var(--radius-40) 0 0;
+  background-color: var(--color-surface);
+  overflow: clip;
+  animation: player-sheet-rise 0.24s ease-out;
+}
+
+@keyframes player-sheet-rise {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+/* 화면에는 감추고 보조기기에만 남기는 텍스트 */
+.player-sheet__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------ *
+ * Handle — 시트 상단 고정
+ * ------------------------------------------------------------------ */
+.player-sheet__handle {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 12px 0;
+}
+
+.player-sheet__handle-bar {
+  width: 48px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-label-assistive);
+}
+
+/* ------------------------------------------------------------------ *
+ * Textfield/Box_1 — 실제 입력은 여기서 한다(페이지 쪽 필드는 여는 버튼일 뿐)
+ * ------------------------------------------------------------------ */
+.player-sheet__search {
+  position: relative;
+  flex-shrink: 0;
+  margin-top: 32px;
+  margin-inline: var(--layout-gutter);
+}
+
+/* 오른쪽 여백(50px)은 44px 아이콘 버튼이 글자를 덮지 않도록 비워 둔 자리다 */
+.player-sheet__input {
+  width: 100%;
+  padding: 16px 50px 16px 12px;
+  border: none;
+  border-radius: var(--radius-12);
+  background-color: var(--color-background-gray);
+  color: var(--color-label-normal);
+  font-family: var(--font-family-base);
+  font-size: var(--font-size-body2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body2);
+}
+
+.player-sheet__input::placeholder {
+  color: var(--color-label-disable);
+}
+
+/* iOS 가 type="search" 에 붙이는 기본 지우기 버튼 — 디자인에 없어 감춘다 */
+.player-sheet__input::-webkit-search-cancel-button {
+  appearance: none;
+}
+
+/* Btn/Icon_r 44x44 */
+.player-sheet__search-button {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin-top: -22px;
+  padding: 10px;
+  border-radius: var(--radius-10);
+  overflow: clip;
+  cursor: pointer;
+}
+
+.player-sheet__search-icon {
+  width: 20px;
+  height: 20px;
+  background-color: var(--color-label-alternative);
+  -webkit-mask: url('../assets/search.svg') center / contain no-repeat;
+  mask: url('../assets/search.svg') center / contain no-repeat;
+}
+
+/* Body/Body3 — "전체 선수" · "검색 결과" */
+.player-sheet__list-title {
+  flex-shrink: 0;
+  margin: 24px 0 0;
+  padding-inline: var(--layout-gutter);
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body4);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body4);
+}
+
+/* ------------------------------------------------------------------ *
+ * 목록 — 시트에서 유일하게 스크롤되는 영역
+ * ------------------------------------------------------------------ */
+.player-sheet__body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  margin-top: 8px;
+  padding-inline: var(--layout-gutter);
+  padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.player-sheet__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.player-sheet__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 4px;
+  border-bottom: 1px solid var(--color-line-lighter);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s ease-in-out;
+}
+
+.player-sheet__list li:last-child .player-sheet__row {
+  border-bottom: none;
+}
+
+.player-sheet__row:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.player-sheet__name {
+  min-width: 0;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/*
+ * 선택 표시는 디자인에 없다 — 시트를 닫지 않고 여러 명을 고르는 흐름이라
+ * 무엇을 골랐는지 시트 안에서도 보여야 해서 CTA 와 같은 Primary/Normal 로 표시한다.
+ */
+.player-sheet__row--selected {
+  background-color: var(--color-background-ivory);
+}
+
+.player-sheet__row--selected .player-sheet__name {
+  color: var(--color-primary-normal);
+}
+
+/* 포지션 · 등번호. 둘 다 없을 수 있어(실측 약 47%) 비어도 자리가 무너지지 않는다. */
+.player-sheet__meta {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-body4);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body4);
+}
+
+.player-sheet__dot {
+  width: 4px;
+  height: 4px;
+  border-radius: var(--radius-full);
+  background-color: currentcolor;
+}
+
+/* 로딩 · 조회 실패 · 결과 없음 안내 */
+.player-sheet__notice {
+  margin: 40px 0;
+  color: var(--color-label-assistive);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  text-align: center;
+}
+
+.player-sheet__notice--error {
+  color: var(--color-error-strong);
+}
+
+/* ------------------------------------------------------------------ *
+ * 반응형 · 접근성
+ * ------------------------------------------------------------------ */
+@media (max-width: 379px) {
+  .player-sheet__search {
+    margin-inline: 16px;
+  }
+
+  .player-sheet__list-title,
+  .player-sheet__body {
+    padding-inline: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .player-sheet__sheet {
+    animation: none;
+  }
+
+  .player-sheet__row {
+    transition: none;
+  }
+}

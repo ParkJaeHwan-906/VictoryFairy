@@ -1,3 +1,5 @@
+import type { Player } from './player';
+
 /**
  * 응원 구단. 프로필에서는 아직 고르지 않았을 수 있어 nullable 로 들어간다.
  *
@@ -18,6 +20,7 @@ export interface MyProfile {
   nickname: string;
   /** 온보딩 중(구단 미선택)이면 오류가 아니라 `null` 이다. */
   supportTeam: SupportTeam | null;
+  supportPlayers: Player[];
   point: number;
   /** 누적 점수 행이 아직 없어도 `null` 이 아니라 `0` 으로 온다. */
   bqScore: number;

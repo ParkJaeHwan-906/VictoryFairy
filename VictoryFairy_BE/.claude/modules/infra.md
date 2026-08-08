@@ -55,10 +55,10 @@ user·quiz 파드가 `envFrom`으로 ConfigMap `app-config` + Secret `app-secret
 AWS Load Balancer Controller + ExternalDNS(`k8s/23-external-dns.yaml`, apex A(ALIAS)→ALB 자동 레코드).
 모듈: `VictoryFairy_Infra/modules/{dns,alb}`. runbook: `VictoryFairy_Infra/docs/domain-https-setup.md`.
 
-- **Ingress는 2개다**(`k8s/22-ingress.yaml`): `victoryfairy-user`(`/api/member`) / `victoryfairy-quiz`(`/api/game`).
+- **Ingress는 2개다**(`k8s/22-ingress.yaml`): `victoryfairy-user`(`/api`) / `victoryfairy-quiz`(`/rt`).
   `group.name: victoryfairy`를 같게 줘서 **ALB는 하나**로 묶인다. 쪼갠 이유는 헬스체크 경로가 앱마다 다르기
   때문 — `healthcheck-path`는 Ingress 단위 어노테이션이라 하나로는 두 값을 담을 수 없다.
-- ALB 헬스체크: `/api/member/actuator/health/readiness`, `/api/game/actuator/health/readiness`.
+- ALB 헬스체크: `/api/actuator/health/readiness`, `/rt/actuator/health/readiness`.
   ⚠ `/actuator/health` 전체가 아니라 **readiness 그룹**이다(전체는 db·redis 인디케이터를 합산해 DOWN을 내므로
   MySQL EC2가 흔들리면 멀쩡한 파드까지 타깃에서 빠진다).
 - ⚠ **ALB는 forward 시 경로 rewrite를 못 한다**(redirect만 가능). Ingress path와 앱의
@@ -107,6 +107,7 @@ TTL 기반 휘발성 데이터라 영속 볼륨이 필요 없다. `user`에 `SPR
   기동 시 실행한다(`spring.sql.init`). 배포 전 수동 SQL 불필요. 상세는 `.claude/modules/domain.md`.
 - **CI에 테스트 단계가 없다** — 빌드만 하고 배포한다. 테스트는 32개 있으므로 넣을 명분이 있다.
 - **EKS 1.30 연장 지원 과금 구간** — 버전 업그레이드 필요.
+- **`docker-compose.yml`의 `user`/`quiz` `environment:`에 `JWT_SECRET`이 없다**(2026-08-06 실측) — `.env`에 값이 있어도 컨테이너로 전달되지 않고 `application.yaml`의 하드코드 기본값(65바이트, jjwt가 HS512 선택)으로 조용히 폴백한다. 그 결과 로컬 `docker compose --profile prod`에서 발급된 refresh 토큰이 `users_refreshtoken.refreshtoken`(`length=255`)를 넘겨 `POST /auth/login`이 항상 500(`Data too long for column`)이 난다. EKS는 Secret 주입 경로가 달라 이 증상이 있는지 미확인.
 
 ## 미결정 사항
 - [x] 클러스터 방식: **EKS 채택** (managed control plane, `victoryfairy-dev`)
