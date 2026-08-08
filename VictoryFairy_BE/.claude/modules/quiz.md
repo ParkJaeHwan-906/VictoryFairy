@@ -25,7 +25,7 @@ Quiz 도메인 REST API 서버. **구단별 채팅 기능 구현 완료**: `chat
 - `global/config/QuizIngestConfig` — `S3Client`(자격증명 코드에 없음: 로컬 `~/.aws`, prod IRSA — **prod 배포 전 quiz 파드 ServiceAccount에 crawl 버킷 `quiz-candidates/*` 읽기 IRSA 필요(dev_infra 소관)**) + `kstClock` 빈
 
 ## 엔드포인트 — 퀴즈 (`/rt/quizzes`) — 전부 인증 필수
-- `GET /today?preferredOnly=` → 오늘(KST) 세트, **선호 먼저·그 안에서 id ASC**. `{id, type(객관식|O/X), question, difficulty, point, preferred, options[{no,text}]}` — **정답 미포함**. 세트 없는 날은 200 + 빈 배열(에러 아님)
+- `GET /today?preferredOnly=` → 오늘(KST) 세트 중 **내가 안 푼 문제만**(푼 문제 비노출 정책 — 커버링 인덱스 id 조회로 선필터, 다 풀었으면 응원·보기 조회 없이 빈 배열), **선호 먼저·그 안에서 id ASC**. `{id, type(객관식|O/X), question, difficulty, point, preferred, options[{no,text}]}` — **정답 미포함**. 빈 배열 = 세트 없음 or 다 품(구분은 이력 API 병용)
 - `GET /{quizId}` → 단건 상세. 미제출: answer 계열 키 부재 / 제출: `submitted,myOption,correct,answer` 포함. 미존재·**미편성 풀** 모두 404 `QUIZ_NOT_FOUND`
 - `POST /{quizId}/submit` `{option}` → 채점 결과 `{correct, answer, myOption, earnedPoint, totalPoint}`. 400 `QUIZ_OPTION_NOT_FOUND`(없는 보기)·404·409 `QUIZ_ALREADY_SUBMITTED`(중복, 동시 race 포함)
 - `GET /submissions?page=` → 이력(최신순 20건 고정, chat과 같은 `PageResponse`) + summary(total/correctCount/accuracy). 정답 번호·텍스트 포함(제출한 문제의 복기)

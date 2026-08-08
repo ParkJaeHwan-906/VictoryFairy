@@ -50,13 +50,27 @@ public class QuizService {
      * 오늘(KST) 세트를 선호 먼저(그 안에서는 id ASC) 정렬해 반환한다. 선호 = 내 응원팀이 문제의
      * 대상·상대 구단이거나, 문제의 대상 선수가 내 응원 선수인 것.
      *
+     * <p><b>이미 푼 문제는 노출하지 않는다(정책)</b> — 재제출은 어차피 409지만, 목록에 남겨두는
+     * 것 자체가 정책 위반이라 서버가 거른다. 선호 조회보다 먼저 거르는 이유: 다 푼 사용자는 응원
+     * 정보 조회 없이 빈 배열로 끝난다. 그래서 빈 배열은 "오늘 세트 없음"과 "오늘 다 품" 두 경우를
+     * 모두 뜻한다 — 구분이 필요하면 풀이 이력 API 가 담당한다.
+     *
      * <p>{@code preferredOnly=true}는 선호 문제만 남긴다. 단 <b>응원팀도 응원 선수도 없으면 필터
-     * 기준 자체가 없으므로 전체를 반환</b>한다(no-op) — 빈 배열을 주면 "오늘 퀴즈 없음"과 구분이
+     * 기준 자체가 없으므로 전체를 반환</b>한다(no-op) — 빈 배열을 주면 위의 두 경우와 구분이
      * 안 되는데, 실제로는 취향을 아직 안 정했을 뿐이다.
      */
     @Transactional(readOnly = true)
     public List<QuizResponse> getTodayQuizzes(Long userAccountId, boolean preferredOnly) {
-        List<Quiz> quizzes = quizRepository.findAllByQuizDateOrderByIdAsc(LocalDate.now(clock));
+        List<Quiz> published = quizRepository.findAllByQuizDateOrderByIdAsc(LocalDate.now(clock));
+        if (published.isEmpty()) {
+            return List.of();
+        }
+
+        Set<Long> submittedIds = Set.copyOf(quizUserSubmitRepository.findSubmittedQuizIds(
+                userAccountId, published.stream().map(Quiz::getId).toList()));
+        List<Quiz> quizzes = published.stream()
+                .filter(quiz -> !submittedIds.contains(quiz.getId()))
+                .toList();
         if (quizzes.isEmpty()) {
             return List.of();
         }

@@ -206,6 +206,44 @@ class QuizServiceTest {
         assertThat(result.get(0).difficulty()).isNull();
     }
 
+    // ---------- 오늘의 퀴즈: 푼 문제 제외 ----------
+
+    @Test
+    @DisplayName("이미 제출한 문제는 오늘 목록에서 빠진다 — 보기 조회도 남은 문제로만 나간다(정책: 푼 문제 비노출)")
+    void getTodayQuizzes_submittedQuiz_excludedFromList() {
+        Quiz solved = quiz(1L, "O/X", "이미 푼 문제", "EASY", 10.0);
+        Quiz unsolved = quiz(2L, "객관식", "아직 안 푼 문제", "MEDIUM", 30.0);
+        given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY))
+                .willReturn(List.of(solved, unsolved));
+        given(quizUserSubmitRepository.findSubmittedQuizIds(USER_ID, List.of(1L, 2L)))
+                .willReturn(List.of(1L));
+        givenNoPreference();
+        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(List.of(2L)))
+                .willReturn(List.of(option(unsolved, 0, "LG")));
+
+        List<QuizResponse> result = quizService.getTodayQuizzes(USER_ID, false);
+
+        assertThat(result).extracting(QuizResponse::id).containsExactly(2L);
+        verify(quizOptionRepository).findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(List.of(2L));
+    }
+
+    @Test
+    @DisplayName("오늘 세트를 전부 풀었으면 빈 리스트 — 응원·보기 조회는 아예 부르지 않는다")
+    void getTodayQuizzes_allSubmitted_returnsEmptyWithoutPreferenceQueries() {
+        Quiz first = quiz(1L, "O/X", "문제1", "EASY", 10.0);
+        Quiz second = quiz(2L, "객관식", "문제2", "MEDIUM", 30.0);
+        given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY))
+                .willReturn(List.of(first, second));
+        given(quizUserSubmitRepository.findSubmittedQuizIds(USER_ID, List.of(1L, 2L)))
+                .willReturn(List.of(1L, 2L));
+
+        List<QuizResponse> result = quizService.getTodayQuizzes(USER_ID, false);
+
+        assertThat(result).isEmpty();
+        verifyNoInteractions(quizOptionRepository, userSupportTeamRepository,
+                userSupportPlayerRepository);
+    }
+
     // ---------- 오늘의 퀴즈: 선호 정렬 ----------
 
     @Test

@@ -1,6 +1,8 @@
 package com.skhynix.domain.quiz.repository;
 
 import com.skhynix.domain.quiz.entity.QuizUserSubmit;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -27,6 +29,17 @@ public interface QuizUserSubmitRepository extends JpaRepository<QuizUserSubmit, 
     Optional<QuizUserSubmit> findByUserAccount_IdAndQuiz_Id(Long userAccountId, Long quizId);
 
     boolean existsByUserAccount_IdAndQuiz_Id(Long userAccountId, Long quizId);
+
+    /**
+     * 주어진 문제들 중 이 계정이 이미 제출한 것의 id 만 추린다 — "푼 문제는 오늘 목록에 노출하지
+     * 않는다" 정책의 필터 조회. 엔티티가 아니라 id 프로젝션인 이유: 호출부는 제외 판정에 id 만 쓰고,
+     * {@code uk_quiz_users_submit_account_quiz}(user_account_id, quiz_id)가 두 컬럼을 다 담고 있어
+     * 테이블 접근 없는 커버링 인덱스 조회로 끝난다.
+     */
+    @Query("select s.quiz.id from QuizUserSubmit s "
+            + "where s.userAccount.id = :userAccountId and s.quiz.id in :quizIds")
+    List<Long> findSubmittedQuizIds(@Param("userAccountId") Long userAccountId,
+            @Param("quizIds") Collection<Long> quizIds);
 
     /**
      * 내 제출 이력 한 페이지(최신 제출부터 — 정렬 축은 {@code id}다. {@code createdAt}이 아닌 이유는

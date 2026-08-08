@@ -32,7 +32,7 @@
 ## GET /rt/quizzes/today
 > 최종 변경: 2026-08-08 — 선호 정렬·`preferred` 필드·`preferredOnly` 파라미터 추가
 
-오늘(**KST**) 세트 목록. `QuizService.getTodayQuizzes(userAccountId, preferredOnly)` — "오늘"은 항상 서버가 KST 고정 클록으로 판정한다(파드 JVM은 UTC). 다른 날짜를 조회할 방법은 없다.
+오늘(**KST**) 세트 중 **내가 아직 안 푼 문제만** 반환한다 — **이미 제출한 문제는 목록에서 제외된다(정책: 푼 문제 비노출)**. `QuizService.getTodayQuizzes(userAccountId, preferredOnly)` — "오늘"은 항상 서버가 KST 고정 클록으로 판정한다(파드 JVM은 UTC). 다른 날짜를 조회할 방법은 없다.
 
 **인증 필요** — `Authorization: Bearer <accessToken>`
 
@@ -54,7 +54,7 @@
 | data[].preferred | boolean | 내 응원 구단·선수 매칭 여부(정렬 근거 그대로) |
 | data[].options | array | 보기 배열, `no` 오름차순. `no`(0-기반, **제출 시 보낼 번호**, O/X는 0=`"O"` 1=`"X"`) · `text` |
 
-**정답·근거·대상 FK는 응답에 없다.** 세트가 없는 날은 200 + 빈 배열(에러 아님).
+**정답·근거·대상 FK는 응답에 없다.** 빈 배열은 "오늘 세트 없음"과 "오늘 세트를 다 품" **둘 다**를 뜻한다(에러 아님) — 구분이나 진행률("10문제 중 7개 완료")이 필요하면 [풀이 이력](#get-rtquizzessubmissions)을 병용한다.
 
 **실패**: 401 UNAUTHENTICATED 뿐.
 
