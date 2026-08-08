@@ -125,8 +125,9 @@ class QuizIngestServiceTest {
     // ---------- 매핑 전체 ----------
 
     @Test
-    @DisplayName("KNOWLEDGE MULTI4 후보를 적재하면 externalId·quizDate·score·difficulty·templateId·"
-            + "answer(A→0)가 그대로 매핑되고 보기 4행이 번호 0..3으로 저장된다")
+    @DisplayName("KNOWLEDGE MULTI4 후보를 적재하면 externalId·score·difficulty·templateId·"
+            + "answer(A→0)가 그대로 매핑되고 보기 4행이 번호 0..3으로 저장된다 — 게임 귀속이 "
+            + "없는 후보라 quizDate는 null(미편성 풀 대기)이다")
     void ingest_knowledgeMulti4_mapsEveryFieldAndSavesFourOptions() {
         givenNotDuplicated();
         QuizType type = multipleType();
@@ -140,7 +141,8 @@ class QuizIngestServiceTest {
         verify(quizRepository).save(quizCaptor.capture());
         Quiz saved = quizCaptor.getValue();
         assertThat(saved.getExternalId()).isEqualTo(EXTERNAL_ID);
-        assertThat(saved.getQuizDate()).isEqualTo(QUIZ_DATE);
+        // 시효성 없는(게임 미귀속) 문제는 파티션 날짜가 아니라 풀로 간다 — 편성 잡이 출제일을 찍는다
+        assertThat(saved.getQuizDate()).isNull();
         assertThat(saved.getScore()).isEqualTo(30.0);
         assertThat(saved.getDifficulty()).isEqualTo("MEDIUM");
         assertThat(saved.getTemplateId()).isEqualTo("MEME_ORIGIN");
@@ -268,6 +270,7 @@ class QuizIngestServiceTest {
         assertThat(saved.getTeam()).isSameAs(hanwha);
         assertThat(saved.getOpponentTeam()).isNull();
         assertThat(saved.getGame()).isNull();
+        assertThat(saved.getQuizDate()).isNull(); // 선수 문항도 게임 귀속이 없으면 풀 대기
     }
 
     @Test
@@ -364,13 +367,16 @@ class QuizIngestServiceTest {
         assertThat(saved.getGame()).isSameAs(game);
         assertThat(saved.getTeam()).isSameAs(home);
         assertThat(saved.getOpponentTeam()).isSameAs(away);
+        // 경기 문항(시효성)은 풀에 가지 않고 파티션 날짜에 바로 묶인다
+        assertThat(saved.getQuizDate()).isEqualTo(QUIZ_DATE);
         // game 이 해석되면 팀 코드 해석 경로는 타지 않는다
         verifyNoInteractions(teamRepository);
     }
 
     @Test
-    @DisplayName("subject의 gameId를 games에서 못 찾으면 예외 없이 game FK만 null로 적재된다")
-    void ingest_gameIdUnresolved_loadsWithNullGameFk() {
+    @DisplayName("subject의 gameId를 games에서 못 찾으면 예외 없이 game FK만 null로 적재되되, "
+            + "quizDate는 그대로 찍힌다 — 해석 실패여도 시효성 문항이 풀에 들어가면 안 된다")
+    void ingest_gameIdUnresolved_loadsWithNullGameFkButStampsQuizDate() {
         givenNotDuplicated();
         givenMultipleTypeSeed(multipleType());
         givenSaveReturnsArgument();
@@ -386,6 +392,25 @@ class QuizIngestServiceTest {
         assertThat(saved.getGame()).isNull();
         assertThat(saved.getTeam()).isNull();
         assertThat(saved.getOpponentTeam()).isNull();
+        assertThat(saved.getQuizDate()).isEqualTo(QUIZ_DATE);
+    }
+
+    @Test
+    @DisplayName("subject 없이 top-level gameId(귀속 축)만 있어도 게임 귀속 문항으로 보고 "
+            + "quizDate를 찍는다")
+    void ingest_topLevelGameIdOnly_stampsQuizDate() {
+        givenNotDuplicated();
+        givenMultipleTypeSeed(multipleType());
+        givenSaveReturnsArgument();
+        given(gameRepository.findByNaverGameId("20260807HHKT02026")).willReturn(Optional.empty());
+        QuizCandidate candidate = new QuizCandidate(EXTERNAL_ID, "20260807HHKT02026", "KNOWLEDGE",
+                "MEME_ORIGIN", "MULTI4", "문제 지문?", fourOptions(), "A", "MEDIUM", 30,
+                List.of("HH"), null);
+
+        ingestService.ingest(candidate, QUIZ_DATE);
+
+        verify(quizRepository).save(quizCaptor.capture());
+        assertThat(quizCaptor.getValue().getQuizDate()).isEqualTo(QUIZ_DATE);
     }
 
     // ---------- 계약 위반 → 예외 ----------

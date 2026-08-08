@@ -12,6 +12,8 @@ import java.util.List;
  * @param type 유형명({@code 객관식} | {@code O/X}) — FE 렌더링 분기(선택지 목록 vs O/X 토글)용
  * @param point 배점. AI 산출물이 아닌 퀴즈(사람 작성)는 null 일 수 있다
  * @param difficulty EASY/MEDIUM/HARD/EXPERT. 마찬가지로 null 가능
+ * @param preferred 요청 사용자의 응원팀·응원 선수에 관한 문제인지 — 목록이 이 값 기준으로 선호
+ *     먼저 정렬돼 오지만, FE 가 배지 표시·재그룹핑을 하려면 플래그 자체도 필요하다
  */
 public record QuizResponse(
         Long id,
@@ -19,6 +21,7 @@ public record QuizResponse(
         String question,
         String difficulty,
         Double point,
+        boolean preferred,
         List<OptionResponse> options) {
 
     /** 보기 하나. {@code no}는 표기 순서이자 제출 시 보낼 번호(0-기반, O/X 는 0=O·1=X). */
@@ -29,13 +32,14 @@ public record QuizResponse(
         }
     }
 
-    public static QuizResponse of(Quiz quiz, List<QuizOption> options) {
+    public static QuizResponse of(Quiz quiz, List<QuizOption> options, boolean preferred) {
         return new QuizResponse(
                 quiz.getId(),
                 quiz.getQuizType().getName(),
                 quiz.getContent(),
                 quiz.getDifficulty(),
                 quiz.getScore(),
+                preferred,
                 options.stream().map(OptionResponse::from).toList());
     }
 }

@@ -1,5 +1,6 @@
 package com.skhynix.quiz.quiz.ingest;
 
+import com.skhynix.quiz.quiz.service.QuizPublishService;
 import java.time.Clock;
 import java.time.LocalDate;
 import org.slf4j.Logger;
@@ -36,6 +37,7 @@ public class QuizIngestScheduler {
 
     private final QuizCandidateReader reader;
     private final QuizIngestService ingestService;
+    private final QuizPublishService publishService;
     // KST 고정 클록(QuizConfig) — 파드 JVM 은 UTC 라 LocalDate.now() 기본값이면 자정~09시에 하루 어긋난다
     private final Clock clock;
 
@@ -44,6 +46,16 @@ public class QuizIngestScheduler {
         LocalDate today = LocalDate.now(clock);
         for (int offset = CATCH_UP_DAYS; offset >= 0; offset--) {
             ingestDate(today.minusDays(offset));
+        }
+        // 적재 후 오늘 세트의 부족분을 풀에서 편성한다. 과거 날짜에는 편성하지 않는다 —
+        // 이미 지나간 세트는 동결이다(뒤늦게 문제를 끼워 넣으면 그날 이미 푼 사용자와
+        // 세트가 갈려 전원 동일 세트 전제가 깨진다). catch-up 은 적재(멱등)에만 해당한다.
+        try {
+            publishService.publishDaily(today);
+        } catch (RuntimeException e) {
+            // 편성 실패가 적재 성공을 삼키면 안 된다 — 적재분은 이미 커밋됐고, 편성은 다음
+            // 실행(스케줄·기동 적재)이 다시 시도한다
+            log.error("오늘의 퀴즈 편성 실패 — 적재 결과는 유지, 다음 실행이 재시도: {}", today, e);
         }
     }
 

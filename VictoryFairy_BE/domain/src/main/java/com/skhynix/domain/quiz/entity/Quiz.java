@@ -158,11 +158,15 @@ public class Quiz {
     private String externalId;
 
     /**
-     * 출제일. "오늘의 퀴즈" 조회({@code WHERE quiz_date = ?})의 유일한 기준이다.
-     * {@code createdAt}(적재 시각)으로 대신할 수 없다 — 재시도·백필로 어제 파티션을 오늘 적재하면
-     * 적재 시각은 오늘이지만 출제일은 어제다. S3 파티션 날짜가 그대로 들어온다.
+     * <b>출제일</b>(생성일이 아니다). "오늘의 퀴즈" 조회({@code WHERE quiz_date = ?})의 유일한
+     * 기준이다. <b>NULL 은 미편성 풀 대기</b> — 역대기록형(시효성 없는) 문제는 생성일에 묶일 이유가
+     * 없어 풀에 쌓이고, 매일 편성 잡({@code QuizPublishService})이 그날 세트의 부족분만큼 날짜를
+     * 스탬프한다. 세트가 사용자별이 아니라 날짜별인 이유는 레이팅 공정성 — 전원이 같은 문제를 받아야
+     * 점수 비교가 성립한다. 경기 문항(시효성)만 적재 시점에 바로 날짜가 찍힌다
+     * ({@code QuizIngestService}). 생성일 추적은 {@code externalId}(QZ-YYYYMMDD-###)와
+     * {@code createdAt}이 담당하므로 이 컬럼이 겸할 필요가 없다.
      */
-    @Column(name = "quiz_date", nullable = false)
+    @Column(name = "quiz_date", nullable = true)
     private LocalDate quizDate;
 
     // UI 난이도 배지용(EASY/MEDIUM/HARD/EXPERT — 파이프라인 계약값 그대로). 사람이 쓴 퀴즈는 null 가능
