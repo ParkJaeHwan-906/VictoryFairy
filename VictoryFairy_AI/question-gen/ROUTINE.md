@@ -32,7 +32,8 @@ Claude Code 클라우드 스케줄 잡(routine)이 실행마다 그대로 따르
 
 ## 사전 조건
 
-- 환경변수 `S3_BUCKET` (예: `victoryfairy-crawl-dev`)
+- 환경변수 `S3_BUCKET` (**필수** — 실버킷명은 문서에 적지 않는다. 값 확인 절차는
+  `deploy/routines/README.md` 1번 섹션)
 - routine 전용 최소 권한 IAM 자격증명(`question-source/`·`kbo-records/`·
   `quiz-candidates/` 읽기, `quiz-candidates/` 쓰기) — 이 문서는 자격증명이
   이미 환경에 주입돼 있다고 가정한다. **위키는 S3가 아니라 git에서 읽는다**
@@ -191,6 +192,11 @@ trending.md`(있으면), 최근 7일 `.work/quiz-candidates/`의 `templateId`·�
 — 예를 들어 `stats.head_to_head`만 필요하면 `season.json` 전체를 읽더라도 실제로
 쓰는 건 `headToHead` 키뿐이다.
 
+이 단계에서 각 조합의 `subject` 값도 확정한다 — scope는 카탈로그의 `subjectScope`
+선언 그대로, `playerIds`/`teamCodes`/`gameId`는 방금 바인딩한 자료의 식별자
+(위키 파일명·`headToHead` 팀코드·envelope `entities.gameId`)에서 뽑는다
+(`generation-rules.md` §11 — 전제 엔티티만 담고 정답 엔티티는 담지 않는다).
+
 ### 5. ③ 문구 생성 (이 세션이 직접 수행)
 
 `question-gen/prompts/generation-rules.md` 규칙 + casebook(few-shot)을 적용해,
@@ -210,7 +216,9 @@ trending.md`(있으면), 최근 7일 `.work/quiz-candidates/`의 `templateId`·�
 각 후보를
 `.work/raw-candidates/$TODAY/{NN}.json`(NN=생성 순번, 임시 파일명일 뿐 최종
 `quizId`가 아니다)에 스펙 4.3 계약 형태로 기록한다 — `quizId` 필드에도 이 시점엔
-가제(예: 순번 그대로)를 채워 둔다. **최종 `quizId`는 검증(6단계)에서 어떤 후보가
+가제(예: 순번 그대로)를 채워 둔다. 4단계에서 확정한 `subject`도 이때 각 후보
+JSON에 함께 기록한다(`generation-rules.md` §11 — MATCHUP 템플릿은 정답 보기
+문면에 팀명을 쓰지 않는 문구 규칙에 주의). **최종 `quizId`는 검증(6단계)에서 어떤 후보가
 채택됐는지 확정된 뒤에** `generation-rules.md` §7 규칙으로 부여한다(폐기될 수도
 있는 후보에 번호를 먼저 박아두면, 재실행 시 같은 최종 채택 목록이라도 그 사이에
 낀 후보 하나가 다르게 생성/폐기되는 것만으로 번호가 흔들릴 수 있기 때문 — 멱등성은
@@ -243,6 +251,9 @@ fi
 
 **exit code를 반드시 확인한다** — 0이 아니면(형식 위반·카탈로그 불일치·banned-topic
 잔존 등 결정적으로 잡히는 결함) 그날 업로드를 생략한다(아래 "실패 처리" 참고).
+게이트는 `subject`(주제 축, 스펙 4.3 v2)도 검사한다 — scope·카디널리티·팀코드
+화이트리스트·정답 유출(subject 팀명이 정답 보기에 등장)은 하드 실패, `subject`
+부재는 경고만 출력한다(구계약 공존 — exit code 미반영).
 `validate_candidates.py`는 검증 패스(판단)와 독립된 별개 방어선이므로, 검증 패스를
 통과했더라도 이 게이트는 항상 돌린다.
 

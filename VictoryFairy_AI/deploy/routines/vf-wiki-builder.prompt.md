@@ -6,6 +6,9 @@
 - **트리거 ID**: `trig_01Wr5oZofsjorgduWfgjbyML`
 - **크론**: `0 21 * * 1,4` (UTC) = 화·금 06:00 KST
 - **모델**: Sonnet 5 / **환경**: `vf-question-creation`
+- **환경변수**: `S3_BUCKET`(필수 — 기본값 없음, 미설정이면 ROUTINE.md 1단계가 중단),
+  AWS 자격증명 3종, `PIPELINE_BRANCH`(선택 — 미설정이면 기본값 `dev_ai`. main 이관
+  등 브랜치 이동은 이 값 변경으로만 처리, 프롬프트는 고치지 않는다)
 - 위키의 원본은 **`VictoryFairy_WIKI` 리포의 `dev` 브랜치**다. 루틴이 직접
   클론·커밋·푸시한다 — S3에 위키 사본을 두지 않는다(2026-08-06 구조 단순화).
 
@@ -19,7 +22,7 @@ VictoryFairy LLM 위키 빌더 루틴이다 (화·금 주 2회).
 - GitHub 쓰기는 이 계정에 연결된 자격증명을 그대로 쓴다. 토큰 값을 출력하거나 파일에 적지 마라.
 
 [준비]
-1. git fetch origin sotaeho/ai/feat-llm-wiki-quiz && git checkout sotaeho/ai/feat-llm-wiki-quiz 로 파이프라인 브랜치로 전환하라. (이 브랜치가 dev_ai에 머지되면 이 단계는 제거된다)
+1. BRANCH="${PIPELINE_BRANCH:-dev_ai}" && git fetch origin "$BRANCH" && git checkout "$BRANCH" 로 파이프라인 브랜치로 전환하라. (기본값 dev_ai. main 이관 등 브랜치 이동은 환경변수 PIPELINE_BRANCH 값 변경으로만 처리한다 — 프롬프트는 고치지 않는다)
 2. cd VictoryFairy_AI 후 wiki-builder/ROUTINE.md 를 읽고 '사전 조건'부터 검증하라. 도구가 없으면 설치하라(python3 -m pip install --quiet awscli PyYAML 등 — 명시적 허용).
 
 [실행]
@@ -46,3 +49,4 @@ VictoryFairy LLM 위키 빌더 루틴이다 (화·금 주 2회).
 | 2026-08-04 | 위키 원본을 S3 → VictoryFairy_WIKI `dev`로 이전, outbox 반출 규칙 반영 |
 | 2026-08-05 | 프롬프트를 리포로 이관해 정본화 |
 | 2026-08-06 | **outbox 폐기** — 루틴이 `dev`에 직접 커밋·푸시. 계정 GitHub 자격증명에 write가 생겨(`/web-setup`) 우회로가 불필요해졌다 |
+| 2026-08-08 | 파이프라인 브랜치를 `PIPELINE_BRANCH` 환경변수로 외부화, 기본값은 dev_ai(#175 스쿼시 머지로 파이프라인 내용이 이미 dev_ai에 있어 회귀 없음 — 구 feat-llm-wiki-quiz 핀 은퇴). 입력 버킷은 기본값 하드코딩을 제거하고 미설정·구식 버킷 모두 중단·보고로 전환(`wiki-builder/ROUTINE.md` 1단계) |

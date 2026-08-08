@@ -186,3 +186,53 @@ format·needs·intent·distractor·settlement·difficulty)을 정하고, 이 문
   날짜(KST)의 유효 범위 안에 있는지 보수적 sanity 검사를 한다(정확한 "시작 2시간 전"
   대조는 이 결정적 스크립트가 아니라 `verification-pass.md`의 LLM 검증 패스 몫) —
   위 계산을 벗어나면 그 게이트에서 걸린다.
+
+## 11. subject 작성 규칙 (주제 축 — 스펙 4.3 v2)
+
+모든 후보 JSON에 `subject`를 기록한다. `subject`는 이 문항이 **무엇에 관한
+문제인지**(주제 축)이고, top-level `gameId`·`teamCodes`(**귀속 축** — 어느 경기/팀
+팬에게 보여줄지, `ROUTINE.md` 3단계 표)와는 **다른 축**이다 — "강백호가 FA로 새로
+합류한 팀은?"이 한화 경기 문항으로 귀속되더라도 주제는 선수 강백호다.
+
+- **`scope`는 카탈로그 선언을 그대로 쓴다.** 각 템플릿의 `subjectScope`
+  (`question-gen/config/question-templates.yaml`)가 정본이며, 문항마다 LLM이
+  scope를 다시 판단하지 않는다(결정적 — `settlement.metric`을 카탈로그 값
+  그대로 쓰는 §3과 같은 원칙).
+- **값의 출처(축을 섞지 않는다)**:
+  - `playerIds` — KBO playerId **정수** 배열. 위키 문서 파일명
+    (`wiki/players/{kboPlayerId}.md`)·`player_profile` envelope의
+    `payload.playerId`·`trending.md` 표의 `playerId` 컬럼과 같은 축이다.
+    이름 문자열로 추측해 만들지 않는다 — 바인딩된 자료에 id가 없으면 비운다.
+  - `teamCodes` — 구단 코드 배열. `season.json`의 `headToHead` 키(`"HH|KT"`)·
+    `standings`의 팀 코드와 같은 축이다(두산=OB, KIA=HT, 키움=WO, SSG=SK,
+    롯데=LT, 삼성=SS — 한글 팀명·영문 풀네임을 넣지 않는다).
+  - `gameId` — 네이버 게임ID. 바인딩한 envelope의 `entities.gameId`를 그대로
+    쓴다(`settlement.gameId`와 같은 축). **scope=GAME일 때만 채우고 그 외 null.**
+- **정답 유출 방지 — subject에는 문제가 '전제'하는 엔티티만 담는다.** 정답
+  (또는 정답을 강하게 시사하는) 엔티티는 담지 않는다:
+  - "강백호가 FA로 새로 합류한 팀은?" → 강백호는 전제(`playerIds`), 한화는
+    정답(`teamCodes` 비움). scope=PLAYER.
+  - "이번 주 커뮤니티 최다 화제 선수는?" → 전제 엔티티 없음(선수가 정답).
+    scope=LEAGUE, 전부 빈다.
+  - "올해 한화는 KT와의 상대전적에서 우위다?" → 두 팀 다 문면에 전제.
+    scope=MATCHUP, `teamCodes` 2개.
+  - "8/4 LG-SSG 경기 승리투수는?" → 경기·두 팀은 전제, 투수가 정답.
+    scope=GAME, `gameId`+`teamCodes` 2개, `playerIds` 빈다.
+- **scope별 카디널리티**(게이트가 강제): PLAYER→`playerIds` 1개 이상 /
+  TEAM→`teamCodes` 정확히 1개·`playerIds` 빔 / MATCHUP→`teamCodes` 정확히 2개 /
+  LEAGUE→전부 빔 / GAME→`gameId` 필수.
+- **팀명-정답 결정적 게이트 주의**: `validate_candidates.py` check 9는
+  `subject.teamCodes`에 든 팀의 이름이 **정답 보기 문면**에 등장하면 폐기한다
+  (오답 보기는 허용, PREDICTION은 answer가 없어 비대상). 그래서 —
+  - scope=GAME(KNOWLEDGE)에서 **정답이 팀인 문제**(예: YESTERDAY_WINNER —
+    보기가 맞대결 두 팀)는 `teamCodes`를 **통째로 비운다**(정답 팀만 빼면 남은
+    한 팀이 소거법으로 정답을 시사한다. 경기는 `subject.gameId`가 이미
+    특정하므로 정보 손실도 없다). 스코어·승리투수형은 두 팀을 다 담는다.
+  - scope=MATCHUP(H2H_SEASON_RECORD·LAST_MATCHUP)은 `teamCodes` 2개가
+    필수이므로, **정답 보기 문면에 팀명을 그대로 쓰지 않는다** — "한화 우위/KT
+    우위", "한화/삼성" 같은 보기 대신 "우위다/열세다", 스코어("7:4"/"5:3") 등
+    팀명 없는 보기로 문구를 구성한다(질문 문면에 팀명이 오는 것은 무방하다 —
+    검사 대상은 정답 보기뿐이다).
+- `subject`는 v2 optional이라 빠져도 업로드는 막히지 않지만(게이트는 경고만),
+  **틀리게 쓰면**(scope·카디널리티·화이트리스트·유출) 하드 폐기된다 — 확신이
+  없으면 필드를 빼는 것이 아니라, 카탈로그 선언과 위 규칙대로 다시 채운다.
