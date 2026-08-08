@@ -30,13 +30,17 @@ S3 `wiki/` 읽기 캐시는 그 우회로였으므로 전부 폐기했다.
 ## 사전 조건
 
 - 입력 버킷 — **입력**(크롤 게시글·선수 프로필·밈 시드)을 읽는 용도로만 쓴다. 위키
-  산출물은 S3로 가지 않는다. 운영 버킷은 **`victoryfairy-crawl-dev`**이고, 환경변수
-  `S3_BUCKET`이 비어 있으면 1단계가 이 값을 기본값으로 쓴다.
+  산출물은 S3로 가지 않는다. 버킷은 환경변수 `S3_BUCKET`이 **필수**이고 기본값이 없다
+  — 미설정이면 1단계가 즉시 **중단·보고**한다. 실버킷명을 문서에 박아 기본값으로 쓰면
+  dev→prod 전환 때 옛 값이 정답처럼 되살아난다(`deploy/routines/README.md`의
+  "하드코딩하지 않는다" 원칙 — 값 확인 절차도 그 문서에 있다).
   `victoryfairy-crawl-local`은 테스트·퀴즈용 구식 버킷이라 위키 빌드 입력으로 쓰면
   안 된다 — 두 버킷은 prefix 구조가 같아서 잘못 잡아도 **에러 없이 조용히 옛
   데이터로 완주한다**. 2026-08-06에 실제로 이 사고가 났다: 프롬프트로 dev를 지시했는데도
   환경변수가 local이라 8,265건(local 전량)만 읽고 끝났고, 인용 각주가 8/1에서 끊긴 것을
-  보고서야 발견했다. 그래서 1단계에 기본값·강제전환·최신 파티션 로그를 넣어뒀다
+  보고서야 발견했다. 그래서 1단계는 잘못된 버킷을 조용히 고쳐 주지 않고 **중단**한다
+  (강제 전환하면 그날 실행은 살아도 환경설정 오류가 영영 드러나지 않는다) +
+  최신 파티션 로그를 남긴다
 - routine 전용 최소 권한 IAM 자격증명(`question-source/`·`validation/` 읽기) —
   이 문서는 자격증명이 이미 환경에 주입돼 있다고 가정한다
 - GitHub 쓰기 자격증명 — claude.ai 계정에 연결된 것을 세션이 자동으로 쓴다.
@@ -79,12 +83,16 @@ git clone --depth 1 -b dev \
 근거 게시글(7/19~8/1 파티션)이 영영 후보에서 빠지게 됐다. 백필 세션으로 메웠다.
 
 ```bash
-# 입력 버킷 확정. 미설정이면 운영 버킷을 쓰고, 구식 테스트 버킷이면 강제로 되돌린다
-# — 두 버킷은 prefix가 같아 잘못 잡아도 에러 없이 옛 데이터로 완주한다(사전 조건 참고).
-S3_BUCKET="${S3_BUCKET:-victoryfairy-crawl-dev}"
+# 입력 버킷 확정 — 기본값 없음, 잘못된 값은 고쳐 주지 않고 중단한다(fail-closed).
+# 실버킷명을 기본값으로 박으면 dev→prod 전환 때 옛 값이 되살아나고, 강제 전환은
+# 환경설정 오류를 영영 숨긴다(사전 조건·2026-08-06 사고 참고).
+if [ -z "${S3_BUCKET:-}" ]; then
+  echo "중단: S3_BUCKET 미설정 — routine 환경의 env 값을 확인하라(deploy/routines/README.md 2번)" >&2
+  exit 1
+fi
 if [ "$S3_BUCKET" = "victoryfairy-crawl-local" ]; then
-  echo "경고: S3_BUCKET이 구식 테스트 버킷(local)이라 운영 버킷으로 강제 전환한다" >&2
-  S3_BUCKET=victoryfairy-crawl-dev
+  echo "중단: S3_BUCKET이 구식 테스트 버킷(victoryfairy-crawl-local)이다 — routine 환경의 env 값을 운영 버킷으로 고쳐라" >&2
+  exit 1
 fi
 
 # 이번 실행이 실제로 무엇을 보고 있는지 남긴다 — 버킷을 잘못 잡으면 여기서 드러난다.
@@ -277,10 +285,21 @@ top 10을 뽑아 `.work/wiki-repo/wiki/stats/trending.md`로 요약한다. 이�
 토픽(음주·폭행·마약·도박·승부조작·사생활·병역·학폭·건강 문제 등)은 후보에서
 제외한 뒤 작성한다.
 
+화제 선수 top 10 **표에는 `playerId` 컬럼을 반드시 포함**한다(순위·선수명·playerId·
+언급 수·주요 토픽 순 권장). `playerId`는 KBO playerId — `.work/player_profile/`
+명단(`payload.playerId`)과 이름을 대조해 채우며, 위키 문서 파일명
+(`wiki/players/{kboPlayerId}.md`)·퀴즈 후보 `subject.playerIds`(스펙 4.3 v2)와
+같은 축이다. **이름 문자열 집계는 동명이인을 구분하지 못한다** — 명단 매칭이
+정확히 1명으로 떨어질 때만 id를 적고, 동명이인 등으로 확신이 없으면 그 행의
+`playerId`는 비워 둔다(빈 칸인 행은 퀴즈 생성기가 `subject.playerIds`로 쓰지
+않는다 — 잘못된 id보다 빈 칸이 낫다, merge-rules.md 규칙 6과 같은 원칙).
+
 ```bash
 mkdir -p .work/wiki-repo/wiki/stats
 cat question-gen/config/banned-topics.txt   # 제외 목록 확인(이 세션이 직접 대조)
 # -> .work/wiki-repo/wiki/stats/trending.md 작성(Write 도구)
+#    (화제 선수 표: | 순위 | 선수명 | playerId | 언급 수 | 주요 토픽 | — playerId는
+#     player_profile 명단 매칭이 유일 확정일 때만, 동명이인이면 빈 칸)
 ```
 
 ### 5. all-time-records.md 렌더

@@ -142,14 +142,17 @@ routine에는 최소 권한 IAM 자격증명만 부여: `question-source/`·`kbo
   거부권만 행사(별로인 유형을 한 줄 피드백 → 검증 규칙/템플릿에 반영)
 - **출력**: `quiz-candidates/{date}/{quizId}.json`
 
-### 4.3 quiz-candidates JSON 계약 (v1)
+### 4.3 quiz-candidates JSON 계약 (v2 — v1 하위호환)
 
 명세서 3.1.1 퀴즈 데이터 구조 + 4필드 추가. BE는 이 스키마를 보고 엔티티·적재를 구현한다.
+v2는 v1에 `subject`(주제 축, optional)를 더한 것이다 — BE가 optional로 받으므로
+`subject` 없는 v1 후보도 그대로 유효하다(하위호환).
 
 ```json
 {
   "quizId": "QZ-20260728-001",
   "gameId": "20260728LGSS02026",
+  "teamCodes": ["LG", "SK"],
   "kind": "KNOWLEDGE | PREDICTION",
   "type": "WIN_LOSE | SCORE_RANGE | PLAYER_PERF | MEME | HISTORY | ...",
   "templateId": "H2H_SEASON_RECORD",
@@ -159,6 +162,12 @@ routine에는 최소 권한 IAM 자격증명만 부여: `question-source/`·`kbo
   "answer": "A",
   "evidence": { "source": "wiki/players/60632.md#별명·밈", "quote": "..." },
   "settlement": { "gameId": "...", "metric": "WIN_TEAM" },
+  "subject": {
+    "scope": "PLAYER | TEAM | MATCHUP | LEAGUE | GAME",
+    "playerIds": [68050],
+    "teamCodes": ["HH", "KT"],
+    "gameId": "20260804SKLG02026"
+  },
   "difficulty": "MEDIUM",
   "pointReward": 50,
   "status": "PENDING",
@@ -167,6 +176,33 @@ routine에는 최소 권한 IAM 자격증명만 부여: `question-source/`·`kbo
 ```
 
 - `options`는 항상 2개(O/X·2지선다) 또는 4개(4지선다) — 주관식 없음
+- **top-level `teamCodes` (귀속 축)** — 이 문항을 **어느 팀 팬에게 보여줄지**.
+  경기 문항은 그 경기 양 팀 코드 2개, 공통 문항은 `[]`(빈 배열)이다
+  (`question-gen/ROUTINE.md` 3단계 표가 정본). 실운영 후보에 처음부터 실려
+  나가던 필드인데 v1 문서에 빠져 있어 여기서 명문화한다. 코드 축은 BE
+  `teams.code`(= py-collector `dimensions.py`의 TEAMS, `infra/sql/teams-init.sql`
+  시드)와 같다: 두산=OB, LG=LG, 삼성=SS, KT=KT, 키움=WO, KIA=HT, 한화=HH,
+  NC=NC, 롯데=LT, SSG=SK. `validate_candidates.py`가 이 화이트리스트로 검사한다.
+- **`subject` (주제 축, v2 optional)** — 이 문항이 **무엇에 관한 문제인지**.
+  귀속 축과는 다른 축이다: "강백호가 FA로 새로 합류한 팀은?"이 한화 경기
+  문항으로 **귀속**될 수 있어도 **주제**는 선수 강백호다. BE는 이 필드로
+  문제를 선수/팀/매치업/리그/경기 단위로 분류·적재한다.
+  - `scope`는 문항마다 판단하지 않는다 — **카탈로그 템플릿의 `subjectScope`
+    선언을 그대로 따른다**(`question-gen/config/question-templates.yaml`, 결정적).
+  - **정답 유출 방지 규칙**: subject에는 문제가 **'전제'하는 엔티티만** 담고,
+    정답(또는 정답을 강하게 시사하는) 엔티티는 담지 않는다. 예 — "강백호가
+    FA로 새로 합류한 팀은?"은 강백호가 전제(playerIds), 한화는 정답이라
+    `teamCodes`를 비운다(scope=PLAYER). "이번 주 커뮤니티 최다 화제 선수는?"은
+    전제 엔티티가 없다(선수가 정답 — scope=LEAGUE, 전부 빔). `validate_candidates.py`
+    check 9가 팀에 한해 결정적으로 검사한다(subject 팀 이름이 정답 보기 문면에
+    등장하면 위반, 오답 보기는 허용).
+  - scope별 카디널리티: PLAYER→`playerIds` 1개 이상 / TEAM→`teamCodes` 정확히
+    1개·`playerIds` 빔 / MATCHUP→`teamCodes` 정확히 2개 / LEAGUE→전부 빔 /
+    GAME→`gameId` 필수. `subject.gameId`는 scope=GAME일 때만 채우고 그 외 null.
+  - 값의 축: `playerIds`=KBO playerId 정수(위키 `wiki/players/{id}.md` 파일명과
+    같은 축), `teamCodes`=위 구단 코드(= `season.json` `headToHead` 키의 팀코드),
+    `gameId`=네이버 게임ID(envelope `entities.gameId`).
+  - 작성 규칙 상세는 `question-gen/prompts/generation-rules.md` §11.
 - `options`의 `id`는 **A부터 순서대로**(A/B/C/D)이고 배열 순서가 곧 표시 순서다.
   RDB `quiz_options.option`(UI 보기 번호)은 **0부터** 배열 인덱스 그대로 매긴다
   — A=0, B=1, C=2, D=3. OX는 `O`=A→0, `X`=B→1로 BE의 O/X 표기(0:1)와 일치한다.

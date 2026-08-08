@@ -11,7 +11,8 @@
 논란·사생활·건강 소재 금지)의 결정적 부분(키워드 부분 문자열 매칭)을 검사한다.
 
 파일 구성: 상수(POINTS/METRICS/그 외) → 로더 2개(load_catalog/load_banned) →
-validate_candidate(검사 8항목) → CLI(main). stdlib + PyYAML만 사용(boto3 금지).
+validate_candidate(검사 9항목) + candidate_warnings(경고 — exit code 미반영) →
+CLI(main). stdlib + PyYAML만 사용(boto3 금지).
 """
 
 import argparse
@@ -38,12 +39,29 @@ FORMAT_OPTION_COUNTS = {"OX": 2, "BINARY": 2, "MULTI4": 4}
 
 #: quiz-candidates 계약(스펙 4.3)의 필수 필드(check 1). answer/evidence/
 #: settlement/gameId는 kind에 따라 있거나 없어야 하므로 여기 포함하지 않는다
-#: (check 3/4에서 별도 검사).
+#: (check 3/4에서 별도 검사). subject(주제 축, v2)는 optional이라 여기 넣지
+#: 않는다 — 구계약(v1) 후보와 공존해야 하므로 부재는 candidate_warnings()의
+#: 경고로만 알리고, '있는데 틀린' 것만 check 9가 하드 실패로 잡는다.
 REQUIRED_FIELDS = (
     "quizId", "kind", "type", "templateId", "format", "question",
     "options", "difficulty", "pointReward", "status",
     "createdAt", "deadlineAt", "createdBy",
 )
+
+#: 실존 KBO 10개 구단 코드 → 팀 이름(check 9). 정본은 BE 리포의 teams 시드
+#: (VictoryFairy_BE `infra/sql/teams-init.sql` — py-collector
+#: `kbo_collector/dimensions.py`의 TEAMS와 같은 축)이고 여기는 그 사본을
+#: 하드코드한 것이다. 구단 증감·코드 변경 시 BE 시드와 함께 맞출 것.
+#: top-level `teamCodes`(귀속 축)와 `subject.teamCodes`(주제 축) 둘 다 이
+#: 화이트리스트로 검사하고, 이름 쪽은 정답 유출 검사(check 9)에 쓴다.
+TEAM_CODE_NAMES = {
+    "OB": "두산", "LG": "LG", "SS": "삼성", "KT": "KT", "WO": "키움",
+    "HT": "KIA", "HH": "한화", "NC": "NC", "LT": "롯데", "SK": "SSG",
+}
+
+#: subject.scope 허용값(check 9, 스펙 4.3 v2). scope는 문항별 판단이 아니라
+#: 카탈로그 템플릿의 `subjectScope` 선언을 그대로 따라야 한다.
+SUBJECT_SCOPES = {"PLAYER", "TEAM", "MATCHUP", "LEAGUE", "GAME"}
 
 
 # ── 로더 ────────────────────────────────────────────────
@@ -108,7 +126,7 @@ def _kst_date_deadline_bounds(yyyymmdd: str):
 
 def validate_candidate(c: dict, catalog: dict, banned: list) -> list:
     """quiz-candidates 항목 하나를 검사해 위반 메시지 리스트를 반환한다.
-    빈 리스트면 통과. 검사 8항목:
+    빈 리스트면 통과. 검사 9항목:
 
     1. 필수 필드 존재
     2. format이 OX/BINARY/MULTI4 중 하나 + options 개수·id·text 규칙
@@ -121,6 +139,13 @@ def validate_candidate(c: dict, catalog: dict, banned: list) -> list:
                     (b) deadlineAt이 gameId 날짜(KST)의 유효 범위(그날 00:00~23:59:59
                         KST) 안에 있는지 보수적 sanity 검사(정확한 경기 시작시각
                         대조는 LLM 검증 패스 몫 — _kst_date_deadline_bounds 참고)
+    9. 팀코드 화이트리스트(top-level teamCodes 귀속 축) + subject(주제 축, v2):
+       subject가 '있을 때만' — scope 값·카탈로그 subjectScope 선언 일치·scope별
+       카디널리티(PLAYER→playerIds≥1 / TEAM→teamCodes 1개·playerIds 빔 /
+       MATCHUP→teamCodes 2개 / LEAGUE→전부 빔 / GAME→gameId 필수, 그 외 scope는
+       gameId null)·subject.teamCodes 화이트리스트·정답 유출(subject 팀 이름이
+       정답 보기 문면에 등장) 검사. subject '부재'는 위반이 아니다(구계약 v1
+       공존 — candidate_warnings()가 경고로만 알린다)
 
     각 필드가 아예 없거나 타입이 다른 경우에도 예외를 던지지 않고 위반으로
     기록한 뒤 나머지 검사를 계속한다(부분 실패로 전체 검사가 죽지 않도록)."""
@@ -243,7 +268,108 @@ def validate_candidate(c: dict, catalog: dict, banned: list) -> list:
                 violations.append(f"금지 소재 키워드 포함: '{keyword}' in \"{text}\"")
                 break
 
+    # 9. 팀코드 화이트리스트 + subject(주제 축, 스펙 4.3 v2)
+    # top-level teamCodes(귀속 축 — 이 문항을 어느 팀 팬에게 보여줄지)는 subject와
+    # 무관하게 화이트리스트만 검사한다(구계약 후보도 [] 또는 실존 코드라 통과).
+    top_team_codes = c.get("teamCodes")
+    if top_team_codes is not None and not isinstance(top_team_codes, list):
+        violations.append(f"teamCodes(귀속 축)는 배열이어야 함: {top_team_codes!r}")
+    for code in top_team_codes if isinstance(top_team_codes, list) else []:
+        if code not in TEAM_CODE_NAMES:
+            violations.append(f"teamCodes(귀속 축)에 실존하지 않는 구단 코드: {code!r}")
+
+    subject = c.get("subject")
+    if subject is not None and not isinstance(subject, dict):
+        violations.append(f"subject는 object(dict)여야 함: {subject!r}")
+    elif isinstance(subject, dict):
+        scope = subject.get("scope")
+        if scope not in SUBJECT_SCOPES:
+            violations.append(
+                f"subject.scope 값이 올바르지 않음(PLAYER/TEAM/MATCHUP/LEAGUE/GAME만 "
+                f"허용): {scope}")
+        # scope는 템플릿 단위 선언(카탈로그 subjectScope)을 그대로 따라야 한다 —
+        # 문항별 LLM 재량 금지. 카탈로그에 선언이 없는 템플릿은 대조 생략(이행기).
+        if template_id in catalog:
+            declared = catalog[template_id].get("subjectScope")
+            if declared and scope != declared:
+                violations.append(
+                    f"subject.scope가 카탈로그 subjectScope 선언과 불일치: "
+                    f"candidate={scope}, catalog={declared}")
+
+        player_ids = subject.get("playerIds")
+        if player_ids is None:
+            player_ids = []
+        if not isinstance(player_ids, list) or any(
+                isinstance(p, bool) or not isinstance(p, int) for p in player_ids):
+            violations.append(
+                f"subject.playerIds는 KBO playerId 정수 배열이어야 함: {player_ids!r}")
+            player_ids = []
+        team_codes = subject.get("teamCodes")
+        if team_codes is None:
+            team_codes = []
+        if not isinstance(team_codes, list):
+            violations.append(f"subject.teamCodes는 배열이어야 함: {team_codes!r}")
+            team_codes = []
+        for code in team_codes:
+            if code not in TEAM_CODE_NAMES:
+                violations.append(f"subject.teamCodes에 실존하지 않는 구단 코드: {code!r}")
+
+        # scope별 카디널리티(스펙 4.3 v2 — subject에는 문제가 '전제'하는 엔티티만)
+        subj_game_id = subject.get("gameId")
+        if scope == "PLAYER" and len(player_ids) < 1:
+            violations.append("subject.scope=PLAYER면 playerIds가 1개 이상이어야 함")
+        elif scope == "TEAM" and (len(team_codes) != 1 or player_ids):
+            violations.append(
+                f"subject.scope=TEAM이면 teamCodes 정확히 1개·playerIds는 비어야 함: "
+                f"teamCodes={team_codes!r}, playerIds={player_ids!r}")
+        elif scope == "MATCHUP" and len(team_codes) != 2:
+            violations.append(
+                f"subject.scope=MATCHUP이면 teamCodes가 정확히 2개여야 함: {team_codes!r}")
+        elif scope == "LEAGUE" and (player_ids or team_codes):
+            violations.append(
+                f"subject.scope=LEAGUE면 playerIds·teamCodes가 모두 비어야 함: "
+                f"playerIds={player_ids!r}, teamCodes={team_codes!r}")
+        if scope == "GAME":
+            if not (isinstance(subj_game_id, str) and subj_game_id.strip()):
+                violations.append("subject.scope=GAME이면 subject.gameId가 필수임")
+        elif scope in SUBJECT_SCOPES and subj_game_id is not None:
+            violations.append(
+                f"subject.gameId는 scope=GAME일 때만 채운다(그 외 null): scope={scope}")
+
+        # 정답 유출 결정적 검사(팀 한정): subject는 문제가 '전제'하는 엔티티만
+        # 담아야 하므로, 전제로 선언된 팀 이름이 정답 보기 문면에 그대로 있으면
+        # 주제 메타데이터가 정답을 시사한 것이다. 오답 보기는 허용(전제 팀이
+        # 오답 후보로 등장하는 건 정상 — 예: 승리투수 문제의 양 팀 선수 보기).
+        # PREDICTION은 answer가 None이라 자연히 검사 대상이 아니다.
+        answer_text = next(
+            (o.get("text") or "" for o in options
+             if isinstance(o, dict) and o.get("id") == c.get("answer")), "")
+        for code in team_codes:
+            name = TEAM_CODE_NAMES.get(code)
+            if name and name in answer_text:
+                violations.append(
+                    f"subject.teamCodes의 팀({code}={name})이 정답 보기 문면에 등장"
+                    f"(정답 유출): \"{answer_text}\"")
+
     return violations
+
+
+def candidate_warnings(c: dict, catalog: dict) -> list:
+    """하드 실패는 아니지만 알려야 하는 경고 리스트(현재: subject 부재).
+
+    subject(주제 축)는 v2에서 추가된 optional 필드다 — 부재를 위반으로 만들면
+    S3에 이미 쌓인 구계약(v1) 후보가 전부 죽으므로, 카탈로그 subjectScope 선언
+    여부와 무관하게 부재는 경고만 출력하고 exit code에는 반영하지 않는다(이행기
+    완화 — 생성 루틴이 generation-rules.md §11을 따르기 시작하면 자연히
+    사라진다). subject가 '있는데' 틀린 것은 validate_candidate check 9가 하드
+    실패로 잡는다."""
+    warnings = []
+    if c.get("subject") is None:
+        template = catalog.get(c.get("templateId"))
+        declared = template.get("subjectScope") if isinstance(template, dict) else None
+        hint = f" (카탈로그 선언: subjectScope={declared})" if declared else ""
+        warnings.append(f"subject 부재 — v2 계약은 subject 기록을 요구함{hint}")
+    return warnings
 
 
 # ── CLI ──────────────────────────────────────────────────
@@ -277,7 +403,9 @@ def main(argv=None) -> None:
     """CLI 진입점. `--dir`의 `*.json`을 전부 로드해 검사하고 파일별 위반을
     출력한 뒤 요약을 찍는다. JSON 파싱 실패도 위반으로 취급하고, 같은
     디렉토리 내 quizId 중복도 검사한다. 위반이 하나라도 있으면 `sys.exit(1)`,
-    없으면 `sys.exit(0)`(routine이 이 exit code로 업로드 여부를 결정한다)."""
+    없으면 `sys.exit(0)`(routine이 이 exit code로 업로드 여부를 결정한다).
+    경고(candidate_warnings — subject 부재 등)는 출력만 하고 exit code에
+    반영하지 않는다."""
     args = _build_arg_parser().parse_args(argv)
 
     catalog_path = args.catalog or _default_config_path("question-templates.yaml")
@@ -290,6 +418,7 @@ def main(argv=None) -> None:
 
     files = sorted(Path(args.dir).glob("*.json"))
     file_violations = {}
+    file_warnings = {}
     quiz_id_files = {}
 
     for f in files:
@@ -303,11 +432,14 @@ def main(argv=None) -> None:
             continue
 
         violations = validate_candidate(data, catalog, banned)
+        warnings = candidate_warnings(data, catalog)
         quiz_id = data.get("quizId")
         if quiz_id is not None:
             quiz_id_files.setdefault(quiz_id, []).append(f)
         if violations:
             file_violations[f] = violations
+        if warnings:
+            file_warnings[f] = warnings
 
     for quiz_id, paths in quiz_id_files.items():
         if len(paths) > 1:
@@ -324,9 +456,13 @@ def main(argv=None) -> None:
                 print(f"  - {v}")
         else:
             print(f"[OK] {f.name}")
+        for w in file_warnings.get(f, []):
+            print(f"  ! 경고: {w}")
 
     fail_count = len(file_violations)
-    print(f"\n총 {len(files)}개 파일 중 {fail_count}개 위반, {len(files) - fail_count}개 통과")
+    warn_count = sum(len(ws) for ws in file_warnings.values())
+    print(f"\n총 {len(files)}개 파일 중 {fail_count}개 위반, "
+          f"{len(files) - fail_count}개 통과 (경고 {warn_count}건 — exit code 미반영)")
 
     sys.exit(1 if file_violations else 0)
 
