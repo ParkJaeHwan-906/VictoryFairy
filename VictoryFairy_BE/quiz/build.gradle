@@ -21,6 +21,9 @@ dependencies {
     // 로컬은 ~/.aws(aws configure), prod 파드는 IRSA 가 DefaultCredentialsProvider 로 주입된다.
     implementation platform('software.amazon.awssdk:bom:2.46.7')
     implementation 'software.amazon.awssdk:s3'
+    // IRSA 필수 — 웹 아이덴티티 토큰 교환은 sts 모듈이 클래스패스에 있어야 기본 체인이 수행한다.
+    // 없으면 로컬(~/.aws)에선 멀쩡하다가 IRSA 파드에서만 자격증명 로드가 실패한다.
+    runtimeOnly 'software.amazon.awssdk:sts'
     runtimeOnly 'me.paulschwarz:spring-dotenv:4.0.0'
 
     developmentOnly 'org.springframework.boot:spring-boot-devtools'
