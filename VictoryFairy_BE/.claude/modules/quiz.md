@@ -3,7 +3,7 @@
 > quiz 작업 시에만 로드되는 슬림 컨텍스트. (공통: `com.skhynix` 독립 앱, `:common`=ApiResponse/BusinessException/ErrorCode, `:domain`=엔티티/리포지토리, MySQL+spring-dotenv, prod `ddl-auto`는 앱마다 다름 — user=`update`, quiz=`none`)
 
 ## 책임
-Quiz 도메인 REST API 서버. **구단별 채팅 기능 구현 완료**: `chat`(방 목록/상세·구독·퇴장·전송·히스토리·신고 REST+SSE) + `realtime`(SSE 실시간 전달). **채팅방은 응원 구단 단위 폐쇄 공간**(목록·방 단위 경로 전부 구단 가드) **+ 서버 주도 구독 종료**(명시적 퇴장, 중복 구독 last-one-wins 축출). **포트 8081.**
+Quiz 도메인 REST API 서버. **구단별 채팅 기능 구현 완료**: `chat`(방 목록/상세·구독·퇴장·전송·히스토리·신고 REST+SSE) + `realtime`(SSE 실시간 전달). **채팅방은 응원 구단 단위 폐쇄 공간**(목록·방 단위 경로 전부 구단 가드) **+ 서버 주도 구독 종료**(명시적 퇴장, 중복 구독 last-one-wins 축출). **퀴즈 기능**: `quiz`(S3 quiz-candidates → RDB 적재 + 매일 편성(전원 동일 데일리 세트) + 조회·개별 조회·제출(채점/포인트 적립)·풀이 이력 API). **포트 8081.**
 
 ## 핵심 클래스 (`quiz/src/main/java/com/skhynix/quiz/`)
 - `QuizApplication` — 메인 진입점. `scanBasePackages = "com.skhynix.quiz"`로 **좁게** 스캔 (user는 `com.skhynix` 전체). `@EntityScan`/`@EnableJpaRepositories`만 `com.skhynix` 전역.
@@ -16,9 +16,21 @@ Quiz 도메인 REST API 서버. **구단별 채팅 기능 구현 완료**: `chat
 - `realtime/SseEmitterRegistry` — 방별 SSE 구독 관리(발신자 제외 fan-out), 죽은 연결을 하트비트로 회수. 타임아웃 30분·하트비트 15초(`:ping` 주석 프레임). `register()`는 `rooms.compute(...)`로, `remove()`는 `rooms.computeIfPresent(...)`로 구현되어 있다 — Set에 넣고 빼는 일과 빈 Set을 맵에서 걷어내는 일을 같은 빈(bin) 잠금 아래 원자적으로 묶기 위함. **`computeIfAbsent`+람다 바깥 `add`로 "단순화"하면 고아 Set 레이스가 재발한다**: 마지막 퇴장(Set 비어 맵에서 제거)과 신규 입장(같은 Set을 얻어 add)이 겹치면 새 구독이 맵에서 떨어져 나간 Set에 갇혀 fan-out·하트비트 순회에서 누락된다(해당 사용자는 메시지를 못 받음). `count(roomUid)`는 남아 있으나 프로덕션 호출부는 없음(테스트·진단용 접근자). **참여 인원(participants)은 어디에도 서빙되지 않는다** — 인메모리 구독 수는 파드별 값이라 다중 파드에서 부정확하고, DB 컬럼 집계는 connect/disconnect마다 write가 폭주해 RDB 집계+Redis 재계산까지 구현했다가 방향 전환으로 전부 롤백했다(제품 결정). `Chatroom.participants`/`join()`/`leave()`는 되살릴 여지를 남기려는 의도적 결정으로 domain에 남아 있으나 quiz는 미사용
   - **서버 주도 종료가 신설됐다**: `closeSubscriptions(roomUid, userAccountId)`(그 방만, 명시적 퇴장) · `closeAllSubscriptions(userAccountId)`(방 무관 전부, 축출의 원격 처리분) · `handleCloseCommand(roomUid, command)`(버스로 받은 종료 명령 처리 — `command.originInstanceId()`가 자기 `instanceId()`와 같으면 무시). `instanceId()`(인스턴스 식별용 랜덤 UUID)를 종료 명령에 실어 발행 파드가 되받은 자기 명령을 무시하게 한다
   - `register()`가 **last-one-wins 축출**을 한다 — 같은 사용자의 기존 구독을 방 불문 전부 끊고 새 구독만 남긴다(**멀티탭이 사실상 금지된다**: 같은 계정 두 탭이면 먼저 연 탭이 끊긴다). **`emitter.complete()`는 반드시 `compute`/`computeIfPresent` 람다 밖에서 불러야 한다** — `complete()`가 태우는 `onCompletion` 콜백이 `remove()`로 같은 맵을 재귀 갱신해 `ConcurrentHashMap`의 재귀 갱신 금지 계약을 깬다. 축출 구현(등록과 기존 연결 제거를 한 흐름에 묶는 지점)이 위 고아 Set 레이스 픽스를 가장 깨뜨리기 쉬운 자리다 — `compute` 바깥에서 remove 후 add 하는 형태로 풀면 그 회귀 테스트(AC-CHAT-11-5·55-2)가 다시 깨진다
-- `realtime/RealtimeSchedulingConfig` — `@EnableScheduling`으로 하트비트 구동(quiz 좁은 스캔 범위 안이라 자동 등록)
+- `realtime/RealtimeSchedulingConfig` — `@EnableScheduling`으로 하트비트 구동(quiz 좁은 스캔 범위 안이라 자동 등록). **`quiz/ingest`의 `@Scheduled`(일일 적재)도 이 활성화에 얹혀 돈다**
+- `quiz/ingest/*` — **S3 → RDB 퀴즈 적재**. `QuizCandidate`(스펙 4.3 계약 record — evidence·settlement 등 저장 안 하는 필드는 일부러 안 받음, Jackson 3 기본이 모르는 필드 무시), `QuizCandidateReader`(`quiz-candidates/{date}/` 읽기 전용, 파일 단위 실패 격리), `QuizIngestService`(후보당 1트랜잭션 — KNOWLEDGE만 적재·PREDICTION 스킵, format→quiz_type 이름 매핑(OX→`O/X`, BINARY/MULTI4→`객관식`), answer A→0 번호 변환, subject→FK 해석. **정답 유출 방지 규칙**: subject는 문제가 '전제'하는 엔티티만 담겨 오므로 로더가 `player.getTeam()` 등으로 보강하면 안 됨. 예외: game 해석 성공 시 홈=team·원정=opponentTeam 채움. 해석 실패는 해당 FK만 null), `QuizIngestScheduler`(cron 10:30 KST + 최근 3일 catch-up — 루틴이 08:50+60분 상한이라 30분 여유. **분산 락 없음(의도)**: `uk_quizzes_external_id` UNIQUE가 파드 동시 실행의 심판이고 위반은 "이미 적재됨"으로 삼킴. **적재 후 오늘만 `publishDaily` 호출** — 과거 날짜 편성 금지, 지난 세트는 동결), `QuizIngestStartupRunner`(기동 시 1회 — 10:30 이후 재시작한 파드의 사각 메움, 실패해도 기동 계속)
+  - **`quiz_date` = 출제일(생성일 아님), NULL = 미편성 풀.** 적재 시 게임 귀속 후보(naverGameId 명시 — game FK 해석 실패여도)만 파티션 날짜를 스탬프하고, 나머지(역대기록형 등 시효성 없음)는 NULL 풀에 쌓는다. 스테일한 "오늘 경기" 문구가 풀에서 나중에 튀어나오는 것을 막는 규칙
+- `quiz/service/QuizPublishService` — **매일 편성**: 그날 세트가 `quiz.serve.daily-count`(기본 10)에 못 미치면 풀에서 부족분만 `UPDATE ... WHERE quiz_date IS NULL ORDER BY id ASC LIMIT`(네이티브)로 스탬프. id ASC = 오래된 것부터 결정적 선택(파드 간 선택 안 갈림). 멀티 파드 동시 실행 시 최대 2배 과편성 가능하나 **허용**(세트는 여전히 전원 동일, 락 비용 > 무해한 결과). **전원 동일 데일리 세트가 설계 원칙**(레이팅 공정성 — 같은 문제·같은 타이밍이어야 점수 비교 가능)
+- `quiz/controller/QuizController`·`quiz/service/QuizService` — `GET /rt/quizzes/today`(선호 정렬 + `preferredOnly` 필터)·`GET /rt/quizzes/{id}`(단건 상세). '오늘'은 `kstClock`(KST 고정 — 파드 JVM UTC라 기본 클록이면 자정~09시 하루 어긋남). 보기는 `quiz_id IN` 2쿼리 방식(N+1 금지 — `QuizOptionRepository` javadoc). **선호(preferred) = 내 응원 구단이 문제의 대상·상대 구단이거나 대상 선수가 내 응원 선수** — 판정은 메모리에서(세트가 십수 건), 대상 FK는 목록 `@EntityGraph`(quizType·team·opponentTeam·player)가 실어 와 LAZY 초기화 없음. preferredOnly는 응원 정보가 하나도 없으면 no-op(전체 반환). **미편성 풀 문제는 단건 조회도 404**(id 순회로 내일 출제분 미리보기 차단). 미제출 상세엔 `answer` 키 자체가 없다(`QuizDetailResponse` `@JsonInclude(NON_NULL)`, 테스트로 고정) — 제출 후엔 myOption/correct/answer 포함(복기)
+- `quiz/controller/QuizSubmissionController`·`quiz/service/QuizSubmitService` — `POST /rt/quizzes/{id}/submit`(제출·채점)·`GET /rt/quizzes/submissions?page=`(이력 20건 고정 + 전체 요약 total/correctCount/accuracy). 제출 검증 순서 404(미존재·미편성 은닉)→409(선제출)→400(없는 보기)→**계정 행 비관적 락(`findWithLockById`) 후 `addPoint(round(score))` 적립**→기록 저장. 동시 제출 race는 `uk_quiz_users_submit_account_quiz` UNIQUE가 중재하고 `DataIntegrityViolationException`을 409로 변환(BusinessException도 런타임이라 롤백돼 적립도 되돌아감). **bq_score는 안 건드림**(레이팅 설계 확정 전). 이력의 정답 텍스트는 `quiz_id IN` 2쿼리로 매핑
+- `global/config/QuizIngestConfig` — `S3Client`(자격증명 코드에 없음: 로컬 `~/.aws`, prod IRSA — **prod 배포 전 quiz 파드 ServiceAccount에 crawl 버킷 `quiz-candidates/*` 읽기 IRSA 필요(dev_infra 소관)**) + `kstClock` 빈
 
-## 엔드포인트 (`/rt/chat`)
+## 엔드포인트 — 퀴즈 (`/rt/quizzes`) — 전부 인증 필수
+- `GET /today?preferredOnly=` → 오늘(KST) 세트 중 **내가 안 푼 문제만**(푼 문제 비노출 정책 — 커버링 인덱스 id 조회로 선필터, 다 풀었으면 응원·보기 조회 없이 빈 배열), **선호 먼저·그 안에서 id ASC**. `{id, type(객관식|O/X), question, difficulty, point, preferred, options[{no,text}]}` — **정답 미포함**. 빈 배열 = 세트 없음 or 다 품(구분은 이력 API 병용)
+- `GET /{quizId}` → 단건 상세. 미제출: answer 계열 키 부재 / 제출: `submitted,myOption,correct,answer` 포함. 미존재·**미편성 풀** 모두 404 `QUIZ_NOT_FOUND`
+- `POST /{quizId}/submit` `{option}` → 채점 결과 `{correct, answer, myOption, earnedPoint, totalPoint}`. 400 `QUIZ_OPTION_NOT_FOUND`(없는 보기)·404·409 `QUIZ_ALREADY_SUBMITTED`(중복, 동시 race 포함)
+- `GET /submissions?page=` → 이력(최신순 20건 고정, chat과 같은 `PageResponse`) + summary(total/correctCount/accuracy). 정답 번호·텍스트 포함(제출한 문제의 복기)
+
+## 엔드포인트 — 채팅 (`/rt/chat`)
 **전부 응원 구단 단위 폐쇄 공간**(퇴장 제외) — 요청자의 현재 응원 구단과 방의 구단이 달라야 403 `CHATROOM_TEAM_MISMATCH`, 응원 구단이 없으면 400 `SUPPORT_TEAM_REQUIRED`. 판정 순서 404→400→403 고정
 - `GET /rooms` → 방 목록(소프트삭제 제외). `teamId`(선택) — 생략하면 응원 구단으로 간주, 응원 구단과 다르면 403. 응답 `{roomUid, team, name}` — participants는 노출하지 않음
 - `GET /rooms/{roomUid}` → 방 상세. 없거나 삭제된 방 404, 내 구단 방 아니면 403. 응답 형태는 목록과 동일
@@ -30,7 +42,7 @@ Quiz 도메인 REST API 서버. **구단별 채팅 기능 구현 완료**: `chat
 
 ## 의존
 - 모듈: `:common`, `:domain`, `:web-support`(JWT 검증 부품·예외 핸들러·401 엔트리포인트 재사용 — 상세는 `.claude/modules/web-support.md`). **user 앱 자체에는 더 이상 의존하지 않음**(이전엔 `:user`를 직접 참조해 앱간 의존이었으나 web-support 추출로 해소)
-- 라이브러리: JPA, Security, WebMVC, **WebSocket**(빌드 의존은 있으나 미사용 — 채팅 실시간 전달은 WebSocket이 아니라 Spring MVC `SseEmitter` 기반 SSE로 구현됨), **Validation**(`@Valid`/`@Size`, 채팅 content 검증), DevTools, MySQL, dotenv. JJWT는 web-support가 전이 제공
+- 라이브러리: JPA, Security, WebMVC, **WebSocket**(빌드 의존은 있으나 미사용 — 채팅 실시간 전달은 WebSocket이 아니라 Spring MVC `SseEmitter` 기반 SSE로 구현됨), **Validation**(`@Valid`/`@Size`, 채팅 content 검증), **AWS SDK v2 s3**(bom 2.46.7 — 퀴즈 적재 읽기 전용), DevTools, MySQL, dotenv. JJWT는 web-support가 전이 제공
 
 ## 주의 / 컨벤션
 - **JWT_SECRET을 user와 동일하게** (.env 공유) — 불일치 시 토큰 검증 실패
@@ -39,6 +51,7 @@ Quiz 도메인 REST API 서버. **구단별 채팅 기능 구현 완료**: `chat
 - domain 엔티티는 패키지 스캔으로 자동 로드
 - DB 환경변수: `DB_HOST/PORT/NAME/USERNAME/PASSWORD` · dev `ddl-auto=update`(2026-07-27 `validate`에서 변경 — 로컬을 기동 한 번으로 세우기 위함. additive 라 컬럼 삭제·타입 변경은 반영 안 됨), show-sql ON
 - Redis 환경변수: `REDIS_HOST`/`REDIS_PORT`(`spring.data.redis.*`) — prod 실시간 fan-out 전용. dev 는 연결을 맺는 빈이 없어 불필요하며, 액추에이터 redis 인디케이터도 dev 에서 꺼둔다
+- 퀴즈 적재 설정(`quiz.ingest.*`, base yaml): `bucket`(기본 `victoryfairy-crawl-dev` — **crawl 파이프라인의 '운영' 버킷이다. crawl-local이 테스트용. 이름의 dev에 속지 말 것**), `region`, `cron`(기본 10:30 KST), `on-startup`(기본 true). ⚠ **테이블이 이미 있던 환경(dev DB·로컬)은 `infra/sql/migrate-quiz-ingest.sql` → `migrate-quiz-serve.sql` 순서로 1회 수동 적용 필요** — `ddl-auto=update`가 기존 테이블에 UNIQUE·FK를 안 걸고(멱등키 누락) NOT NULL 완화(quiz_date NULL 허용)도 못 한다(풀 적재가 제약 위반으로 실패). 편성 설정: `quiz.serve.daily-count`(기본 10, env `QUIZ_SERVE_DAILY_COUNT`)
 - `application.yaml`(base)에 SSE용 설정 2개가 전 프로파일 공통 고정: `spring.mvc.async.request-timeout: 30m`(톰캣 기본 30초에 SSE가 조기 종료되는 걸 막는 안전망 — `SseEmitterRegistry`의 SSE 자체 타임아웃보다 낮추지 말 것) · `spring.jpa.open-in-view: false`(SSE 롱커넥션이 응답 끝까지 JPA 커넥션을 잡으면 Hikari 풀이 고갈될 위험 — LAZY 접근은 반드시 `@Transactional` 서비스 메서드 안에서 끝낼 것)
 - `SecurityConfig`가 user와 90% 동일해 중복이지만 **의도적으로 유지하기로 결정**: 사례가 user·quiz 둘뿐이라 공통 모듈로 뽑을 만큼 반복되지 않고, permitAll 규칙이 서로 달라 공통화하면 어색한 훅이 필요해진다. 다시 논의할 필요 없음
 - 테스트 현황: chat 기능 131개 그린(controller 슬라이스 55(방 목록/상세 17 · 히스토리 7 · 신고 8 · 전송 16 · 퇴장 7) · service 43 · `SseEmitterRegistry` 24 · `InMemoryPublisher` 2 · `RedisPubSubPublisher` 3 · `RealtimeEventSubscriber` 4). `SseEmitterRegistry` 24건 중 2건(AC-CHAT-11-5, AC-CHAT-55-2)은 고아 Set 레이스를 래치로 결정적으로 재현하는 동시성 회귀 테스트 — 수정 전 코드에서 실패가 확인됐고, 위 `register()`/`remove()` 구현이 그 회귀 고정의 결과물이다. `ChatControllerRoomTest`에는 방 상세 응답에도 `participants` 부재를 단언하는 케이스(AC-CHAT-52-2)가 포함. 인증 슬라이스는 `@WithMockUser` 대신 `SecurityMockMvcRequestPostProcessors.authentication(...)`으로 실제 필터가 만드는 것과 동일한 `Long` principal을 주입(`@AuthenticationPrincipal Long`은 타입이 정확히 일치해야 바인딩되고 `@WithMockUser`는 `User`/문자열 principal을 만들어 못 씀). 401 미인증 배선도 이 슬라이스로 검증됨(이전 "quiz는 테스트 소스셋이 없어 401이 미검증"이던 열린 항목 해소). 미커버: DB 시드 기반 라운드트립, 실 JWT 토큰 파싱, Redis 계열(환경 한계 — `domain`/`web-support`와 동일한 제약)

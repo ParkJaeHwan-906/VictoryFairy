@@ -1,7 +1,9 @@
 package com.skhynix.domain.quiz.repository;
 
 import com.skhynix.domain.quiz.entity.QuizOption;
+import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface QuizOptionRepository extends JpaRepository<QuizOption, Long> {
@@ -27,4 +29,20 @@ public interface QuizOptionRepository extends JpaRepository<QuizOption, Long> {
      * OOM-kill 로 이어진다. 이 조합은 금지.
      */
     List<QuizOption> findAllByQuiz_IdOrderByOptionAsc(Long quizId);
+
+    /**
+     * 문제 N건의 보기를 한 방에 가져온다 — 위 단건 메서드의 ⚠ 이 지시하는 바로 그 2쿼리 방식이다
+     * (오늘의 퀴즈 목록이 문제마다 단건 메서드를 부르면 N+1). 호출한 쪽이 {@code quiz.id}로 그룹핑해
+     * 묶는다. 정렬을 {@code (quizId, option)}으로 고정해 그룹핑 후에도 보기 표기 순서가 유지된다.
+     */
+    List<QuizOption> findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(Collection<Long> quizIds);
+
+    /**
+     * 제출 검증용 — 그 문제에 그 보기 번호가 실재하는지 확인하고 제출 기록이 FK로 물 보기 행을
+     * 가져온다. {@code findBy}가 아니라 {@code findFirst}인 이유: {@code (quiz_id, option)} UNIQUE 가
+     * 없어(클래스 javadoc 참고) 이론상 같은 번호가 두 행일 수 있는데, 그때 단건 조회는
+     * {@code IncorrectResultSizeDataAccessException}으로 죽는다 — 제출 경로가 데이터 이상으로 막히는
+     * 것보다 결정적인 한 행(id 최소)을 고르는 쪽을 택했다.
+     */
+    Optional<QuizOption> findFirstByQuiz_IdAndOptionOrderByIdAsc(Long quizId, Integer option);
 }

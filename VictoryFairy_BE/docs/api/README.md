@@ -1,6 +1,6 @@
 # API 명세 — 도메인별 문서
 
-> 최종 업데이트: 2026-08-06 — `POST /api/support/players`에 활성 응원 선수 4명 상한(`SUPPORT_PLAYER_LIMIT_EXCEEDED`) 도입 + `GET /api/users/me` 응답에 `supportPlayers`(현재 응원 중인 선수 목록) 추가. (직전: `GET /api/games` 응답에 `homeTeamId`/`awayTeamId` 추가 + `GET /api/games/lineup`(경기별 선발 라인업) 신규 추가.)
+> 최종 업데이트: 2026-08-08 — **quiz 도메인 확장(1→4)**: 단건 상세(`GET /rt/quizzes/{id}`)·제출/채점(`POST /rt/quizzes/{id}/submit` — 정답 시 포인트 적립)·풀이 이력(`GET /rt/quizzes/submissions`) 추가, `/today`에 선호(응원 구단·선수) 정렬과 `preferredOnly` 필터 추가. (직전: 같은 날 quiz 도메인 신설 `GET /rt/quizzes/today`.)
 
 이 디렉터리는 **도메인 단위**로 나뉜다. 이전에는 Gradle 모듈 단위(`user.md`, `quiz.md`) 두 문서에 모든 엔드포인트가 들어 있었으나, 한 문서가 900줄을 넘고 서로 무관한 도메인(인증·구단·선수·경기·응원)이 뒤섞여 찾기 어려워졌다. **모듈은 배포 단위일 뿐 API 계약의 경계가 아니라는 판단**으로 문서 축을 도메인으로 바꿨다.
 
@@ -15,10 +15,11 @@
 | 경기 | [game.md](game.md) | user | `/api/games` | 2 | 불필요(GET 한정) | 2026-08-04 | [🔗](https://app.notion.com/p/3b278fa9b0f981938659cb3681750105) |
 | 응원 | [support.md](support.md) | user | `/api/support` | 3 | 필수 | 2026-08-06 | [🔗](https://app.notion.com/p/3b278fa9b0f981f5ae03ff5df8489a63) |
 | 채팅 | [chat.md](chat.md) | quiz | `/rt/chat` | 7 | 필수 | 2026-08-04 | [🔗](https://app.notion.com/p/3b278fa9b0f98165a655fd5cced543d5) |
+| 퀴즈 | [quiz.md](quiz.md) | quiz | `/rt/quizzes` | 4 | 필수 | 2026-08-08 | [🔗](https://app.notion.com/p/3b578fa9b0f981c4b09bd8752fb22711) |
 
 `최종 업데이트`는 **계약이 마지막으로 바뀐 날**이지 문서를 손댄 날이 아니다. `(추정)`은 도메인 분리 이전에 엔드포인트별 이력이 없어 해당 컨트롤러의 마지막 커밋 날짜로 역산했다는 뜻이다.
 
-**총 25개 엔드포인트.** 도메인 이름은 코드의 패키지 구조(`com.skhynix.user.<domain>`, `com.skhynix.quiz.<domain>`)와 1:1로 대응한다 — 새 도메인 패키지가 생기면 이 디렉터리에도 같은 이름의 문서가 하나 생긴다.
+**총 26개 엔드포인트.** 도메인 이름은 코드의 패키지 구조(`com.skhynix.user.<domain>`, `com.skhynix.quiz.<domain>`)와 1:1로 대응한다 — 새 도메인 패키지가 생기면 이 디렉터리에도 같은 이름의 문서가 하나 생긴다.
 
 ## base URL과 context-path
 
