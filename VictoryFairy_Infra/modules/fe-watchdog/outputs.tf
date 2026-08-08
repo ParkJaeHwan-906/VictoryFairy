@@ -1,6 +1,10 @@
 output "alarm_names" {
-  description = "생성된 알람 이름 목록. FE 알람만 자동 롤백을 유발하고 나머지는 알림만 보낸다."
-  value       = concat([aws_cloudwatch_metric_alarm.fe.alarm_name], [for a in aws_cloudwatch_metric_alarm.api : a.alarm_name])
+  description = "생성된 알람 이름 목록. FE 알람만 자동 롤백을 유발하고 나머지(BE·stalled)는 알림만 보낸다."
+  value = concat(
+    [aws_cloudwatch_metric_alarm.fe.alarm_name],
+    [for a in aws_cloudwatch_metric_alarm.api : a.alarm_name],
+    [aws_cloudwatch_metric_alarm.stalled.alarm_name],
+  )
 }
 
 output "healthcheck_function_name" {

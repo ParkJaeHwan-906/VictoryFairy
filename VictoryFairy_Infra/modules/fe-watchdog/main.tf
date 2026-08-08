@@ -225,6 +225,11 @@ resource "aws_lambda_function" "responder" {
       SLACK_WEBHOOK_PARAM       = var.slack_webhook_param
       GITHUB_TOKEN_PARAM        = var.github_token_param
       GITHUB_REPO               = var.github_repo
+      MENTION_USER_IDS          = join(",", var.mention_user_ids)
+
+      # 알람 시점에 직접 때려 실제 증상을 알림에 담기 위해 healthcheck 와 같은 대상을 받는다.
+      # CloudWatch 의 NewStateReason 은 "Threshold Crossed: ..." 라 원인을 알려주지 않는다.
+      API_TARGETS = jsonencode(var.api_targets)
     }
   }
 
@@ -273,12 +278,49 @@ resource "aws_cloudwatch_metric_alarm" "fe" {
   evaluation_periods  = var.datapoints_to_alarm
   datapoints_to_alarm = var.datapoints_to_alarm
 
-  # ⚠ breaching 로 둔다. 점검 함수가 아예 못 돌아 지표가 끊긴 것도 장애로 본다 —
-  #   missing 으로 두면 감시가 죽었을 때 조용히 OK 로 남는다(감시의 실패가 침묵이 되는 최악).
-  treat_missing_data = "breaching"
+  # ⚠ notBreaching 이어야 한다. 여기서 두 번 데었다.
+  #
+  #   breaching → '지표가 없는 것' 이 곧 롤백 트리거가 된다. 최초 apply 직후 알람이
+  #     INSUFFICIENT_DATA → ALARM 으로 튀어(첫 점검 전) 감시가 스스로 롤백했다.
+  #
+  #   missing → 없는 데이터포인트를 '평가에서 제외' 하고 남은 것만으로 판정한다. 그래서
+  #     datapoints_to_alarm = 3 이 '실제 3회 실패' 를 보장하지 못한다. 주기를 5분→1분으로
+  #     바꾼 직후 3개 구간 중 2개가 비어 있었고, 유일한 0 하나가 "1 of 1 실패" 로 해석돼
+  #     ALARM 이 됐다(CloudWatch 이력에 그대로 남아 있다). 점검이 한 번만 거르면 재현된다.
+  #
+  #   notBreaching → 없는 데이터를 '정상' 으로 센다. ALARM 에 닿으려면 실제 실패가
+  #     datapoints_to_alarm 개만큼 필요해져 오탐 방어가 비로소 보장된다.
+  #
+  # 감시가 멈춘 것도 알아야 하지만 그 대응은 롤백이 아니라 알림이어야 하므로
+  # 아래 stalled 알람으로 분리했다(알람 이름이 다르므로 responder 가 롤백하지 않는다).
+  treat_missing_data = "notBreaching"
 
   alarm_actions = [aws_sns_topic.alerts.arn]
   ok_actions    = [aws_sns_topic.alerts.arn] # 복구도 알린다
+
+  tags = var.tags
+}
+
+# 감시 자신이 멈춘 것을 잡는다 — '서비스 장애' 와 다른 사건이므로 알람을 따로 둔다.
+# 지표가 아예 안 들어오면(점검 Lambda 실패·EventBridge 중단·IAM 문제) SampleCount 가 없어
+# breaching 으로 떨어진다. FE 알람 이름이 아니므로 responder 는 알림만 보낸다.
+resource "aws_cloudwatch_metric_alarm" "stalled" {
+  alarm_name        = "${var.name_prefix}-watchdog-stalled"
+  alarm_description = "점검 지표가 들어오지 않는다 = 감시가 멈췄다. 서비스 장애와 별개이며 롤백하지 않는다. 점검 Lambda 로그를 확인할 것."
+
+  namespace   = local.metric_namespace
+  metric_name = "FeHealthy"
+  statistic   = "SampleCount"
+
+  # 점검 주기의 3배 창을 본다 — 한 번 거른 것으로 울리지 않게 한다.
+  period              = var.alarm_period_seconds * 3
+  comparison_operator = "LessThanThreshold"
+  threshold           = 1
+  evaluation_periods  = 1
+  treat_missing_data  = "breaching"
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
 
   tags = var.tags
 }
@@ -299,7 +341,9 @@ resource "aws_cloudwatch_metric_alarm" "api" {
   threshold           = 1
   evaluation_periods  = var.datapoints_to_alarm
   datapoints_to_alarm = var.datapoints_to_alarm
-  treat_missing_data  = "breaching"
+
+  # FE 알람과 같은 이유로 notBreaching 이다 — 지표 공백은 stalled 알람이 따로 잡는다.
+  treat_missing_data = "notBreaching"
 
   alarm_actions = [aws_sns_topic.alerts.arn]
   ok_actions    = [aws_sns_topic.alerts.arn]

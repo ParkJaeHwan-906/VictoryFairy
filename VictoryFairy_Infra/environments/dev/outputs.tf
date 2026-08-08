@@ -139,3 +139,8 @@ output "refine_budget_table_name" {
   description = "일별 Bedrock 소비액 카운터 DynamoDB 테이블 이름"
   value       = module.refine_pipeline.budget_table_name
 }
+
+output "quiz_app_role_arn" {
+  description = "quiz-app 파드 IRSA 역할 ARN. k8s/21-quiz-app.yaml 의 SA 어노테이션(eks.amazonaws.com/role-arn) 값."
+  value       = module.quiz_irsa.quiz_app_role_arn
+}
