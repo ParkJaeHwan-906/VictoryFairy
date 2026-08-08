@@ -32,7 +32,8 @@ Claude Code 클라우드 스케줄 잡(routine)이 실행마다 그대로 따르
 
 ## 사전 조건
 
-- 환경변수 `S3_BUCKET` (예: `victoryfairy-crawl-dev`)
+- 환경변수 `S3_BUCKET` (**필수** — 실버킷명은 문서에 적지 않는다. 값 확인 절차는
+  `deploy/routines/README.md` 1번 섹션)
 - routine 전용 최소 권한 IAM 자격증명(`question-source/`·`kbo-records/`·
   `quiz-candidates/` 읽기, `quiz-candidates/` 쓰기) — 이 문서는 자격증명이
   이미 환경에 주입돼 있다고 가정한다. **위키는 S3가 아니라 git에서 읽는다**
