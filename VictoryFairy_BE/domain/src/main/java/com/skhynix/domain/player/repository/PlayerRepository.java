@@ -2,9 +2,17 @@ package com.skhynix.domain.player.repository;
 
 import com.skhynix.domain.player.entity.Player;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface PlayerRepository extends JpaRepository<Player, Long> {
+
+    /**
+     * KBO 선수 ID 로 조회 — 퀴즈 적재가 S3 후보의 {@code subject.playerIds}(KBO id, 위키
+     * {@code players/{id}.md} 파일명과 같은 축)를 FK 로 해석할 때 쓴다.
+     * {@code players.kbo_player_id} UNIQUE 가 {@code Optional} 반환을 뒷받침한다.
+     */
+    Optional<Player> findByKboPlayerId(String kboPlayerId);
 
     List<Player> findAllByOrderByNameAsc();
 
