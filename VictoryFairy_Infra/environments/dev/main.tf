@@ -70,8 +70,12 @@ module "ecr" {
   name_prefix = "victoryfairy"
   # user/quiz 는 BE Gradle 모듈과 1:1 (Dockerfile ARG MODULE).
   # pipeline 은 정제 러너 이미지 — 패턴·Bedrock Lambda 가 같은 이미지를 공유한다(ARCHITECTURE §4).
-  # fe 는 JVM 이 아니라 Vite 빌드 산출물을 구운 nginx 정적 이미지다(k8s/24-fe-app.yaml).
-  repository_names = ["user", "quiz", "pipeline", "fe"]
+  # fe 리포지토리는 2026-08-07 제거했다. FE 는 S3+CloudFront 가 서비스하므로 이미지를 pull 할
+  # 주체(fe-app 파드)가 없어졌다(docs/fe-cdn-migration.md).
+  # ⚠ 여기서 이름을 빼면 리포지토리가 destroy 된다. 이 모듈은 force_delete 를 켜지 않으므로
+  #   이미지가 남아 있으면 RepositoryNotEmptyException 으로 apply 가 실패한다 —
+  #   aws ecr batch-delete-image 로 먼저 비워야 한다(fe 는 그렇게 처리했다).
+  repository_names = ["user", "quiz", "pipeline"]
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -108,15 +112,40 @@ module "alb" {
   oidc_provider_url = module.eks.oidc_provider_url
 }
 
+# quiz-app 파드용 IRSA — S3 quiz-candidates/ 읽기 전용.
+# BE :quiz 모듈의 퀴즈 적재기가 매일 crawl 버킷의 후보 JSON 을 RDB 로 옮긴다.
+# 역할 ARN 을 k8s/21-quiz-app.yaml 의 SA 어노테이션에 지정한다(출력 quiz_app_role_arn).
+module "quiz_irsa" {
+  source = "../../modules/quiz-irsa"
+
+  name_prefix       = local.cluster_name
+  oidc_provider_arn = module.eks.oidc_provider_arn
+  oidc_provider_url = module.eks.oidc_provider_url
+
+  # ⚠ 이름의 -dev 에 속지 말 것 — crawl-dev 가 크롤 파이프라인의 운영 버킷이다(crawl-local 이 테스트).
+  crawl_bucket_name = var.crawl_bucket_name
+}
+
 # 퍼블릭 DNS(Route53) + TLS(ACM) + ExternalDNS IRSA.
 # apply 후 name_servers 를 레지스트라에 등록해야 존이 활성화되고 ACM 검증이 완료된다(runbook).
 module "dns" {
   source = "../../modules/dns"
 
+  # us-east-1 은 CloudFront 인증서 발급 전용(CloudFront 는 서울 인증서를 거부한다).
+  providers = {
+    aws           = aws
+    aws.us_east_1 = aws.us_east_1
+  }
+
   domain_name       = var.domain_name
   cluster_name      = module.eks.cluster_name
   oidc_provider_arn = module.eks.oidc_provider_arn
   oidc_provider_url = module.eks.oidc_provider_url
+
+  # CloudFront 가 ALB 오리진에 HTTPS 로 붙을 때 제시받는 이름. 전용 인증서를 따로 발급한다 —
+  # apex 인증서의 SAN 으로 넣으면 인증서가 교체되고, 그것을 물고 있는 운영 ALB 리스너 때문에
+  # 옛 인증서 삭제가 거부된다(modules/dns/main.tf §2-1). apex 인증서는 손대지 않는다.
+  origin_host = local.api_origin_host
 
   # Mailjet 이메일 발신 도메인 인증 레코드. DKIM·검증만 지금 등록(ExternalDNS/apex와 무충돌).
   # SPF(mailjet_spf_value)는 apex TXT ↔ ExternalDNS 소유권 TXT 충돌로 보류 — 미주입=미생성.
@@ -125,11 +154,81 @@ module "dns" {
   mailjet_verification_value = "bc2f75b58109420e2abf5666cdeff8f5"
 }
 
+# FE 정적 호스팅 — S3(원본) + CloudFront(단일 진입점).
+# CloudFront 가 /api/*·/rt/* 를 ALB 로, 나머지를 S3 로 갈라 보내므로 FE·API 가 같은 오리진으로 남는다.
+# 전환 절차·롤백은 docs/fe-cdn-migration.md.
+module "cdn" {
+  source = "../../modules/cdn"
+
+  name_prefix = local.cluster_name
+  domain_name = var.domain_name
+
+  # ⚠ 서울 인증서(module.dns.certificate_arn)가 아니다 — CloudFront 는 us-east-1 만 받는다.
+  certificate_arn = module.dns.cloudfront_certificate_arn
+
+  origin_domain_name = local.api_origin_host
+  api_path_patterns  = local.api_path_patterns
+  route53_zone_id    = module.dns.zone_id
+
+  # 실서비스 전환 스위치. false 인 동안은 트래픽이 그대로 ALB 로 가고 CloudFront 는 배포
+  # 도메인으로만 접근된다 — 검증을 마친 뒤 true 로 바꿔 apex 를 옮긴다(문서 §4 2단계).
+  attach_apex_alias = var.fe_attach_apex_alias
+}
+
+# 상시 감시 — 배포 스모크(수십 초)가 닫힌 뒤를 맡는다.
+# EventBridge → 점검 Lambda → 커스텀 지표 → 알람 → SNS → 대응 Lambda(FE 롤백·Slack·티켓).
+# ⚠ FE 알람만 롤백을 유발한다. BE(user·quiz) 알람은 알림만 보낸다 — 원인이 BE 인데 FE 를
+#   되돌리면 정상 FE 만 잃는다. 상세는 docs/fe-release-rollback.md.
+module "fe_watchdog" {
+  source = "../../modules/fe-watchdog"
+
+  name_prefix = local.cluster_name
+
+  # ⚠ CloudFront 배포 도메인이 아니라 apex 다. Host 헤더가 ALB 규칙과 맞아야 /api 점검이 성립한다.
+  site_url = "https://${var.domain_name}"
+
+  fe_bucket_name = module.cdn.bucket_name
+  fe_bucket_arn  = module.cdn.bucket_arn
+
+  # 키가 지표 차원(Target)이 되어 Slack 알림에 어느 모듈이 죽었는지 그대로 드러난다.
+  # 경로는 BE 의 context-path 와 문자 그대로 일치해야 한다(/api·/rt).
+  api_targets = {
+    user = "/api/actuator/health/readiness"
+    quiz = "/rt/actuator/health/readiness"
+  }
+
+  # 1분 주기 × 연속 3회 = 최대 3~4분 내 감지.
+  #
+  # ⚠ EventBridge 의 최소 주기가 1분이다. 이보다 짧게 하려면 Lambda 안에서 루프를 돌며
+  #   고해상도 지표를 써야 하는데, 컴퓨팅이 Lambda 무료 한도(계정 전체 공유)를 크게 먹고
+  #   고해상도 지표·알람 요금도 붙는다. 얻는 것은 몇 분 차이고, 감지 창이 좁아질수록 일시적
+  #   흔들림에 롤백하는 오탐 위험이 오른다 — 정상 버전을 잃는 쪽이 몇 분 더 겪는 쪽보다 나쁘다.
+  # ⚠ 5분 → 1분으로 내리면서 확인 횟수를 2 → 3 으로 올렸다. 1분 간격에서 2회는 확인 창이
+  #   2분뿐이라 짧다. 3회면 '3분 연속 실패' 라 오탐 위험은 종전과 비슷하면서 감지가 3배 빠르다.
+  schedule_expression  = "rate(1 minute)"
+  alarm_period_seconds = 60
+  datapoints_to_alarm  = 3
+
+  # 시크릿은 코드에 두지 않는다. SSM SecureString 을 콘솔/CLI 로 넣고 이름만 참조한다.
+  # 파라미터가 없으면 해당 기능(Slack 알림 / 티켓)만 생략되고 롤백은 계속 동작한다.
+  slack_webhook_param = "/victoryfairy/dev/slack-webhook-url"
+  github_token_param  = "/victoryfairy/dev/github-token"
+  github_repo         = "ParkJaeHwan-906/VictoryFairy"
+
+  # 장애 알림에서 호출할 사람. ⚠ 표시 이름(@박재환)은 알림을 울리지 않으므로 사용자 ID 여야 한다.
+  #   박재환 · 소태호 · 손동현
+  mention_user_ids = ["U0BGJAW7TGR", "U0B5RBDPN1K", "U0BGD4H2W2H"]
+}
+
 module "security" {
   source = "../../modules/security"
 
   name_prefix  = local.cluster_name
   cluster_name = module.eks.cluster_name # 출력 참조로 의존성 형성(Access Entry 는 클러스터 이후)
+
+  # FE 배포 경로가 ECR+kubectl 에서 S3+CloudFront 로 바뀌면서 CI 에 필요해진 권한.
+  fe_bucket_arn       = module.cdn.bucket_arn
+  fe_distribution_arn = module.cdn.distribution_arn
 
   # CI(GitHub Actions) keyless 배포: 이 레포의 지정 브랜치 워크플로만 역할을 맡는다.
   github_repository   = "ParkJaeHwan-906/VictoryFairy"

@@ -20,6 +20,18 @@ variable "ecr_repository_arns" {
   }
 }
 
+variable "fe_bucket_arn" {
+  description = "FE 정적 자산 S3 버킷 ARN (modules/cdn 의 bucket_arn). CI 가 여기에 번들을 sync 한다. 비우면 S3 권한을 아예 부여하지 않는다."
+  type        = string
+  default     = ""
+}
+
+variable "fe_distribution_arn" {
+  description = "FE CloudFront 배포 ARN (modules/cdn 의 distribution_arn). CI 가 무효화를 생성한다. 비우면 CloudFront 권한을 부여하지 않는다."
+  type        = string
+  default     = ""
+}
+
 variable "github_allowed_refs" {
   description = "AssumeRole 을 허용할 GitHub 브랜치 목록 (예: [\"main\"]). 좁을수록 안전."
   type        = list(string)

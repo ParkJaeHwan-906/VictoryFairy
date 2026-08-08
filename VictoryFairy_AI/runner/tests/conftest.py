@@ -1,7 +1,13 @@
 import json
+import sys
 from pathlib import Path
 
 import pytest
+
+# routine 스크립트(question-gen/scripts — 하이픈 디렉토리라 패키지 불가)를 모듈로
+# import 가능하게 한다(리포 루트 tests/conftest.py와 같은 방식 —
+# test_validate_candidates_subject.py가 validate_candidates를 import한다).
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "question-gen/scripts"))
 
 SEASON_JSON = {
     "headToHead": {"HH|LT": {}, "OB|SK": {}},
