@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { ApiError, getMyProfile } from '../api';
-import type { MyProfile } from '../types/account';
+import type { MyProfile, SupportTeam } from '../types/account';
 import { useAuthStore } from './useAuthStore';
 
 /**
@@ -77,6 +77,20 @@ export const useMyProfile = (): MyProfile | null => useAccountStore((state) => s
 /** 응원 구단 미선택(온보딩 중) 여부. 프로필이 아직 없으면 판단하지 않고 false. */
 export const useHasSupportTeam = (): boolean =>
   useAccountStore((state) => state.profile?.supportTeam != null);
+
+/**
+ * 응원 구단(`{ id, name }`). 아직 고르지 않았거나 프로필 전이면 `null`.
+ *
+ * 구단별 채팅방을 찾을 때 이 값을 쓴다 — 라운지 채팅은 "내 응원 구단 방"이라
+ * 화면이 teamId 를 따로 들고 다니지 않고 여기서 읽는다.
+ * 프로필 객체가 바뀔 때만 새 참조가 되므로 그대로 구독해도 리렌더가 늘지 않는다.
+ */
+export const useSupportTeam = (): SupportTeam | null =>
+  useAccountStore((state) => state.profile?.supportTeam ?? null);
+
+/** 로그인 사용자 닉네임. 채팅에서 내 메시지를 가려내는 기준이다(닉네임은 중복 불가). */
+export const useMyNickname = (): string | null =>
+  useAccountStore((state) => state.profile?.nickname ?? null);
 
 /*
  * 토큰이 비워지면 프로필도 함께 비운다.
