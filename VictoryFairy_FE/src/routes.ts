@@ -7,6 +7,8 @@ export const ROUTES = {
   signup: '/signup',
   teamSelect: '/team-select',
   playerSelect: '/player-select',
+  /** 온보딩 마지막 단계(완료 안내). 저장은 앞 단계에서 이미 끝난다. */
+  complete: '/complete',
   community: '/community',
   main: '/main',
   game: '/game',

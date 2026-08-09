@@ -137,11 +137,16 @@
   text-overflow: ellipsis;
 }
 
-/* Btn/Icon_r 44x44 안의 20px 아이콘. 버튼 안이라 자리만 잡고 클릭은 필드가 받는다. */
+/*
+ * Btn/Icon_r 44x44 안의 20px 아이콘. 버튼 안이라 자리만 잡고 클릭은 필드가 받는다.
+ *
+ * 오른쪽 18px = 아이콘 버튼이 필드 오른쪽 끝에서 떨어진 6px + 그 안에서 아이콘이
+ * 가운데 오는 12px. 버튼 상자를 그리지 않으므로 두 값을 합쳐 아이콘에 직접 준다.
+ */
 .player-select-page__trigger-icon {
   position: absolute;
   top: 50%;
-  right: 6px;
+  right: 18px;
   width: 20px;
   height: 20px;
   margin-top: -10px;
@@ -219,6 +224,27 @@
 }
 
 /* ------------------------------------------------------------------ *
+ * 저장 실패 안내 (디자인에는 없는 상태 — 토큰만 써서 최소한으로 둔다)
+ *
+ * CTA 를 아래로 떼어 놓는 40px 여백을 이쪽으로 옮기고, 바로 뒤의 CTA 에서는
+ * 8px 만 남긴다 — 문구와 버튼이 한 덩어리로 붙어 보여야 한다.
+ * ------------------------------------------------------------------ */
+.player-select-page__submit-error {
+  flex-shrink: 0;
+  margin: 40px 0 8px;
+  padding-inline: var(--layout-gutter);
+  color: var(--color-error-strong);
+  font-size: var(--font-size-body4);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body4);
+  text-align: center;
+}
+
+.player-select-page__submit-error + .player-select-page__submit {
+  margin-top: 0;
+}
+
+/* ------------------------------------------------------------------ *
  * CTA — 화면 하단에 붙인다
  * ------------------------------------------------------------------ */
 .player-select-page__submit {
@@ -252,7 +278,8 @@
   .player-select-page__heading,
   .player-select-page__guide,
   .player-select-page__field,
-  .player-select-page__body {
+  .player-select-page__body,
+  .player-select-page__submit-error {
     padding-inline: 16px;
   }
 
