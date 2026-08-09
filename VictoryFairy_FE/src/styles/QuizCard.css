@@ -1,0 +1,216 @@
+/**
+ * QuizCard(퀴즈 한 장) 스타일.
+ * Figma: SWM / [Game] 퀴즈 메인 (시안) (node 929:8097) 의 `quiz card` (929:8102).
+ * 카드 기준 크기 354 x 357, 좌표는 모두 카드 왼쪽 위를 원점으로 잰 값이다.
+ *
+ * 세로 배치를 흐름으로 옮긴 규칙:
+ *   padding 24 (위·좌·우) / 58 (아래)  →  문제는 위에 붙고
+ *   선택 영역은 margin-top:auto 로 아래에 붙는다  →  높이 357 일 때 정확히 y=199..299
+ * 보기가 많은 객관식은 357 을 넘겨 자라며, 그때 auto 는 자연히 효과가 없어진다.
+ */
+
+.quiz-card {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 357px;
+  padding: 24px 24px 58px;
+  border-radius: var(--radius-20);
+  background-color: var(--color-primary-500);
+  /* 세로 스크롤은 브라우저에 넘기고 가로 끌기만 가져온다 */
+  touch-action: pan-y;
+  /* 끄는 도중 글자가 잡히면 드래그가 텍스트 선택으로 새어나간다 */
+  user-select: none;
+}
+
+/* 놓는 순간에만 제자리로 되돌아가는 애니메이션을 건다.
+   끄는 중에는 transition 이 없어야 손가락을 그대로 따라온다. */
+.quiz-card:not([data-dragging]) {
+  transition: transform 0.24s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+/* ------------------------------------------------------------------ *
+ * 퇴장 — 답을 고르면 카드가 빠진다
+ * 방향은 고른 방식과 맞춘다: 민 쪽으로(O/X) 또는 아래로(객관식 버튼).
+ * 시간은 QuizPage 가 `--quiz-card-exit-duration` 으로 내려준다 — 화면이 다음 문제로
+ * 넘기기까지 기다리는 시간과 같은 값이어야 하기 때문이다.
+ *
+ * 위의 `:not([data-dragging])` 과 명시도가 같으므로 반드시 뒤에 와야 이긴다.
+ * ------------------------------------------------------------------ */
+.quiz-card[data-exit] {
+  opacity: 0;
+  transition:
+    transform var(--quiz-card-exit-duration, 280ms) cubic-bezier(0.4, 0, 0.9, 0.4),
+    opacity var(--quiz-card-exit-duration, 280ms) ease-in;
+  /* 빠지는 중에는 눌러도 반응하지 않는다 */
+  pointer-events: none;
+}
+
+.quiz-card[data-exit='left'] {
+  transform: translateX(-120%) rotate(-12deg);
+}
+
+.quiz-card[data-exit='right'] {
+  transform: translateX(120%) rotate(12deg);
+}
+
+.quiz-card[data-exit='down'] {
+  transform: translateY(60%) scale(0.92);
+}
+
+.quiz-card__question {
+  margin: 0;
+  color: var(--color-white);
+  font-size: var(--font-size-title1);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title1);
+  /* 디자인의 문제 텍스트 폭 306 = 354 - 좌우 24 */
+  overflow-wrap: break-word;
+}
+
+/* ------------------------------------------------------------------ *
+ * O/X — 좌우로 밀어서 고른다
+ * 가로 배치: 12 | 화살표 24 | 12 | O 100 | 58 | X 100 | 12 | 화살표 24 | 12
+ * ------------------------------------------------------------------ */
+.quiz-card__ox {
+  display: flex;
+  align-items: center;
+  /* 카드 padding 24 를 상쇄해 카드 폭 전체를 쓰고, 화살표 여백 12 를 다시 준다 */
+  margin: auto -24px 0;
+  padding-inline: 12px;
+}
+
+.quiz-card__choices {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 58px;
+}
+
+/* 지금 놓으면 선택될 쪽을 키워 알려준다. 색이 아니라 크기로 구분해
+   대비만으로 판단하지 않아도 되게 한다. */
+.quiz-card__choice {
+  display: block;
+  transition:
+    transform 0.15s ease-out,
+    opacity 0.15s ease-out;
+}
+
+.quiz-card__ox:has([data-active]) .quiz-card__choice:not([data-active]) {
+  opacity: 0.35;
+}
+
+.quiz-card__choice[data-active] {
+  transform: scale(1.12);
+}
+
+/* Figma `Ellipse 2`: 100 박스 · r 43.5 · stroke 13 → 테두리 13px 원 */
+.quiz-card__glyph {
+  display: block;
+  width: 100px;
+  height: 100px;
+}
+
+.quiz-card__glyph--o {
+  border: 13px solid var(--color-white);
+  border-radius: 50%;
+}
+
+/* Figma 929:8106: 폭 13.048 · 높이 128.373 · 반경 11 막대 두 개를 교차 */
+.quiz-card__glyph--x {
+  position: relative;
+}
+
+.quiz-card__glyph-bar {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 13px;
+  height: 128.4px;
+  border-radius: 11px;
+  background-color: var(--color-white);
+}
+
+.quiz-card__glyph-bar:first-child {
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.quiz-card__glyph-bar:last-child {
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+/* 양끝 화살표 — 끌기를 못 쓰는 사용자를 위한 같은 동작의 버튼 */
+.quiz-card__arrow {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+}
+
+.quiz-card__arrow-icon {
+  width: 24px;
+  height: 24px;
+  background-color: var(--color-white);
+  -webkit-mask: url('../assets/arrow_l.svg') center / contain no-repeat;
+  mask: url('../assets/arrow_l.svg') center / contain no-repeat;
+}
+
+.quiz-card__arrow--next .quiz-card__arrow-icon {
+  -webkit-mask-image: url('../assets/arrow_r.svg');
+  mask-image: url('../assets/arrow_r.svg');
+}
+
+.quiz-card__arrow:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* ------------------------------------------------------------------ *
+ * 객관식 — 카드 안 버튼
+ * 디자인에 없는 유형이라 Btn/CTA 규칙(높이 · 반경 15 · Button2)을 카드 위에서
+ * 뒤집어 쓴다: 주황 카드 위이므로 배경이 흰색, 글자가 Primary/Normal 이다.
+ * ------------------------------------------------------------------ */
+.quiz-card__options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: auto 0 0;
+  padding: 24px 0 0;
+  list-style: none;
+}
+
+.quiz-card__option {
+  width: 100%;
+  min-height: 52px;
+  padding: 12px 16px;
+  border-radius: var(--radius-15);
+  background-color: var(--color-white);
+  color: var(--color-primary-500);
+  font-size: var(--font-size-button2);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  text-align: center;
+  transition: opacity 0.15s ease-out;
+}
+
+.quiz-card__option:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ------------------------------------------------------------------ *
+ * 접근성
+ * 퇴장은 transition 만 끄고 결과(사라짐)는 그대로 둔다 — 움직임 없이 즉시 바뀐다.
+ * ------------------------------------------------------------------ */
+@media (prefers-reduced-motion: reduce) {
+  .quiz-card,
+  .quiz-card__choice {
+    transition: none;
+  }
+}
