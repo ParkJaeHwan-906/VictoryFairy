@@ -1,12 +1,12 @@
 /**
  * 모듈별 API Base URL.
  *
- * 백엔드는 모듈마다 base가 다르다 — user(인증·계정)는 `.../api/member`,
- * game(채팅)은 `.../api/game`. 엔드포인트 함수는 **모듈 base 기준 상대 경로만** 쓴다.
- * 경로에 `/api`나 모듈 세그먼트를 다시 붙이면 `.../api/member/api/auth/login`이 되어 404가 난다.
+ * 백엔드는 모듈마다 base가 다르다 — user(인증·계정)는 `.../api`,
+ * game(채팅)은 `.../rt`. 엔드포인트 함수는 **모듈 base 기준 상대 경로만** 쓴다.
+ * 경로에 base 세그먼트를 다시 붙이면 `.../api/api/auth/login`이 되어 404가 난다.
  *
- *   USER_BASE_URL + '/auth/login'  → https://victoryfairy/api/member/auth/login
- *   GAME_BASE_URL + '/chat/rooms'  → https://victoryfairy/api/game/chat/rooms
+ *   USER_BASE_URL + '/auth/login'  → https://victoryfairy/api/auth/login
+ *   GAME_BASE_URL + '/chat/rooms'  → https://victoryfairy/rt/chat/rooms
  *
  * 값은 `.env`에서 주입하며, 미설정 시 로컬 개발 서버로 폴백한다.
  */
@@ -20,10 +20,10 @@ function normalize(url: string): string {
 
 /** user 모듈 — 인증(`auth`) · 계정(`account`) */
 export const USER_BASE_URL = normalize(
-  import.meta.env.VITE_API_USER_BASE_URL ?? `${LOCAL_ORIGIN}/api/member`,
+  import.meta.env.VITE_API_USER_BASE_URL ?? `${LOCAL_ORIGIN}/api`,
 );
 
-/** game 모듈 — 구단별 채팅 (`chat`) */
+/** game 모듈 — 구단별 채팅 (`chat`). base `/rt`은 realtime이며 `/api` 아래가 아니다. */
 export const GAME_BASE_URL = normalize(
-  import.meta.env.VITE_API_GAME_BASE_URL ?? `${LOCAL_ORIGIN}/api/game`,
+  import.meta.env.VITE_API_GAME_BASE_URL ?? `${LOCAL_ORIGIN}/rt`,
 );
