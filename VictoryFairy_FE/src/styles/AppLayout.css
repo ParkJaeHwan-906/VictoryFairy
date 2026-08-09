@@ -4,12 +4,19 @@
  * NavBar 는 고정 배치라 흐름에서 빠져 있다. 그래서 여기서 바 높이만큼 아래를 비워
  * 콘텐츠 끝이 가리지 않게 한다. 안쪽 페이지는 높이를 스스로 정하지 않고
  * 남은 자리를 채우기만 하면 된다(그래야 화면 높이 + 바 높이만큼 헛스크롤이 안 생긴다).
+ *
+ * 앱 폭(402px) 제한도 여기서 한 번만 건다. 페이지마다 각자 걸면 빠뜨린 화면만
+ * 데스크톱에서 전체 폭으로 늘어나 화면끼리 폭이 달라진다. 안쪽 페이지는 폭을
+ * 정하지 않고 이 껍데기를 채우기만 한다. NavBar 도 같은 값(min(100vw, 402px))으로 맞춘다.
  */
 
 .app-layout {
   display: flex;
   flex-direction: column;
+  width: 100%;
+  max-width: var(--layout-app-width);
   min-height: 100dvh;
+  margin-inline: auto;
   padding-bottom: calc(var(--layout-navbar-height) + env(safe-area-inset-bottom, 0px));
 }
 
