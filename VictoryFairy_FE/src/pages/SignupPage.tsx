@@ -2,20 +2,62 @@ import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import profileImage from '../assets/profile_img.svg';
 import '../styles/SignupPage.css';
-import { checkNicknameDuplicate, sendEmailCode } from '../api';
-import type { NicknameValidationResponse } from '../api';
+import {
+  ApiError,
+  checkNicknameDuplicate,
+  getTokenStorage,
+  login,
+  sendEmailCode,
+  signup,
+} from '../api';
+import type { Gender, NicknameValidationResponse } from '../api';
 import EmailVerifySheet from '../components/EmailVerifySheet';
+import { ROUTES } from '../routes';
 import { checkPassword, checkPasswordConfirm, PASSWORD_MAX_LENGTH } from '../utils/password';
+import { checkName, checkTel, toTelDigits, TEL_MAX_LENGTH } from '../utils/profile';
+
+/** 성별 선택지. `SignupRequest.gender` 가 받는 두 값이 전부다. */
+const GENDER_OPTIONS: ReadonlyArray<{ value: Gender; label: string }> = [
+  { value: 'MALE', label: '남성' },
+  { value: 'FEMALE', label: '여성' },
+];
+
+/**
+ * 가입·로그인 실패를 CTA 위에 띄울 한 줄로 옮긴다.
+ *
+ * 문구는 가능한 한 서버가 준 것을 그대로 쓴다 — 409 는 무엇이 중복인지(이메일/전화번호/닉네임),
+ * 400 은 어느 필드가 왜 틀렸는지를 이미 담고 있어 프론트에서 새로 지어내면 되레 흐려진다.
+ * Bean Validation(400) 은 필드별 맵으로 오므로 첫 항목을 대표로 보여준다.
+ *
+ * `afterSignup` 이면 가입은 끝나고 로그인만 실패한 것이라, 실패 원인보다
+ * "계정은 만들어졌다"는 사실을 먼저 알려야 다음 행동을 고를 수 있다.
+ */
+function toSubmitMessage(error: unknown, afterSignup: boolean): string {
+  if (afterSignup) {
+    return '가입은 완료됐지만 자동 로그인에 실패했어요. 로그인 화면에서 다시 시도해 주세요.';
+  }
+
+  if (error instanceof ApiError) {
+    const firstFieldMessage = error.fieldErrors ? Object.values(error.fieldErrors)[0] : undefined;
+    return firstFieldMessage ?? error.message;
+  }
+
+  return error instanceof Error
+    ? error.message
+    : '회원가입에 실패했어요. 잠시 후 다시 시도해 주세요.';
+}
 
 /**
  * SignupPage — 일반 회원가입(기본) 화면.
  * Figma: SWM / [Sign In] 일반 회원가입-기본 (node 296:1486)
  *
- * 이메일 인증만 API 에 연결되어 있다. "인증 요청"이 성공하면 인증번호 입력 바텀시트가
- * 올라오고(`EmailVerifySheet`), 시트에서 인증에 성공해야 CTA 가 열린다 —
- * 가입 자체(`signup`)는 이메일 외 필수값(name·tel·gender)이 이 화면에 없어 아직 붙이지 않았다.
+ * "인증 요청"이 성공하면 인증번호 입력 바텀시트가 올라오고(`EmailVerifySheet`),
+ * 시트에서 인증에 성공해야 이메일 항목이 통과한다. 모든 항목이 통과해야 CTA 가 열리고,
+ * 누르면 가입(`signup`) → 로그인(`login`) → 구단 선택(`ROUTES.teamSelect`) 순으로 이어진다.
  *
- * 나머지 검증(validatePassword / checkNicknameDuplicate)도 흐름 설계가 필요해 그대로 둔다.
+ * 이름·전화번호·성별은 Figma 에 칸이 없지만 `SignupRequest` 의 필수값이라 함께 받는다.
+ * 없이 보내면 가입이 400 으로 떨어져 화면이 성립하지 않는다 — 스타일은 기존 입력 규격을
+ * 그대로 따르게 두어 디자인과 어긋나지 않게 했다.
  */
 export default function SignupPage() {
   const navigate = useNavigate();
@@ -24,6 +66,10 @@ export default function SignupPage() {
   const [password, setPassword] = useState('');
   const [passwordConfirm, setPasswordConfirm] = useState('');
   const [nickname, setNickname] = useState('');
+  const [name, setName] = useState('');
+  /** 숫자만 담는다 — 화면에서 하이픈을 걷어내고(`toTelDigits`) 그대로 전송한다. */
+  const [tel, setTel] = useState('');
+  const [gender, setGender] = useState<Gender | null>(null);
 
   const [isSendingCode, setIsSendingCode] = useState(false);
   const [isVerifySheetOpen, setIsVerifySheetOpen] = useState(false);
@@ -39,6 +85,14 @@ export default function SignupPage() {
   const [verifiedEmail, setVerifiedEmail] = useState<string | null>(null);
   /** 코드 전송 실패 사유(중복 이메일·재요청 쿨다운 등). 서버 문구를 그대로 보여준다. */
   const [emailError, setEmailError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  /** 가입·로그인 실패 사유. CTA 바로 위에 띄운다 — 어느 칸의 문제인지 서버가 알려주지 않는 경우가 많다. */
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  /**
+   * 가입은 됐지만 이어지는 로그인이 실패한 상태. 이 폼으로 다시 시도해봐야 409(중복)뿐이라
+   * CTA 를 다시 누르게 두지 않고 로그인 화면으로 보내는 버튼으로 바꾼다.
+   */
+  const [needsManualLogin, setNeedsManualLogin] = useState(false);
 
   const trimmedEmail = email.trim();
   /**
@@ -68,16 +122,72 @@ export default function SignupPage() {
   const nicknameResult =
     nicknameCheck && nicknameCheck.nickname === trimmedNickname ? nicknameCheck : null;
 
-  /** 디자인의 CTA 기본값은 Disable 상태 — 세 항목의 검증이 모두 끝나야 활성화한다. */
+  const trimmedName = name.trim();
+  /** 이름·전화번호도 입력 전에는 판정하지 않는다 — 비밀번호 칸과 같은 이유다. */
+  const nameCheck = name.length > 0 ? checkName(name) : null;
+  const telCheck = tel.length > 0 ? checkTel(tel) : null;
+
+  /** 디자인의 CTA 기본값은 Disable 상태 — 모든 항목의 검증이 끝나야 활성화한다. */
   const canSubmit =
     isEmailVerified &&
     passwordCheck?.valid === true &&
     passwordConfirmCheck?.valid === true &&
-    nicknameResult?.valid === true;
+    nicknameResult?.valid === true &&
+    nameCheck?.valid === true &&
+    telCheck?.valid === true &&
+    gender !== null &&
+    !isSubmitting;
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  /**
+   * 가입 → 로그인 → 구단 선택.
+   *
+   * `POST /auth/signup` 은 토큰을 주지 않으므로 방금 친 자격으로 곧바로 로그인해 토큰을
+   * 받아온다. 저장은 API 계층의 `TokenStorage` 시임에 맡긴다 — 이 화면은 토큰이 어디에
+   * 담기는지 알 필요가 없다(실제 구현 주입은 `src/stores/useAuthStore.ts`).
+   *
+   * 가입은 됐는데 로그인이 실패하는 경우를 따로 가른다. 계정은 이미 만들어졌으니
+   * 같은 폼으로 다시 가입시키면 409(중복)만 돌아온다 — 로그인 화면으로 보내는 것이 맞다.
+   */
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    // TODO: api-agent - auth.signup(...) 연결. name·tel·gender 입력이 이 화면에 없어 계약 확인 필요
+
+    if (!canSubmit) return;
+
+    setIsSubmitting(true);
+    setSubmitError(null);
+
+    let isSignedUp = false;
+
+    try {
+      // 성공은 201 + raw true. false 가 오면 가입되지 않은 것으로 본다.
+      const created = await signup({
+        name: trimmedName,
+        tel,
+        email: trimmedEmail,
+        gender,
+        nickname: trimmedNickname,
+        password,
+      });
+
+      if (!created) {
+        throw new Error('회원가입에 실패했어요. 잠시 후 다시 시도해 주세요.');
+      }
+
+      isSignedUp = true;
+
+      const tokens = await login({ email: trimmedEmail, password });
+      getTokenStorage().setTokens(tokens);
+
+      // 뒤로 가기로 가입 폼에 돌아오면 이미 만들어진 계정을 또 만들려 하게 된다 — 이력을 갈아끼운다.
+      navigate(ROUTES.teamSelect, { replace: true });
+    } catch (cause: unknown) {
+      setNeedsManualLogin(isSignedUp);
+      setSubmitError(toSubmitMessage(cause, isSignedUp));
+      setIsSubmitting(false);
+      return;
+    }
+
+    // 성공 경로에서는 상태를 되돌리지 않는다 — 이동이 끝날 때까지 CTA 를 잠가 둔다.
   };
 
   const handleSendEmailCode = () => {
@@ -163,6 +273,110 @@ export default function SignupPage() {
       </div>
 
       <form className="signup-page__form" onSubmit={handleSubmit} noValidate>
+        {/*
+          이름·전화번호·성별은 Figma 에 칸이 없지만 `SignupRequest` 의 필수값이라 함께 받는다.
+          확인 왕복(인증 요청·중복확인)이 없는 항목들이라 맨 앞에 둔다 —
+          위에서부터 그냥 채워 내려오다가 이메일에서 한 번, 닉네임에서 한 번만 멈추게 된다.
+        */}
+        <div className="signup-page__group">
+          <label className="signup-page__label" htmlFor="signup-name">
+            이름
+          </label>
+          <div className="signup-page__field">
+            <input
+              className={`signup-page__input${
+                nameCheck && !nameCheck.valid ? ' signup-page__input--invalid' : ''
+              }`}
+              id="signup-name"
+              type="text"
+              name="name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="김승요"
+              autoComplete="name"
+              aria-invalid={nameCheck !== null && !nameCheck.valid}
+              aria-describedby={nameCheck && !nameCheck.valid ? 'signup-name-hint' : undefined}
+            />
+            {/* 통과 문구까지 띄우면 이름 칸에서 확인할 것이 없는데도 줄이 하나 늘어난다 */}
+            {nameCheck && !nameCheck.valid && (
+              <p className="signup-page__hint signup-page__hint--error" id="signup-name-hint">
+                <span className="signup-page__hint-icon" aria-hidden="true" />
+                {nameCheck.message}
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div className="signup-page__group">
+          <label className="signup-page__label" htmlFor="signup-tel">
+            전화번호
+          </label>
+          <div className="signup-page__field">
+            {/*
+              inputMode="numeric" 으로 모바일에서 숫자 키패드를 띄우되 type 은 text 로 둔다 —
+              type="number" 는 앞자리 0(010…)과 스크롤 증감 때문에 전화번호에 맞지 않는다.
+              하이픈을 쳐도 입력을 막지 않고 toTelDigits 로 걷어낸다.
+            */}
+            <input
+              className={`signup-page__input${
+                telCheck && !telCheck.valid ? ' signup-page__input--invalid' : ''
+              }`}
+              id="signup-tel"
+              type="text"
+              name="tel"
+              value={tel}
+              onChange={(event) => setTel(toTelDigits(event.target.value))}
+              placeholder="01012345678"
+              autoComplete="tel-national"
+              inputMode="numeric"
+              maxLength={TEL_MAX_LENGTH}
+              aria-describedby="signup-tel-hint"
+              aria-invalid={telCheck !== null && !telCheck.valid}
+            />
+            <p
+              className={[
+                'signup-page__hint',
+                telCheck && !telCheck.valid ? 'signup-page__hint--error' : '',
+                telCheck?.valid ? 'signup-page__hint--success' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+              id="signup-tel-hint"
+            >
+              <span className="signup-page__hint-icon" aria-hidden="true" />
+              {telCheck ? telCheck.message : '숫자만 입력해주세요 (- 없이)'}
+            </p>
+          </div>
+        </div>
+
+        {/*
+          라디오 그룹이라 label/htmlFor 대신 fieldset/legend 로 묶는다 —
+          선택지가 여럿이라 가리킬 입력이 하나로 정해지지 않는다.
+        */}
+        <fieldset className="signup-page__group signup-page__fieldset">
+          <legend className="signup-page__label">성별</legend>
+          <div className="signup-page__gender">
+            {GENDER_OPTIONS.map((option) => (
+              <label
+                className={`signup-page__gender-option${
+                  gender === option.value ? ' signup-page__gender-option--selected' : ''
+                }`}
+                key={option.value}
+              >
+                <input
+                  className="signup-page__gender-input"
+                  type="radio"
+                  name="gender"
+                  value={option.value}
+                  checked={gender === option.value}
+                  onChange={() => setGender(option.value)}
+                />
+                {option.label}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+
         <div className="signup-page__group">
           <label className="signup-page__label" htmlFor="signup-email">
             이메일
@@ -343,9 +557,35 @@ export default function SignupPage() {
           </div>
         </div>
 
-        <button className="signup-page__submit" type="submit" disabled={!canSubmit}>
-          다음으로
-        </button>
+        {submitError && (
+          <p className="signup-page__hint signup-page__hint--error" role="alert">
+            <span className="signup-page__hint-icon" aria-hidden="true" />
+            {submitError}
+          </p>
+        )}
+
+        {/*
+          가입까지 끝난 뒤라면 같은 폼을 다시 제출해봐야 중복 오류뿐이다 —
+          할 수 있는 유일한 다음 동작(로그인)으로 CTA 를 바꿔 끝을 막지 않는다.
+        */}
+        {needsManualLogin ? (
+          <button
+            className="signup-page__submit"
+            type="button"
+            onClick={() => navigate(ROUTES.login, { replace: true })}
+          >
+            로그인하러 가기
+          </button>
+        ) : (
+          <button
+            className="signup-page__submit"
+            type="submit"
+            disabled={!canSubmit}
+            aria-busy={isSubmitting}
+          >
+            {isSubmitting ? '가입 중...' : '다음으로'}
+          </button>
+        )}
       </form>
 
       {isVerifySheetOpen && (

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getTeamList } from '../api';
+import { ApiError, getTeamList, isSupportTeamNotFound, selectSupportTeam } from '../api';
 import type { Team } from '../api';
 import { getTeamDisplay } from '../data/kboTeams';
+import { ROUTES, type PlayerSelectState } from '../routes';
 import '../styles/TeamSelectPage.css';
 
 /**
@@ -44,6 +45,11 @@ export default function TeamSelectPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  /** 저장 실패 사유. CTA 바로 위에 띄운다(목록 로딩 실패와 자리가 다르다). */
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  /** 값을 올릴 때마다 구단 목록을 다시 받는다 — 저장이 404(없는 구단)로 떨어졌을 때 쓴다. */
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     // 화면을 벗어난 뒤 늦게 도착한 응답으로 상태를 건드리지 않도록 막는다.
@@ -66,12 +72,47 @@ export default function TeamSelectPage() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [reloadKey]);
 
-  const handleSubmit = () => {
-    if (selectedId === null) return;
-    // TODO: api-agent - 응원 구단 저장(PATCH/POST teamId) 엔드포인트가 아직 api 계층에 없다.
-    //       계약 확인 후 붙이고, 성공하면 다음 온보딩 단계로 넘긴다.
+  /**
+   * 응원 구단 저장 → 선수 선택.
+   *
+   * `POST /support/team` 은 최초 선택·변경·재선택을 모두 처리하므로 현재 상태를 먼저
+   * 조회할 필요가 없다. 응답으로 반영 후 구단(`{ id, name }`)이 돌아와 그대로 다음
+   * 화면에 넘긴다 — 선수 검색이 이 구단으로 좁혀져야 하기 때문이다.
+   *
+   * 이 API 는 인증이 필수다(access 토큰으로 대상 계정을 정한다). 401 은 httpClient
+   * 인터셉터가 재발급까지 시도하고, 그래도 실패하면 여기 catch 로 온다.
+   */
+  const handleSubmit = async () => {
+    if (selectedId === null || isSubmitting) return;
+
+    setIsSubmitting(true);
+    setSubmitError(null);
+
+    try {
+      const team = await selectSupportTeam(selectedId);
+      const state: PlayerSelectState = { teamId: team.id, teamName: team.name };
+
+      navigate(ROUTES.playerSelect, { state });
+    } catch (error: unknown) {
+      // 404 는 화면이 들고 있는 목록이 서버와 어긋났다는 뜻이라, 문구보다 목록을 다시 받는 게 먼저다.
+      if (isSupportTeamNotFound(error)) {
+        setSelectedId(null);
+        setReloadKey((key) => key + 1);
+        setSubmitError('구단 목록이 갱신되었어요. 다시 선택해주세요.');
+      } else {
+        setSubmitError(
+          error instanceof ApiError
+            ? error.message
+            : '구단을 저장하지 못했어요. 잠시 후 다시 시도해주세요.',
+        );
+      }
+
+      setIsSubmitting(false);
+    }
+
+    // 성공 경로에서는 되돌리지 않는다 — 화면이 넘어갈 때까지 CTA 를 잠가 둔다.
   };
 
   const rows = chunkIntoRows(teams, ROW_SIZES);
@@ -154,13 +195,23 @@ export default function TeamSelectPage() {
         )}
       </div>
 
+      {submitError && (
+        <p
+          className="team-select-page__status team-select-page__status--error team-select-page__submit-error"
+          role="alert"
+        >
+          {submitError}
+        </p>
+      )}
+
       <button
         className="team-select-page__submit"
         type="button"
         onClick={handleSubmit}
-        disabled={!hasSelection}
+        disabled={!hasSelection || isSubmitting}
+        aria-busy={isSubmitting}
       >
-        다음으로
+        {isSubmitting ? '저장 중...' : '다음으로'}
       </button>
     </div>
   );

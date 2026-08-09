@@ -8,6 +8,7 @@ import MainPage from './pages/MainPage';
 import MyPage from './pages/MyPage';
 import GamePage from './pages/GamePage';
 import PlayerSelectPage from './pages/PlayerSelectPage';
+import CompletePage from './pages/CompletePage';
 import { ROUTES } from './routes';
 
 export default function App() {
@@ -18,6 +19,7 @@ export default function App() {
       <Route path={ROUTES.signup} element={<SignupPage />} />
       <Route path={ROUTES.teamSelect} element={<TeamSelectPage />} />
       <Route path={ROUTES.playerSelect} element={<PlayerSelectPage />} />
+      <Route path={ROUTES.complete} element={<CompletePage />} />
       {/*
         하단 NavBar 가 붙는 화면들.
         레이아웃에 NavBar 를 한 번만 두어, 이 안에서 화면을 옮겨 다녀도
