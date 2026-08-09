@@ -47,7 +47,7 @@ Lambda·로컬 스크립트가 이를 얇게 호출합니다.
   `records`(박스스코어 확정 적재)와 별개다 — 상태 판정 함정은 `docs/data-formats.md` "경기 상태 판정" 참고.
   **도메인 관련 코드는 domain 모듈 엔티티 파일만 참고해 작성하고, 이 리포에 DDL
   사본(schema.sql류)을 만들지 마세요** — 스키마 변경·생성은 dev_be 소관. 운영 실행은 **VPC 안
-  Lambda**(`kbo-collector-db`, `deploy/lambda/terraform/lambda_db.tf` — records 03:30 KST ·
+  Lambda**(`kbo-collector-db`, `VictoryFairy_Infra/collector-lambda/lambda_db.tf`(dev_infra) — records 03:30 KST ·
   registrations 11:00 KST), 로컬 개발은 SSH 터널(`127.0.0.1:3306` = 원격 DB, 로컬 도커 아님).
   S3 잡 함수(`kbo-collector`)는 MySQL에 접근하지 않습니다 — DB 자격증명은 -db 함수에만 있습니다.
 - **코드 파일 수정은 신중히.** `kbo_collector/`·`deploy/`·`tests/`는 실행 코드입니다. 문서만 고칠 때는

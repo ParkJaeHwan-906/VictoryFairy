@@ -3,21 +3,21 @@
 > **2026-08-04 개정(사용자 결정 반영)**: 초안의 "명시값(`teamId`) 우선" 전제가 **뒤집혔다.** 사용자가 택한 것은 A/B가 아닌 제3안 — **토큰 정보가 요청 파라미터를 오버라이딩한다.** 활성 응원 구단이 있으면 요청의 `teamId`는 값이 무엇이든 무시된다. 이에 따라 초안의 USER-PLF-2·PLF-3·PLF-13은 **폐기**하고 USER-PLF-16~21로 다시 썼다(번호는 재사용하지 않는다).
 
 ## 배경 / 목적
-지금 프론트가 "내 응원 구단 선수"를 그리려면 `GET /api/member/users/me`로 구단 id를 먼저 받고 `GET /api/member/players?teamId=`를 다시 호출해야 한다(2회 왕복). 이 왕복을 없애기 위해 **토큰의 응원 구단을 구단 필터의 출처로 삼는다.**
+지금 프론트가 "내 응원 구단 선수"를 그리려면 `GET /api/users/me`로 구단 id를 먼저 받고 `GET /api/players?teamId=`를 다시 호출해야 한다(2회 왕복). 이 왕복을 없애기 위해 **토큰의 응원 구단을 구단 필터의 출처로 삼는다.**
 
 주의할 점은 기능 자체가 아니라 두 가지 부작용이다.
-1. **같은 URL(`GET /api/member/players`)이 `Authorization` 헤더 유무에 따라 다른 결과를 준다.**
+1. **같은 URL(`GET /api/players`)이 `Authorization` 헤더 유무에 따라 다른 결과를 준다.**
 2. **로그인 사용자에게는 `teamId` 파라미터가 사실상 무효가 된다**(아래 "알려진 결과" 참조). 사용자가 이 결과를 인지하고 택한 규칙이다.
 
 기존 승인 계약 USER-PL-4는 "`teamId`가 없으면 전체 행을 반환한다"를, USER-PL-5는 "`teamId`가 있으면 그 구단 선수를 반환한다"를 각각 조건 없이 못 박아 두었다. 이번 변경은 **두 문장을 모두 좁힌다**(아래 "기존 계약과의 충돌" 참조).
 
 ## 범위
-- 포함: `GET /api/member/players`의 **적용 구단 결정 규칙**(토큰 > `teamId` > 없음), 그 규칙에서 파생되는 경계(비로그인·무효 토큰·응원 구단 없음·취소된 응원·존재하지 않는 `teamId`·빈 값 `teamId`), `name` 파라미터와의 결합 규칙 재확인, 공개 범위 유지의 명시
+- 포함: `GET /api/players`의 **적용 구단 결정 규칙**(토큰 > `teamId` > 없음), 그 규칙에서 파생되는 경계(비로그인·무효 토큰·응원 구단 없음·취소된 응원·존재하지 않는 `teamId`·빈 값 `teamId`), `name` 파라미터와의 결합 규칙 재확인, 공개 범위 유지의 명시
 - 제외:
   - **응답 형태 변경** — 어떤 구단이 실제로 적용됐는지 알리는 필드(`appliedTeamId` 등)를 넣지 않는다. 응답은 지금과 같은 `ApiResponse<List<PlayerResponse>>`이고 항목 키는 이 결정 시점 기준 `{id,name}` 그대로다(USER-PL-2 불변). 결과적으로 **클라이언트는 자신의 `teamId`가 무시됐는지 응답만 보고는 알 수 없다** — 인지하고 택한 결과다
     > **2026-08-06 후속 — 이 결정의 결론이 부분적으로 무효화됐다.** `PlayerResponse`가 여섯 필드로 바뀌면서 항목 키는 더 이상 `{id,name}`이 아니고, 각 항목에 **선수의 소속 구단(`teamId`·`teamName`)이 실린다**. 전용 필드(`appliedTeamId`)를 두지 않는다는 결정은 유지되지만, 그 **결과**였던 "클라이언트는 오버라이딩 여부를 알 수 없다"는 더 이상 성립하지 않는다 — `?teamId=9`를 보내고 돌아온 항목의 `teamId`가 전부 6이면 무시된 것이 자명하다. 알 수 없는 경우는 결과가 빈 배열일 때뿐이다. 의도한 노출이 아니라 필드 추가의 부수 효과이며, 되돌릴지는 별도 결정 사항이다. 현재 키는 [`docs/api/player.md`](../../api/player.md) 참고
   - **오버라이딩 우회 수단** — `?ignoreSupport=true` 같은 "내 응원 구단 무시하고 이 구단을 보겠다"는 탈출구를 두지 않는다(후속 참조)
-  - **다른 조회 엔드포인트로의 확산** — `GET /api/member/games`·`GET /api/member/teams`에는 같은 규칙을 넣지 않는다
+  - **다른 조회 엔드포인트로의 확산** — `GET /api/games`·`GET /api/teams`에는 같은 규칙을 넣지 않는다
   - **`name` 검색의 폴백** — 토큰이 대체하는 것은 구단 하나뿐이다. `name`을 생략했다고 응원 선수로 좁히지 않는다
   - **HTTP 캐시 헤더(`Vary: Authorization`)** — 응답이 토큰에 따라 갈리므로 캐시를 도입하면 필요해지지만, 이 엔드포인트에는 아직 캐시 헤더가 없다(USER-PL 범위에서 이미 제외). 후속으로만 기록
   - **응원 구단 선택 강제(온보딩)** — 백엔드가 구단 선택을 강제하지 않는다는 확정 정책(`me-profile.md`)은 이번 변경으로 바뀌지 않는다(USER-PLF-6의 근거)
@@ -33,12 +33,12 @@
 
 | ID | 유형 | 요구사항 | 인수 기준 |
 |---|---|---|---|
-| USER-PLF-1 | 복합 | WHILE 유효한 access 토큰으로 인증된 상태에서, WHEN `teamId` 없이 선수 목록 요청이 들어오면, THE 시스템 SHALL 그 계정이 현재 응원 중인(`oppose IS NULL`) 구단 소속 선수만 반환한다 | 응원 구단이 6인 계정 A의 access 토큰으로 `GET /api/member/players` → 200, 반환된 모든 선수의 `players.team_id`가 6. 무인증 `?teamId=6` 응답과 `data`가 동일 |
+| USER-PLF-1 | 복합 | WHILE 유효한 access 토큰으로 인증된 상태에서, WHEN `teamId` 없이 선수 목록 요청이 들어오면, THE 시스템 SHALL 그 계정이 현재 응원 중인(`oppose IS NULL`) 구단 소속 선수만 반환한다 | 응원 구단이 6인 계정 A의 access 토큰으로 `GET /api/players` → 200, 반환된 모든 선수의 `players.team_id`가 6. 무인증 `?teamId=6` 응답과 `data`가 동일 |
 | ~~USER-PLF-2~~ | — | **(폐기됨, 2026-08-04)** 초안: "`teamId`가 있으면 응원 구단을 조회하지 않고 전달된 `teamId`로 필터한다". 우선순위가 뒤집혀 USER-PLF-16·17이 대체한다 | — |
 | ~~USER-PLF-3~~ | — | **(폐기됨, 2026-08-04)** 초안: "전달된 `teamId`가 응원 구단과 달라도 그 구단 선수를 반환한다". USER-PLF-17이 대체한다 | — |
-| USER-PLF-4 | 예외 | IF `teamId` 없는 요청에 `Authorization` 헤더가 없으면, THEN THE 시스템 SHALL 401이 아니라 200과 전 구단 선수 목록을 반환한다 | 헤더 없이 `GET /api/member/players` → 200, `data` 길이가 `SELECT COUNT(*) FROM players`와 일치(USER-PL-9의 현행 동작 유지) |
+| USER-PLF-4 | 예외 | IF `teamId` 없는 요청에 `Authorization` 헤더가 없으면, THEN THE 시스템 SHALL 401이 아니라 200과 전 구단 선수 목록을 반환한다 | 헤더 없이 `GET /api/players` → 200, `data` 길이가 `SELECT COUNT(*) FROM players`와 일치(USER-PL-9의 현행 동작 유지) |
 | USER-PLF-5 | 예외 | IF 요청의 토큰이 만료·위조·refresh 타입이거나 탈퇴/미존재 계정의 것이면, THEN THE 시스템 SHALL 토큰이 없는 요청과 동일하게 처리한다 | `Authorization: Bearer not-a-jwt` + `teamId` 없음 → 200이며 본문이 헤더 없는 응답과 완전히 동일. 같은 토큰 + `?teamId=9` → `team_id=9` 선수만(USER-PLF-20과 같은 경로). 탈퇴 계정의 유효기간 남은 access 토큰도 동일(필터가 `findActiveIdByUid`로 걸러 principal이 비어 있음) |
-| USER-PLF-6 | 예외 | IF `teamId` 없는 인증 요청의 계정에 활성 응원 구단이 없으면, THEN THE 시스템 SHALL 400(`SUPPORT_TEAM_REQUIRED`)이 아니라 200과 전 구단 선수 목록을 반환한다 | 응원 구단을 한 번도 선택하지 않은 계정의 토큰으로 `GET /api/member/players` → 200, `data` 길이가 전체 선수 수와 일치 |
+| USER-PLF-6 | 예외 | IF `teamId` 없는 인증 요청의 계정에 활성 응원 구단이 없으면, THEN THE 시스템 SHALL 400(`SUPPORT_TEAM_REQUIRED`)이 아니라 200과 전 구단 선수 목록을 반환한다 | 응원 구단을 한 번도 선택하지 않은 계정의 토큰으로 `GET /api/players` → 200, `data` 길이가 전체 선수 수와 일치 |
 | USER-PLF-7 | 예외 | IF 계정의 응원 구단 행이 취소 상태(`oppose`에 시각이 채워짐)이면, THEN THE 시스템 SHALL 그 계정을 "활성 응원 구단 없음"으로 취급한다 | 구단 6을 응원했다가 취소한 계정 토큰 + `teamId` 없음 → 전 구단 목록(6으로 좁혀지지 않음). 같은 토큰 + `?teamId=9` → `team_id=9` 선수만(무시되지 않고 적용됨) |
 | USER-PLF-8 | 복합 | WHILE 적용 구단이 결정된 상태에서, WHEN 요청에 `name`도 있으면, THE 시스템 SHALL 적용 구단 조건과 이름 부분 일치를 AND로 결합해 반환한다 | 응원 구단이 6인 계정 토큰 + `?name=도영` → 결과가 무인증 `?teamId=6&name=도영` 응답과 동일. 6이 아닌 구단의 동명 선수 0건. 같은 토큰 + `?teamId=9&name=도영` → 여전히 `team_id=6` 안에서만 매칭(USER-PLF-17이 구단을 정한 뒤 AND) |
 | USER-PLF-9 | 예외 | IF `name`이 빈 문자열이거나 공백뿐이면, THEN THE 시스템 SHALL `name`이 없는 것과 동일하게 처리하고 적용 구단 결정은 그대로 유지한다 | 응원 구단이 6인 계정 토큰 + `?name=` · `?name=%20%20` → 무인증 `?teamId=6` 응답과 동일(전 구단 목록이 아님). USER-PL-15 불변 |
@@ -47,7 +47,7 @@
 | USER-PLF-12 | 예외 | IF 적용 구단으로 결정된 구단에 소속 선수가 없으면, THEN THE 시스템 SHALL 200과 빈 배열을 반환한다 | 소속 선수가 0명인 구단을 응원하는 계정 토큰 + `teamId` 없음 → 200, `{"success":true,"data":[],"message":null}` |
 | ~~USER-PLF-13~~ | — | **(폐기됨, 2026-08-04)** 초안: "폴백이 필요 없는 요청에서는 응원 구단 조회 0회". 인증된 요청은 `teamId` 유무와 무관하게 응원 구단을 봐야 하므로 USER-PLF-21이 대체한다 | — |
 | USER-PLF-14 | 유비쿼터스 | THE 시스템 SHALL 적용 구단이 무엇으로 결정됐는지와 무관하게 응답 형태를 동일하게 유지한다 — `ApiResponse` 래퍼, 항목 키 집합 고정, `name` 오름차순 | 토큰이 `teamId`를 오버라이딩한 응답의 `data[0]` 키 집합이 평시와 동일한 여섯 개(`teamId`·`teamName`·`playerId`·`playerName`·`playerNumber`·`playerPosition`, 2026-08-06 이전에는 `{"id","name"}`). 적용된 구단이나 오버라이딩 발생을 **전용으로** 알리는 필드·헤더가 없고 `message`는 `null` — 단, 항목의 `teamId`로 추론은 가능하다(위 결정 4 후속 참고) |
-| USER-PLF-15 | 유비쿼터스 | THE 시스템 SHALL 이 경로를 GET 한정 `permitAll`로 유지한다 | 헤더 없이 `GET /api/member/players` → 200(401 아님). 헤더 없이 `POST /api/member/players` → 401 `{"success":false,"data":null,"message":"인증이 필요합니다."}`(USER-PL-12 불변). `SecurityConfig` 무변경 |
+| USER-PLF-15 | 유비쿼터스 | THE 시스템 SHALL 이 경로를 GET 한정 `permitAll`로 유지한다 | 헤더 없이 `GET /api/players` → 200(401 아님). 헤더 없이 `POST /api/players` → 401 `{"success":false,"data":null,"message":"인증이 필요합니다."}`(USER-PL-12 불변). `SecurityConfig` 무변경 |
 | USER-PLF-16 | 유비쿼터스 | THE 시스템 SHALL 적용 구단을 다음 순서로 결정한다 — ①유효한 access 토큰의 계정에 활성 응원 구단이 있으면 그 구단, ②아니면 요청의 `teamId`, ③둘 다 없으면 구단으로 거르지 않음 | 위 3순위 각각에 해당하는 요청 3건이 각각 응원 구단 목록 / `teamId` 목록 / 전 구단 목록을 반환. **이 문장이 적용 구단 규칙의 단일 출처이며, 이 문서·`player-list.md`의 다른 문장과 어긋나면 이 요구사항이 우선한다** |
 | USER-PLF-17 | 복합 | WHILE 활성 응원 구단이 있는 계정으로 인증된 상태에서, WHEN 요청에 `teamId`가 함께 오면, THE 시스템 SHALL 그 `teamId`를 무시하고 응원 구단 소속 선수를 200으로 반환한다 | 응원 구단이 6인 계정 토큰 + `?teamId=9` → 200, 반환된 모든 선수의 `team_id`가 6(9 소속 0건). **400·403이 아니며 경고 메시지도 없다.** 같은 토큰 + `?teamId=6`(응원 구단과 동일)도 결과가 완전히 같다 |
 | USER-PLF-18 | 예외 | IF 활성 응원 구단이 있는 계정의 요청에 실린 `teamId`가 존재하지 않는 구단 id이면, THEN THE 시스템 SHALL 빈 배열이 아니라 응원 구단 소속 선수를 200으로 반환한다 | 응원 구단이 6인 계정 토큰 + `?teamId=999999` → 200, 모든 선수의 `team_id`가 6. **같은 요청을 헤더 없이 보내면 빈 배열이다**(USER-PL-6) — 이 비대칭은 의도된 결과다 |
@@ -66,7 +66,7 @@
 - **같은 요청이 로그인 여부로 갈린다.** `?teamId=999999`는 무인증이면 빈 배열, 응원 구단이 있는 로그인 상태면 응원 구단 선수 목록이다. `?teamId=9`도 무인증이면 9, 로그인이면 응원 구단이다. **프론트에서 "왜 필터가 안 먹나"로 보이는 현상의 정체가 이것이다.**
 - **응원 구단이 있는 사용자는 이 엔드포인트로 타 구단 선수를 조회할 수 없다.** 상대 팀 선수 검색·응원 구단 변경 화면의 "다른 팀 선수 미리보기" 같은 화면은 현재 계약으로 구현할 수 없다(우회 파라미터를 두지 않기로 했다 — "후속" 참조).
 - **로그인 사용자의 `name` 검색 범위도 자기 응원 구단 안으로 좁혀진다**(USER-PLF-8). 전 구단 이름 검색은 비로그인 상태에서만 가능하다.
-- **응답만으로는 오버라이딩 발생 여부를 알 수 없다**(USER-PLF-14). 클라이언트가 알아야 한다면 `GET /api/member/users/me`의 `supportTeam`과 비교하는 수밖에 없다.
+- **응답만으로는 오버라이딩 발생 여부를 알 수 없다**(USER-PLF-14). 클라이언트가 알아야 한다면 `GET /api/users/me`의 `supportTeam`과 비교하는 수밖에 없다.
 
 ## 제약 (기존 코드·정책과의 접점 — 구현 지시가 아니라 지켜야 할 사실)
 - **응원 구단 조회에는 구단명이 필요 없다.** `resolveTeamId()`는 적용 구단의 **id만** 쓰므로 `@EntityGraph`가 붙은 `findWithTeamByUserAccount_IdAndOpposeIsNull`을 쓰면 불필요한 조인이 붙는다(리포지토리 Javadoc이 두 메서드의 용도를 이미 갈라 놓았다).

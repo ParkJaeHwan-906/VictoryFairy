@@ -1,9 +1,13 @@
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 import kbo_collector.sources  # noqa: F401
 from kbo_collector.exports import exporter
+
+FIXTURES = Path(__file__).parent / "fixtures"
 
 
 class FakeDb:
@@ -65,6 +69,19 @@ def test_export_writes_envelopes_to_s3():
     key, obj = sink.puts[0]
     assert key.startswith("question-source/game_result/")
     assert obj["envelopeVersion"] == 1 and obj["content"]
+
+
+def test_export_partition_key_uses_specified_date_not_execution_date():
+    # 리뷰 C1-1: 이전엔 date 인자와 무관하게 항상 실행일(UTC)을 파티션 키로 썼다 —
+    # game_result처럼 date를 명시해 특정 날짜로 호출하는 잡도 오늘 파티션에 쌓여
+    # 매일 실행마다 같은 데이터가 새 날짜 밑에 중복 적재됐다(시즌 통계 오염 원인).
+    # date 인자가 있으면 그 날짜가 파티션 키가 되어야 한다.
+    sink = FakeSink()
+    n = exporter.export("game_result", settings=SimpleNamespace(), db=_db(),
+                        sink=sink, date="2026-03-28")
+    assert n == 1
+    key, _ = sink.puts[0]
+    assert key.startswith("question-source/game_result/2026-03-28/")
 
 
 def test_export_unknown_doc_type_raises():
@@ -167,3 +184,57 @@ def test_export_skips_invalid_envelope_and_continues():
         del exporter.READERS["stub_doc"]
     assert n == 1                      # 불량 1건 skip, 정상 1건 적재
     assert [obj["docId"] for _, obj in sink.puts] == ["d:good"]
+
+
+class FakeScheduleSink(FakeSink):
+    def __init__(self, sched, key):
+        super().__init__()
+        self.sched, self.key = sched, key
+
+    def exists(self, key):
+        return key == self.key
+
+    def get_json(self, key):
+        assert key == self.key
+        return self.sched
+
+
+def _sched_sink(date="2026-07-31"):
+    sched = json.loads((FIXTURES / "schedule_before.json").read_text(encoding="utf-8"))
+    return FakeScheduleSink(sched, f"raw-json/schedule/{date}/schedule.json")
+
+
+def test_read_game_schedules_emits_before_games_only():
+    envs = list(exporter.read_game_schedules(None, date="2026-07-31", sink=_sched_sink()))
+    assert envs, "픽스처에 BEFORE 상태 KBO 경기가 최소 1개 필요"
+    e = envs[0]
+    assert e.doc_type == "game_schedule"
+    assert e.doc_id == f"game_schedule:{e.entities['gameId']}"
+    assert len(e.entities["teamCodes"]) == 2
+    assert "예정" in e.content
+    assert set(e.payload) == {"gameId", "startTime", "stadium", "awayStarter", "homeStarter"}
+    # 실측 불변식 고정: 픽스처(운영 schedule 잡 필드셋)에는 stadium/선발투수
+    # 필드가 없다 — 매핑 로직이 잘못된 기본값을 채워도 조용히 통과하지 않도록
+    # None/'' 값 자체를 단언한다.
+    assert e.payload["awayStarter"] is None and e.payload["homeStarter"] is None
+    assert e.payload["stadium"] == ""
+
+
+def test_read_game_schedules_requires_date():
+    with pytest.raises(ValueError, match="--date"):
+        list(exporter.read_game_schedules(None, date=None, sink=FakeSink()))
+
+
+def test_read_game_schedules_missing_raw_raises():
+    with pytest.raises(ValueError, match="schedule"):
+        list(exporter.read_game_schedules(None, date="1999-01-01", sink=_sched_sink()))
+
+
+def test_export_game_schedule_writes_to_s3():
+    sink = _sched_sink()
+    n = exporter.export("game_schedule", settings=SimpleNamespace(), db=None,
+                        sink=sink, date="2026-07-31")
+    assert n >= 1
+    key, obj = sink.puts[0]
+    assert key.startswith("question-source/game_schedule/")
+    assert obj["envelopeVersion"] == 1

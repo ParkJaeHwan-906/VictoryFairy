@@ -65,5 +65,8 @@ crash.*.log
 terraform.rc
 *.tfplan
 
+# archive_file 이 만드는 Lambda zip (소스는 functions/*.py 가 원본)
+**/.build/
+
 # 프로바이더 lock 파일은 커밋합니다 (버전 고정 → 팀 재현성)
 !.terraform.lock.hcl

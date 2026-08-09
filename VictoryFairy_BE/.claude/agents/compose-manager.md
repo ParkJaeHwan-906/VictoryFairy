@@ -32,8 +32,8 @@ model: sonnet
 ## 앱 healthcheck 를 붙일 때
 앱은 `server.servlet.context-path`를 쓴다. 경로를 틀리면 컨테이너가 **영구 unhealthy**가 된다.
 
-- user → `http://localhost:8080/api/member/actuator/health/readiness`
-- quiz → `http://localhost:8081/api/game/actuator/health/readiness`
+- user → `http://localhost:8080/api/actuator/health/readiness`
+- quiz → `http://localhost:8081/rt/actuator/health/readiness`
 - `/health`·`/healthz`는 핸들러가 없어 **404**다. 쓰지 마라.
 - ⚠️ `/actuator/health` **전체**가 아니라 **readiness 그룹**을 쓸 것. 전체는 db·redis 인디케이터를 합산해 DOWN을 내므로 DB가 잠깐 흔들리면 앱 컨테이너까지 unhealthy로 뒤집힌다.
 - 런타임 이미지(`eclipse-temurin:21-jre`, Ubuntu)에 `curl`이 포함돼 있어 추가 설치가 필요 없다(실측).
