@@ -1,0 +1,120 @@
+/**
+ * CompletePage(온보딩 완료) 스타일.
+ * Figma: SWM / [Onboarding] 온보딩 완료 (node 296:1596), 기준 프레임 402 x 874.
+ *
+ * 이 화면에는 상단 바가 없다. 다른 온보딩 화면은 Bar/Top 이 디자인 y=47 에서 시작하지만
+ * 여기는 첫 요소가 제목이라, 세로 좌표를 옮길 때 상태 바(47px)만큼을 뺐다.
+ * (제목 167 → 120, 그래픽 295 → 248, 안내문 595 → 548)
+ *
+ * 세로 간격은 앞 요소의 아랫변에서 잰 값이다(제목 아래 60 / 그래픽 아래 20).
+ * CTA 는 다른 화면과 같이 바닥에 붙이고 아래 48px 을 비운다.
+ */
+
+.complete-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  max-width: var(--layout-app-width);
+  min-height: 100dvh;
+  margin-inline: auto;
+  padding-bottom: 48px;
+  background-color: var(--color-background-basic);
+}
+
+/* ------------------------------------------------------------------ *
+ * Title/Title1 — "승리요정을 시작하기 위한 / 모든 단계를 완료했어요!"
+ * 다른 화면의 제목과 달리 가운데 정렬이다.
+ * ------------------------------------------------------------------ */
+.complete-page__heading {
+  flex: 0 0 auto;
+  margin: 120px 0 0;
+  padding-inline: var(--layout-gutter);
+  color: var(--color-label-normal);
+  font-size: var(--font-size-title1);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title1);
+  text-align: center;
+}
+
+/* ------------------------------------------------------------------ *
+ * Graphic Area — 디자인에도 실제 그래픽 없이 회색 상자와 "Character" 글자만 있다.
+ * 캐릭터 아트가 나오면 이 상자째로 교체한다(LoginPage 의 hero 자리표시와 같은 처리).
+ * ------------------------------------------------------------------ */
+.complete-page__graphic {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 250px;
+  height: 280px;
+  margin-top: 60px;
+  background-color: var(--color-gray-100);
+  overflow: clip;
+}
+
+.complete-page__graphic-placeholder {
+  margin: 0;
+  color: var(--color-label-disable);
+  font-size: var(--font-size-display1);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-display1);
+  letter-spacing: var(--letter-spacing-display1);
+  text-align: center;
+}
+
+/* Body/Body2 — "BQ지수를 통해 이닝 시간에도 즐겁게 / 나만의 승요를 키워보세요!" */
+.complete-page__description {
+  flex: 0 0 auto;
+  margin: 20px 0 0;
+  padding-inline: var(--layout-gutter);
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-body2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body2);
+  text-align: center;
+}
+
+/* ------------------------------------------------------------------ *
+ * CTA — 화면 하단에 붙인다
+ * ------------------------------------------------------------------ */
+.complete-page__submit {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  height: 60px;
+  /* 위 요소들이 끝난 자리부터 바닥까지의 빈 공간을 이 여백이 가져간다 */
+  margin-top: auto;
+  margin-inline: var(--layout-gutter);
+  padding-inline: 16px;
+  border-radius: var(--radius-15);
+  background-color: var(--color-primary-normal);
+  color: var(--color-white);
+  font-size: var(--font-size-button2);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  transition: background-color 0.15s ease-in-out;
+}
+
+/* ------------------------------------------------------------------ *
+ * 반응형 · 접근성
+ * ------------------------------------------------------------------ */
+@media (max-width: 379px) {
+  .complete-page__heading,
+  .complete-page__description {
+    padding-inline: 16px;
+  }
+
+  .complete-page__submit {
+    margin-inline: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .complete-page__submit {
+    transition: none;
+  }
+}
