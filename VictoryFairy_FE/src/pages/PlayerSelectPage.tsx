@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import type { Player } from '../api';
 import PlayerSearchSheet from '../components/PlayerSearchSheet';
+import type { PlayerSelectState } from '../routes';
 import '../styles/PlayerSelectPage.css';
 
 /**
@@ -17,19 +18,26 @@ import '../styles/PlayerSelectPage.css';
 /** 디자인 문구("최대 4명까지 선택할 수 있어요")와 실제 제한을 한 값으로 묶는다. */
 const MAX_SELECTED = 4;
 
-/*
- * TODO: 회원가입 플로우 변경 시 앞 단계(구단 선택)에서 응원 구단이 넘어온다.
- *       그때 아래 두 값을 그 출처(라우터 state · 온보딩 스토어 등)로 갈아끼우면
- *       나머지 코드는 그대로 동작한다. 지금은 값이 없는 쪽으로만 열어 둔다.
+/**
+ * 앞 단계(구단 선택)가 라우터 state 로 넘긴 응원 구단을 읽는다.
  *
- * - teamId 가 null 이면 `GET /players` 를 구단 조건 없이 호출해 전 구단 선수가 내려온다.
- * - teamName 이 null 이면 안내 문구에서 구단 이름만 빠진다.
+ * state 는 신뢰할 수 없는 입력이다 — 주소를 직접 치면 null 이고, history 에 남은
+ * 옛 형태가 되살아날 수도 있다. 그래서 형태를 확인하고 아니면 없는 것으로 취급한다.
+ *
+ * 없을 때도 화면은 동작한다: `GET /players` 가 구단 조건 없이 호출돼 전 구단 선수가
+ * 내려오고, 안내 문구에서 구단 이름만 빠진다. 다만 응원 선수는 응원 구단 소속이어야 하므로
+ * 그 상태에서 소속이 다른 선수를 고르면 저장이 400 으로 거부된다.
  */
-const SELECTED_TEAM_ID: number | null = null;
-const SELECTED_TEAM_NAME: string | null = null;
+function readTeamState(state: unknown): PlayerSelectState | null {
+  if (typeof state !== 'object' || state === null) return null;
+
+  const { teamId, teamName } = state as Partial<PlayerSelectState>;
+  return typeof teamId === 'number' && typeof teamName === 'string' ? { teamId, teamName } : null;
+}
 
 export default function PlayerSelectPage() {
   const navigate = useNavigate();
+  const supportTeam = readTeamState(useLocation().state);
 
   const [selected, setSelected] = useState<Player[]>([]);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
@@ -55,8 +63,8 @@ export default function PlayerSelectPage() {
     //       계약 확인 후 붙이고, 성공하면 다음 온보딩 단계로 넘긴다.
   };
 
-  const guide = SELECTED_TEAM_NAME
-    ? `${SELECTED_TEAM_NAME} 소속 선수 최대 ${MAX_SELECTED}명까지 선택할 수 있어요`
+  const guide = supportTeam
+    ? `${supportTeam.teamName} 소속 선수 최대 ${MAX_SELECTED}명까지 선택할 수 있어요`
     : `최대 ${MAX_SELECTED}명까지 선택할 수 있어요`;
 
   return (
@@ -134,7 +142,7 @@ export default function PlayerSelectPage() {
 
       {isSheetOpen && (
         <PlayerSearchSheet
-          teamId={SELECTED_TEAM_ID}
+          teamId={supportTeam?.teamId ?? null}
           selected={selected}
           maxCount={MAX_SELECTED}
           onToggle={handleToggle}
