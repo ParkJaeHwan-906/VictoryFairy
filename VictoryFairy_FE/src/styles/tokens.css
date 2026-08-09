@@ -24,6 +24,8 @@
 
   /* Color — Primary (orange-red) */
   --color-primary-50: #fff3ee;
+  /* 퀴즈 카드 더미의 가장 뒤 장(Figma orange-red/100) */
+  --color-primary-100: #ffe0d2;
   --color-primary-200: #ffc3a8;
   --color-primary-300: #ff9d74;
   --color-primary-400: #ff7443;
