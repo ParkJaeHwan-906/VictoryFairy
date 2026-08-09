@@ -24,4 +24,4 @@ def test_every_doc_type_is_exportable():
 
 def test_expected_initial_sources():
     assert set(base.REGISTRY) == {
-        "naver_games", "kbo_roster", "community_posts", "meme_dict"}
+        "naver_games", "kbo_roster", "community_posts", "meme_dict", "kbo_records"}

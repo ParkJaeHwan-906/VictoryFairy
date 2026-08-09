@@ -239,7 +239,7 @@ BE 쪽 `infra` 모듈(`.claude/modules/infra.md`)은 **EC2+compose·배포 파�
 - `GRADLE_USER_HOME`이 **한글 경로면 워커가 깨져 테스트가 항상 실패**한다(기본값이 한글 사용자명 경로다). ASCII 경로로 지정할 것.
 - `JAVA_HOME`이 비어 있을 수 있다. JDK 21 경로를 지정해야 `gradlew`가 돈다.
 
-**앱 경로 규약** — `server.servlet.context-path`를 쓴다(user `/api/member`, quiz `/api/game`).
+**앱 경로 규약** — `server.servlet.context-path`를 쓴다(user `/api`, quiz `/rt`).
 컨트롤러 `@RequestMapping`과 Security `requestMatchers`는 **둘 다 접두사를 뺀 경로**다(컨테이너가 필터 체인 이전에 접두사를 떼므로). MockMvc도 context-path를 적용하지 않으므로 슬라이스 테스트 경로 역시 접두사가 없다 — **접두사가 실제로 붙는지는 테스트로 증명되지 않으니** 실기동·`curl`로 확인해야 한다.
 
 ## 알려진 갭

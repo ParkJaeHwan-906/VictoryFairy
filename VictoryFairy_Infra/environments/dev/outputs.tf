@@ -55,6 +55,36 @@ output "external_dns_role_arn" {
   value       = module.dns.external_dns_role_arn
 }
 
+output "fe_bucket_name" {
+  description = "FE 정적 자산 S3 버킷 이름. .github/workflows/deploy-fe.yml 의 aws s3 sync 대상."
+  value       = module.cdn.bucket_name
+}
+
+output "fe_cloudfront_distribution_id" {
+  description = "FE CloudFront 배포 ID. deploy-fe.yml 의 무효화(create-invalidation) 대상."
+  value       = module.cdn.distribution_id
+}
+
+output "watchdog_alarm_names" {
+  description = "상시 감시 알람 이름 목록. FE 알람만 자동 롤백을 유발한다."
+  value       = module.fe_watchdog.alarm_names
+}
+
+output "watchdog_healthcheck_function_name" {
+  description = "점검 함수 이름. 지표를 즉시 채우려면: aws lambda invoke --function-name <이름> /dev/null"
+  value       = module.fe_watchdog.healthcheck_function_name
+}
+
+output "watchdog_sns_topic_arn" {
+  description = "감시 알람 SNS 토픽 ARN. 이메일 등 추가 구독을 붙일 때 참조."
+  value       = module.fe_watchdog.sns_topic_arn
+}
+
+output "fe_cloudfront_domain_name" {
+  description = "FE CloudFront 배포 도메인(d*.cloudfront.net). apex 를 옮기기 전에 이 주소로 직접 접속해 검증한다(docs/fe-cdn-migration.md §4 1단계)."
+  value       = module.cdn.distribution_domain_name
+}
+
 output "mysql_instance_id" {
   description = "MySQL EC2 인스턴스 ID (SSM 포트포워딩 대상)"
   value       = module.mysql_ec2.instance_id
@@ -108,4 +138,9 @@ output "refine_bedrock_dlq_url" {
 output "refine_budget_table_name" {
   description = "일별 Bedrock 소비액 카운터 DynamoDB 테이블 이름"
   value       = module.refine_pipeline.budget_table_name
+}
+
+output "quiz_app_role_arn" {
+  description = "quiz-app 파드 IRSA 역할 ARN. k8s/21-quiz-app.yaml 의 SA 어노테이션(eks.amazonaws.com/role-arn) 값."
+  value       = module.quiz_irsa.quiz_app_role_arn
 }

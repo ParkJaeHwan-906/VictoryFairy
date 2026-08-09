@@ -1,7 +1,7 @@
 # 경기(game) API 명세
 
 > **도메인** `game` — 날짜별 KBO 경기 일정·스코어, 경기별 선발 라인업.
-> **모듈** user (포트 8080) · **경로 접두사** `/api/member/games` · **엔드포인트** 2개
+> **모듈** user (포트 8080) · **경로 접두사** `/api/games` · **엔드포인트** 2개
 > **컨트롤러** `user/src/main/java/com/skhynix/user/game/controller/GameController.java`(`@RequestMapping("/games")`) · `GameLineupController.java`(`@RequestMapping("/games/lineup")`)
 > **최종 갱신** 2026-08-04 — `positionName` 매핑 표에 실측 58종 복수 포지션 원문(2글자) 절 추가.
 > 공통 규약(응답 래퍼·401 정책)은 [README.md](README.md)를 먼저 볼 것.
@@ -10,8 +10,8 @@
 
 | 메서드 | 경로 | 성공 | 용도 |
 |---|---|---|---|
-| GET | [/api/member/games](#get-apimembergames) | 200 | 날짜별 경기 목록 |
-| GET | [/api/member/games/lineup](#get-apimembergameslineup) | 200 | 경기별 선발 라인업 |
+| GET | [/api/games](#get-apigames) | 200 | 날짜별 경기 목록 |
+| GET | [/api/games/lineup](#get-apigameslineup) | 200 | 경기별 선발 라인업 |
 
 ## 이 도메인의 특이사항
 
@@ -25,12 +25,12 @@
 
 ---
 
-## GET /api/member/games
+## GET /api/games
 > 최종 변경: 2026-08-04 — 응답에 `homeTeamId`/`awayTeamId` 추가(8→10필드)
 
 날짜별 경기 목록 조회. `GameController` → `GameService.getGames(LocalDate)` → `GameRepository.findAllByGameDateGreaterThanEqualAndGameDateLessThanOrderByGameDateAsc(...)`.
 
-**인증 불필요.** [`GET /api/member/teams`](team.md)·[`/players`](player.md)와 같은 성격의 공개 참조 데이터라 `SecurityConfig`가 같은 방식으로 열었다(`.requestMatchers(HttpMethod.GET, "/games").permitAll()`). **`permitAll`은 `HttpMethod.GET`으로 좁혀져 있어** `POST /api/member/games`는 405가 아니라 **401**이다.
+**인증 불필요.** [`GET /api/teams`](team.md)·[`/players`](player.md)와 같은 성격의 공개 참조 데이터라 `SecurityConfig`가 같은 방식으로 열었다(`.requestMatchers(HttpMethod.GET, "/games").permitAll()`). **`permitAll`은 `HttpMethod.GET`으로 좁혀져 있어** `POST /api/games`는 405가 아니라 **401**이다.
 
 **요청**: 쿼리 파라미터 `date` 1개(**선택**, `@RequestParam(required = false)`).
 
@@ -53,7 +53,7 @@
 | data[].gameId | String | `Game.naverGameId` — 네이버 스포츠 gameId(예: `"20260708LGSS02026"`). py-collector가 upsert 키로 쓰는 자연키이지만, `Team.code`/`Player.kboPlayerId`와 달리 이 값은 응답에 그대로 노출된다(더블헤더 구분 등 클라이언트가 식별자로 쓸 필요가 있어 보임 — `TeamResponse`/`PlayerResponse`가 자연키를 감추는 것과 다른 결정이니 주의). **`GET /games/lineup`의 쿼리 파라미터 `gameId`가 바로 이 값이다**(내부 PK 아님) |
 | data[].stadium | String \| null | 구장 이름(`Game.stadium.name`). **`null` 가능** — `Game.stadium`이 `Game`의 연관 중 유일하게 선택적(`optional = true`, `stadium_id` nullable)이라 구장이 아직 미정인 경기(편성 전·중립구장 미확정 등)는 `null`로 나간다. `homeTeamScore`/`awayTeamScore`가 경기 전 `null`인 것과 같은 취급이며, 표기 방식은 클라이언트가 정한다(`GameResponse.from()`이 `game.getStadium() == null ? null : game.getStadium().getName()`으로 방어) |
 | data[].homeTeam | String | 홈 구단 이름(`Game.homeTeam.name`) |
-| data[].homeTeamId | Long | 홈 구단 PK(`Game.homeTeam.id`). **2026-08-04 신규.** `null` 아님(`Game.homeTeam`은 `optional = false`). [`GET /api/member/teams`](team.md)의 `id`와 값 체계가 같다. 추가 목적은 [`GET /games/lineup`](#get-apimembergameslineup) 응답의 `teamId`를 홈/원정에 대응시키기 위함 |
+| data[].homeTeamId | Long | 홈 구단 PK(`Game.homeTeam.id`). **2026-08-04 신규.** `null` 아님(`Game.homeTeam`은 `optional = false`). [`GET /api/teams`](team.md)의 `id`와 값 체계가 같다. 추가 목적은 [`GET /games/lineup`](#get-apigameslineup) 응답의 `teamId`를 홈/원정에 대응시키기 위함 |
 | data[].awayTeam | String | 원정 구단 이름(`Game.awayTeam.name`) |
 | data[].awayTeamId | Long | 원정 구단 PK(`Game.awayTeam.id`). **2026-08-04 신규.** `homeTeamId`와 동일한 목적·성질(`null` 아님) |
 | data[].homeTeamScore | Integer \| null | 홈 팀 점수. 경기 전(`SCHEDULED`)이면 `null` |
@@ -79,14 +79,14 @@
 
 | 상태 | 코드 | 조건 |
 |---|---|---|
-| 400 | (래퍼 없음) | `date` 형식 위반(예: `?date=2026/08/01`, `?date=20260801`) 또는 존재하지 않는 날짜(예: `?date=2026-13-01`). **`date` 자체가 없는 것은 더 이상 오류가 아니다**(200 + 오늘) — 이 400은 오직 "값은 있는데 파싱이 안 됨"에만 해당한다. 컨트롤러 진입 전 타입 변환·바인딩 단계라 `GlobalExceptionHandler`가 아니라 Spring 기본 예외 처리(`DefaultHandlerExceptionResolver`)가 처리한다 — **`GET /api/member/players`의 `teamId` 형식 오류와 같은 사정으로, 이 응답만 `ApiResponse` 래퍼가 아니다** |
+| 400 | (래퍼 없음) | `date` 형식 위반(예: `?date=2026/08/01`, `?date=20260801`) 또는 존재하지 않는 날짜(예: `?date=2026-13-01`). **`date` 자체가 없는 것은 더 이상 오류가 아니다**(200 + 오늘) — 이 400은 오직 "값은 있는데 파싱이 안 됨"에만 해당한다. 컨트롤러 진입 전 타입 변환·바인딩 단계라 `GlobalExceptionHandler`가 아니라 Spring 기본 예외 처리(`DefaultHandlerExceptionResolver`)가 처리한다 — **`GET /api/players`의 `teamId` 형식 오류와 같은 사정으로, 이 응답만 `ApiResponse` 래퍼가 아니다** |
 | 401 | UNAUTHENTICATED | `GET` 이외의 메서드로 이 경로 요청(`permitAll`이 GET으로만 좁혀져 있음 — 405 아님) |
 
 Authorization 헤더가 있어도(만료·무효 토큰이어도) 이 경로는 `permitAll`이라 검증 자체를 거치지 않고 그대로 200을 반환한다.
 
 **예시**
 ```bash
-curl -i -X GET "http://localhost:8080/api/member/games?date=2026-08-01"
+curl -i -X GET "http://localhost:8080/api/games?date=2026-08-01"
 ```
 ```json
 {"success":true,"data":[{"gameId":"20260801LGSS02026","stadium":"잠실","homeTeam":"LG","homeTeamId":1,"awayTeam":"삼성","awayTeamId":5,"homeTeamScore":null,"awayTeamScore":null,"gameDate":"2026-08-01T18:30:00","gameState":"SCHEDULED"}],"message":null}
@@ -99,12 +99,12 @@ curl -i -X GET "http://localhost:8080/api/member/games?date=2026-08-01"
 
 `date` 생략 예시(200, `Asia/Seoul` 기준 오늘 경기):
 ```bash
-curl -i -X GET "http://localhost:8080/api/member/games"
+curl -i -X GET "http://localhost:8080/api/games"
 ```
 
 형식 오류 예시(400, `ApiResponse` 래퍼 아님 — `date=20260801`처럼 구분자가 없거나 `date=2026-13-01`처럼 존재하지 않는 날짜):
 ```bash
-curl -i -X GET "http://localhost:8080/api/member/games?date=20260801"
+curl -i -X GET "http://localhost:8080/api/games?date=20260801"
 ```
 
 경기 없는 날짜 예시:
@@ -114,7 +114,7 @@ curl -i -X GET "http://localhost:8080/api/member/games?date=20260801"
 
 ---
 
-## GET /api/member/games/lineup
+## GET /api/games/lineup
 > 최종 변경: 2026-08-04 — 신규 추가 + `positionName` 매핑 표에 실측 58종 복수 포지션 원문(2글자) 절 추가
 
 경기별 선발 라인업 조회(홈·원정 두 팀이 한 응답에 함께 나온다). `GameLineupController` → `GameLineupService.getLineup(String)` → `GameRepository.findByNaverGameId` + `GameLineupRepository.findStarterPitchers`/`findStarterBatters`.
@@ -125,7 +125,7 @@ curl -i -X GET "http://localhost:8080/api/member/games?date=20260801"
 
 | 파라미터 | 타입 | 필수 | 설명 |
 |---|---|---|---|
-| gameId | String | 예 | **내부 PK가 아니라 `Game.naverGameId`(네이버 자연키 문자열)다.** [`GET /api/member/games`](#get-apimembergames) 응답의 `gameId` 필드와 같은 값을 그대로 넣는다. **경기 내부 PK를 넣으면 항상 404가 난다** — 오해하기 쉬운 지점이니 주의 |
+| gameId | String | 예 | **내부 PK가 아니라 `Game.naverGameId`(네이버 자연키 문자열)다.** [`GET /api/games`](#get-apigames) 응답의 `gameId` 필드와 같은 값을 그대로 넣는다. **경기 내부 PK를 넣으면 항상 404가 난다** — 오해하기 쉬운 지점이니 주의 |
 
 **응답 200 OK** `ApiResponse<List<GameLineupResponse>>`
 
@@ -133,7 +133,7 @@ curl -i -X GET "http://localhost:8080/api/member/games?date=20260801"
 
 | 필드 | 타입 | 설명 |
 |---|---|---|
-| data[].teamId | Long | 구단 PK. [`GET /api/member/teams`](team.md)의 `id`, [`GET /api/member/games`](#get-apimembergames)의 `homeTeamId`/`awayTeamId`와 값 체계가 같다. **서버는 이 팀이 홈인지 원정인지 판정하지 않는다** — 클라이언트가 `GET /games`의 `homeTeamId`/`awayTeamId`와 대조해 알아내야 한다 |
+| data[].teamId | Long | 구단 PK. [`GET /api/teams`](team.md)의 `id`, [`GET /api/games`](#get-apigames)의 `homeTeamId`/`awayTeamId`와 값 체계가 같다. **서버는 이 팀이 홈인지 원정인지 판정하지 않는다** — 클라이언트가 `GET /games`의 `homeTeamId`/`awayTeamId`와 대조해 알아내야 한다 |
 | data[].pitchers | array | 선발 투수 배열. `name` 오름차순 |
 | data[].pitchers[].name | String | 선수 이름 |
 | data[].pitchers[].positionName | String \| null | py-collector 약어 원문(`"P"` 등, 아래 매핑 표 참고). `position_id`가 NULL이면 `null` |
@@ -204,12 +204,12 @@ curl -i -X GET "http://localhost:8080/api/member/games?date=20260801"
 | 상태 | ErrorCode | 조건 |
 |---|---|---|
 | 404 | `GAME_NOT_FOUND`(`"존재하지 않는 경기입니다."`) | `gameId`와 일치하는 `naver_game_id`가 없을 때. **`?gameId=`처럼 값이 빈 경우도 이 404다**(빈 문자열이 그냥 일치하는 경기가 없는 것으로 자연히 흡수될 뿐, 별도 400 분기가 없다) |
-| 400 | (래퍼 없음) | `gameId` 쿼리 파라미터 **자체가 없을 때**(`?gameId=` 아니라 `gameId=` 키조차 없음)만 해당. `@RequestParam String gameId`가 필수인데 Spring이 바인딩 단계에서 `MissingServletRequestParameterException`을 던져 `GlobalExceptionHandler`를 타지 않는다 — **이 400만 `ApiResponse` 래퍼가 아니다**(`GET /api/member/games`의 `date` 형식 오류·`GET /api/member/players`의 `teamId` 형식 오류와 같은 성격의 예외) |
+| 400 | (래퍼 없음) | `gameId` 쿼리 파라미터 **자체가 없을 때**(`?gameId=` 아니라 `gameId=` 키조차 없음)만 해당. `@RequestParam String gameId`가 필수인데 Spring이 바인딩 단계에서 `MissingServletRequestParameterException`을 던져 `GlobalExceptionHandler`를 타지 않는다 — **이 400만 `ApiResponse` 래퍼가 아니다**(`GET /api/games`의 `date` 형식 오류·`GET /api/players`의 `teamId` 형식 오류와 같은 성격의 예외) |
 | 401 | UNAUTHENTICATED | `GET` 이외의 메서드로 이 경로 요청(`permitAll`이 GET으로만 좁혀져 있음) |
 
 **예시**(홈·원정 두 팀, 각 팀 투수 1명·타자 9명 예시. 나머지는 `...`로 생략):
 ```bash
-curl -i -X GET "http://localhost:8080/api/member/games/lineup?gameId=20260801LGSS02026"
+curl -i -X GET "http://localhost:8080/api/games/lineup?gameId=20260801LGSS02026"
 ```
 ```json
 {
@@ -243,7 +243,7 @@ curl -i -X GET "http://localhost:8080/api/member/games/lineup?gameId=20260801LGS
 
 없는 경기 예시(404):
 ```bash
-curl -i -X GET "http://localhost:8080/api/member/games/lineup?gameId=존재하지않는값"
+curl -i -X GET "http://localhost:8080/api/games/lineup?gameId=존재하지않는값"
 ```
 ```json
 {"success":false,"data":null,"message":"존재하지 않는 경기입니다."}
@@ -251,7 +251,7 @@ curl -i -X GET "http://localhost:8080/api/member/games/lineup?gameId=존재하�
 
 `gameId` 파라미터 누락 예시(400, `ApiResponse` 래퍼 아님):
 ```bash
-curl -i -X GET "http://localhost:8080/api/member/games/lineup"
+curl -i -X GET "http://localhost:8080/api/games/lineup"
 ```
 
 ---

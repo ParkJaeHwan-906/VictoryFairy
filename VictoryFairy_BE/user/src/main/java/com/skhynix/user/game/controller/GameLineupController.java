@@ -20,7 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequiredArgsConstructor
-// 접두사 /api/member 는 server.servlet.context-path 가 붙인다 → 실제 노출 경로는 /api/member/games/lineup
+// 접두사 /api 는 server.servlet.context-path 가 붙인다 → 실제 노출 경로는 /api/games/lineup
 @RequestMapping("/games/lineup")
 public class GameLineupController {
 

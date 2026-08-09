@@ -1,7 +1,7 @@
 # 구단(team) API 명세
 
 > **도메인** `team` — KBO 구단 참조 데이터.
-> **모듈** user (포트 8080) · **경로 접두사** `/api/member/teams` · **엔드포인트** 1개
+> **모듈** user (포트 8080) · **경로 접두사** `/api/teams` · **엔드포인트** 1개
 > **컨트롤러** `user/src/main/java/com/skhynix/user/team/controller/TeamController.java` (`@RequestMapping("/teams")`)
 > **최종 갱신** 2026-08-04 — 모듈별(`user.md`) 문서를 도메인별로 분리. 계약 변경 없음.
 > 공통 규약(응답 래퍼·401 정책)은 [README.md](README.md)를 먼저 볼 것.
@@ -10,7 +10,7 @@
 
 | 메서드 | 경로 | 성공 | 용도 |
 |---|---|---|---|
-| GET | [/api/member/teams](#get-apimemberteams) | 200 | 구단 전체 목록 |
+| GET | [/api/teams](#get-apiteams) | 200 | 구단 전체 목록 |
 
 ## 이 도메인의 특이사항
 
@@ -20,14 +20,14 @@
 
 ---
 
-## GET /api/member/teams
+## GET /api/teams
 > 최종 변경: 2026-07-28 (추정) — 도메인 분리 이전 이력이 없어 `TeamController` 마지막 커밋 기준
 
 KBO 구단(팀) 전체 목록 조회. `TeamController` → `TeamService.getTeams()` → `TeamRepository.findAllByOrderByNameAsc()`.
 
-**인증 불필요 — user 모듈에서 [`/api/member/auth/**`](auth.md) 밖으로 처음 열린 무인증 경로.** 회원가입 화면 등 로그인 이전 화면에서 구단 선택 목록으로 쓰이기 위해 `SecurityConfig`가 이 경로만 `permitAll`로 새로 열었다(`.requestMatchers(HttpMethod.GET, "/teams").permitAll()`). [회원탈퇴](account.md)는 여전히 인증이 필요하며 이 변경으로 영향받지 않는다.
+**인증 불필요 — user 모듈에서 [`/api/auth/**`](auth.md) 밖으로 처음 열린 무인증 경로.** 회원가입 화면 등 로그인 이전 화면에서 구단 선택 목록으로 쓰이기 위해 `SecurityConfig`가 이 경로만 `permitAll`로 새로 열었다(`.requestMatchers(HttpMethod.GET, "/teams").permitAll()`). [회원탈퇴](account.md)는 여전히 인증이 필요하며 이 변경으로 영향받지 않는다.
 
-**단, `permitAll`은 `HttpMethod.GET`으로 좁혀져 있다 — GET만 인증 없이 열려 있고, 그 밖의 모든 메서드는 `anyRequest().authenticated()`에 걸린다.** 즉 `POST /api/member/teams`처럼 GET이 아닌 요청은 **405 Method Not Allowed가 아니라 401**이다(컨트롤러에 도달하지 못하고 인증 단계에서 걸림 — 405를 기대하지 말 것).
+**단, `permitAll`은 `HttpMethod.GET`으로 좁혀져 있다 — GET만 인증 없이 열려 있고, 그 밖의 모든 메서드는 `anyRequest().authenticated()`에 걸린다.** 즉 `POST /api/teams`처럼 GET이 아닌 요청은 **405 Method Not Allowed가 아니라 401**이다(컨트롤러에 도달하지 못하고 인증 단계에서 걸림 — 405를 기대하지 말 것).
 
 **요청**: 없음(경로/쿼리 파라미터 없음). `?page=`/`?size=` 등을 붙여도 서버가 해석하지 않으며 **페이징이 없다** — 항상 전체 구단을 단일 배열로 반환한다.
 
@@ -64,7 +64,7 @@ Authorization 헤더가 있어도(만료됐거나 서명이 무효한 access 토
 
 **예시**
 ```bash
-curl -i -X GET http://localhost:8080/api/member/teams
+curl -i -X GET http://localhost:8080/api/teams
 ```
 응답(`id`는 `infra/sql/teams-init.sql`의 `INSERT` 순서를 auto-increment가 그대로 따른다고 가정한 예시일 뿐 — PK 채번은 계약이 아니고 정렬 계약은 오직 `name`에만 있다):
 ```json
@@ -73,12 +73,12 @@ curl -i -X GET http://localhost:8080/api/member/teams
 
 페이징 파라미터를 붙여도 무시됨(항상 전체 10개 반환):
 ```bash
-curl -i -X GET "http://localhost:8080/api/member/teams?page=1&size=5"
+curl -i -X GET "http://localhost:8080/api/teams?page=1&size=5"
 ```
 
 비-GET 예시(405가 아니라 401):
 ```bash
-curl -i -X POST http://localhost:8080/api/member/teams
+curl -i -X POST http://localhost:8080/api/teams
 ```
 ```json
 {"success":false,"data":null,"message":"인증이 필요합니다."}
@@ -89,7 +89,7 @@ curl -i -X POST http://localhost:8080/api/member/teams
 ## 확인 필요 / 코드 미확인
 
 - 위 예시 응답의 `id` 값은 `infra/sql/teams-init.sql`의 `INSERT` 나열 순서를 MySQL auto-increment가 그대로 이어받는다고 가정해 역산한 값이며, **실제 DB에서 직접 조회해 확인한 값이 아니다.** `teams` 테이블 DDL이 코드(엔티티/시드 SQL)에 명시돼 있지 않아(Hibernate `ddl-auto`가 생성) 채번 규칙 자체를 코드만으로 100% 보증할 수 없다. `id` 자체는 API 계약이 아니므로(정렬 계약은 `name`에만 있음) 문서화 목적상 문제는 없으나, 정확한 실측이 필요하면 시드 적용된 DB에 `SELECT id, name FROM teams ORDER BY name`을 직접 실행해 대조할 것.
-- 구단 상세 조회(`GET /api/member/teams/{id}`)·엠블럼/색상 등 표시용 메타데이터 엔드포인트는 없다.
+- 구단 상세 조회(`GET /api/teams/{id}`)·엠블럼/색상 등 표시용 메타데이터 엔드포인트는 없다.
 
 ## 관련 문서
 

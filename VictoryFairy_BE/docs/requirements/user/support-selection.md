@@ -25,16 +25,16 @@
   - **기존 초과 데이터의 정리(마이그레이션·백필)** — 상한 도입 이전에 5명 이상을 응원 중인 계정은 그대로 둔다. 추가만 막히고 잘라내지 않는다(USER-SP-36)
   - **취소 이력 조회** — 토글 설계라 이력 행이 쌓이지 않는다. 마지막 취소 시각 하나만 남는다
   - **락 획득 실패(대기 초과·데드락)의 전용 상태 코드 매핑** — `ApiResponse` 래퍼 없는 **500** 을 그대로 둔다(USER-SP-46). 409/503 매핑은 **하지 않기로 확정**했다(결정 기록 10 — 되돌릴 조건도 거기 적혀 있다)
-  - **읽기 경로의 동시성 보장** — `GET /api/member/users/me` 등 조회는 락을 잡지 않으므로(USER-SP-44) 쓰기 커밋 직전 상태를 읽을 수 있다. 조회는 "그 시점에 커밋된 값"까지만 보장한다
+  - **읽기 경로의 동시성 보장** — `GET /api/users/me` 등 조회는 락을 잡지 않으므로(USER-SP-44) 쓰기 커밋 직전 상태를 읽을 수 있다. 조회는 "그 시점에 커밋된 값"까지만 보장한다
   - **선수 트레이드 시 기존 응원 정리 배치** — py-collector 가 `players.team_id` 를 갱신하면 과거에 저장된 응원이 불변식 2를 사후적으로 위반할 수 있다(→ "미해결" 참조)
 
 ## 엔드포인트
 
 | 메서드 | 경로 | 용도 |
 |---|---|---|
-| POST | `/api/member/support/team` | 응원 구단 선택·변경 |
-| POST | `/api/member/support/players` | 응원 선수 **추가** |
-| PUT | `/api/member/support/players/oppose` | 응원 선수 **취소** |
+| POST | `/api/support/team` | 응원 구단 선택·변경 |
+| POST | `/api/support/players` | 응원 선수 **추가** |
+| PUT | `/api/support/players/oppose` | 응원 선수 **취소** |
 
 **메서드 선택 근거(재논의 방지)**: 선수 추가는 서버의 기존 상태에 얹는 동작이라 "이 자원을 이 표현으로 대체한다"는 PUT 의미와 어긋나므로 POST 다. 반대로 **취소는 행을 지우는 것이 아니라 `oppose` 컬럼을 채우는 상태 전이**이며 `oppose()` 가 이미 취소된 행에 no-op 이라 두 번 보내도 결과가 같다 — 그래서 DELETE 가 아니라 **멱등한 PUT**이고, 덕분에 본문에 리스트를 실을 수 있어 추가 API 와 대칭이 된다(DELETE 본문은 규격상 권장되지 않고 중간 장비가 버릴 수 있다).
 
@@ -48,7 +48,7 @@
 | USER-SP-2 | 유비쿼터스 | THE 시스템 SHALL 요청 주체를 토큰에서만 식별하고 본문·경로로 대상 계정을 받지 않는다 | 어떤 요청 본문에도 `userId`/`uid` 필드가 없음. 타인 계정 응원을 조작할 입력 경로가 존재하지 않음 |
 | USER-SP-3 | 유비쿼터스 | THE 시스템 SHALL 한 요청의 모든 변경을 단일 트랜잭션으로 처리한다 | 검증 실패가 하나라도 있으면 그 요청의 어떤 행도 변경되지 않음(부분 반영 없음) |
 
-### 응원 구단 선택 — `POST /api/member/support/team`
+### 응원 구단 선택 — `POST /api/support/team`
 
 | ID | 유형 | 요구사항 | 인수 기준 |
 |---|---|---|---|
@@ -63,7 +63,7 @@
 | USER-SP-12 | 유비쿼터스 | THE 시스템 SHALL 처리 후 `oppose is null` 인 구단 행이 정확히 1개임을 유지한다 | 어떤 호출 순서로도 `SELECT COUNT(*) ... WHERE user_account_id=? AND oppose IS NULL` = 1 |
 | USER-SP-13 | 이벤트 | WHEN 구단 선택이 성공하면, THE 시스템 SHALL 200과 현재 응원 구단을 반환한다 | `{"success":true,"data":{"id":6,"name":"KIA"},"message":null}` |
 
-### 응원 선수 추가 — `POST /api/member/support/players`
+### 응원 선수 추가 — `POST /api/support/players`
 
 | ID | 유형 | 요구사항 | 인수 기준 |
 |---|---|---|---|
@@ -78,7 +78,7 @@
 | USER-SP-22 | ~~유비쿼터스~~ | **(폐기됨 2026-08-06)** ~~THE 시스템 SHALL 응원 선수 수에 상한을 두지 않는다~~ → **USER-SP-30~37 으로 대체**. 번호는 재사용하지 않는다 | — |
 | USER-SP-23 | 이벤트 | WHEN 추가가 성공하면, THE 시스템 SHALL 200과 현재 응원 중인 선수 전체 목록을 반환한다 | `data` 는 이번에 추가한 선수만이 아니라 **현재 응원 중 전체** |
 
-### 응원 선수 개수 상한 — `POST /api/member/support/players` (2026-08-06 개정)
+### 응원 선수 개수 상한 — `POST /api/support/players` (2026-08-06 개정)
 
 | ID | 유형 | 요구사항 | 인수 기준 |
 |---|---|---|---|
@@ -88,12 +88,12 @@
 | USER-SP-33 | 예외 | IF 합집합의 크기가 4를 넘으면, THEN THE 시스템 SHALL 400 `SUPPORT_PLAYER_LIMIT_EXCEEDED`(`"응원 선수는 최대 4명까지 선택할 수 있습니다."`)를 반환한다 | 4명 응원 중 → `[e]` → 400, `{"success":false,"data":null,"message":"응원 선수는 최대 4명까지 선택할 수 있습니다."}` |
 | USER-SP-34 | 예외 | IF 상한을 넘는 요청이면, THEN THE 시스템 SHALL 요청의 어떤 선수도 반영하지 않는다(상한까지 채우고 나머지를 버리지 않는다) | 3명 응원 중 → `[e,f]`(합집합 5) → 400 이며 e·f 중 **어느 쪽도** 저장되지 않음. `user_support_player` 의 `oppose is null` 행 수가 3으로 불변(USER-SP-3 의 연장선) |
 | USER-SP-35 | 유비쿼터스 | THE 시스템 SHALL 상한 검사를 존재 검증(USER-SP-16)·소속 검증(USER-SP-17) **뒤에** 수행한다 | 4명 응원 중 계정이 `[999999]`(없는 선수) 요청 → 400 이 아니라 **404 `PLAYER_NOT_FOUND`**. 타팀 선수를 섞은 초과 요청은 400 `PLAYER_NOT_IN_SUPPORT_TEAM` |
-| USER-SP-36 | 유비쿼터스 | THE 시스템 SHALL 상한 도입 이전에 5명 이상을 응원 중인 계정의 기존 행을 취소·삭제하지 않고, 추가 요청만 거부한다 | 활성 응원 선수 6명인 계정 → `GET /api/member/users/me` 의 `supportPlayers` 가 6건 그대로. `POST /support/players` 는 400. 단 빈 배열 요청(`{"playerIds":[]}`)은 상한 검사 앞의 조기 반환이라 400 이 아니라 200(USER-SP-21). 마이그레이션·백필 절차 없음 |
+| USER-SP-36 | 유비쿼터스 | THE 시스템 SHALL 상한 도입 이전에 5명 이상을 응원 중인 계정의 기존 행을 취소·삭제하지 않고, 추가 요청만 거부한다 | 활성 응원 선수 6명인 계정 → `GET /api/users/me` 의 `supportPlayers` 가 6건 그대로. `POST /support/players` 는 400. 단 빈 배열 요청(`{"playerIds":[]}`)은 상한 검사 앞의 조기 반환이라 400 이 아니라 200(USER-SP-21). 마이그레이션·백필 절차 없음 |
 | USER-SP-37 | 유비쿼터스 | THE 시스템 SHALL 응원 선수 취소(`PUT /support/players/oppose`)에서 상한을 검사하지 않는다 (**상한 검사만 면제이고 계정 락은 면제가 아니다** — USER-SP-42) | 활성 응원 선수가 상한을 넘는 계정에서도 취소 요청이 200. 취소는 활성 수가 줄어드는 방향이라 상한을 위반시킬 수 없다 |
 
 **`POST /support/players` 의 검사 순서는 계약이다**(USER-SP-35 가 그중 상한의 자리를 고정한다): `SUPPORT_TEAM_REQUIRED`(USER-SP-15) → 중복 제거·빈 요청 조기 반환(USER-SP-20/21) → `PLAYER_NOT_FOUND`(USER-SP-16) → `PLAYER_NOT_IN_SUPPORT_TEAM`(USER-SP-17) → **상한**(USER-SP-33) → 반영. **없는 선수 id 가 섞인 초과 요청은 400 이 아니라 404 다** — 순서를 바꾸면 같은 요청의 응답 코드가 바뀐다.
 
-**상한 강제 주체는 `POST /api/member/support/players` 하나뿐이다**(USER-SP-37). `PUT /support/players/oppose`(취소)는 활성 수가 줄어드는 방향이라 검사하지 않고, `POST /support/team`(구단 변경 시 전원 취소, USER-SP-10)도 같은 이유로 검사하지 않는다. **`GET /api/member/users/me` 도 강제하지 않는다** — 읽기는 있는 그대로 반환한다(`me-profile.md` USER-ME-36).
+**상한 강제 주체는 `POST /api/support/players` 하나뿐이다**(USER-SP-37). `PUT /support/players/oppose`(취소)는 활성 수가 줄어드는 방향이라 검사하지 않고, `POST /support/team`(구단 변경 시 전원 취소, USER-SP-10)도 같은 이유로 검사하지 않는다. **`GET /api/users/me` 도 강제하지 않는다** — 읽기는 있는 그대로 반환한다(`me-profile.md` USER-ME-36).
 
 ⚠ **상한의 실제 강제 지점은 판정 하나가 아니라 "판정 + 계정 락"이다**(2026-08-06 3차 개정, USER-SP-43). USER-SP-30~34 는 "읽고 → 세고 → 저장"의 순서만 정하는데, 그 사이가 열려 있으면 같은 계정의 두 요청이 각각 합집합 4로 통과해 최종 활성 수가 4를 넘는다 — UNIQUE `(user_account_id, player_id)` 는 **같은 선수의 중복만** 막고 개수는 막지 못한다. 그래서 USER-SP-30~34 는 USER-SP-38·40·43 과 **함께여야 성립하며**, 락을 떼면 판정 코드를 그대로 두어도 상한이 뚫린다.
 
@@ -107,7 +107,7 @@
 | USER-SP-41 | 이벤트 | WHEN `playerIds` 가 빈 배열이면, THE 시스템 SHALL 조기 반환(USER-SP-21) **전에** 락을 확보한다 | `{"playerIds":[]}` 로 추가·취소를 호출해도 계정 락 조회가 1회 발생. "쓰기 경로는 항상 락부터"에 예외를 두지 않는다 |
 | USER-SP-42 | 유비쿼터스 | THE 시스템 SHALL 응원 선수 취소(`PUT /support/players/oppose`)에서도 같은 계정 락을 같은 순서로 확보한다 | 취소 요청 1건에 계정 락 조회 1회. 상한과 무관한 경로지만 생략하지 않는다 |
 | USER-SP-43 | 유비쿼터스 | THE 시스템 SHALL 응원 선수 상한(USER-SP-30~34)의 **판정과 반영을 같은 락 구간 안에서** 수행한다 | 활성 응원 선수 조회(상한 판정 입력)·`save`·재활성이 모두 락 확보 이후에 일어난다. 락 확보 전에 수행되는 응원 관련 조회가 없음 |
-| USER-SP-44 | 유비쿼터스 | THE 시스템 SHALL 응원 상태 **조회 경로에는 락을 걸지 않는다** | `GET /api/member/users/me` 처리 중 `user_account` 에 대한 `select ... for update` 가 0회. 프로필 조회 여러 건이 서로를 대기시키지 않음 |
+| USER-SP-44 | 유비쿼터스 | THE 시스템 SHALL 응원 상태 **조회 경로에는 락을 걸지 않는다** | `GET /api/users/me` 처리 중 `user_account` 에 대한 `select ... for update` 가 0회. 프로필 조회 여러 건이 서로를 대기시키지 않음 |
 | USER-SP-45 | 예외 | IF 락 대상 계정 행이 존재하지 않으면, THEN THE 시스템 SHALL 401 `UNAUTHENTICATED` 를 반환하고 다른 어떤 리포지토리도 조회·저장하지 않는다 | 인증 통과 직후 계정이 사라진 상황 → 401 `{"success":false,"data":null,"message":"인증이 필요합니다."}`. 구단·선수·응원 리포지토리 접근 0회 |
 | USER-SP-46 | 예외 | IF 락 획득이 대기 시간 초과(MySQL `innodb_lock_wait_timeout` 기본 50초) 또는 데드락으로 실패하면, THEN THE 시스템 SHALL `ApiResponse` 래퍼가 없는 **500** 을 반환한다 (409·503 으로 매핑하지 않는다 — 결정 기록 10) | 락 보유 트랜잭션이 50초 이상 유지된 상태에서 같은 계정으로 응원 변경 요청 → 500, 본문이 `{"success":…}` 형태가 아님. `GlobalExceptionHandler` 는 `BusinessException`·`MethodArgumentNotValidException` 만 처리한다 |
 
@@ -130,7 +130,7 @@
 
 **세 쓰기 경로가 같은 순서로 잠그는 이유**: `opposePlayers` 는 개수를 줄이는 방향이라 상한과 무관하지만, `oppose` 를 채우며 응원 행 락을 잡는다. `addPlayers` 가 *계정 락 → 응원 행* 순서인데 `opposePlayers` 만 *응원 행 → 계정* 순서면 두 요청이 서로의 다음 락을 기다리는 **순서 역전 데드락**이 성립한다. USER-SP-42 는 편의가 아니라 이 조합을 없애기 위한 계약이다.
 
-### 응원 선수 취소 — `PUT /api/member/support/players/oppose`
+### 응원 선수 취소 — `PUT /api/support/players/oppose`
 
 | ID | 유형 | 요구사항 | 인수 기준 |
 |---|---|---|---|
@@ -142,7 +142,7 @@
 | USER-SP-29 | 이벤트 | WHEN 취소가 성공하면, THE 시스템 SHALL 200과 남아 있는 응원 선수 목록을 반환한다 | 전원 취소 시 `{"success":true,"data":[],"message":null}` |
 
 ## 제약 (기존 코드·정책과의 접점 — 구현 지시가 아니라 지켜야 할 사실)
-- **`SecurityConfig` 를 수정하지 않는다.** 세 경로 모두 `/auth/**` 밖이고 `permitAll` 목록에 없으므로 `anyRequest().authenticated()` 에 그대로 걸린다. `/api/member/users/me`(탈퇴)와 같은 방식이다 — **`/teams`·`/players` 때와 반대로, 이번엔 아무것도 추가하지 않는 것이 정답이다.** 실수로 `permitAll` 을 추가하면 USER-SP-1 이 깨진다.
+- **`SecurityConfig` 를 수정하지 않는다.** 세 경로 모두 `/auth/**` 밖이고 `permitAll` 목록에 없으므로 `anyRequest().authenticated()` 에 그대로 걸린다. `/api/users/me`(탈퇴)와 같은 방식이다 — **`/teams`·`/players` 때와 반대로, 이번엔 아무것도 추가하지 않는 것이 정답이다.** 실수로 `permitAll` 을 추가하면 USER-SP-1 이 깨진다.
 - **principal 은 `Long id` 다.** `JwtAuthenticationFilter` 가 요청마다 `findActiveIdByUid` 로 uid→id 를 해석해 넣는다. 토큰의 `sub` 는 `uid`(UUID)지만 컨트롤러가 보는 값은 내부 PK 다 — 리포지토리 시그니처(`findByUserAccount_Id...`)와 그대로 맞는다.
 - **탈퇴 계정은 별도 검사가 필요 없다.** `findActiveIdByUid` 가 `exit_at is null` 을 포함하므로 탈퇴 계정은 필터에서 `SecurityContext` 가 비워지고 401 로 떨어진다.
 - **취소는 `oppose()` 를 호출해야 하며 `LocalDateTime.now()` 를 엔티티가 직접 읽지 않는다.** 엔티티가 호출자에게서 시각을 받도록 설계돼 있으므로, **한 요청 안의 모든 취소는 같은 시각 값을 공유해야 한다**(USER-SP-10 의 인수 기준이 이를 검사한다).
@@ -325,7 +325,7 @@
 
 ## 런타임 검증 기록 (2026-08-06, 계정 락 — 로컬 동시 요청 실측)
 `module-verifier` 가 로컬에서 **같은 계정에 동시 요청을 발사해** 확인했다. 시나리오: **활성 응원 선수 2명**인
-계정에 서로 다른 선수 2명씩을 담은 `POST /api/member/support/players` **두 건을 동시 발사**(각각 성공하면
+계정에 서로 다른 선수 2명씩을 담은 `POST /api/support/players` **두 건을 동시 발사**(각각 성공하면
 합이 6명이 되는 조합), **5회 반복**.
 
 - **USER-SP-39(직렬화) 성립**: **5회 전부** 한쪽 200 / 다른 쪽 400 `SUPPORT_PLAYER_LIMIT_EXCEEDED`.
@@ -333,7 +333,7 @@
 - **USER-SP-30/34 가 동시성 아래에서도 유지**: 최종 `supportPlayers` 개수가 **항상 4**(6으로 넘어간 적
   없음), 거부된 쪽 선수는 **전혀 반영되지 않았다**(부분 반영 0건).
 - **USER-SP-38/40 성립**: `show-sql` 로 쓰기 3경로 모두 **첫 SQL 이 `... for update`** 임을 확인.
-- **USER-SP-44 성립**: `GET /api/member/users/me` 로그에 `for update` **0건**, SELECT **5회 유지**
+- **USER-SP-44 성립**: `GET /api/users/me` 로그에 `for update` **0건**, SELECT **5회 유지**
   (`me-profile.md` USER-ME-22 와 일치 — 락 도입이 조회 횟수를 늘리지 않았다).
 
 **단서(그대로 남긴다)**: ①**5회 모두 같은 쪽이 이겼다** — 발사 스크립트상 순서 편향 가능성이 있다.

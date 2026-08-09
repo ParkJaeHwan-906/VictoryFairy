@@ -37,6 +37,14 @@ public enum ErrorCode {
     TEAM_NOT_FOUND(404, "존재하지 않는 구단입니다."),
     PLAYER_NOT_FOUND(404, "존재하지 않는 선수입니다."),
     GAME_NOT_FOUND(404, "존재하지 않는 경기입니다."),
+    // 미편성(quiz_date NULL) 풀 문제도 404 — 편성 전 문제의 존재는 외부에 노출하지 않는다
+    QUIZ_NOT_FOUND(404, "존재하지 않는 퀴즈입니다."),
+
+    // 400 Bad Request - 퀴즈 제출
+    QUIZ_OPTION_NOT_FOUND(400, "존재하지 않는 보기 번호입니다."),
+
+    // 409 Conflict - 퀴즈 제출
+    QUIZ_ALREADY_SUBMITTED(409, "이미 제출한 퀴즈입니다."),
 
     // 429 Too Many Requests - 이메일 인증
     EMAIL_SEND_COOLDOWN(429, "인증번호를 방금 발송했습니다. 잠시 후 다시 시도해 주세요.");

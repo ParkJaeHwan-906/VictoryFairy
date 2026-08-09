@@ -1,0 +1,9 @@
+# 로컬 수동 실행용 terraform.tfvars 예시 — 비밀 2개만 채우면 된다.
+# (비밀이 아닌 설정은 커밋된 config.auto.tfvars 가 CI·로컬 공통으로 공급하고,
+#  *.auto.tfvars 가 나중에 로드되어 같은 키를 덮어쓴다.)
+#
+# CI(dev_infra 머지 시 자동 apply)는 이 파일 대신 GitHub Secrets 를 쓴다:
+#   TF_VAR_db_password, TF_VAR_pii_salt
+
+# db_password = ""   # 운영 MySQL vf_collector 비밀번호 — 절대 커밋 금지
+# pii_salt    = ""   # 커뮤니티 작성자 마스킹 salt — 복구 불가, 비밀번호 관리자에 백업

@@ -1,9 +1,9 @@
 # 응원(support) API 명세
 
 > **도메인** `support` — 사용자의 응원 구단·응원 선수 선택 상태.
-> **모듈** user (포트 8080) · **경로 접두사** `/api/member/support` · **엔드포인트** 3개
+> **모듈** user (포트 8080) · **경로 접두사** `/api/support` · **엔드포인트** 3개
 > **컨트롤러** `user/src/main/java/com/skhynix/user/support/controller/SupportController.java` (`@RequestMapping("/support")`)
-> **최종 갱신** 2026-08-06 — `POST /api/member/support/players`에 **활성 응원 선수 4명 상한** 도입(`SUPPORT_PLAYER_LIMIT_EXCEEDED`, 400). 같은 날 응원 선수 응답이 재사용하는 `PlayerResponse`의 항목 키가 `{id, name}`에서 여섯 필드로도 바뀜([player.md](player.md) 참고). 이 응답 재사용은 `GET /api/member/users/me`(`supportPlayers`)에도 번진다 — [account.md](account.md) 참고. `PUT /players/oppose`(취소)는 상한과 무관, 계약 불변.
+> **최종 갱신** 2026-08-06 — `POST /api/support/players`에 **활성 응원 선수 4명 상한** 도입(`SUPPORT_PLAYER_LIMIT_EXCEEDED`, 400). 같은 날 응원 선수 응답이 재사용하는 `PlayerResponse`의 항목 키가 `{id, name}`에서 여섯 필드로도 바뀜([player.md](player.md) 참고). 이 응답 재사용은 `GET /api/users/me`(`supportPlayers`)에도 번진다 — [account.md](account.md) 참고. `PUT /players/oppose`(취소)는 상한과 무관, 계약 불변.
 > **요구사항** `docs/requirements/user/support-selection.md` (USER-SP-4 ~ 36, USER-SP-22는 2026-08-06 폐기·USER-SP-30~36으로 대체)
 > 공통 규약(응답 래퍼·JWT·401 정책)은 [README.md](README.md)를 먼저 볼 것.
 
@@ -11,9 +11,9 @@
 
 | 메서드 | 경로 | 성공 | 용도 |
 |---|---|---|---|
-| POST | [/api/member/support/team](#post-apimembersupportteam) | 200 | 응원 구단 선택·변경(최초/변경/재선택 공용) |
-| POST | [/api/member/support/players](#post-apimembersupportplayers) | 200 | 응원 선수 **추가**(전체 교체 아님) |
-| PUT | [/api/member/support/players/oppose](#put-apimembersupportplayersoppose) | 200 | 응원 선수 **취소** |
+| POST | [/api/support/team](#post-apisupportteam) | 200 | 응원 구단 선택·변경(최초/변경/재선택 공용) |
+| POST | [/api/support/players](#post-apisupportplayers) | 200 | 응원 선수 **추가**(전체 교체 아님) |
+| PUT | [/api/support/players/oppose](#put-apisupportplayersoppose) | 200 | 응원 선수 **취소** |
 
 ## 이 도메인의 특이사항
 
@@ -27,16 +27,16 @@
 
 **세 응답 모두 "현재 상태 전체"를 돌려준다** — 방금 변경한 항목만이 아니라 반영 후의 응원 구단/응원 선수 전체라, 프론트가 재조회할 필요가 없다.
 
-**응원 선수는 최대 4명이다(2026-08-06 도입).** 강제 주체는 추가 API(`POST /players`) 하나뿐이고, 취소 API는 상한과 무관하다. 자세한 판정 규칙은 [`POST /api/member/support/players`](#post-apimembersupportplayers) 절 참고.
+**응원 선수는 최대 4명이다(2026-08-06 도입).** 강제 주체는 추가 API(`POST /players`) 하나뿐이고, 취소 API는 상한과 무관하다. 자세한 판정 규칙은 [`POST /api/support/players`](#post-apisupportplayers) 절 참고.
 
 ---
 
-## POST /api/member/support/team
+## POST /api/support/team
 > 최종 변경: 2026-07-28 (추정) — 도메인 분리 이전 이력이 없어 `SupportController` 마지막 커밋 기준
 
 응원 구단 선택·변경. `SupportController` → `SupportService.selectTeam()`. 요구사항: USER-SP-4 ~ 13.
 
-**인증 필수.** 이 경로는 `permitAll` 목록에 없어 `anyRequest().authenticated()`에 걸린다([회원탈퇴](account.md)와 같은 방식). [`GET /api/member/teams`](team.md)·[`/players`](player.md)와 달리 **`SecurityConfig`에 아무 규칙도 추가하지 않은 것이 정상**이다.
+**인증 필수.** 이 경로는 `permitAll` 목록에 없어 `anyRequest().authenticated()`에 걸린다([회원탈퇴](account.md)와 같은 방식). [`GET /api/teams`](team.md)·[`/players`](player.md)와 달리 **`SecurityConfig`에 아무 규칙도 추가하지 않은 것이 정상**이다.
 
 **최초 선택·변경·재선택을 이 엔드포인트 하나가 모두 처리한다.** 클라이언트가 요청 전에 자기 상태를 알 필요가 없다.
 
@@ -44,7 +44,7 @@
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|---|---|
-| teamId | Long | **예** | 응원할 구단 PK([`GET /api/member/teams`](team.md)의 `data[].id`) |
+| teamId | Long | **예** | 응원할 구단 PK([`GET /api/teams`](team.md)의 `data[].id`) |
 
 대상 계정은 본문이 아니라 access 토큰에서만 정해진다 — 본문에 `userAccountId` 같은 필드를 실어도 무시된다.
 
@@ -75,19 +75,19 @@
 
 **예시**
 ```bash
-curl -i -X POST http://localhost:8080/api/member/support/team \
+curl -i -X POST http://localhost:8080/api/support/team \
   -H "Authorization: Bearer $ACCESS_TOKEN" -H "Content-Type: application/json" \
   -d '{"teamId":6}'
 ```
 
 ---
 
-## POST /api/member/support/players
+## POST /api/support/players
 > 최종 변경: 2026-08-06 — **활성 응원 선수 4명 상한** 신설(400 `SUPPORT_PLAYER_LIMIT_EXCEEDED`). 같은 날 응답 항목 키도 교체(공유 DTO `PlayerResponse` 변경분)
 
 응원 선수 **추가**. → `SupportService.addPlayers()`. 요구사항: USER-SP-14 ~ 23.
 
-**인증 필수.** **전체 교체가 아니라 추가다** — 요청에 없는 선수는 취소되지 않는다. 취소는 아래 [`PUT /api/member/support/players/oppose`](#put-apimembersupportplayersoppose)가 담당한다. `playerIds`의 출처는 [`GET /api/member/players`](player.md)다.
+**인증 필수.** **전체 교체가 아니라 추가다** — 요청에 없는 선수는 취소되지 않는다. 취소는 아래 [`PUT /api/support/players/oppose`](#put-apisupportplayersoppose)가 담당한다. `playerIds`의 출처는 [`GET /api/players`](player.md)다.
 
 **요청** `SupportPlayersRequest`
 
@@ -98,9 +98,9 @@ curl -i -X POST http://localhost:8080/api/member/support/team \
 - **빈 배열 `[]` 은 200**(아무 변경 없음). 선수 응원은 필수가 아니다.
 - **필드 자체를 빼면 400** — `null`과 `[]`를 구분한다.
 - **중복 id 는 400이 아니라 제거 후 처리**(`[3,3,7]` → 정상).
-- **활성 응원 선수 4명 상한(2026-08-06 신설).** 판정은 **합집합**: `현재 활성(oppose is null) 응원 선수 id` ∪ `요청 distinct id`의 크기가 4를 넘으면 거부한다. 이미 응원 중인 선수를 다시 보내는 것은 no-op이라 합집합 크기를 늘리지 않으므로 재요청이 억울하게 막히지 않는다. **취소된 선수는 상한에 안 잡힌다** — 4명 응원 중 2명을 [`PUT /players/oppose`](#put-apimembersupportplayersoppose)로 취소하면 다시 2명 추가 가능. 상한 도입 이전에 이미 초과 응원 중이던 계정의 기존 행은 잘라내지 않는다(마이그레이션 없음) — 초과 상태 그대로 추가 요청만 막힌다.
+- **활성 응원 선수 4명 상한(2026-08-06 신설).** 판정은 **합집합**: `현재 활성(oppose is null) 응원 선수 id` ∪ `요청 distinct id`의 크기가 4를 넘으면 거부한다. 이미 응원 중인 선수를 다시 보내는 것은 no-op이라 합집합 크기를 늘리지 않으므로 재요청이 억울하게 막히지 않는다. **취소된 선수는 상한에 안 잡힌다** — 4명 응원 중 2명을 [`PUT /players/oppose`](#put-apisupportplayersoppose)로 취소하면 다시 2명 추가 가능. 상한 도입 이전에 이미 초과 응원 중이던 계정의 기존 행은 잘라내지 않는다(마이그레이션 없음) — 초과 상태 그대로 추가 요청만 막힌다.
 
-**응답 200 OK** `ApiResponse<List<PlayerResponse>>` — **이번에 추가한 선수만이 아니라 현재 응원 중인 선수 전체**를 `name` 오름차순으로 반환한다(프론트가 재조회할 필요 없음). 항목 형태는 [선수(player)](player.md#get-apimemberplayers)의 응답과 **동일한 DTO**를 재사용하므로, 그쪽 계약이 바뀌면 이 응답도 함께 바뀐다.
+**응답 200 OK** `ApiResponse<List<PlayerResponse>>` — **이번에 추가한 선수만이 아니라 현재 응원 중인 선수 전체**를 `name` 오름차순으로 반환한다(프론트가 재조회할 필요 없음). 항목 형태는 [선수(player)](player.md#get-apiplayers)의 응답과 **동일한 DTO**를 재사용하므로, 그쪽 계약이 바뀌면 이 응답도 함께 바뀐다.
 ```json
 {"success":true,"data":[{"teamId":21,"teamName":"KIA","playerId":168,"playerName":"김도영","playerNumber":"5","playerPosition":"INFIELDER"},{"teamId":21,"teamName":"KIA","playerId":414,"playerName":"고종욱","playerNumber":null,"playerPosition":null}],"message":null}
 ```
@@ -127,7 +127,7 @@ curl -i -X POST http://localhost:8080/api/member/support/team \
 
 **예시**
 ```bash
-curl -i -X POST http://localhost:8080/api/member/support/players \
+curl -i -X POST http://localhost:8080/api/support/players \
   -H "Authorization: Bearer $ACCESS_TOKEN" -H "Content-Type: application/json" \
   -d '{"playerIds":[1,2]}'
 ```
@@ -139,7 +139,7 @@ curl -i -X POST http://localhost:8080/api/member/support/players \
 
 ---
 
-## PUT /api/member/support/players/oppose
+## PUT /api/support/players/oppose
 > 최종 변경: 2026-08-06 — 응답 항목 키 교체(공유 DTO `PlayerResponse` 변경분). 요청 본문·상태코드는 불변
 
 응원 선수 **취소**. → `SupportService.opposePlayers()`. 요구사항: USER-SP-24 ~ 29.
@@ -177,7 +177,7 @@ curl -i -X POST http://localhost:8080/api/member/support/players \
 
 **예시**
 ```bash
-curl -i -X PUT http://localhost:8080/api/member/support/players/oppose \
+curl -i -X PUT http://localhost:8080/api/support/players/oppose \
   -H "Authorization: Bearer $ACCESS_TOKEN" -H "Content-Type: application/json" \
   -d '{"playerIds":[1]}'
 ```
@@ -186,7 +186,7 @@ curl -i -X PUT http://localhost:8080/api/member/support/players/oppose \
 
 ## 확인 필요 / 코드 미확인
 
-- **응원 상태 조회(`GET /api/member/support`) 엔드포인트가 없다.** 현재 응원 구단·선수를 알려면 위 세 API 중 하나를 호출하거나 [`GET /api/member/users/me`](account.md#get-apimemberusersme)(`supportPlayers`)를 호출해 그 응답을 받는 수밖에 없다(모두 반영 후 전체 상태를 반환한다). 최초 진입 화면에서 상태만 읽고 싶은 경우가 코드로 커버되지 않는다.
+- **응원 상태 조회(`GET /api/support`) 엔드포인트가 없다.** 현재 응원 구단·선수를 알려면 위 세 API 중 하나를 호출하거나 [`GET /api/users/me`](account.md#get-apiusersme)(`supportPlayers`)를 호출해 그 응답을 받는 수밖에 없다(모두 반영 후 전체 상태를 반환한다). 최초 진입 화면에서 상태만 읽고 싶은 경우가 코드로 커버되지 않는다.
 - **응원 구단 취소 API는 존재하지 않는다** — 구단은 필수라 변경만 가능하다.
 - **(과거 기록, 정정됨)** 이전 버전 문서에는 "선수 응원 수 상한이 없다"고 적혀 있었다 — 2026-08-06 결정으로 활성 응원 선수 4명 상한이 도입돼 더 이상 사실이 아니다(`POST /players` 절 참고). `docs/requirements/user/support-selection.md` USER-SP-22는 이 결정으로 폐기 표시됐고 USER-SP-30~36으로 대체됐다.
 - 상한(USER-SP-30~36) 도입분은 구현만 끝났고 자동화 테스트가 아직 없다(`SupportServiceTest` 21건에 상한 케이스 0건, `docs/requirements/user/support-selection.md` "테스트 대응" 참고) — 이 문서의 서술은 로컬 실측(4명까지 200 → 5번째 400 메시지 일치 → 초과 거부 후 실제 반영 0건 → 취소 후 재추가 200)으로 확인했다.
@@ -195,5 +195,5 @@ curl -i -X PUT http://localhost:8080/api/member/support/players/oppose \
 
 - [구단(team)](team.md) — `teamId`의 출처.
 - [선수(player)](player.md) — `playerIds`의 출처. 응원 구단 소속으로 좁히려면 `?teamId=`를 함께 쓴다.
-- [계정(account)](account.md) — `GET /api/member/users/me`의 `supportPlayers`가 이 도메인의 응원 선수 목록(`PlayerResponse`)을 그대로 재사용한다. **`PlayerResponse`를 바꾸면 `/players`·응원 API 2개·`/me` 총 4곳이 함께 바뀐다.**
+- [계정(account)](account.md) — `GET /api/users/me`의 `supportPlayers`가 이 도메인의 응원 선수 목록(`PlayerResponse`)을 그대로 재사용한다. **`PlayerResponse`를 바꾸면 `/players`·응원 API 2개·`/me` 총 4곳이 함께 바뀐다.**
 - 요구사항: `docs/requirements/user/support-selection.md`(USER-SP-4~36, USER-SP-22는 폐기)
