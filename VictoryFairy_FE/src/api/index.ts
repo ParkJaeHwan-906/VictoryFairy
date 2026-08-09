@@ -52,7 +52,9 @@ export {
 export {
   getChatRooms,
   getChatRoom,
+  findMyTeamChatRoom,
   subscribeChatRoom,
+  leaveChatRoom,
   sendChatMessage,
   getChatMessages,
   reportChatMessage,
@@ -60,6 +62,8 @@ export {
   isChatRoomNotFound,
   isChatMessageNotFound,
   isSelfReport,
+  isSupportTeamRequired,
+  isChatTeamMismatch,
   CHAT_ERROR_MESSAGE,
   CHAT_MESSAGE_PAGE_SIZE,
   CHAT_MESSAGE_MAX_LENGTH,

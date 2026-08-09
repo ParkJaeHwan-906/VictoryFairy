@@ -1,7 +1,19 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { LOUNGE_CHAT_MESSAGES } from '../data/loungeChat';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import {
+  CHAT_MESSAGE_MAX_LENGTH,
+  findMyTeamChatRoom,
+  getChatMessages,
+  isChatRoomNotFound,
+  isChatTeamMismatch,
+  isSupportTeamRequired,
+  leaveChatRoom,
+  sendChatMessage,
+  subscribeChatRoom,
+  validateChatMessageContent,
+} from '../api';
+import type { ChatMessage, ChatRoom } from '../api';
+import { useAccountStore, useMyNickname, useSupportTeam } from '../stores/useAccountStore';
 import profilePlaceholder from '../assets/profile_img.svg';
-import type { LoungeChatMessage } from '../types/community';
 import '../styles/LoungeChatSheet.css';
 
 /**
@@ -11,6 +23,30 @@ import '../styles/LoungeChatSheet.css';
 function formatSentAt(createdAt: string) {
   return createdAt.slice(11, 16);
 }
+
+/** 목록 끝에서 이만큼 안쪽에 있으면 "맨 아래를 보고 있다"고 보고 새 메시지를 따라 내려간다. */
+const STICK_TO_BOTTOM_THRESHOLD_PX = 80;
+
+/**
+ * 이미 그린 메시지에 새로 받은 것을 합친다. 같은 `id` 는 덮어쓴다.
+ *
+ * 히스토리(최신순)·SSE·전송 응답이 뒤섞여 들어오고 SSE 재연결 시 겹쳐서 오므로
+ * 중복 제거가 필요하다. 정렬 키는 `createdAt` 이 아니라 `id` 다 —
+ * 시각 문자열은 초 단위라 같은 값이 흔하지만 `id` 는 서버가 매기는 증가값이다.
+ */
+function mergeMessages(prev: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
+  const byId = new Map(prev.map((message) => [message.id, message]));
+  for (const message of incoming) {
+    byId.set(message.id, message);
+  }
+  return [...byId.values()].sort((a, b) => a.id - b.id);
+}
+
+/** 방을 찾고 히스토리를 받는 동안의 화면 상태. */
+type ChatStatus = 'loading' | 'ready' | 'no-team' | 'no-room' | 'team-changed' | 'error';
+
+/** 실시간 스트림 상태. 'live' 외에는 안내 줄을 띄운다. */
+type LiveStatus = 'connecting' | 'live' | 'reconnecting' | 'offline';
 
 type LoungeChatSheetProps = {
   /** 딤 클릭 · 핸들 클릭 · Esc 로 닫을 때 호출된다. */
@@ -22,13 +58,34 @@ type LoungeChatSheetProps = {
  * Figma: SWM / [Lounge] 라운지-챗 (시안) (node 744:21903)
  *
  * 라운지 메인의 채팅 버튼을 누르면 아래에서 올라온다.
- * 메시지는 아직 더미 데이터이며, 보낸 글은 화면에만 덧붙는다.
+ * 들어가는 방은 **내 응원 구단의 방**이다 — 전역 프로필의 응원 구단으로 방을 찾고,
+ * 히스토리를 받은 뒤 SSE 로 새 메시지를 이어 받는다.
  */
 export default function LoungeChatSheet({ onClose }: LoungeChatSheetProps) {
-  // TODO: api-agent - chat 히스토리 조회 + SSE 구독으로 교체한다.
-  const [messages, setMessages] = useState<LoungeChatMessage[]>(LOUNGE_CHAT_MESSAGES);
+  const myNickname = useMyNickname();
+  /** 서버가 "네 구단 정보가 틀렸다"(400·403)고 할 때만 쓴다 — 초기 로딩용이 아니다. */
+  const fetchProfile = useAccountStore((state) => state.fetchProfile);
+
+  /** 들어갈 방을 정하는 값. 아직 고르지 않았거나 프로필 전이면 `null`. */
+  const teamId = useSupportTeam()?.id ?? null;
+
+  const [room, setRoom] = useState<ChatRoom | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [status, setStatus] = useState<ChatStatus>('loading');
+  const [liveStatus, setLiveStatus] = useState<LiveStatus>('connecting');
+
+  /** 지금까지 받아 온 히스토리 페이지 중 가장 오래된 페이지 번호. */
+  const [oldestPage, setOldestPage] = useState(0);
+  const [hasOlder, setHasOlder] = useState(false);
+  const [isLoadingOlder, setIsLoadingOlder] = useState(false);
+
   const [draft, setDraft] = useState('');
+  const [isSending, setIsSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+
   const listRef = useRef<HTMLOListElement>(null);
+  /** 사용자가 맨 아래를 보고 있는지. 위로 올려 지난 대화를 읽는 중이면 끌어내리지 않는다. */
+  const stickToBottomRef = useRef(true);
 
   /* Esc 로 닫기 — 시트가 떠 있는 동안에만 듣는다. */
   useEffect(() => {
@@ -51,42 +108,227 @@ export default function LoungeChatSheet({ onClose }: LoungeChatSheetProps) {
     };
   }, []);
 
-  /* 새 메시지가 붙으면 목록 끝으로 따라 내려간다. */
+  /*
+   * 구단이 없으면 들어갈 방이 없다 — 온보딩에서 아직 안 골랐다는 뜻이다.
+   *
+   * 프로필은 여기서 받지 않는다. 로그인해야 이 화면까지 올 수 있고 프로필은 그때
+   * 전역 스토어에 채워지므로, 시트를 열 때마다 `users/me` 를 다시 부를 이유가 없다.
+   */
+  useEffect(() => {
+    if (teamId !== null) return;
+    setStatus('no-team');
+  }, [teamId]);
+
+  /*
+   * 내 응원 구단의 방을 찾고 최신 히스토리 한 페이지를 받는다.
+   *
+   * 방 목록은 서버가 이미 응원 구단으로 좁혀 주므로(2026-08-04 구단 접근 제어) 여기서
+   * 이름을 맞춰 볼 필요가 없다. teamId 는 "내가 아는 구단"이 서버 기준과 같은지 확인하는
+   * 가드로 함께 보낸다 — 다르면 403 이 오고, 그건 프로필이 낡았다는 뜻이다.
+   */
+  useEffect(() => {
+    if (teamId === null) {
+      // 로그아웃 등으로 구단이 사라지면 이전 방의 구독부터 끊는다.
+      setRoom(null);
+      setMessages([]);
+      return;
+    }
+
+    // 구단이 바뀌면 이전 방의 메시지가 잠깐이라도 보이면 안 된다.
+    let alive = true;
+    setStatus('loading');
+    setRoom(null);
+    setMessages([]);
+    setOldestPage(0);
+    setHasOlder(false);
+    setSendError(null);
+    setLiveStatus('connecting');
+    stickToBottomRef.current = true;
+
+    findMyTeamChatRoom(teamId)
+      .then(async (found) => {
+        if (!alive) return;
+        if (!found) {
+          setStatus('no-room');
+          return;
+        }
+
+        const page = await getChatMessages(found.roomUid, 0);
+        if (!alive) return;
+
+        setRoom(found);
+        setMessages(mergeMessages([], page.content));
+        setHasOlder(page.hasNext);
+        setStatus('ready');
+      })
+      .catch((error: unknown) => {
+        if (!alive) return;
+
+        if (isSupportTeamRequired(error)) {
+          // 서버 기준으로는 응원 구단이 없다 — 우리가 들고 있던 프로필이 낡았다.
+          setStatus('no-team');
+        } else if (isChatTeamMismatch(error)) {
+          // 다른 기기·화면에서 응원 구단을 바꿨다. 프로필을 다시 받아 두면 다음 열기는 맞는다.
+          setStatus('team-changed');
+        } else {
+          setStatus('error');
+        }
+
+        if (isSupportTeamRequired(error) || isChatTeamMismatch(error)) {
+          void fetchProfile();
+        }
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [teamId, fetchProfile]);
+
+  /* 방이 정해지면 새 메시지를 SSE 로 이어 받는다. 시트를 닫으면 반드시 끊는다. */
+  useEffect(() => {
+    if (!room) return;
+
+    const { roomUid } = room;
+    let alive = true;
+
+    const subscription = subscribeChatRoom(roomUid, {
+      onMessage: (event) => {
+        // 방을 옮기는 도중 늦게 도착한 이전 방의 이벤트를 걸러낸다.
+        if (event.roomUid !== roomUid) return;
+        setMessages((prev) => mergeMessages(prev, [event]));
+      },
+      onOpen: ({ reconnected }) => {
+        setLiveStatus('live');
+        if (!reconnected) return;
+
+        // 서버가 `id:` 프레임을 주지 않아 Last-Event-ID 복구가 안 된다.
+        // 끊긴 동안의 공백은 히스토리를 다시 받아 메운다(중복은 id 로 걸러진다).
+        getChatMessages(roomUid, 0)
+          .then((page) => {
+            if (alive) setMessages((prev) => mergeMessages(prev, page.content));
+          })
+          .catch(() => {
+            /* 다음 재연결에서 다시 메운다 */
+          });
+      },
+      onReconnecting: () => setLiveStatus('reconnecting'),
+      onError: () => setLiveStatus('offline'),
+    });
+
+    return () => {
+      alive = false;
+      subscription.close();
+      /*
+       * 스트림을 끊어도 서버 쪽 구독은 하트비트가 실패할 때까지(최대 30분) 남는다.
+       * 명시적 퇴장으로 즉시 정리한다 — 전면 멱등이고 실패 응답이 없으므로 결과는 보지 않는다.
+       */
+      void leaveChatRoom(roomUid).catch(() => {
+        /* 안 되면 서버의 타임아웃이 회수한다 */
+      });
+    };
+  }, [room]);
+
+  /* 새 메시지가 붙으면 목록 끝으로 따라 내려간다(맨 아래를 보고 있을 때만). */
   useEffect(() => {
     const list = listRef.current;
-    if (list) {
+    if (list && stickToBottomRef.current) {
       list.scrollTop = list.scrollHeight;
     }
   }, [messages]);
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleScroll = () => {
+    const list = listRef.current;
+    if (!list) return;
+    const distanceFromBottom = list.scrollHeight - list.scrollTop - list.clientHeight;
+    stickToBottomRef.current = distanceFromBottom < STICK_TO_BOTTOM_THRESHOLD_PX;
+  };
+
+  /**
+   * 지난 대화 한 페이지(30개)를 더 받아 위에 붙인다.
+   *
+   * 페이징은 "지금 시점 기준 최신순"이라 대화가 오가는 동안 페이지 경계가 밀린다 —
+   * 겹쳐 오는 메시지는 `id` 로 걸러지지만, 밀려서 건너뛴 메시지는 서버 계약상 되받을 수 없다.
+   */
+  const loadOlderMessages = useCallback(async () => {
+    if (!room || !hasOlder || isLoadingOlder) return;
+
+    const list = listRef.current;
+    const heightBefore = list?.scrollHeight ?? 0;
+    const nextPage = oldestPage + 1;
+
+    setIsLoadingOlder(true);
+    try {
+      const page = await getChatMessages(room.roomUid, nextPage);
+      setMessages((prev) => mergeMessages(prev, page.content));
+      setOldestPage(nextPage);
+      setHasOlder(page.hasNext);
+
+      // 위에 붙은 높이만큼 스크롤을 내려 읽던 자리를 그대로 둔다.
+      requestAnimationFrame(() => {
+        const current = listRef.current;
+        if (current) current.scrollTop += current.scrollHeight - heightBefore;
+      });
+    } catch {
+      /* 버튼이 남아 있으니 다시 누르면 된다 */
+    } finally {
+      setIsLoadingOlder(false);
+    }
+  }, [room, hasOlder, isLoadingOlder, oldestPage]);
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!room || isSending) return;
 
     const content = draft.trim();
-    if (!content) {
+    const invalidReason = validateChatMessageContent(content);
+    if (invalidReason) {
+      // 빈 입력은 안내할 것도 없이 그냥 무시한다.
+      setSendError(content.length === 0 ? null : invalidReason);
       return;
     }
 
-    // TODO: api-agent - POST /chat/rooms/{roomUid}/messages 연결 시 서버 응답으로 대체한다.
-    const now = new Date();
-    const createdAt = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(
-      now.getDate(),
-    ).padStart(2, '0')}T${String(now.getHours()).padStart(2, '0')}:${String(
-      now.getMinutes(),
-    ).padStart(2, '0')}:00`;
+    setIsSending(true);
+    setSendError(null);
 
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: (prev.at(-1)?.id ?? 0) + 1,
-        senderNickname: '나',
-        content,
-        createdAt,
-        isMine: true,
-      },
-    ]);
-    setDraft('');
+    try {
+      // 발신자에게는 SSE 에코가 오지 않으므로 전송 응답을 그대로 목록에 넣는다.
+      const sent = await sendChatMessage(room.roomUid, { content });
+      stickToBottomRef.current = true;
+      setMessages((prev) => mergeMessages(prev, [sent]));
+      setDraft('');
+    } catch (error) {
+      // 방이 사라졌거나(404) 그 사이 응원 구단이 바뀌었으면(400·403) 더 쓸 수 없는 방이다.
+      if (isChatRoomNotFound(error)) {
+        setStatus('no-room');
+        setRoom(null);
+      } else if (isSupportTeamRequired(error) || isChatTeamMismatch(error)) {
+        setStatus(isSupportTeamRequired(error) ? 'no-team' : 'team-changed');
+        setRoom(null);
+        void fetchProfile();
+      } else {
+        setSendError('메시지를 보내지 못했어요. 다시 시도해주세요');
+      }
+    } finally {
+      setIsSending(false);
+    }
   };
+
+  const isReady = status === 'ready';
+  const notice = {
+    loading: '채팅방을 불러오는 중이에요',
+    'no-team': '응원 구단을 선택하면 구단 채팅방에 들어갈 수 있어요',
+    'no-room': '아직 우리 구단 채팅방이 없어요',
+    'team-changed': '응원 구단이 바뀌었어요. 채팅을 다시 열어주세요',
+    error: '채팅방을 불러오지 못했어요',
+    ready: null,
+  }[status];
+
+  const liveNotice = {
+    connecting: null,
+    live: null,
+    reconnecting: '실시간 연결이 끊겨 다시 연결하고 있어요',
+    offline: '실시간 연결이 끊겼어요. 채팅을 다시 열어주세요',
+  }[liveStatus];
 
   return (
     <div className="lounge-chat">
@@ -104,39 +346,71 @@ export default function LoungeChatSheet({ onClose }: LoungeChatSheetProps) {
           <span className="lounge-chat__handle-label">라운지 채팅 닫기</span>
         </button>
 
-        <h2 className="lounge-chat__title">라운지 채팅</h2>
+        {/* 방 이름을 받아 왔으면 그 이름을 쓴다(예: "두산 팩도방"). */}
+        <h2 className="lounge-chat__title">{room?.name ?? '라운지 채팅'}</h2>
 
-        <ol className="lounge-chat__messages" ref={listRef}>
-          {messages.map((message) =>
-            message.isMine ? (
-              <li className="lounge-chat__message lounge-chat__message--mine" key={message.id}>
-                <time className="lounge-chat__time" dateTime={message.createdAt}>
-                  {formatSentAt(message.createdAt)}
-                </time>
-                <p className="lounge-chat__bubble lounge-chat__bubble--mine">{message.content}</p>
-              </li>
-            ) : (
-              <li className="lounge-chat__message" key={message.id}>
-                <img
-                  className="lounge-chat__avatar"
-                  src={message.avatarUrl ?? profilePlaceholder}
-                  alt=""
-                />
-                <div className="lounge-chat__body">
-                  <p className="lounge-chat__sender">{message.senderNickname}</p>
-                  <div className="lounge-chat__bubble-row">
-                    <p className="lounge-chat__bubble">{message.content}</p>
-                    <time className="lounge-chat__time" dateTime={message.createdAt}>
-                      {formatSentAt(message.createdAt)}
-                    </time>
-                  </div>
-                </div>
-              </li>
-            ),
+        {isReady && liveNotice && (
+          <p className="lounge-chat__live-notice" role="status">
+            {liveNotice}
+          </p>
+        )}
+
+        <ol className="lounge-chat__messages" ref={listRef} onScroll={handleScroll}>
+          {!isReady && (
+            <li
+              className={`lounge-chat__notice${status === 'error' ? ' lounge-chat__notice--error' : ''}`}
+            >
+              {notice}
+            </li>
           )}
+
+          {isReady && hasOlder && (
+            <li className="lounge-chat__more">
+              <button type="button" onClick={() => void loadOlderMessages()} disabled={isLoadingOlder}>
+                {isLoadingOlder ? '불러오는 중…' : '이전 메시지 보기'}
+              </button>
+            </li>
+          )}
+
+          {isReady && messages.length === 0 && (
+            <li className="lounge-chat__notice">아직 메시지가 없어요. 먼저 인사해보세요!</li>
+          )}
+
+          {isReady &&
+            messages.map((message) =>
+              // 닉네임은 중복될 수 없으므로 내 메시지 판별 기준으로 쓸 수 있다.
+              message.senderNickname === myNickname ? (
+                <li className="lounge-chat__message lounge-chat__message--mine" key={message.id}>
+                  <time className="lounge-chat__time" dateTime={message.createdAt}>
+                    {formatSentAt(message.createdAt)}
+                  </time>
+                  <p className="lounge-chat__bubble lounge-chat__bubble--mine">{message.content}</p>
+                </li>
+              ) : (
+                <li className="lounge-chat__message" key={message.id}>
+                  {/* 채팅 응답에는 발신자 프로필 사진이 없다(닉네임만 노출된다). */}
+                  <img className="lounge-chat__avatar" src={profilePlaceholder} alt="" />
+                  <div className="lounge-chat__body">
+                    <p className="lounge-chat__sender">{message.senderNickname}</p>
+                    <div className="lounge-chat__bubble-row">
+                      <p className="lounge-chat__bubble">{message.content}</p>
+                      <time className="lounge-chat__time" dateTime={message.createdAt}>
+                        {formatSentAt(message.createdAt)}
+                      </time>
+                    </div>
+                  </div>
+                </li>
+              ),
+            )}
         </ol>
 
-        <form className="lounge-chat__composer" onSubmit={handleSubmit}>
+        {sendError && (
+          <p className="lounge-chat__send-error" role="alert">
+            {sendError}
+          </p>
+        )}
+
+        <form className="lounge-chat__composer" onSubmit={(event) => void handleSubmit(event)}>
           <input
             className="lounge-chat__input"
             type="text"
@@ -144,10 +418,16 @@ export default function LoungeChatSheet({ onClose }: LoungeChatSheetProps) {
             onChange={(event) => setDraft(event.target.value)}
             placeholder="메세지를 입력해주세요"
             aria-label="메시지 입력"
-            maxLength={500}
+            maxLength={CHAT_MESSAGE_MAX_LENGTH}
             autoComplete="off"
+            disabled={!isReady}
           />
-          <button className="lounge-chat__send" type="submit" aria-label="메시지 보내기">
+          <button
+            className="lounge-chat__send"
+            type="submit"
+            aria-label="메시지 보내기"
+            disabled={!isReady || isSending}
+          >
             <span className="lounge-chat__send-icon" aria-hidden="true" />
           </button>
         </form>

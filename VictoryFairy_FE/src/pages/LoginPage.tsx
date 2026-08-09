@@ -1,9 +1,10 @@
 import { useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { ApiError, getTokenStorage, login } from '../api';
 import googleIcon from '../assets/google.svg';
 import kakaoIcon from '../assets/kakao.svg';
 import naverIcon from '../assets/naver.svg';
+import { useAccountStore } from '../stores/useAccountStore';
 import { ROUTES } from '../routes';
 import '../styles/LoginPage.css';
 
@@ -52,6 +53,10 @@ function toFieldMessages(error: unknown): FieldMessages {
  * 해당 입력창 아래에 그대로 노출한다(문구를 프론트에서 새로 만들지 않는다).
  */
 export default function LoginPage() {
+  const navigate = useNavigate();
+  /** 로그인 직후 프로필을 전역에 채운다 — 이후 화면들이 다시 받지 않아도 되게. */
+  const fetchProfile = useAccountStore((state) => state.fetchProfile);
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [messages, setMessages] = useState<FieldMessages>({});
@@ -80,12 +85,23 @@ export default function LoginPage() {
 
       // 이 페이지는 저장 위치를 알 필요가 없다. API 계층의 TokenStorage 시임에만 의존하고,
       // 실제 구현(zustand persist)은 부트스트랩에서 주입된다 — `src/stores/auth.ts` 참고.
+      // 프로필 조회보다 **먼저** 저장해야 한다 — 그래야 users/me 에 Authorization 이 붙는다.
       getTokenStorage().setTokens(tokens);
-      // TODO: store-agent - 로그인 성공 후 홈(ROUTES.main)으로 navigate 연결.
-      //       라우트는 생겼고 토큰 저장도 붙었으므로 이동만 남았다.
+
+      /*
+       * 프로필을 전역 스토어에 올려 두고 넘어간다. 토큰과 달리 프로필은 persist 하지 않으므로
+       * 로그인 시점에 한 번 채워야 NavBar·라운지 채팅 같은 화면이 각자 다시 받지 않는다.
+       *
+       * `fetchProfile` 은 실패해도 reject 하지 않는다(스토어가 `status` 로 알린다). 토큰은 이미
+       * 유효하니 프로필을 못 받았다고 로그인 자체를 되돌리지는 않고, 그대로 메인으로 보낸다.
+       */
+      await fetchProfile();
+
+      // replace — 뒤로가기로 로그인 화면에 돌아오지 않게 한다.
+      navigate(ROUTES.main, { replace: true });
     } catch (error) {
       setMessages(toFieldMessages(error));
-    } finally {
+      // 실패했을 때만 버튼을 되살린다. 성공하면 화면이 바뀌므로 눌린 상태 그대로 둔다.
       setIsSubmitting(false);
     }
   };

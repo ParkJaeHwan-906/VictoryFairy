@@ -184,6 +184,68 @@
 }
 
 /* ------------------------------------------------------------------ *
+ * 안내 문구 — 로딩 · 실패 · 빈 목록. 말풍선 대신 목록 가운데에 한 줄로 놓는다.
+ * ------------------------------------------------------------------ */
+.lounge-chat__notice {
+  margin: auto 0;
+  padding-inline: var(--layout-gutter);
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-body2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body2);
+  text-align: center;
+}
+
+.lounge-chat__notice--error {
+  color: var(--color-primary-normal);
+}
+
+/* 실시간 연결이 끊겼을 때 목록 위에 붙는 띠. */
+.lounge-chat__live-notice {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 6px var(--layout-gutter);
+  background-color: var(--color-gray-100);
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+  text-align: center;
+}
+
+/* 지난 대화 더 보기 — 목록 맨 위에 놓인다. */
+.lounge-chat__more {
+  display: flex;
+  justify-content: center;
+  padding-inline: var(--layout-gutter);
+}
+
+.lounge-chat__more button {
+  padding: 4px 12px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-background-gray);
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+}
+
+.lounge-chat__more button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* 전송 실패 안내 — 입력창 바로 위. */
+.lounge-chat__send-error {
+  flex-shrink: 0;
+  margin: 0 var(--layout-gutter) 8px;
+  color: var(--color-primary-normal);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+/* ------------------------------------------------------------------ *
  * Composer — 하단 입력창
  * 디자인 기준 입력창 아래 여백 46px(=694 - 600 - 48).
  * ------------------------------------------------------------------ */
@@ -254,6 +316,12 @@
   position: absolute;
   inset: -10px;
   content: '';
+}
+
+/* 방을 못 불러왔거나 전송 중이면 보낼 수 없다. */
+.lounge-chat__send:disabled {
+  cursor: default;
+  opacity: 0.4;
 }
 
 /* `send.svg` 의 fill 이 검정이라 mask 로 오려내고 색만 입힌다. */

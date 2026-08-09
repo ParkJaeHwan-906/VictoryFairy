@@ -13,6 +13,9 @@ import type { ApiResponse } from './api';
 /**
  * 채팅방. 목록 조회 항목과 상세 조회 응답이 완전히 같은 모양이다.
  * 참여 인원(`participants`)은 노출하지 않기로 결정되어 응답에 없다(2026-08-01 명세).
+ *
+ * 2026-08-04 구단 접근 제어 이후 목록은 **요청자의 응원 구단 방만** 실려 온다 —
+ * 다른 구단 방은 목록에도, 상세·구독·전송·히스토리·신고에도 접근할 수 없다(403).
  */
 export interface ChatRoom {
   /** 방 외부 식별자(UUID) */
@@ -64,7 +67,8 @@ export interface ChatMessagePage {
 }
 
 /* ------------------------------------------------------------------ *
- * 래핑된 응답 별칭 — SSE를 뺀 5개 엔드포인트는 성공도 ApiResponse로 감싼다
+ * 래핑된 응답 별칭 — SSE를 뺀 6개 엔드포인트는 성공도 ApiResponse로 감싼다
+ * (명시적 퇴장 `DELETE .../subscribe` 포함. 이쪽은 `data`가 항상 null이다)
  * ------------------------------------------------------------------ */
 
 export type ChatRoomListApiResponse = ApiResponse<ChatRoom[]>;
