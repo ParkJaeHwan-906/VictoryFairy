@@ -124,7 +124,7 @@ kubectl -n kube-system logs deploy/external-dns | tail
 dig victoryfairy.com +short          # ALB 주소로 해석되면 성공
 
 # HTTPS 종단 확인
-curl -I https://victoryfairy.com/api/member   # TLS 핸드셰이크 + 응답
+curl -I https://victoryfairy.com/api   # TLS 핸드셰이크 + 응답
 ```
 
 ---
@@ -139,8 +139,8 @@ curl -I https://victoryfairy.com/api/member   # TLS 핸드셰이크 + 응답
 
    | Ingress | healthcheck-path |
    |---|---|
-   | `victoryfairy-user` | `/api/member/actuator/health/readiness` |
-   | `victoryfairy-quiz` | `/api/game/actuator/health/readiness` |
+   | `victoryfairy-user` | `/api/actuator/health/readiness` |
+   | `victoryfairy-quiz` | `/rt/actuator/health/readiness` |
 
    `/actuator/health` 전체가 아니라 **readiness 그룹**인 것이 중요하다. 전체 health 는 db·redis
    인디케이터를 합산해 DOWN 을 내므로, MySQL EC2 가 잠깐 흔들리면 멀쩡한 파드까지 타깃에서 빠져
