@@ -219,6 +219,21 @@
   color: var(--color-error-strong);
 }
 
+/*
+ * 저장 실패 문구는 CTA 바로 위에 붙는다.
+ * 하단으로 밀어내는 margin-top: auto 는 CTA 가 갖고 있는데, 이 문구가 먼저 오면
+ * 남는 공간을 둘이 나눠 가져 CTA 가 어중간하게 뜬다 — 밀어내기를 이쪽으로 옮기고
+ * 바로 뒤의 CTA 에서는 걷어낸다.
+ */
+.team-select-page__submit-error {
+  margin-top: auto;
+  margin-bottom: 8px;
+}
+
+.team-select-page__submit-error + .team-select-page__submit {
+  margin-top: 0;
+}
+
 /* ------------------------------------------------------------------ *
  * CTA — 화면 하단에 붙인다
  * ------------------------------------------------------------------ */
