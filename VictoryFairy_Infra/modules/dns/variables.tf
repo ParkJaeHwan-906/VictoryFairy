@@ -36,6 +36,12 @@ variable "external_dns_service_account_namespace" {
   default     = "kube-system"
 }
 
+variable "origin_host" {
+  description = "CloudFront 가 ALB 오리진에 붙을 때 쓰는 호스트명 (예: origin.victoryfairy.com). 이 이름 전용 인증서를 서울에 별도 발급한다 — apex 인증서에 SAN 으로 넣으면 인증서가 교체되고 운영 ALB 리스너가 그것을 물고 있어 삭제가 거부된다(main.tf §2-1). 비우면 만들지 않는다."
+  type        = string
+  default     = ""
+}
+
 variable "subject_alternative_names" {
   description = "ACM 인증서에 추가할 대체 도메인(SAN) 목록 (예: [\"www.victoryfairy.com\"]). 기본은 루트 도메인만."
   type        = list(string)

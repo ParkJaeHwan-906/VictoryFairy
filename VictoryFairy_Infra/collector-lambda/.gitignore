@@ -1,0 +1,12 @@
+# Terraform local state, vars, and provider cache — never commit.
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+# 비밀이 아닌 스택 설정만 담는 커밋 대상 (비밀은 GitHub Secrets / 로컬 terraform.tfvars)
+!config.auto.tfvars
+.terraform/
+.terraform.lock.hcl
+crash.log
+# Saved plan output (regenerable, binary)
+tfplan

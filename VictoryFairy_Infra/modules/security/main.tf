@@ -92,6 +92,52 @@ data "aws_iam_policy_document" "github_actions" {
     resources = ["arn:aws:eks:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:cluster/${var.cluster_name}"]
   }
 
+  # FE 정적 배포: 번들을 S3 로 sync 한다(종전 ECR push + kubectl set image 경로를 대체).
+  #
+  # ⚠ s3:DeleteObject 를 일부러 주지 않는다. 배포는 --delete 없이 sync 하므로 필요가 없고,
+  #   없으면 CI 권한만으로는 사이트를 지울 수 없다. 옛 자산 정리는 사람이 별도 권한으로 한다.
+  #   (--delete 를 쓰면 캐시된 옛 index.html 이 참조하는 청크가 사라져 화면이 깨진다 —
+  #    docs/fe-cdn-migration.md §6)
+  # ⚠ ListBucket 은 버킷 ARN 에, 오브젝트 조작은 <ARN>/* 에 붙는다. 두 형태를 섞으면
+  #   sync 가 조용히 전체 업로드로 퇴화하거나 AccessDenied 로 죽는다.
+  dynamic "statement" {
+    for_each = var.fe_bucket_arn != "" ? [1] : []
+
+    content {
+      sid       = "FeBucketList"
+      actions   = ["s3:ListBucket"]
+      resources = [var.fe_bucket_arn]
+    }
+  }
+
+  dynamic "statement" {
+    for_each = var.fe_bucket_arn != "" ? [1] : []
+
+    content {
+      sid = "FeBucketWrite"
+      actions = [
+        "s3:GetObject", # sync 의 변경 비교(ETag·크기)에 필요
+        "s3:PutObject",
+      ]
+      resources = ["${var.fe_bucket_arn}/*"]
+    }
+  }
+
+  # index.html 은 엣지 TTL 0 이라 배포·롤백에 무효화가 필요하지 않다(오브젝트를 바꾸면 바로 반영된다).
+  # 그래도 남겨두는 것은 비상용이다 — 엣지에 잘못된 응답이 붙었을 때 강제로 떼어내야 할 수 있다.
+  dynamic "statement" {
+    for_each = var.fe_distribution_arn != "" ? [1] : []
+
+    content {
+      sid = "FeInvalidation"
+      actions = [
+        "cloudfront:CreateInvalidation",
+        "cloudfront:GetInvalidation",
+      ]
+      resources = [var.fe_distribution_arn]
+    }
+  }
+
   # 정제 파이프라인 Lambda 배포: CI 가 새 이미지를 push 한 뒤 함수 코드를 교체한다.
   # 컨테이너 Lambda 는 태그를 생성 시점에 digest 로 고정하므로 push 만으로는 반영되지
   # 않는다 — UpdateFunctionCode 호출이 반드시 필요하다.

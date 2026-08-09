@@ -3,25 +3,23 @@
 > 자주 쓰는 명령어 전체 모음은 → [../docs/COMMANDS.md](../docs/COMMANDS.md)
 > 배포 스크립트(deploy-app.sh) 사용법은 → [../docs/DEPLOYMENT.md](../docs/DEPLOYMENT.md)
 
-## db-tunnel.sh — 개발 접속 통로 일괄 관리 (DB·SSH·Dashboard)
+## db-tunnel.sh — 개발 접속 통로 일괄 관리 (DB·SSH)
 
 데이터 EC2는 프라이빗 서브넷에 있고 22/3306/6379 인바운드를 일절 열지 않습니다
 (보안 설계 — [ARCHITECTURE.md](../docs/ARCHITECTURE.md) 참고). EKS 워커 노드도
 동일하게 22 인바운드를 인터넷에 열지 않습니다(소스 = 클러스터 SG 한정).
-로컬에서 DB 클라이언트(HeidiSQL 등)나 SSH 클라이언트(Termius 등), Kubernetes
-Dashboard로 접속하려면 **AWS SSM Session Manager 포트포워딩 터널**(+ 대시보드는
-kubectl port-forward)을 사용합니다. 이 스크립트가 그 터널들을 백그라운드로 관리해줍니다.
+로컬에서 DB 클라이언트(HeidiSQL 등)나 SSH 클라이언트(Termius 등)로 접속하려면
+**AWS SSM Session Manager 포트포워딩 터널**을 사용합니다. 이 스크립트가 그 터널들을
+백그라운드로 관리해줍니다.
 
 ```bash
-./scripts/db-tunnel.sh start    # 작업 시작할 때 한 번 (MySQL·Redis·SSH·노드SSH·Dashboard 터널 동시)
+./scripts/db-tunnel.sh start    # 작업 시작할 때 한 번 (MySQL·Redis·SSH·노드SSH 터널 동시)
 ./scripts/db-tunnel.sh status   # 터널 상태 확인
-./scripts/db-tunnel.sh token    # 대시보드 로그인 토큰을 클립보드에 다시 복사
 ./scripts/db-tunnel.sh stop     # 끝나면 정리 (안 해도 무방)
 ```
 
 `start` 후에는 터미널을 닫아도 터널이 유지됩니다. 이미 같은 로컬 포트가 열려
 있으면(수동 port-forward 등) 이중 기동하지 않고 "외부 프로세스"로 인식합니다.
-대시보드는 kubectl 컨텍스트가 없으면 그 항목만 건너뛰고 나머지 터널은 정상 기동됩니다.
 
 ### 접속 정보 (터널 열린 상태 기준)
 
@@ -31,7 +29,6 @@ kubectl port-forward)을 사용합니다. 이 스크립트가 그 터널들을 �
 | RedisInsight / redis-cli | `127.0.0.1:6379` | — | 없음 (클러스터 내부 전용 브로커) |
 | Termius / MobaXterm (SSH, 데이터 EC2) | `127.0.0.1:2222` | `ec2-user` | **pem 키** (비밀번호 비움) |
 | Termius / MobaXterm (SSH, EKS app 노드) | `127.0.0.1:2223` | `ec2-user` | **pem 키** `VictoryFairy.pem` (비밀번호 비움) |
-| 브라우저 (Kubernetes Dashboard) | `https://127.0.0.1:8443` | `admin-user` | 토큰 (`start` 시 클립보드에 자동 복사, 필요하면 `token` 재실행) |
 
 - HeidiSQL: 네트워크 유형 **MariaDB or MySQL (TCP/IP)**, "SSH 터널" 탭은 사용하지
   않음(터널은 스크립트가 이미 열어줌).
@@ -116,32 +113,17 @@ kubectl get nodes
 - 노드 SSH(위 db-tunnel.sh 절의 2223)는 예외적인 저수준 디버깅용이고, 평소
   파드/노드 확인은 `kubectl get/describe/logs/exec`로 충분합니다.
 
-## Kubernetes Dashboard (학습용 웹 UI)
+## Kubernetes Dashboard — 제거됨 (2026-08-07)
 
-`k8s/90-kubernetes-dashboard.yaml` + `k8s/91-dashboard-admin-user.yaml` 로 배포되는
-쿠버네티스 학습용 대시보드입니다. **외부 노출 없음**(ClusterIP만, 접근은 로컬
-port-forward로 한정) — ALB/NodePort로 열지 마세요.
+학습용으로 두었던 Kubernetes Dashboard(`k8s/90-*`·`k8s/91-*`)를 미사용으로 제거했습니다.
+`91-dashboard-admin-user.yaml` 의 `admin-user` 가 **cluster-admin** 을 들고 있었으므로
+그 권한도 함께 사라졌습니다.
 
-배포 후 접근은 `db-tunnel.sh`가 자동화합니다: `start` → 브라우저에서
-`https://localhost:8443` 접속(자체서명 인증서 경고 무시) → 로그인 화면에서
-Ctrl+V(토큰은 이미 클립보드에 복사돼 있음). 토큰 값은 고정이라 재발급 없이
-`token` 서브커맨드로 언제든 다시 복사할 수 있습니다.
+리소스 확인은 `kubectl get/describe/logs/top` 으로 합니다. 다시 들일 일이 생기면
+`admin-user` 를 cluster-admin 그대로 복원하지 말고 필요한 범위로 좁혀서 넣으세요.
 
-```bash
-kubectl apply -f k8s/90-kubernetes-dashboard.yaml -f k8s/91-dashboard-admin-user.yaml
-```
-
-<details>
-<summary>참고: 스크립트 없이 수동으로 접속하는 방법</summary>
-
-```bash
-kubectl -n kubernetes-dashboard port-forward svc/kubernetes-dashboard 8443:443
-# 브라우저: https://localhost:8443  (자체서명 인증서 경고는 무시)
-
-kubectl -n kubernetes-dashboard get secret admin-user-token \
-  -o jsonpath='{.data.token}' | base64 -d   # 로그인 토큰
-```
-</details>
+> HPA 가 쓰는 `metrics-server`(kube-system)는 대시보드의 `dashboard-metrics-scraper` 와
+> 별개라 이 제거에 영향받지 않습니다.
 
 ⚠ `admin-user`는 **cluster-admin 전권**을 가진 학습용 계정입니다. `victoryfairy-dev`
 클러스터 한정으로만 쓰고, 운영 전환 전 반드시 제거하세요.

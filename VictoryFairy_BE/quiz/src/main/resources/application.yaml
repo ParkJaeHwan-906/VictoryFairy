@@ -36,23 +36,23 @@ server:
   port: 8081
   servlet:
     # 이 앱의 모든 경로에 붙는 외부 접두사. 컨트롤러는 자기 자원 이름만 갖는다
-    # (@RequestMapping("/chat") → 외부 /api/game/chat/**).
+    # (@RequestMapping("/chat") → 외부 /rt/chat/**).
     #
     # ⚠ 서블릿 컨테이너가 필터 체인 '이전에' 이 접두사를 떼므로:
     #   - SecurityConfig 의 requestMatchers 는 접두사를 뺀 경로를 쓴다.
     #   - MockMvc 는 context-path 를 적용하지 않으므로 슬라이스 테스트도 /chat/** 로 요청한다.
     # ⚠ ALB 는 forward 시 경로 rewrite 를 못 하므로 k8s/22-ingress.yaml 의 path 와
     #   이 값이 문자 그대로 일치해야 한다.
-    context-path: /api/game
+    context-path: /rt
 
 # ALB 타깃 그룹 헬스체크용. health 만 노출한다(그 외 액추에이터 엔드포인트는 닫힘).
 #
 # ⚠ ALB 는 /actuator/health 가 아니라 '/actuator/health/readiness' 를 본다
-#   (k8s/22-ingress.yaml 의 healthcheck-path = /api/game/actuator/health/readiness).
+#   (k8s/22-ingress.yaml 의 healthcheck-path = /rt/actuator/health/readiness).
 #   전체 health 는 db 인디케이터까지 합산해 DOWN 을 내므로, MySQL EC2 가 잠깐 흔들리면
 #   살아있는 파드까지 타깃에서 빠져 전면 503 이 된다. readiness 그룹은 기본적으로
 #   readinessState 만 보므로 그런 연쇄를 만들지 않는다.
-# ⚠ context-path(/api/game) 아래로 들어가므로 외부 경로에는 접두사가 붙는다.
+# ⚠ context-path(/rt) 아래로 들어가므로 외부 경로에는 접두사가 붙는다.
 management:
   endpoints:
     web:
@@ -66,3 +66,19 @@ management:
 jwt:
   # 토큰 검증만 수행. user와 반드시 동일한 secret이어야 검증됨 (.env의 JWT_SECRET 공유)
   secret: ${JWT_SECRET:local-dev-secret-please-change-this-to-a-32byte-plus-random-value}
+
+# S3 quiz-candidates → RDB 적재 (QuizIngestScheduler·QuizCandidateReader)
+quiz:
+  ingest:
+    # 생성 루틴이 쓰는 버킷과 같은 곳(읽기 전용). crawl-dev 가 크롤 파이프라인의 '운영' 버킷이다
+    # — crawl-local 은 테스트용(퀴즈 실데이터 아님). 이름의 dev 에 속지 말 것.
+    bucket: ${QUIZ_S3_BUCKET:victoryfairy-crawl-dev}
+    region: ${QUIZ_S3_REGION:ap-northeast-2}
+    # 매일 10:30 KST — 생성 루틴(08:50 시작·상한 60분)이 끝난 뒤 30분 여유. 기동 시 1회 적재
+    # (on-startup, 기본 on)가 이 시각의 사각(그 이후 재시작한 파드)을 메운다. 둘 다 멱등.
+    cron: ${QUIZ_INGEST_CRON:0 30 10 * * *}
+    on-startup: ${QUIZ_INGEST_ON_STARTUP:true}
+  serve:
+    # 전원 동일 데일리 세트 크기 — 편성 잡(QuizPublishService)이 이 수까지 미편성 풀에서 채운다.
+    # 경기 문항(적재가 바로 날짜를 찍음)이 이미 이 수를 넘는 날은 그대로 두고 보충하지 않는다.
+    daily-count: ${QUIZ_SERVE_DAILY_COUNT:10}

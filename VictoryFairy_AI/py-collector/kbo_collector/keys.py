@@ -22,3 +22,7 @@ def dead_letter_key(job: str, date: str, item_id: str) -> str:
 
 def manifest_key(job: str, date: str, run_id: str) -> str:
     return f"manifests/{job}/{date}/{run_id}.json"
+
+
+def kbo_records_key(page: str, date: str) -> str:
+    return f"kbo-records/{page}/{date}.json"

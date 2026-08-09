@@ -591,10 +591,12 @@ def main(argv=None) -> int:
     date = args.date or (_kst_today() if args.job == "community" else _today())
     run_id = uuid.uuid4().hex[:8]
     if args.job == "collect":
-        from .db import DbSink
         from .sources import base as source_base
         src = source_base.get_source(args.target or "")
-        db = DbSink(settings)
+        db = None
+        if getattr(src, "needs_db", True):
+            from .db import DbSink
+            db = DbSink(settings)
         try:
             with fetch.build_client(settings) as client:
                 ctx = source_base.CollectContext(
@@ -605,19 +607,23 @@ def main(argv=None) -> int:
                     "%s: loaded=%d failed=%d", src.source_id,
                     result.loaded, len(result.failed))
         finally:
-            db.close()
+            if db is not None:
+                db.close()
         return 0
 
     if args.job == "export":
-        from .db import DbSink
         from .exports import exporter
-        db = DbSink(settings)
+        db = None
+        if (args.target or "") not in exporter.DB_FREE:
+            from .db import DbSink
+            db = DbSink(settings)
         try:
             n = exporter.export(args.target or "", settings=settings, db=db,
                                 sink=S3RawSink(settings), date=args.date)
             logging.getLogger("export").info("%s: exported=%d", args.target, n)
         finally:
-            db.close()
+            if db is not None:
+                db.close()
         return 0
 
     if args.job in ("teams", "registrations", "records", "games_sync"):

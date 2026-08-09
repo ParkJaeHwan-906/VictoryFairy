@@ -30,7 +30,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
- * {@code GET /users/me}(외부 노출 경로 {@code /api/member/users/me})를 검증한다.
+ * {@code GET /users/me}(외부 노출 경로 {@code /api/users/me})를 검증한다.
  * 요구사항: {@code docs/requirements/user/me-profile.md}(USER-ME-7 ~ 20).
  *
  * <p>슬라이스 구성은 {@code UserAccountControllerTest}(탈퇴)와 동일한 패턴을 따른다 —

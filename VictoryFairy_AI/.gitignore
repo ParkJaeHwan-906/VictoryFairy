@@ -21,6 +21,9 @@ env/
 # (모듈 사전 analysis/core/data, validation/core/data 는 커밋되어야 하므로 무시하면 안 됨)
 /data/
 
+# --- 로컬 전용: routine 임시 작업물 (wiki-builder/question-gen ROUTINE.md) ---
+.work/
+
 # # --- 로컬 전용: 배치 러너 ---
 # /pipeline/
 

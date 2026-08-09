@@ -6,7 +6,7 @@ import com.skhynix.user.team.dto.TeamResponse;
 import java.util.List;
 
 /**
- * 내 요약 프로필 응답({@code GET /api/member/users/me}). 노출 키는 정확히 이 5개로 닫혀 있다
+ * 내 요약 프로필 응답({@code GET /api/users/me}). 노출 키는 정확히 이 5개로 닫혀 있다
  * ({@code docs/requirements/user/me-profile.md}) — {@link UserAccount} 를 그대로 직렬화하면
  * {@code password}·{@code uid} 가 함께 나간다.
  *
