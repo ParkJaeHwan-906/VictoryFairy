@@ -28,6 +28,18 @@ game_schedule = "cron(0 18 * * ? *)"
 # 버킷 일원화(3번)도 같은 날 끝났다 — 루틴 S3_BUCKET → -dev, 과거분 65건 이관.
 quiz_source_jobs_enabled = true
 
+# --- KBO 취소 사유 잡 게이트 ---
+# 선행 조건 둘이 다 끝난 뒤 true 로 올린다(절차는 quiz_source_jobs_enabled 와 동일):
+#   1. games.cancel_reason 컬럼 — dev_be PR #281 머지 후 user 앱 기동(ddl-auto=update).
+#      컬럼 없이 켜면 UPDATE 가 Unknown column 으로 매일 실패한다.
+#   2. cancel_reasons 잡을 아는 이미지 — dev_ai PR #283 머지 후 ECR 배포.
+#      모르는 job 은 빈 summary 만 내고 끝나 실패로도 안 드러난다.
+# 확인 방법: 아래 페이로드를 수동 호출해 cancelReasons 키가 응답에 오는지 본다.
+#   aws lambda invoke --function-name kbo-collector-db \
+#     --cli-binary-format raw-in-base64-out \
+#     --payload '{"job":"cancel_reasons","months":["2026-08"]}' out.json
+cancel_reasons_enabled = false
+
 # --- DB 적재 잡 (records/registrations) — 2026-07-29 조회값 ---
 # 서브넷/SG는 infra 스택 소유. db_host 는 데이터 EC2 프라이빗 IP —
 # 인스턴스 재생성(프라이빗 복귀 등) 시 여기와 k8s/30-external-data.yaml 둘 다 갱신.
