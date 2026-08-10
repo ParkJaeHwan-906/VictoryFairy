@@ -41,18 +41,15 @@ env:
   PR_AUTHOR: ${{ github.event.pull_request.user.login }}
 
 jobs:
-  # ── 1단계: 충돌 검사 ────────────────────────────────────────────
-  conflict:
-    if: >-
-      github.event.pull_request.draft == false &&
-      !contains(github.event.pull_request.labels.*.name, 'hold')
+  # ── 0단계: 작업이 끝난 Open PR 인지 확인 ────────────────────────
+  # Draft, 제목에 WIP 표시, 보류 라벨, 이미 닫힌 PR 은 여기서 멈춘다.
+  gate:
     runs-on: ubuntu-latest
     outputs:
-      conflicted: ${{ steps.check.outputs.conflicted }}
+      ready: ${{ steps.check.outputs.ready }}
+      reason: ${{ steps.check.outputs.reason }}
     steps:
       - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
 
       - name: Ensure labels exist
         env:
@@ -62,6 +59,29 @@ jobs:
           gh label create claude-reviewed --color 0E8A16 --description "Claude 코드리뷰 통과" --force
           gh label create no-auto-merge   --color FBCA04 --description "자동 머지 제외" --force
           gh label create hold            --color 5319E7 --description "자동화 일시 중지" --force
+          gh label create wip             --color FEF2C0 --description "작업 중 — 자동화 제외" --force
+
+      - name: Check PR readiness
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash .github/scripts/pr-ready.sh "$PR_NUMBER" "${{ github.repository }}"
+
+      - name: Report skip
+        if: steps.check.outputs.ready != 'true'
+        run: echo "::notice::자동화를 진행하지 않습니다 — ${{ steps.check.outputs.reason }}"
+
+  # ── 1단계: 충돌 검사 ────────────────────────────────────────────
+  conflict:
+    needs: gate
+    if: needs.gate.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      conflicted: ${{ steps.check.outputs.conflicted }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Detect merge conflicts
         id: check
@@ -149,7 +169,7 @@ jobs:
 
   # ── 2단계: Claude 코드리뷰 + 승인/변경요청 ──────────────────────
   review:
-    needs: conflict
+    needs: [gate, conflict]
     if: needs.conflict.outputs.conflicted == 'false'
     runs-on: ubuntu-latest
     outputs:
@@ -232,7 +252,8 @@ jobs:
       - name: Submit review
         id: submit
         env:
-          GH_TOKEN: ${{ secrets.AUTOMATION_TOKEN || secrets.GITHUB_TOKEN }}
+          PAT: ${{ secrets.AUTOMATION_TOKEN }}
+          BOT: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -249,33 +270,56 @@ jobs:
           esac
           echo "verdict=${verdict}" >>"$GITHUB_OUTPUT"
 
+          review_as() { # $1=토큰 $2=리뷰 플래그
+            GH_TOKEN="$1" gh pr review "$PR_NUMBER" --repo "$REPO" "$2" --body-file review-body.md
+          }
+
+          # 토큰마다 막히는 지점이 다르다.
+          #   PAT(사람 신원)  : 자기가 만든 PR 에는 승인도 변경요청도 불가
+          #   GITHUB_TOKEN(봇): 승인만 플랫폼 차원에서 금지, 변경요청·코멘트는 가능
+          # 그래서 PAT 을 먼저 쓰고, 실패하면 봇으로 넘긴다.
           if [ "$verdict" = "request-changes" ]; then
-            gh pr review "$PR_NUMBER" --repo "$REPO" --request-changes --body-file review-body.md
-            gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label claude-reviewed 2>/dev/null || true
+            review_as "$PAT" --request-changes 2>err.txt \
+              || review_as "$BOT" --request-changes 2>>err.txt \
+              || { cat err.txt; echo "::error::변경요청 제출 실패"; exit 1; }
+            GH_TOKEN="$BOT" gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label claude-reviewed 2>/dev/null || true
             echo "변경요청 제출"
             exit 0
           fi
 
-          if gh pr review "$PR_NUMBER" --repo "$REPO" --approve --body-file review-body.md 2>submit-err.txt; then
+          # 승인은 PAT 으로만 가능하다. PAT 이 작성자 본인이면 어떤 토큰으로도 승인할 수 없어
+          # 코멘트 리뷰로 대체한다. 이 경우 머지 판단 근거는 이 잡의 verdict 출력이다.
+          if review_as "$PAT" --approve 2>err.txt; then
             echo "승인 제출"
           else
-            cat submit-err.txt
-            echo "::warning::승인 제출 실패(작성자 본인 승인 제약 등) — 코멘트 리뷰로 대체합니다."
-            gh pr review "$PR_NUMBER" --repo "$REPO" --comment --body-file review-body.md
+            cat err.txt
+            echo "::warning::승인 상태를 남길 수 없어 코멘트 리뷰로 대체합니다 (작성자 본인 승인 제약)."
+            review_as "$BOT" --comment
           fi
-          gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label claude-reviewed
+          GH_TOKEN="$BOT" gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label claude-reviewed
 
   # ── 3단계: 승인됐고 다른 체크가 통과했으면 머지 ─────────────────
   merge:
-    needs: [conflict, review]
+    needs: [gate, conflict, review]
     if: >-
       needs.conflict.outputs.conflicted == 'false' &&
       needs.review.outputs.verdict == 'approve'
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v5
+
+      # 리뷰가 도는 몇 분 사이에 draft 로 되돌리거나 PR 을 닫았을 수 있다.
+      # 진입 시점 판정을 믿지 않고 머지 직전에 다시 확인한다.
+      - name: Re-check PR readiness
+        id: ready
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash .github/scripts/pr-ready.sh "$PR_NUMBER" "${{ github.repository }}"
+
       # GITHUB_TOKEN 은 CODEOWNERS 승인 요건을 만족시키지 못해 머지가 거부된다.
       # 룰셋을 우회할 수 있는 관리자 PAT 으로 머지한다. 없으면 승인 상태로만 남긴다.
       - name: Merge when approved
+        if: steps.ready.outputs.ready == 'true'
         env:
           GH_TOKEN: ${{ secrets.AUTOMATION_TOKEN || secrets.GITHUB_TOKEN }}
           HAS_PAT: ${{ secrets.AUTOMATION_TOKEN != '' }}
@@ -283,14 +327,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          # 라벨은 이벤트 페이로드가 아니라 지금 시점 값을 읽는다. 페이로드의 라벨 목록은
-          # PR 이벤트 발생 시각에 고정돼, 실행 도중에 붙인 hold 가 반영되지 않는다.
+          # no-auto-merge 는 리뷰까지는 돌리고 머지만 막는 라벨이라 gate 가 아니라 여기서 본다.
           labels=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json labels --jq '[.labels[].name] | join(" ")')
-          for l in hold no-auto-merge; do
-            case " ${labels} " in
-              *" ${l} "*) echo "라벨 '${l}' 이 붙어 있어 머지하지 않음"; exit 0 ;;
-            esac
-          done
+          case " ${labels} " in
+            *" no-auto-merge "*) echo "라벨 'no-auto-merge' — 머지하지 않음"; exit 0 ;;
+          esac
 
           # 사람이 남긴 변경요청이 아직 살아 있으면 머지하지 않는다.
           # latestReviews 는 리뷰어별 최신 리뷰만 담아, 이후 커밋에서 해소된 과거 리뷰에 발목잡히지 않는다.
