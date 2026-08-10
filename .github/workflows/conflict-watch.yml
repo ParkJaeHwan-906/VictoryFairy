@@ -1,0 +1,45 @@
+name: Conflict Watch
+
+# 충돌 PR 을 주기적으로 찾아내 이슈로 남긴다.
+#
+# 왜 별도 워크플로가 필요한가:
+# PR 에 충돌이 있으면 GitHub 은 merge ref 를 만들지 못하고 pull_request 워크플로를
+# 아예 시작하지 않는다. 그래서 pr-guard.yml 의 충돌 검사는 정작 충돌한 PR 에 도달하지
+# 못하고, 자동화는 이슈도 남기지 못한 채 조용히 멈춘다. 이 워크플로는 PR 이벤트와
+# 무관하게 돌아 그 상태를 드러낸다.
+#
+# schedule 은 기본 브랜치(main)의 정의만 실행된다. 이 파일은 main 에 있어야 동작한다.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  # dev_* 나 main 이 갱신되면 열린 PR 의 머지 가능 여부가 바뀐다. 15분을 기다리지 않고 바로 확인한다.
+  push:
+    branches:
+      - main
+      - dev_*
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: conflict-watch
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Scan open PRs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash .github/scripts/conflict-watch.sh
