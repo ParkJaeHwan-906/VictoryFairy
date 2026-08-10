@@ -24,6 +24,18 @@ git config user.email "actions@github.com"
 git config user.name "github-actions"
 
 git fetch --no-tags --quiet origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+
+# 머지를 시험하려면 작업 트리를 base 로 옮겨야 하는데, 그대로 두면 이후 스텝이
+# 저장소 파일을 찾지 못한다. base 브랜치에는 아직 없는 스크립트를 다음 스텝이
+# 호출하는 경우가 실제로 있었다. 어떤 경로로 끝나든 원래 위치로 되돌린다.
+# 리포트·counterparts.txt 는 추적되지 않는 파일이라 체크아웃에 지워지지 않는다.
+ORIG_HEAD_REF=$(git rev-parse HEAD)
+restore_tree() {
+  git merge --abort 2>/dev/null || true
+  git checkout --quiet --force --detach "$ORIG_HEAD_REF" 2>/dev/null || true
+}
+trap restore_tree EXIT
+
 git checkout --quiet --detach "origin/${BASE_REF}"
 
 if git merge --no-commit --no-ff "$HEAD_SHA" >/dev/null 2>&1; then
