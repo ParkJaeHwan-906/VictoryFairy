@@ -11,12 +11,20 @@
 #
 # 다중 파드 팬아웃: 실시간 SSE는 파드가 여러 개면 서비스 Redis pub/sub 로 파드 간 이벤트를
 #   팬아웃한다(ARCHITECTURE §3). 그래서 세션 어피니티 없이도 수평 확장 안전.
+#
+# 배포 방식(이 파일이 단일 진실 공급원):
+#   CI(deploy-eks.yml)가 아래 image 라인의 <ACCOUNT_ID>/<commit-sha> 플레이스홀더를 실제 값으로
+#   치환한 뒤 `kubectl apply -f` 로 이 파일 전체를 적용한다. 더 이상 `kubectl set image` 로
+#   이미지만 바꾸지 않는다 — SA/프로브/리소스 등 여기 적은 모든 필드가 매 배포마다 반영된다.
+#   ⚠ 그래서 이 파일을 그대로(치환 없이) 손으로 apply 하면 안 된다. 플레이스홀더 문자열이
+#     이미지 태그로 들어가 파드가 ImagePullBackOff 로 죽는다. 변경은 커밋 → CI 로만.
+#   ⚠ 플레이스홀더 문자열 형식은 CI 치환 규칙과 짝이다. 형식을 바꾸려면 CI 도 같이 고쳐야 한다.
 ---
 # IRSA: 이 역할이 S3 크롤 버킷의 quiz-candidates/* 읽기 권한을 준다 — 퀴즈 적재기(BE :quiz)가
 #   매일 후보 JSON 을 RDB 로 옮긴다. 역할 정의는 modules/quiz-irsa,
 #   ARN = terraform output quiz_app_role_arn (이름 기반이라 값이 고정됨 — external-dns 와 동일 방식).
-# ⚠ 토큰 주입은 파드 '생성' 시점이다 — 기존 파드에는 적용되지 않으니 SA 를 새로 붙였다면
-#   kubectl rollout restart deployment/quiz-app -n victoryfairy 로 파드를 재생성해야 한다.
+# 토큰 주입은 파드 '생성' 시점이라 기존 파드에는 적용되지 않지만, 배포마다 apply + 새 이미지 태그로
+#   파드가 새로 뜨므로 rollout restart 같은 수동 절차는 필요 없다.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -35,7 +43,10 @@ metadata:
   labels:
     app: quiz-app
 spec:
-  replicas: 1                 # HPA minReplicas와 정합(기본 1)
+  # replicas 는 의도적으로 없다(지운 게 아니다 — 되돌리지 말 것).
+  #   레플리카 수의 소유권은 하단 HPA(min1/max4)에 있다. CI 가 매 배포마다 이 파일을 apply 하므로
+  #   replicas 를 여기 두면 HPA 가 3으로 올려둔 것을 배포가 1로 되돌리고 HPA 가 다시 올리는 싸움이 난다.
+  #   생략 시 최초 생성만 기본값 1로 뜨고, 이후 스케일은 HPA 가 결정한다.
   # 블루-그린식 업데이트: 신버전 파드 '전체'를 먼저 띄우고(maxSurge 100%),
   # 구버전은 신버전이 Ready 될 때까지 하나도 내리지 않는다(maxUnavailable 0).
   # readiness 프로브 통과 → 트래픽 전환 → 구버전 종료. 실패 시 구버전이 그대로 서비스.
@@ -60,7 +71,8 @@ spec:
       containers:
         - name: quiz
           # ⚠ 불변 태그(커밋 SHA). latest 금지.
-          # TODO: <ACCOUNT_ID>.dkr.ecr.ap-northeast-2.amazonaws.com/victoryfairy-quiz 로 교체
+          # 아래 두 플레이스홀더는 CI 가 apply 직전에 치환한다(계정 ID / 빌드한 커밋 SHA).
+          # 커밋된 상태 그대로가 정상 — 손으로 실제 값을 박아 넣지 말 것.
           image: "<ACCOUNT_ID>.dkr.ecr.ap-northeast-2.amazonaws.com/victoryfairy-quiz:<commit-sha>"
           imagePullPolicy: IfNotPresent
           ports:
