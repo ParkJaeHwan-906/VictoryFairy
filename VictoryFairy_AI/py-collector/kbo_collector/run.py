@@ -591,11 +591,15 @@ def _cancel_reason_months(date_str: str) -> list[str]:
 
 
 def job_cancel_reasons(settings, db, date=None, months=None) -> int:
-    """KBO 공식 일정표의 취소 사유를 games.cancel_reason 에 반영, 갱신 행 수 반환.
+    """KBO 공식 일정표의 취소 사유를 games.cancel_reason 에 반영, **바뀐** 행 수 반환.
 
     네이버에는 사유가 없어서(취소를 "경기취소" 로만 준다) 이 잡만 KBO 를 긁는다.
     games_sync 에 얹지 않고 따로 둔 이유는 KBO 응답이 월 단위이기 때문 — 날짜
     루프에 넣으면 같은 달을 날짜 수만큼 반복해서 받게 된다.
+
+    반환값은 "새로 채우거나 사유가 달라진 행"이다. 이미 같은 사유가 적힌 행은 세지
+    않으므로 **평상시 재실행은 0 이 정상**이고, 0 이 아니면 그날 새로 취소된 경기가
+    있었다는 뜻이다. 매일 같은 수가 찍히면 멱등성이 깨진 신호로 읽으면 된다.
     """
     log = logging.getLogger("cancel_reasons")
     months = months or _cancel_reason_months(date or _kst_today())
@@ -618,7 +622,7 @@ def job_cancel_reasons(settings, db, date=None, months=None) -> int:
                     continue
                 updated += db.set_cancel_reason(
                     date=r["date"], home_team_id=home, away_team_id=away, reason=r["note"])
-            log.info("%s: cancelled=%d updated=%d", ym, len(cancelled), updated)
+            log.info("%s: cancelled=%d changed=%d", ym, len(cancelled), updated)
             total += updated
     return total
 
