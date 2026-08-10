@@ -40,6 +40,10 @@ if [ "$ACTION" = "close" ]; then
   if [ -n "$num" ]; then
     gh issue close "$num" --repo "$REPO" \
       --comment "PR #${PR} 의 충돌이 해소되어 자동으로 닫습니다."
+    # 호출자가 "방금 해소됐다" 를 구분할 수 있도록 표시한다.
+    # 충돌이 풀려도 base 갱신만으로는 pull_request 이벤트가 발생하지 않아
+    # 재검사를 따로 걸어야 하는데, 매번 거는 대신 이 전이 시점에만 건다.
+    echo "CLOSED_ISSUE=${num}"
     echo "이슈 #${num} 닫음"
   fi
   exit 0
