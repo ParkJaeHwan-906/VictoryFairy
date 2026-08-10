@@ -15,6 +15,7 @@ class FakeCursor:
 
     def __init__(self, conn):
         self.conn = conn
+        self.rowcount = 0
 
     def __enter__(self):
         return self
@@ -29,6 +30,8 @@ class FakeCursor:
         else:
             self._rows = []
             self.conn.last_id += 1
+            # UPDATE 갱신 행 수를 읽는 호출자(set_cancel_reason)용. 큐가 비면 1건 갱신.
+            self.rowcount = self.conn.rowcounts.pop(0) if self.conn.rowcounts else 1
 
     def executemany(self, sql, rows):
         self.conn.log.append(("executemany", sql, rows))
@@ -45,10 +48,11 @@ class FakeCursor:
 
 
 class FakeConn:
-    def __init__(self, fetch_results=None):
+    def __init__(self, fetch_results=None, rowcounts=None):
         self.log = []
         self.commits = 0
         self.fetch_results = list(fetch_results or [])
+        self.rowcounts = list(rowcounts or [])
         self.last_id = 100  # INSERT 마다 1씩 증가
 
     def cursor(self):
@@ -393,6 +397,36 @@ def test_sync_game_upserts_and_commits():
     assert params == ("20260708LGSS02026", "2026-07-08 18:30:00", 3, 2, None, 5, 3, 7)
     assert pk == 101
     assert conn.commits == 1
+
+
+def test_cancel_reason_update_uses_half_open_day_interval_not_equality():
+    from kbo_collector.db import CANCEL_REASON_UPDATE
+    # games.game_date 는 시각을 포함하는 DATETIME 이라 등치 비교는 항상 0건이고
+    # BETWEEN 은 상한 포함이라 자정 경계가 어긋난다(domain 규약).
+    assert "game_date >= %s AND game_date < DATE_ADD(%s, INTERVAL 1 DAY)" in CANCEL_REASON_UPDATE
+    assert "game_date = %s" not in CANCEL_REASON_UPDATE
+    assert "BETWEEN" not in CANCEL_REASON_UPDATE.upper()
+
+
+def test_set_cancel_reason_matches_by_date_and_matchup_and_returns_affected():
+    from kbo_collector.db import CANCEL_REASON_UPDATE
+    conn = FakeConn(rowcounts=[1])
+    affected = DbSink(None, connection=conn).set_cancel_reason(
+        date="2026-08-09", home_team_id=3, away_team_id=7, reason="폭염취소")
+    kind, sql, params = conn.log[0]
+    assert kind == "execute" and sql == CANCEL_REASON_UPDATE
+    # 날짜가 두 번 들어간다 — 하한과 DATE_ADD 상한에 같은 값을 쓴다
+    assert params == ("폭염취소", "2026-08-09", "2026-08-09", 3, 7)
+    assert affected == 1
+    assert conn.commits == 1
+
+
+def test_set_cancel_reason_zero_affected_is_not_an_error():
+    # games_sync 가 아직 그 날짜를 적재하지 않았으면 매칭될 행이 없다 — 정상이다.
+    conn = FakeConn(rowcounts=[0])
+    affected = DbSink(None, connection=conn).set_cancel_reason(
+        date="2026-09-01", home_team_id=1, away_team_id=2, reason="우천취소")
+    assert affected == 0
 
 
 def test_sync_game_binds_stadium_when_given():

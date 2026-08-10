@@ -277,6 +277,45 @@ def test_handler_games_sync_defaults_to_kst_today_not_utc(monkeypatch, settings)
     assert db.closed
 
 
+def test_handler_cancel_reasons_job_uses_db_function_and_kst_today(monkeypatch, settings):
+    # 취소 사유는 KBO 일정표에만 있고 games 를 갱신하므로 -db 함수 경로다.
+    # "이번 달"을 골라야 해 날짜 앵커는 game 잡(UTC)이 아니라 KST 다.
+    db = _isolate_db(monkeypatch, settings)
+    monkeypatch.setattr(handler, "_kst_today", lambda: "2026-08-10")
+    monkeypatch.setattr(handler, "_today", _boom("_today"))
+    captured = {}
+
+    def fake_job(s, d, date=None, months=None):
+        captured["settings"], captured["db"] = s, d
+        captured["date"], captured["months"] = date, months
+        return 5
+
+    monkeypatch.setattr(handler.run, "job_cancel_reasons", fake_job)
+    monkeypatch.setattr(handler.run, "job_games_sync_range", _boom("job_games_sync_range"))
+    out = handler.handler({"job": "cancel_reasons"}, None)
+
+    assert captured["settings"] is settings and captured["db"] is db
+    assert captured["date"] == "2026-08-10"
+    assert captured["months"] is None
+    assert out["cancelReasons"] == 5
+    assert db.closed
+
+
+def test_handler_cancel_reasons_months_backfill_is_passed_through(monkeypatch, settings):
+    db = _isolate_db(monkeypatch, settings)
+    captured = {}
+
+    def fake_job(s, d, date=None, months=None):
+        captured["months"] = months
+        return 0
+
+    monkeypatch.setattr(handler.run, "job_cancel_reasons", fake_job)
+    handler.handler({"job": "cancel_reasons", "months": ["2026-07", "2026-08"]}, None)
+
+    assert captured["months"] == ["2026-07", "2026-08"]
+    assert db.closed
+
+
 def test_handler_games_sync_days_opens_forward_window(monkeypatch, settings):
     # 일정 선적재 룰: {"days": 7} 이면 오늘~+7일. 상태 추적(당일)과 같은 잡을
     # 다른 구간으로 부르는 것이 이 기능의 전부다.
