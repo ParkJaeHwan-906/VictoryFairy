@@ -185,6 +185,20 @@ variable "games_sync_live_schedule" {
   default     = "cron(0/10 8-14 * * ? *)"
 }
 
+# 켜기 전 선행 조건 둘은 lambda_db.tf 의 cancel_reasons 블록 주석 참고
+# (games.cancel_reason 컬럼 + 해당 잡을 아는 배포 이미지).
+variable "cancel_reasons_enabled" {
+  description = "KBO 취소 사유 잡의 EventBridge 룰 생성 여부. 선행 조건 둘을 확인한 뒤 true 로 올린다."
+  type        = bool
+  default     = false
+}
+
+variable "cancel_reasons_schedule" {
+  description = "KBO 일정표 취소 사유 반영. 기본 01:00 KST = 16:00 UTC (00:30 games_sync 가 경기 행을 만든 뒤)."
+  type        = string
+  default     = "cron(0 16 * * ? *)"
+}
+
 variable "export_game_result_schedule" {
   description = "game_result envelope -> S3 question-source/. 기본 04:00 KST = 19:00 UTC (records 03:30 이후)."
   type        = string

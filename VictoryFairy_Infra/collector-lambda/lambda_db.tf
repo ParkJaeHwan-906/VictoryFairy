@@ -202,6 +202,49 @@ resource "aws_lambda_permission" "games_sync" {
   source_arn    = each.value.arn
 }
 
+# --- cancel_reasons: KBO 일정표 취소 사유 -> games.cancel_reason (매일 01:00 KST) ---
+#
+# games_sync 가 상태(CANCELED)까지만 알려주는 걸 보완한다 — 네이버는 취소를
+# "경기취소" 로만 주고 사유가 없어서, 이 잡만 KBO 공식 일정표를 긁는다.
+#
+# 시각이 01:00 KST 인 이유: 00:30 의 games_sync(일정 선적재)가 그날 경기 행을
+# 만들어 둔 뒤라야 UPDATE 가 걸릴 행이 있다. 그 전에 돌면 갱신 0건으로 헛돈다.
+#
+# ⚠ cancel_reasons_enabled 기본값이 false 인 이유는 선행 조건이 둘이기 때문이다:
+#   1. games.cancel_reason 컬럼 (dev_be) — 없으면 UPDATE 가 Unknown column 으로
+#      실패한다. 컬럼은 user 앱의 ddl-auto=update 가 기동 시 만든다.
+#   2. 배포 이미지의 handler.py 가 cancel_reasons 잡을 알아야 한다 (dev_ai).
+#      모르는 job 은 예외 없이 빈 summary 만 내고 끝나 실패로도 안 드러난다.
+# 둘 다 확인한 뒤 tfvars 에서 true 로 올린다 — quiz_source_jobs_enabled 와 같은 절차.
+locals {
+  cancel_reasons_enabled = local.db_enabled && var.cancel_reasons_enabled
+}
+
+resource "aws_cloudwatch_event_rule" "cancel_reasons" {
+  count               = local.cancel_reasons_enabled ? 1 : 0
+  name                = "${var.name}-cancel-reasons"
+  description         = "KBO 일정표 취소 사유 -> prod MySQL games.cancel_reason (01:00 KST)"
+  schedule_expression = var.cancel_reasons_schedule
+  tags                = var.tags
+}
+
+resource "aws_cloudwatch_event_target" "cancel_reasons" {
+  count = local.cancel_reasons_enabled ? 1 : 0
+  rule  = aws_cloudwatch_event_rule.cancel_reasons[0].name
+  arn   = aws_lambda_function.db[0].arn
+  # months 를 주지 않으면 잡이 KST 오늘 기준으로 고른다(그 달 + 사흘 전의 달).
+  input = jsonencode({ job = "cancel_reasons" })
+}
+
+resource "aws_lambda_permission" "cancel_reasons" {
+  count         = local.cancel_reasons_enabled ? 1 : 0
+  statement_id  = "AllowEventBridgeCancelReasons"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.db[0].function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.cancel_reasons[0].arn
+}
+
 # --- export(game_result): games/game_lineups -> S3 question-source/ (매일 04:00 KST) ---
 #
 # records(03:30) 가 그날 경기를 적재한 뒤라야 의미가 있어 그 다음에 둔다. S3 에 쓰는
