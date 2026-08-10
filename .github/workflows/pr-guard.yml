@@ -198,9 +198,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash .github/scripts/pr-ready.sh "$PR_NUMBER" "${{ github.repository }}"
 
-      # 에이전트에는 읽기 권한만 준다.
+      # 에이전트에는 저장소 읽기와 파일 쓰기만 준다. GitHub 을 바꾸는 권한은 주지 않는다.
       # 리뷰 제출은 다음 스텝이 별도 토큰으로 수행한다. 에이전트에게 승인·머지 권한이 있는 토큰을
       # 쥐여주면 PR 본문이나 코드에 심긴 프롬프트 인젝션이 그대로 머지 권한으로 이어진다.
+      # Write 는 경로를 좁히지 않았지만 러너 워크스페이스는 일회용이고, 다음 스텝은
+      # review-verdict.txt / review-body.md 두 파일만 읽는다.
       - uses: anthropics/claude-code-action@v1
         if: steps.ready.outputs.ready == 'true'
         env:
@@ -316,6 +318,20 @@ jobs:
           fi
           GH_TOKEN="$BOT" gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label claude-reviewed
 
+          # 이전 실행이 봇 신원으로 남긴 변경요청은 새 커밋을 푸시해도 자동으로 걷히지 않는다.
+          # 브랜치 보호의 "오래된 리뷰 무효화" 는 승인에만 적용되기 때문이다. 그대로 두면
+          # 재검토 후 승인이 나도 reviewDecision 이 CHANGES_REQUESTED 로 남아 영원히 막힌다.
+          # 사람이 남긴 리뷰는 절대 건드리지 않는다. 자동화 자신의 것만 걷어낸다.
+          GH_TOKEN="$PAT" gh api "repos/${REPO}/pulls/${PR_NUMBER}/reviews" --paginate \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and .state == "CHANGES_REQUESTED") | .id' \
+            | while read -r rid; do
+                [ -z "$rid" ] && continue
+                GH_TOKEN="$PAT" gh api -X PUT \
+                  "repos/${REPO}/pulls/${PR_NUMBER}/reviews/${rid}/dismissals" \
+                  -f message="자동화가 재검토 후 승인했습니다." -f event=DISMISS >/dev/null \
+                  && echo "이전 변경요청 리뷰 ${rid} 해제"
+              done
+
   # ── 3단계: 승인됐고 다른 체크가 통과했으면 머지 ─────────────────
   merge:
     needs: [gate, conflict, review]
@@ -360,17 +376,45 @@ jobs:
             exit 0
           fi
 
+          # 판정 파일만으로 머지하지 않는다. GitHub API 상 실제 APPROVED 리뷰가 있어야 한다.
+          # 이 교차검증이 없으면 에이전트가 review-verdict.txt 에 approve 를 쓰는 것만으로
+          # (인젝션이든 실수든) 보호 브랜치에 머지가 나간다.
+          approved=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json latestReviews \
+            --jq '[.latestReviews[] | select(.state == "APPROVED")] | length')
+          if [ "$approved" -eq 0 ]; then
+            echo "::error::실제 승인 리뷰가 없습니다 — 판정 파일만으로는 머지하지 않습니다."
+            exit 1
+          fi
+
           if [ "$HAS_PAT" != "true" ]; then
             echo "::warning::AUTOMATION_TOKEN 이 없어 자동 머지를 건너뜁니다. 승인 상태까지만 진행했습니다."
             exit 0
           fi
 
-          # 다른 체크가 이미 실패했으면 머지하지 않는다.
-          # --watch 는 쓰지 않는다. 지금 실행 중인 이 잡 자신을 기다리다 교착에 빠진다.
-          failed=$(gh api "repos/${REPO}/commits/${HEAD_SHA}/check-runs" --paginate \
-            --jq '[.check_runs[] | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out")] | length')
+          # --admin 은 필수 승인뿐 아니라 필수 상태 체크 통과까지 함께 우회한다.
+          # GitHub 이 대신 막아주지 않으므로 여기서 직접 기다리고 직접 판정한다.
+          # 아직 queued/in_progress 인 체크를 실패 카운트에만 의존해 무시하면
+          # CI 가 끝나기도 전에 머지가 나간다.
+          # 이 실행 자신의 잡은 제외한다. 아니면 자기를 기다리다 교착에 빠진다.
+          self="/runs/${GITHUB_RUN_ID}/"
+          deadline=$((SECONDS + 900))
+          while :; do
+            runs=$(gh api "repos/${REPO}/commits/${HEAD_SHA}/check-runs" --paginate \
+              --jq ".check_runs[] | select(((.details_url // \"\") | contains(\"${self}\")) | not) | \"\(.status) \(.conclusion // \"-\") \(.name)\"")
+            pending=$(printf '%s\n' "$runs" | grep -cE '^(queued|in_progress)' || true)
+            [ "$pending" -eq 0 ] && break
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::error::다른 체크 ${pending}건이 15분 안에 끝나지 않았습니다 — 머지하지 않음"
+              exit 1
+            fi
+            echo "대기 중인 체크 ${pending}건 — 20초 후 재확인"
+            sleep 20
+          done
+
+          failed=$(printf '%s\n' "$runs" | grep -cE '^completed (failure|cancelled|timed_out)' || true)
           if [ "$failed" -gt 0 ]; then
             echo "::error::실패한 체크 ${failed}개 — 머지하지 않음"
+            printf '%s\n' "$runs" | grep -E '^completed (failure|cancelled|timed_out)'
             exit 1
           fi
 
