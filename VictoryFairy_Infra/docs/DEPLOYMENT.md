@@ -28,7 +28,14 @@
    - `user/**` 변경 → user만, `quiz/**` → quiz만
    - `common/`·`domain/`·Gradle 루트 파일 변경 → **둘 다** 재배포
 2. Docker 빌드 → ECR push (커밋 SHA 태그)
-3. `kubectl set image` → 블루-그린 롤아웃 → 실패 시 **자동 롤백**
+3. 매니페스트(`k8s/20-user-app.yaml`·`21-quiz-app.yaml`)의 이미지 플레이스홀더를 실제 값으로
+   치환 → **치환 검증** → `kubectl apply -f` → 블루-그린 롤아웃 → 배포 실패 시 **자동 롤백**
+   - 매니페스트가 단일 진실 공급원이다. Deployment 뿐 아니라 Service·HPA·ServiceAccount 까지
+     매 배포마다 수렴하므로, 클러스터에만 손으로 넣어둔 설정은 배포 때 되돌아간다.
+   - 치환이 헛돌면(플레이스홀더 형식이 바뀌는 등) apply 이전에 실패시킨다 — 플레이스홀더
+     문자열이 그대로 적용되면 파드가 ImagePullBackOff 로 죽기 때문이다.
+   - 자동 롤백은 `rollout undo` 라 **Deployment 만** 되돌린다. 같은 커밋에서 Service·HPA·SA 를
+     함께 바꿨다면 그 변경은 클러스터에 남으므로 직전 커밋의 매니페스트를 다시 apply 해야 한다.
 
 수동 트리거: GitHub → Actions → "Deploy to EKS" → Run workflow (모듈 선택 가능)
 
