@@ -190,10 +190,19 @@ jobs:
             exit 1
           fi
 
+      # 충돌 검사가 도는 사이에 hold 가 붙거나 draft 로 되돌아갔을 수 있다.
+      # 리뷰는 이 파이프라인에서 가장 비싼 단계라 시작 전에 한 번 더 확인한다.
+      - name: Re-check PR readiness
+        id: ready
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash .github/scripts/pr-ready.sh "$PR_NUMBER" "${{ github.repository }}"
+
       # 에이전트에는 읽기 권한만 준다.
       # 리뷰 제출은 다음 스텝이 별도 토큰으로 수행한다. 에이전트에게 승인·머지 권한이 있는 토큰을
       # 쥐여주면 PR 본문이나 코드에 심긴 프롬프트 인젝션이 그대로 머지 권한으로 이어진다.
       - uses: anthropics/claude-code-action@v1
+        if: steps.ready.outputs.ready == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -251,6 +260,7 @@ jobs:
       # 자기 PR 승인 금지에 걸리므로, 그때는 코멘트 리뷰 + 라벨로 대체한다.
       - name: Submit review
         id: submit
+        if: steps.ready.outputs.ready == 'true'
         env:
           REVIEW: ${{ secrets.REVIEW_TOKEN }}
           PAT: ${{ secrets.AUTOMATION_TOKEN }}
@@ -364,6 +374,19 @@ jobs:
             exit 1
           fi
 
-          gh pr merge "$PR_NUMBER" --repo "$REPO" --squash \
+          # 리뷰가 도는 몇 분 사이에 새 커밋이 푸시될 수 있다. 그 경우 새 실행이 시작되고
+          # 이 실행은 취소 대상이 되지만, 취소가 반영되기 전에 머지 호출이 나가면
+          # 검토받지 않은 커밋이 그대로 들어간다. 리뷰 시점 SHA 를 못 박아 막는다.
+          current=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefOid --jq .headRefOid)
+          if [ "$current" != "$HEAD_SHA" ]; then
+            echo "::warning::리뷰 이후 새 커밋이 푸시됐습니다(${HEAD_SHA:0:7} → ${current:0:7}). 새 실행에 맡기고 머지하지 않습니다."
+            exit 0
+          fi
+
+          # --admin 이 없으면 관리자 PAT 이라도 룰셋을 우회하지 못한다
+          # ("the base branch policy prohibits the merge").
+          # --match-head-commit 은 위 확인과 머지 사이의 빈틈까지 API 차원에서 막는다.
+          gh pr merge "$PR_NUMBER" --repo "$REPO" --squash --admin \
+            --match-head-commit "$HEAD_SHA" \
             --subject "$(gh pr view "$PR_NUMBER" --repo "$REPO" --json title --jq .title) (#${PR_NUMBER})"
-          echo "PR #${PR_NUMBER} squash 머지 완료"
+          echo "PR #${PR_NUMBER} squash 머지 완료 (${HEAD_SHA:0:7})"
