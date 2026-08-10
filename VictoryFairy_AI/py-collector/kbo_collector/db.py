@@ -132,6 +132,16 @@ GAME_SYNC_UPSERT = (
     "  game_status_id=VALUES(game_status_id), updated_at=NOW(6)"
 )
 
+# 취소 사유는 KBO 공식 일정표에만 있어(네이버는 "경기취소"로 뭉뚱그린다) 네이버 자연키
+# naver_game_id 로 행을 못 집는다 — 취소 경기엔 KBO 쪽 gameId 자체가 비어 있다. 그래서
+# (날짜, 대진) 으로 UPDATE 한다. games.game_date 는 시각을 포함하는 DATETIME 이라
+# 등치 비교가 늘 0건이므로 반개구간으로 잡는다(domain 규약).
+CANCEL_REASON_UPDATE = (
+    "UPDATE games SET cancel_reason=%s, updated_at=NOW(6) "
+    "WHERE game_date >= %s AND game_date < DATE_ADD(%s, INTERVAL 1 DAY) "
+    "  AND home_team_id=%s AND away_team_id=%s"
+)
+
 LINEUP_UPSERT = (
     "INSERT INTO game_lineups (game_id, team_id, player_id, bat_order, position_id, "
     " is_starter, decision, created_at, updated_at) "
@@ -329,6 +339,19 @@ class DbSink:
             pk = cur.lastrowid
         self._conn.commit()
         return pk
+
+    def set_cancel_reason(self, *, date, home_team_id, away_team_id, reason) -> int:
+        """(날짜, 대진) 의 games 행에 취소 사유를 기록하고 갱신된 행 수를 반환.
+
+        0 이 정상일 수 있다 — 아직 games_sync 가 그 날짜를 적재하지 않았거나
+        (미래 일정), 애초에 games 에 없는 경기(이벤트전 등)면 매칭될 행이 없다.
+        """
+        with self._conn.cursor() as cur:
+            cur.execute(CANCEL_REASON_UPDATE,
+                        (reason, date, date, home_team_id, away_team_id))
+            affected = cur.rowcount
+        self._conn.commit()
+        return affected
 
     def upsert_lineups(self, game_pk, lineups, player_map, team_ids) -> None:
         """LineupRow 목록 upsert. position(네이버 원문 표기) -> 정식 명칭으로

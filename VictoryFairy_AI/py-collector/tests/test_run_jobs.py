@@ -746,6 +746,104 @@ def test_job_games_sync_range_continues_after_one_bad_date(monkeypatch, settings
     assert "games_sync fail 2026-08-12" in caplog.text
 
 
+class _RecordingCancelDb:
+    def __init__(self, team_ids, affected=1):
+        self.team_ids = team_ids
+        self.calls = []
+        self._affected = affected
+
+    def upsert_teams(self, teams):
+        return self.team_ids
+
+    def set_cancel_reason(self, *, date, home_team_id, away_team_id, reason):
+        self.calls.append((date, home_team_id, away_team_id, reason))
+        return self._affected
+
+
+def _kbo_row(date, away, home, note="-"):
+    return {"date": date, "away_code": away, "home_code": home,
+            "stadium": "잠실", "note": note}
+
+
+def test_cancel_reason_months_is_one_call_mid_month_and_two_at_month_start():
+    # 월말 취소분이 달을 넘겨 빠지지 않게 사흘 여유를 둔다 — 그 대가는 월초 3일의 1회 추가 호출뿐.
+    assert run._cancel_reason_months("2026-08-15") == ["2026-08"]
+    assert run._cancel_reason_months("2026-08-02") == ["2026-07", "2026-08"]
+
+
+def test_job_cancel_reasons_updates_only_cancelled_rows(monkeypatch, settings):
+    import contextlib
+    monkeypatch.setattr(run.fetch, "build_client",
+                        lambda settings: contextlib.nullcontext(object()))
+    monkeypatch.setattr(run.kbo_schedule, "fetch_month", lambda season, month, **k: [
+        _kbo_row("2026-08-09", "HT", "LG"),                      # 정상 편성
+        _kbo_row("2026-08-09", "LT", "KT", note="폭염취소"),
+        _kbo_row("2026-08-09", "WO", "HH", note="우천취소"),
+    ])
+    db = _RecordingCancelDb(team_ids={"HT": 7, "LG": 3, "LT": 9, "KT": 4, "WO": 5, "HH": 6})
+
+    total = run.job_cancel_reasons(settings, db, date="2026-08-15")
+
+    assert db.calls == [
+        ("2026-08-09", 4, 9, "폭염취소"),   # home=KT(4), away=LT(9)
+        ("2026-08-09", 6, 5, "우천취소"),   # home=HH(6), away=WO(5)
+    ]
+    assert total == 2
+
+
+def test_job_cancel_reasons_walks_each_month_and_sums(monkeypatch, settings):
+    import contextlib
+    seen = []
+
+    def fake_fetch(season, month, **k):
+        seen.append((season, month))
+        return [_kbo_row(f"{season}-{month}-05", "LT", "KT", note="폭염취소")]
+
+    monkeypatch.setattr(run.fetch, "build_client",
+                        lambda settings: contextlib.nullcontext(object()))
+    monkeypatch.setattr(run.kbo_schedule, "fetch_month", fake_fetch)
+    db = _RecordingCancelDb(team_ids={"LT": 9, "KT": 4})
+
+    total = run.job_cancel_reasons(settings, db, date="2026-08-02")
+
+    assert seen == [("2026", "07"), ("2026", "08")]
+    assert total == 2
+
+
+def test_job_cancel_reasons_one_bad_month_does_not_stop_the_others(monkeypatch, settings, caplog):
+    import contextlib
+
+    def fake_fetch(season, month, **k):
+        if month == "07":
+            raise RuntimeError("kbo 503")
+        return [_kbo_row("2026-08-05", "LT", "KT", note="폭염취소")]
+
+    monkeypatch.setattr(run.fetch, "build_client",
+                        lambda settings: contextlib.nullcontext(object()))
+    monkeypatch.setattr(run.kbo_schedule, "fetch_month", fake_fetch)
+    db = _RecordingCancelDb(team_ids={"LT": 9, "KT": 4})
+
+    with caplog.at_level("WARNING", logger="cancel_reasons"):
+        total = run.job_cancel_reasons(settings, db, date="2026-08-02")
+
+    assert total == 1
+    assert "kbo schedule fetch fail 2026-07" in caplog.text
+
+
+def test_job_cancel_reasons_skips_rows_whose_team_is_not_seeded(monkeypatch, settings):
+    import contextlib
+    monkeypatch.setattr(run.fetch, "build_client",
+                        lambda settings: contextlib.nullcontext(object()))
+    monkeypatch.setattr(run.kbo_schedule, "fetch_month", lambda season, month, **k: [
+        _kbo_row("2026-08-09", "LT", "KT", note="폭염취소"),
+    ])
+    db = _RecordingCancelDb(team_ids={"LT": 9})  # KT 미시드
+
+    total = run.job_cancel_reasons(settings, db, date="2026-08-15")
+
+    assert db.calls == [] and total == 0
+
+
 def test_main_games_sync_lazily_creates_db_and_calls_job(monkeypatch, settings):
     calls = []
 
