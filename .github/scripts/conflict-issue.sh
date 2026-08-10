@@ -19,13 +19,19 @@ HEAD_REF="${3:?head ref}"
 BASE_REF="${4:?base ref}"
 REPO="${REPO:?owner/repo}"
 
-TITLE="[충돌] PR #${PR}: ${HEAD_REF} → ${BASE_REF}"
+export CONFLICT_ISSUE_TITLE="[충돌] PR #${PR}: ${HEAD_REF} → ${BASE_REF}"
+TITLE="$CONFLICT_ISSUE_TITLE"
 
 # 제목 완전 일치로 찾는다. --search 만으로는 부분 일치가 섞여 들어온다.
+#
+# 제목을 jq 프로그램 문자열에 끼워 넣지 않고 env 로 읽는다. 제목에는 브랜치 이름이
+# 들어가는데, git ref 는 큰따옴표를 허용하므로 PR 작성자가 `foo"bar` 같은 이름으로
+# jq 표현식을 깨고 임의 필터를 주입할 수 있다. 이 함수의 반환값은 워크플로 로그에
+# 그대로 출력되므로, 공개 저장소에서는 환경변수 유출 경로가 된다.
 find_issue() {
   gh issue list --repo "$REPO" --state open --label merge-conflict \
     --search "\"PR #${PR}:\" in:title" --json number,title \
-    --jq "[.[] | select(.title == \"${TITLE}\")][0].number // empty"
+    --jq '[.[] | select(.title == env.CONFLICT_ISSUE_TITLE)][0].number // empty'
 }
 
 if [ "$ACTION" = "close" ]; then
