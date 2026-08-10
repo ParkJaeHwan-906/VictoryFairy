@@ -15,7 +15,7 @@ ECR 리포 하나의 이미지를 Lambda 함수 두 개가 공유한다:
 
 ```
 00:30  games_sync      일정 선적재 오늘~+7일             (RDB)
-01:00  cancel_reasons  KBO 일정표 취소 사유 -> games     (RDB, 게이트 off)
+01:00  cancel_reasons  KBO 일정표 취소 사유 -> games     (RDB)
 03:00  game            일정·결과·중계 크롤              -> S3 raw-json/
 03:30  records         완료 경기 -> games/game_lineups   (RDB)
 04:00  export          games/game_lineups -> envelope    -> S3 question-source/
@@ -41,8 +41,10 @@ ECR 리포 하나의 이미지를 Lambda 함수 두 개가 공유한다:
 `cancel_reasons`(01:00)는 **취소 "사유"만** 담당한다. 상태(`CANCELED`)는 `games_sync`가
 네이버에서 받아오지만 네이버는 취소를 `"경기취소"`로만 알려줘 사유가 없다 — 사유가
 적힌 곳은 KBO 공식 일정표뿐이라 이 잡만 KBO를 긁는다. 01:00 인 이유는 그 직전
-`games_sync`가 경기 행을 만들어 둔 뒤라야 갱신할 행이 있기 때문이다.
-**`cancel_reasons_enabled` 기본값이 `false`**이니 켜는 절차는 아래 컷오버 절 참고.
+`games_sync`가 경기 행을 만들어 둔 뒤라야 갱신할 행이 있기 때문이다 — **사유는 경기 행이
+없으면 붙지 않는다.** 2026-08-10 실측: 8/07 이전 취소 경기는 행 자체가 없어 30건 중 15건만
+붙었고, `games_sync` 백필로 행을 만든 뒤에야 30/30 이 됐다. 룰 순서가 이 선후를 지킨다.
+`cancel_reasons_enabled` 는 2026-08-10 에 켰다(근거는 `config.auto.tfvars` 주석).
 
 함수를 나눈 이유, 잡별 상세·수동 실행·백필은
 [`VictoryFairy_AI/py-collector/deploy/lambda/README.md`](../../VictoryFairy_AI/py-collector/deploy/lambda/README.md)(dev_ai) 참고.
