@@ -191,6 +191,7 @@ jobs:
           #   awk   — system() 내장 함수
           #   sed   — GNU 확장 e 커맨드
           #   sort  — --compress-program 으로 외부 프로그램 실행
+          #   git grep — -O/--open-files-in-pager 로 지정한 명령을 셸에서 실행
           # Bash(패턴:*) 매칭은 명령 문자열의 접두어만 보므로 위 넷은 허용 목록을
           # 문자 그대로 통과하면서 임의 명령을 실행한다. 텍스트 검색·치환은
           # Read/Grep/Glob 툴로 충분하다.
@@ -198,7 +199,7 @@ jobs:
           # 배포 PR(base=main)은 개별 라인이 feature 단계에서 이미 리뷰됐으므로 턴을 더 조인다.
           claude_args: |
             --max-turns ${{ github.event.pull_request.base.ref == 'main' && 12 || 20 }}
-            --allowedTools "Read,Grep,Glob,Write,Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(wc:*),Bash(grep:*),Bash(cut:*),Bash(tr:*),Bash(uniq:*),Bash(basename:*),Bash(dirname:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*),Bash(git rev-parse:*),Bash(git ls-files:*),Bash(git merge-base:*),Bash(git blame:*),Bash(git cat-file:*),Bash(git branch:*),Bash(git grep:*)"
+            --allowedTools "Read,Grep,Glob,Write,Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(wc:*),Bash(grep:*),Bash(cut:*),Bash(tr:*),Bash(uniq:*),Bash(basename:*),Bash(dirname:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*),Bash(git rev-parse:*),Bash(git ls-files:*),Bash(git merge-base:*),Bash(git blame:*),Bash(git cat-file:*),Bash(git branch:*)"
           prompt: |
             저장소 ${{ github.repository }} 의 PR #${{ env.PR_NUMBER }} (`${{ env.HEAD_REF }}` → `${{ env.BASE_REF }}`) 를 리뷰한다.
 
