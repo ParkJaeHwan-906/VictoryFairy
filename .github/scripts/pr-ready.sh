@@ -17,12 +17,18 @@ REPO="${2:?owner/repo}"
 # 붙어 있으면 자동화를 진행하지 않는 라벨
 BLOCKING_LABELS="hold wip draft do-not-merge 작업중 보류"
 
+# reason 에는 PR 제목이 섞여 들어간다. 개행이 남아 있으면 GITHUB_OUTPUT 에
+# 임의의 키(예: ready=true)를 덧붙여 게이트를 뚫을 수 있으므로 제거하고 길이도 자른다.
+# 이 값을 워크플로에서 참조할 때는 반드시 env 를 거쳐야 한다. ${{ }} 로 run 본문에
+# 직접 치환하면 셸 실행 전에 삽입돼 임의 명령 실행이 된다.
 block() {
+  local msg
+  msg=$(printf '%s' "$1" | tr -d '\r\n' | cut -c1-200)
   {
     echo "ready=false"
-    echo "reason=$1"
+    echo "reason=${msg}"
   } >>"$GITHUB_OUTPUT"
-  echo "자동화 진행 안 함 — $1"
+  echo "자동화 진행 안 함 — ${msg}"
   exit 0
 }
 
