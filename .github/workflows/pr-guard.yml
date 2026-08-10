@@ -95,76 +95,24 @@ jobs:
         run: bash .github/scripts/conflict-report.sh "$BASE_REF" "$HEAD_SHA" conflict-report.md
 
       # 충돌 이슈는 PR 당 하나만 유지한다. 같은 PR 에 재푸시되면 새로 만들지 않고 코멘트를 덧붙인다.
+      # conflict-watch.yml 과 같은 제목 규칙을 써야 이슈가 중복되지 않아 로직을 스크립트로 공유한다.
       - name: Open or update conflict issue
         if: steps.check.outputs.conflicted == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          set -euo pipefail
-          title="[충돌] PR #${PR_NUMBER}: ${HEAD_REF} → ${BASE_REF}"
-          counterparts=$(cat counterparts.txt 2>/dev/null || true)
-          mentions="@${PR_AUTHOR}"
-          for login in $counterparts; do
-            [ "$login" = "$PR_AUTHOR" ] && continue
-            mentions="${mentions} @${login}"
-          done
-
-          {
-            echo "${mentions} 자동 머지를 진행할 수 없습니다. 검토가 필요합니다."
-            echo
-            echo "- 대상 PR: #${PR_NUMBER} (\`${HEAD_REF}\` → \`${BASE_REF}\`)"
-            echo "- 감지 커밋: \`${HEAD_SHA}\`"
-            echo "- 워크플로 로그: ${RUN_URL}"
-            echo
-            cat conflict-report.md
-            echo
-            echo "---"
-            echo
-            echo "### 해결 방법"
-            echo
-            echo '```bash'
-            echo "git fetch origin"
-            echo "git switch ${HEAD_REF}"
-            echo "git merge origin/${BASE_REF}   # 충돌 해결 후 커밋"
-            echo "git push"
-            echo '```'
-            echo
-            echo "PR 에 다시 푸시하면 이 자동화가 충돌을 재검사하고, 해소되면 이 이슈를 닫습니다."
-          } >issue-body.md
-
-          existing=$(gh issue list --state open --label merge-conflict \
-            --search "\"PR #${PR_NUMBER}:\" in:title" --json number,title \
-            --jq "[.[] | select(.title == \"${title}\")][0].number // empty")
-
-          if [ -n "$existing" ]; then
-            gh issue comment "$existing" --body-file issue-body.md
-            echo "기존 이슈 #${existing} 갱신"
-          else
-            existing=$(gh issue create --title "$title" --body-file issue-body.md \
-              --label merge-conflict --assignee "$PR_AUTHOR" \
-              | grep -oE '[0-9]+$')
-            echo "이슈 #${existing} 생성"
-          fi
-
-          gh pr edit "$PR_NUMBER" --add-label merge-conflict
-          gh pr comment "$PR_NUMBER" --body "머지 충돌로 자동화를 중단했습니다. 상세 내역은 #${existing} 을 확인해 주세요."
+          bash .github/scripts/conflict-issue.sh open "$PR_NUMBER" "$HEAD_REF" "$BASE_REF" \
+            "$HEAD_SHA" "$PR_AUTHOR" conflict-report.md "$RUN_URL" counterparts.txt
 
       # 충돌이 해소되면 라벨을 떼고 이슈를 닫는다.
       - name: Resolve conflict issue
         if: steps.check.outputs.conflicted == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          gh pr edit "$PR_NUMBER" --remove-label merge-conflict 2>/dev/null || true
-          title="[충돌] PR #${PR_NUMBER}: ${HEAD_REF} → ${BASE_REF}"
-          num=$(gh issue list --state open --label merge-conflict \
-            --search "\"PR #${PR_NUMBER}:\" in:title" --json number,title \
-            --jq "[.[] | select(.title == \"${title}\")][0].number // empty")
-          if [ -n "$num" ]; then
-            gh issue close "$num" --comment "PR #${PR_NUMBER} 의 충돌이 해소되어 자동으로 닫습니다."
-          fi
+          REPO: ${{ github.repository }}
+        run: bash .github/scripts/conflict-issue.sh close "$PR_NUMBER" "$HEAD_REF" "$BASE_REF"
 
       - name: Fail on conflict
         if: steps.check.outputs.conflicted == 'true'
@@ -243,6 +191,7 @@ jobs:
           #   awk   — system() 내장 함수
           #   sed   — GNU 확장 e 커맨드
           #   sort  — --compress-program 으로 외부 프로그램 실행
+          #   git grep — -O/--open-files-in-pager 로 지정한 명령을 셸에서 실행
           # Bash(패턴:*) 매칭은 명령 문자열의 접두어만 보므로 위 넷은 허용 목록을
           # 문자 그대로 통과하면서 임의 명령을 실행한다. 텍스트 검색·치환은
           # Read/Grep/Glob 툴로 충분하다.
@@ -250,7 +199,7 @@ jobs:
           # 배포 PR(base=main)은 개별 라인이 feature 단계에서 이미 리뷰됐으므로 턴을 더 조인다.
           claude_args: |
             --max-turns ${{ github.event.pull_request.base.ref == 'main' && 12 || 20 }}
-            --allowedTools "Read,Grep,Glob,Write,Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(wc:*),Bash(grep:*),Bash(cut:*),Bash(tr:*),Bash(uniq:*),Bash(basename:*),Bash(dirname:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*),Bash(git rev-parse:*),Bash(git ls-files:*),Bash(git merge-base:*),Bash(git blame:*),Bash(git cat-file:*),Bash(git branch:*),Bash(git grep:*)"
+            --allowedTools "Read,Grep,Glob,Write,Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(wc:*),Bash(grep:*),Bash(cut:*),Bash(tr:*),Bash(uniq:*),Bash(basename:*),Bash(dirname:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*),Bash(git rev-parse:*),Bash(git ls-files:*),Bash(git merge-base:*),Bash(git blame:*),Bash(git cat-file:*),Bash(git branch:*)"
           prompt: |
             저장소 ${{ github.repository }} 의 PR #${{ env.PR_NUMBER }} (`${{ env.HEAD_REF }}` → `${{ env.BASE_REF }}`) 를 리뷰한다.
 
@@ -472,7 +421,19 @@ jobs:
           # --admin 이 없으면 관리자 PAT 이라도 룰셋을 우회하지 못한다
           # ("the base branch policy prohibits the merge").
           # --match-head-commit 은 위 확인과 머지 사이의 빈틈까지 API 차원에서 막는다.
-          gh pr merge "$PR_NUMBER" --repo "$REPO" --squash --admin \
-            --match-head-commit "$HEAD_SHA" \
-            --subject "$(gh pr view "$PR_NUMBER" --repo "$REPO" --json title --jq .title) (#${PR_NUMBER})"
-          echo "PR #${PR_NUMBER} squash 머지 완료 (${HEAD_SHA:0:7})"
+          #
+          # 배포 PR(base=main)은 merge 커밋으로 넣는다. squash 로 넣으면 main 에 dev_*
+          # 히스토리에 없는 커밋이 생겨 공통 조상이 옛날에 머문다. 그 뒤 dev_* 가 같은 파일을
+          # 고치면 다음 배포 PR 이 충돌하고, 충돌하면 GitHub 이 merge ref 를 만들지 못해
+          # 이 워크플로 자체가 실행되지 않는다. 자동화가 이슈도 남기지 못하고 조용히 멈춘다.
+          # feature → dev_* 는 계속 squash 한다. 작업 브랜치의 중간 커밋을 dev_* 에 풀 이유가 없다.
+          if [ "$BASE_REF" = "main" ]; then
+            gh pr merge "$PR_NUMBER" --repo "$REPO" --merge --admin \
+              --match-head-commit "$HEAD_SHA"
+            echo "PR #${PR_NUMBER} merge 커밋으로 머지 완료 (${HEAD_SHA:0:7})"
+          else
+            gh pr merge "$PR_NUMBER" --repo "$REPO" --squash --admin \
+              --match-head-commit "$HEAD_SHA" \
+              --subject "$(gh pr view "$PR_NUMBER" --repo "$REPO" --json title --jq .title) (#${PR_NUMBER})"
+            echo "PR #${PR_NUMBER} squash 머지 완료 (${HEAD_SHA:0:7})"
+          fi
