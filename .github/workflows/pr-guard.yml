@@ -196,11 +196,13 @@ jobs:
           # 문자 그대로 통과하면서 임의 명령을 실행한다. 텍스트 검색·치환은
           # Read/Grep/Glob 툴로 충분하다.
           # gh 도 뺐다. 리뷰 자료는 앞 스텝이 파일로 만들어 두었다.
-          # 배포 PR(base=main)은 개별 라인이 feature 단계에서 이미 리뷰됐으므로 턴을 더 조인다.
+          # 배포 PR 은 개별 라인이 feature 단계에서 이미 리뷰됐으므로 턴을 더 조인다.
+          # 판별 기준은 base 가 main 인지가 아니라 head 가 dev_* 인지다. main 으로 가는
+          # 일반 PR 을 배포 PR 로 오인해 상한 15 를 적용하면 리뷰가 상한에 걸려 실패한다.
           # 상한을 넘기면 액션이 실패하고 판정이 남지 않아 PR 이 막힌다. 큰 diff 도 넘기지
           # 않을 만큼은 줘야 한다. 실측에서 자동화 전체 diff 가 21턴을 썼다.
           claude_args: |
-            --max-turns ${{ github.event.pull_request.base.ref == 'main' && 15 || 30 }}
+            --max-turns ${{ startsWith(github.event.pull_request.head.ref, 'dev_') && 15 || 30 }}
             --allowedTools "Read,Grep,Glob,Write,Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(wc:*),Bash(grep:*),Bash(cut:*),Bash(tr:*),Bash(uniq:*),Bash(basename:*),Bash(dirname:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*),Bash(git rev-parse:*),Bash(git ls-files:*),Bash(git merge-base:*),Bash(git blame:*),Bash(git cat-file:*),Bash(git branch:*)"
           prompt: |
             저장소 ${{ github.repository }} 의 PR #${{ env.PR_NUMBER }} (`${{ env.HEAD_REF }}` → `${{ env.BASE_REF }}`) 를 리뷰한다.
@@ -224,7 +226,7 @@ jobs:
             1. 위 세 파일을 Read 로 읽는다. `gh pr diff` 를 다시 부르지 않는다.
             2. 판단에 필요한 곳만 주변 코드를 Read/Grep 으로 확인한다. diff 만 보고 단정하지 않되,
                모든 파일을 훑지는 않는다. 위험해 보이는 지점에 집중한다.
-            3. base 가 `main` 인 PR 은 dev_* 브랜치의 배포 PR 이다. 개별 라인은 이미 feature PR 에서
+            3. head 가 `dev_*` 인 PR 은 배포 PR 이다. 개별 라인은 이미 feature PR 에서
                리뷰됐으므로 다시 훑지 말고, 배포 리스크(스키마 변경, 파괴적 인프라 변경, 설정·시크릿,
                롤백 가능성)만 본다.
 
