@@ -1,3 +1,7 @@
+# Claude Code 가 만드는 git worktree 체크아웃. 저장소 안에 또 하나의 작업 트리가 통째로
+# 들어앉는 자리라, 무시하지 않으면 `git add -A` 한 번에 중첩 체크아웃이 전부 스테이징된다.
+.claude/worktrees/
+
 HELP.md
 .gradle
 build/
