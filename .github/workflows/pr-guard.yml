@@ -67,9 +67,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash .github/scripts/pr-ready.sh "$PR_NUMBER" "${{ github.repository }}"
 
+      # reason 에는 PR 제목이 섞여 들어온다. 즉 공격자가 제어하는 값이다.
+      # ${{ }} 로 run 본문에 직접 치환하면 셸 실행 전에 문자열이 삽입돼
+      # 임의 명령 실행(스크립트 인젝션)이 된다. 반드시 env 를 거쳐 참조한다.
       - name: Report skip
         if: steps.check.outputs.ready != 'true'
-        run: echo "::notice::자동화를 진행하지 않습니다 — ${{ steps.check.outputs.reason }}"
+        env:
+          REASON: ${{ steps.check.outputs.reason }}
+        run: echo "::notice::자동화를 진행하지 않습니다 — ${REASON}"
 
   # ── 1단계: 충돌 검사 ────────────────────────────────────────────
   conflict:
@@ -163,8 +168,10 @@ jobs:
 
       - name: Fail on conflict
         if: steps.check.outputs.conflicted == 'true'
+        env:
+          FILES: ${{ steps.check.outputs.files }}
         run: |
-          echo "::error::머지 충돌 ${{ steps.check.outputs.files }}개 파일 — 이슈를 확인하세요."
+          echo "::error::머지 충돌 ${FILES}개 파일 — 이슈를 확인하세요."
           exit 1
 
   # ── 2단계: Claude 코드리뷰 + 승인/변경요청 ──────────────────────
@@ -198,24 +205,52 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash .github/scripts/pr-ready.sh "$PR_NUMBER" "${{ github.repository }}"
 
+      # 에이전트가 스스로 찾아 나서면 그만큼 턴이 늘고 턴당 10초 안팎이 든다.
+      # diff·파일 목록·커밋 목록을 미리 만들어 두고 프롬프트에서 위치를 알려준다.
+      - name: Prepare review inputs
+        if: steps.ready.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p pr
+          gh pr diff "$PR_NUMBER" --repo "$REPO" >pr/diff.patch
+          gh pr diff "$PR_NUMBER" --repo "$REPO" --name-only >pr/files.txt
+          git log --pretty='%h %an %s' "origin/${BASE_REF}..${HEAD_SHA}" >pr/commits.txt 2>/dev/null || true
+          wc -l pr/diff.patch pr/files.txt pr/commits.txt
+
       # 에이전트에는 저장소 읽기와 파일 쓰기만 준다. GitHub 을 바꾸는 권한은 주지 않는다.
       # 리뷰 제출은 다음 스텝이 별도 토큰으로 수행한다. 에이전트에게 승인·머지 권한이 있는 토큰을
       # 쥐여주면 PR 본문이나 코드에 심긴 프롬프트 인젝션이 그대로 머지 권한으로 이어진다.
       # Write 는 경로를 좁히지 않았지만 러너 워크스페이스는 일회용이고, 다음 스텝은
       # review-verdict.txt / review-body.md 두 파일만 읽는다.
+      # 이 스텝에는 GH_TOKEN 을 두지 않는다. 에이전트가 셸 이스케이프에 성공하더라도
+      # 손에 쥘 GitHub 자격증명이 없어야 PR 승인·머지로 이어지지 않는다.
+      # 리뷰에 필요한 자료는 앞 스텝이 파일로 만들어 두었으므로 gh 는 필요 없다.
       - uses: anthropics/claude-code-action@v1
         if: steps.ready.outputs.ready == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           # 둘 중 등록된 것으로 인증한다. Claude GitHub App 설치는 선택이며,
           # 앱 없이 ANTHROPIC_API_KEY + 기본 GITHUB_TOKEN 만으로 동작한다.
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          # 허용 목록이 좁으면 에이전트가 흔한 명령마다 거부에 부딪히고, 거부 한 번이
+          # 턴 하나(약 10초)를 그대로 태운다. 실측에서 19턴 중 11턴이 거부였다.
+          # 그래서 읽기 전용 명령은 열어 두되, 셸 이스케이프가 가능한 것은 제외한다.
+          #   find  — -exec 으로 임의 바이너리 실행
+          #   awk   — system() 내장 함수
+          #   sed   — GNU 확장 e 커맨드
+          #   sort  — --compress-program 으로 외부 프로그램 실행
+          # Bash(패턴:*) 매칭은 명령 문자열의 접두어만 보므로 위 넷은 허용 목록을
+          # 문자 그대로 통과하면서 임의 명령을 실행한다. 텍스트 검색·치환은
+          # Read/Grep/Glob 툴로 충분하다.
+          # gh 도 뺐다. 리뷰 자료는 앞 스텝이 파일로 만들어 두었다.
+          # 배포 PR(base=main)은 개별 라인이 feature 단계에서 이미 리뷰됐으므로 턴을 더 조인다.
           claude_args: |
-            --max-turns 40
-            --allowedTools "Read,Grep,Glob,Write,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(gh pr view:*),Bash(gh pr diff:*)"
+            --max-turns ${{ github.event.pull_request.base.ref == 'main' && 12 || 20 }}
+            --allowedTools "Read,Grep,Glob,Write,Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(wc:*),Bash(grep:*),Bash(cut:*),Bash(tr:*),Bash(uniq:*),Bash(basename:*),Bash(dirname:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*),Bash(git rev-parse:*),Bash(git ls-files:*),Bash(git merge-base:*),Bash(git blame:*),Bash(git cat-file:*),Bash(git branch:*),Bash(git grep:*)"
           prompt: |
             저장소 ${{ github.repository }} 의 PR #${{ env.PR_NUMBER }} (`${{ env.HEAD_REF }}` → `${{ env.BASE_REF }}`) 를 리뷰한다.
 
@@ -229,11 +264,18 @@ jobs:
             모노레포다. `VictoryFairy_BE`(Spring Boot·Gradle 멀티모듈), `VictoryFairy_FE`,
             `VictoryFairy_AI`(파이썬 수집/퀴즈 파이프라인), `VictoryFairy_Infra`(Terraform·k8s).
 
+            ## 이미 준비된 자료 — 직접 수집하지 말고 이것부터 읽는다
+            - `pr/diff.patch` — 변경 전체 diff
+            - `pr/files.txt` — 변경된 파일 목록
+            - `pr/commits.txt` — 포함된 커밋 목록
+
             ## 리뷰 방법
-            1. `gh pr diff ${{ env.PR_NUMBER }}` 로 변경 전체를 본다.
-            2. 변경된 파일의 주변 코드를 Read/Grep 으로 확인한다. diff 만 보고 판단하지 않는다.
+            1. 위 세 파일을 Read 로 읽는다. `gh pr diff` 를 다시 부르지 않는다.
+            2. 판단에 필요한 곳만 주변 코드를 Read/Grep 으로 확인한다. diff 만 보고 단정하지 않되,
+               모든 파일을 훑지는 않는다. 위험해 보이는 지점에 집중한다.
             3. base 가 `main` 인 PR 은 dev_* 브랜치의 배포 PR 이다. 개별 라인은 이미 feature PR 에서
-               리뷰됐으므로, 배포 리스크(스키마 변경, 파괴적 인프라 변경, 설정·시크릿, 롤백 가능성)에 집중한다.
+               리뷰됐으므로 다시 훑지 말고, 배포 리스크(스키마 변경, 파괴적 인프라 변경, 설정·시크릿,
+               롤백 가능성)만 본다.
 
             ## 차단(변경요청) 사유 — 이것만 request-changes 한다
             - 동작을 깨뜨리는 버그, 널/경계/동시성 결함
