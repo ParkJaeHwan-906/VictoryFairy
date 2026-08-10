@@ -522,22 +522,31 @@ class _RecordingSyncDb:
     """운영 스키마 DbSink 흉내: job_games_sync 배선(호출 인자) 검증용."""
     def __init__(self, team_ids):
         self.calls = []
+        self.upsert_teams_calls = 0
         self._team_ids = team_ids
         self._status_ids = {"SCHEDULED": 1, "IN_PROGRESS": 2, "FINISHED": 3,
                             "DRAW": 4, "CANCELED": 5}
+        self._stadium_ids = {}
 
     def upsert_teams(self, teams):
+        self.upsert_teams_calls += 1
         return self._team_ids
 
     def status_id(self, name):
         return self._status_ids[name]
 
+    def stadium_id(self, name):
+        # DbSink 와 같은 계약: 이름이 비면 None (INSERT 시 NULL 로 들어가 COALESCE 로 보존)
+        if not name:
+            return None
+        return self._stadium_ids.setdefault(name, 900 + len(self._stadium_ids))
+
     def sync_game(self, *, naver_game_id, game_dt, home_team_id, away_team_id,
-                  home_score, away_score, status_id):
+                  home_score, away_score, status_id, stadium_id=None):
         self.calls.append(dict(
             naver_game_id=naver_game_id, game_dt=game_dt, home_team_id=home_team_id,
             away_team_id=away_team_id, home_score=home_score, away_score=away_score,
-            status_id=status_id))
+            status_id=status_id, stadium_id=stadium_id))
 
 
 def _games_sync_schedule_games():
@@ -631,6 +640,112 @@ def test_job_games_sync_game_dt_falls_back_for_empty_string_datetime(monkeypatch
     assert db.calls[0]["game_dt"] == "2026-07-11 00:00:00"
 
 
+class _FakeGameDetailResp:
+    def __init__(self, stadium):
+        self._stadium = stadium
+
+    def json(self):
+        return {"result": {"game": {"stadium": self._stadium}}}
+
+
+def _dispatching_fetch(seen_urls, stadium="잠실"):
+    """스케줄 목록 URL 과 경기 상세 URL 을 구분해 응답한다.
+
+    schedule_url 은 '/schedule/games?fields=...' 쿼리형, result_url 은
+    '/schedule/games/{gameId}' 경로형이라 '?' 유무로 갈린다.
+    """
+    def _fetch(client, url, **kwargs):
+        seen_urls.append(url)
+        return _FakeScheduleResp() if "?" in url else _FakeGameDetailResp(stadium)
+    return _fetch
+
+
+def test_job_games_sync_fetches_stadium_only_for_scheduled(monkeypatch, settings):
+    # 스케줄 목록엔 구장이 없어 경기 상세를 한 번 더 부르는데, 시작한 경기의 구장은
+    # records 잡이 박스스코어로 확정하므로 SCHEDULED 일 때만 불러야 한다.
+    import contextlib
+    urls = []
+    monkeypatch.setattr(run.fetch, "build_client", lambda settings: contextlib.nullcontext(object()))
+    monkeypatch.setattr(run.fetch, "fetch", _dispatching_fetch(urls))
+    db = _RecordingSyncDb(team_ids={"OB": 1, "LG": 2})
+
+    run.job_games_sync(settings, db, "2026-07-10")
+
+    detail_urls = [u for u in urls if "?" not in u]
+    assert len(detail_urls) == 1 and detail_urls[0].endswith("/scheduled")
+
+    by_id = {c["naver_game_id"]: c for c in db.calls}
+    assert by_id["scheduled"]["stadium_id"] == 900
+    # 나머지는 None -> GAME_SYNC_UPSERT 의 COALESCE 가 기존 구장을 지킨다
+    for gid in ("finished", "live", "draw", "cancelled", "no_dt"):
+        assert by_id[gid]["stadium_id"] is None
+
+
+def test_job_games_sync_stadium_failure_still_lands_the_game(monkeypatch, settings, caplog):
+    import contextlib
+
+    def _fetch(client, url, **kwargs):
+        if "?" in url:
+            return _FakeScheduleResp()
+        raise RuntimeError("naver 500")
+
+    monkeypatch.setattr(run.fetch, "build_client", lambda settings: contextlib.nullcontext(object()))
+    monkeypatch.setattr(run.fetch, "fetch", _fetch)
+    db = _RecordingSyncDb(team_ids={"OB": 1, "LG": 2})
+
+    with caplog.at_level("WARNING", logger="games_sync"):
+        synced = run.job_games_sync(settings, db, "2026-07-10")
+
+    # 구장은 부가 정보 — 못 얻어도 일정 자체는 그대로 적재된다
+    assert synced == 6
+    assert next(c for c in db.calls if c["naver_game_id"] == "scheduled")["stadium_id"] is None
+    assert "stadium fetch fail" in caplog.text
+
+
+def test_job_games_sync_range_walks_each_date_and_seeds_teams_once(monkeypatch, settings):
+    import contextlib
+    dates = []
+
+    def _fetch(client, url, **kwargs):
+        if "?" not in url:
+            return _FakeGameDetailResp("잠실")
+        dates.append(url.split("fromDate=")[1].split("&")[0])
+        return _FakeScheduleResp()
+
+    monkeypatch.setattr(run.fetch, "build_client", lambda settings: contextlib.nullcontext(object()))
+    monkeypatch.setattr(run.fetch, "fetch", _fetch)
+    db = _RecordingSyncDb(team_ids={"OB": 1, "LG": 2})
+
+    total = run.job_games_sync_range(settings, db, "2026-08-11", "2026-08-14",
+                                     sleep=lambda _s: None)
+
+    assert dates == ["2026-08-11", "2026-08-12", "2026-08-13", "2026-08-14"]
+    assert total == 6 * 4
+    assert db.upsert_teams_calls == 1  # 날짜마다 반복 시드하지 않는다
+
+
+def test_job_games_sync_range_continues_after_one_bad_date(monkeypatch, settings, caplog):
+    import contextlib
+
+    def _fetch(client, url, **kwargs):
+        if "?" not in url:
+            return _FakeGameDetailResp("잠실")
+        if "fromDate=2026-08-12" in url:
+            raise RuntimeError("naver 503")
+        return _FakeScheduleResp()
+
+    monkeypatch.setattr(run.fetch, "build_client", lambda settings: contextlib.nullcontext(object()))
+    monkeypatch.setattr(run.fetch, "fetch", _fetch)
+    db = _RecordingSyncDb(team_ids={"OB": 1, "LG": 2})
+
+    with caplog.at_level("WARNING", logger="games_sync"):
+        total = run.job_games_sync_range(settings, db, "2026-08-11", "2026-08-13",
+                                         sleep=lambda _s: None)
+
+    assert total == 6 * 2  # 8/12 만 빠지고 앞뒤 날짜는 적재된다
+    assert "games_sync fail 2026-08-12" in caplog.text
+
+
 def test_main_games_sync_lazily_creates_db_and_calls_job(monkeypatch, settings):
     calls = []
 
@@ -643,15 +758,37 @@ def test_main_games_sync_lazily_creates_db_and_calls_job(monkeypatch, settings):
 
     monkeypatch.setattr("kbo_collector.db.DbSink", _FakeDbSink)
 
-    def fake_job(settings, db, date):
-        calls.append(("job", date))
+    def fake_job(settings, db, start, end):
+        calls.append(("job", start, end))
         assert isinstance(db, _FakeDbSink)
         return 3
 
-    monkeypatch.setattr(run, "job_games_sync", fake_job)
+    monkeypatch.setattr(run, "job_games_sync_range", fake_job)
     rc = run.main(["games_sync", "--date", "2026-07-10"])
     assert rc == 0
-    assert calls == [("db_created",), ("job", "2026-07-10"), ("db_closed",)]
+    # --from/--to 미지정이면 그날 하루만 (start == end)
+    assert calls == [("db_created",), ("job", "2026-07-10", "2026-07-10"), ("db_closed",)]
+
+
+def test_main_games_sync_from_to_walks_range_like_records(monkeypatch, settings):
+    class _FakeDbSink:
+        def __init__(self, settings):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("kbo_collector.db.DbSink", _FakeDbSink)
+    seen = {}
+
+    def fake_job(settings, db, start, end):
+        seen["range"] = (start, end)
+        return 0
+
+    monkeypatch.setattr(run, "job_games_sync_range", fake_job)
+    rc = run.main(["games_sync", "--from", "2026-08-11", "--to", "2026-08-18"])
+    assert rc == 0
+    assert seen["range"] == ("2026-08-11", "2026-08-18")
 
 
 def test_main_games_sync_defaults_date_to_today_like_records(monkeypatch, settings):
@@ -666,15 +803,15 @@ def test_main_games_sync_defaults_date_to_today_like_records(monkeypatch, settin
     monkeypatch.setattr("kbo_collector.db.DbSink", _FakeDbSink)
     seen = {}
 
-    def fake_job(settings, db, date):
-        seen["date"] = date
+    def fake_job(settings, db, start, end):
+        seen["range"] = (start, end)
         return 0
 
-    monkeypatch.setattr(run, "job_games_sync", fake_job)
+    monkeypatch.setattr(run, "job_games_sync_range", fake_job)
     monkeypatch.setattr(run, "_today", lambda: "2026-07-27")
     rc = run.main(["games_sync"])
     assert rc == 0
-    assert seen["date"] == "2026-07-27"
+    assert seen["range"] == ("2026-07-27", "2026-07-27")
 
 
 def test_land_registrations_failed_team_skipped(monkeypatch, settings):
