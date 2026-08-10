@@ -747,17 +747,17 @@ def test_job_games_sync_range_continues_after_one_bad_date(monkeypatch, settings
 
 
 class _RecordingCancelDb:
-    def __init__(self, team_ids, affected=1):
+    def __init__(self, team_ids, changed=1):
         self.team_ids = team_ids
         self.calls = []
-        self._affected = affected
+        self._changed = changed
 
     def upsert_teams(self, teams):
         return self.team_ids
 
     def set_cancel_reason(self, *, date, home_team_id, away_team_id, reason):
         self.calls.append((date, home_team_id, away_team_id, reason))
-        return self._affected
+        return self._changed
 
 
 def _kbo_row(date, away, home, note="-"):
@@ -828,6 +828,24 @@ def test_job_cancel_reasons_one_bad_month_does_not_stop_the_others(monkeypatch, 
 
     assert total == 1
     assert "kbo schedule fetch fail 2026-07" in caplog.text
+
+
+def test_job_cancel_reasons_returns_zero_when_nothing_changed(monkeypatch, settings):
+    # 평상시 재실행: 사유가 이미 같아 DB 가 아무 행도 안 바꾼다 -> 0 이 정상이다.
+    # 여기서 매일 같은 수가 찍히면 멱등성이 깨진 신호다.
+    import contextlib
+    monkeypatch.setattr(run.fetch, "build_client",
+                        lambda settings: contextlib.nullcontext(object()))
+    monkeypatch.setattr(run.kbo_schedule, "fetch_month", lambda season, month, **k: [
+        _kbo_row("2026-08-09", "LT", "KT", note="폭염취소"),
+        _kbo_row("2026-08-09", "WO", "HH", note="폭염취소"),
+    ])
+    db = _RecordingCancelDb(team_ids={"LT": 9, "KT": 4, "WO": 5, "HH": 6}, changed=0)
+
+    total = run.job_cancel_reasons(settings, db, date="2026-08-15")
+
+    assert len(db.calls) == 2  # 조회·시도는 하되
+    assert total == 0          # 바뀐 건 없다
 
 
 def test_job_cancel_reasons_skips_rows_whose_team_is_not_seeded(monkeypatch, settings):
