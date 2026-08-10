@@ -252,6 +252,7 @@ jobs:
       - name: Submit review
         id: submit
         env:
+          REVIEW: ${{ secrets.REVIEW_TOKEN }}
           PAT: ${{ secrets.AUTOMATION_TOKEN }}
           BOT: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
@@ -275,11 +276,17 @@ jobs:
           }
 
           # 토큰마다 막히는 지점이 다르다.
-          #   PAT(사람 신원)  : 자기가 만든 PR 에는 승인도 변경요청도 불가
-          #   GITHUB_TOKEN(봇): 승인만 플랫폼 차원에서 금지, 변경요청·코멘트는 가능
-          # 그래서 PAT 을 먼저 쓰고, 실패하면 봇으로 넘긴다.
+          #   REVIEW_TOKEN(리뷰 전용 계정) : 제약 없음. PR 을 올릴 일이 없는 계정이라 항상 통과
+          #   AUTOMATION_TOKEN(관리자)     : 자기가 만든 PR 에는 승인도 변경요청도 불가
+          #   GITHUB_TOKEN(봇)             : 승인만 플랫폼 차원에서 금지, 변경요청·코멘트는 가능
+          # 앞에서부터 시도하고 막히면 다음으로 넘긴다.
+          if [ -z "${REVIEW:-}" ]; then
+            echo "::notice::REVIEW_TOKEN 이 없습니다. 작성자 본인의 PR 은 승인 배지 없이 코멘트 리뷰로 대체됩니다."
+          fi
+
           if [ "$verdict" = "request-changes" ]; then
-            review_as "$PAT" --request-changes 2>err.txt \
+            review_as "$REVIEW" --request-changes 2>err.txt \
+              || review_as "$PAT" --request-changes 2>>err.txt \
               || review_as "$BOT" --request-changes 2>>err.txt \
               || { cat err.txt; echo "::error::변경요청 제출 실패"; exit 1; }
             GH_TOKEN="$BOT" gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label claude-reviewed 2>/dev/null || true
@@ -287,9 +294,10 @@ jobs:
             exit 0
           fi
 
-          # 승인은 PAT 으로만 가능하다. PAT 이 작성자 본인이면 어떤 토큰으로도 승인할 수 없어
-          # 코멘트 리뷰로 대체한다. 이 경우 머지 판단 근거는 이 잡의 verdict 출력이다.
-          if review_as "$PAT" --approve 2>err.txt; then
+          # 승인은 봇 토큰으로 불가능하다. 리뷰 계정도 관리자 PAT 도 막히면
+          # (둘 다 없거나 둘 다 작성자 본인인 경우) 코멘트 리뷰로 대체한다.
+          # 이 경우 머지 판단 근거는 이 잡의 verdict 출력이다.
+          if review_as "$REVIEW" --approve 2>err.txt || review_as "$PAT" --approve 2>>err.txt; then
             echo "승인 제출"
           else
             cat err.txt
