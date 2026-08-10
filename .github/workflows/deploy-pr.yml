@@ -59,10 +59,12 @@ jobs:
 
           # 직전 배포 이후 쌓인 커밋만 싣는다.
           # main 은 squash 머지라 `git log main..dev_*` 는 이미 배포된 커밋까지 계속 잡힌다.
-          since=$(gh pr list --repo "$REPO" --base main --head "$BRANCH" --state merged \
-            --limit 1 --json mergedAt --jq '.[0].mergedAt // empty')
-          if [ -n "$since" ]; then
-            commits=$(git log --since="$since" --pretty='- %s (%an)' "origin/${BRANCH}")
+          # 시간(mergedAt) 대신 직전 배포 PR 의 head 커밋을 기준으로 자른다. 그 커밋은
+          # dev_* 브랜치 위에 그대로 남아 있어 커밋 타임스탬프 왜곡에 영향받지 않는다.
+          last_head=$(gh pr list --repo "$REPO" --base main --head "$BRANCH" --state merged \
+            --limit 1 --json headRefOid --jq '.[0].headRefOid // empty')
+          if [ -n "$last_head" ] && git cat-file -e "${last_head}^{commit}" 2>/dev/null; then
+            commits=$(git log --pretty='- %s (%an)' "${last_head}..origin/${BRANCH}")
           else
             commits=$(git log -20 --pretty='- %s (%an)' "origin/${BRANCH}")
           fi
