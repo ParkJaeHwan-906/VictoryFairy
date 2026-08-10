@@ -192,6 +192,8 @@ jobs:
           #   sed   — GNU 확장 e 커맨드
           #   sort  — --compress-program 으로 외부 프로그램 실행
           #   git grep — -O/--open-files-in-pager 로 지정한 명령을 셸에서 실행
+          # cat·head·tail 도 뺐다. 인자를 검사하지 않아 /proc/self/environ 같은 저장소 밖
+          # 경로를 그대로 읽는다. 파일 열람은 Read 툴로 한다.
           # Bash(패턴:*) 매칭은 명령 문자열의 접두어만 보므로 위 넷은 허용 목록을
           # 문자 그대로 통과하면서 임의 명령을 실행한다. 텍스트 검색·치환은
           # Read/Grep/Glob 툴로 충분하다.
@@ -203,7 +205,7 @@ jobs:
           # 않을 만큼은 줘야 한다. 실측에서 자동화 전체 diff 가 21턴을 썼다.
           claude_args: |
             --max-turns ${{ startsWith(github.event.pull_request.head.ref, 'dev_') && 15 || 30 }}
-            --allowedTools "Read,Grep,Glob,Write,Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(wc:*),Bash(grep:*),Bash(cut:*),Bash(tr:*),Bash(uniq:*),Bash(basename:*),Bash(dirname:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*),Bash(git rev-parse:*),Bash(git ls-files:*),Bash(git merge-base:*),Bash(git blame:*),Bash(git cat-file:*),Bash(git branch:*)"
+            --allowedTools "Read,Grep,Glob,Write,Bash(ls:*),Bash(wc:*),Bash(grep:*),Bash(cut:*),Bash(tr:*),Bash(uniq:*),Bash(basename:*),Bash(dirname:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*),Bash(git rev-parse:*),Bash(git ls-files:*),Bash(git merge-base:*),Bash(git blame:*),Bash(git cat-file:*),Bash(git branch:*)"
           prompt: |
             저장소 ${{ github.repository }} 의 PR #${{ env.PR_NUMBER }} (`${{ env.HEAD_REF }}` → `${{ env.BASE_REF }}`) 를 리뷰한다.
 
@@ -263,6 +265,9 @@ jobs:
           PAT: ${{ secrets.AUTOMATION_TOKEN }}
           BOT: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
+          # 유출 검사 대상. 값을 run 본문에 ${{ }} 로 치환하면 그 자체가 인젝션 경로가 된다.
+          SCAN_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SCAN_CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           set -euo pipefail
 
@@ -270,6 +275,36 @@ jobs:
             echo "::error::리뷰 산출물이 없습니다. 에이전트가 판정을 남기지 못했습니다."
             exit 1
           fi
+
+          # 에이전트 산출물을 그대로 공개 PR 코멘트로 올리기 전에 시크릿 유출을 검사한다.
+          #
+          # 액션의 with: 입력은 러너 프로세스에 INPUT_* 환경변수로 들어간다. 에이전트가
+          # Read 나 cat 으로 /proc/self/environ 을 읽어 리뷰 본문에 옮기면, 그 내용을
+          # 신뢰된 토큰이 공개 저장소의 PR 코멘트로 게시하게 된다. PR 안에 심긴 프롬프트
+          # 인젝션으로 유도 가능한 경로다.
+          #
+          # 발견되면 가리지 않고 실패시킨다. 가려서 올리면 무엇이 새어나갈 뻔했는지 묻히고,
+          # 애초에 그런 본문은 신뢰할 수 없다.
+          SCAN_REVIEW_TOKEN="$REVIEW" SCAN_AUTOMATION_TOKEN="$PAT" SCAN_GITHUB_TOKEN="$BOT" \
+          python3 - <<'PY'
+          import os, sys
+
+          text = ""
+          for f in ("review-body.md", "review-verdict.txt"):
+              text += open(f, encoding="utf-8", errors="replace").read()
+
+          # SCAN_ 으로 시작하는 환경변수 값이 산출물에 들어 있으면 유출로 본다.
+          # 짧은 값은 우연히 일치할 수 있어 8자 미만은 건너뛴다.
+          hits = sorted(
+              k[len("SCAN_"):]
+              for k, v in os.environ.items()
+              if k.startswith("SCAN_") and len(v) >= 8 and v in text
+          )
+          if hits:
+              print("::error::리뷰 본문에 시크릿 값이 포함돼 있습니다: " + ", ".join(hits))
+              print("::error::게시하지 않고 중단합니다. 프롬프트 인젝션을 의심하고 로그를 확인하세요.")
+              sys.exit(1)
+          PY
 
           verdict=$(tr -d '[:space:]' <review-verdict.txt)
           case "$verdict" in
