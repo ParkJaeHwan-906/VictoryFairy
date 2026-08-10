@@ -73,11 +73,12 @@ class GameControllerTest {
             3,
             5,
             LocalDateTime.of(2026, 8, 1, 18, 30, 0),
-            "FINISHED");
+            "FINISHED",
+            null);
 
     @Test
     @DisplayName("date를 주면 200과 ApiResponse 래퍼(success:true, message:null)에 담긴 경기 배열을 "
-            + "반환하고 각 항목은 GameResponse의 10개 필드를 그대로 담는다")
+            + "반환하고 각 항목은 GameResponse의 11개 필드를 그대로 담는다")
     void getGames_returns200WithApiResponseWrappedArrayAndFields() throws Exception {
         // given
         given(gameService.getGames(LocalDate.of(2026, 8, 1))).willReturn(List.of(SAMPLE_GAME));
@@ -98,7 +99,38 @@ class GameControllerTest {
                 .andExpect(jsonPath("$.data[0].homeTeamScore").value(3))
                 .andExpect(jsonPath("$.data[0].awayTeamScore").value(5))
                 .andExpect(jsonPath("$.data[0].gameDate").value("2026-08-01T18:30:00"))
-                .andExpect(jsonPath("$.data[0].gameState").value("FINISHED"));
+                .andExpect(jsonPath("$.data[0].gameState").value("FINISHED"))
+                // 취소가 아닌 경기도 키 자체는 나가야 한다(값만 null) — stadium 과 같은 규약
+                .andExpect(jsonPath("$.data[0].cancelReason").hasJsonPath())
+                .andExpect(jsonPath("$.data[0].cancelReason").isEmpty());
+    }
+
+    @Test
+    @DisplayName("취소된 경기는 cancelReason에 사유(폭염취소)가 담겨 나간다")
+    void getGames_canceledGame_returnsCancelReason() throws Exception {
+        // given
+        GameResponse canceled = new GameResponse(
+                "20260809HTLG02026",
+                "잠실야구장",
+                "LG",
+                3L,
+                "KIA",
+                7L,
+                null,
+                null,
+                LocalDateTime.of(2026, 8, 9, 18, 0, 0),
+                "CANCELED",
+                "폭염취소");
+        given(gameService.getGames(LocalDate.of(2026, 8, 9))).willReturn(List.of(canceled));
+
+        // when & then
+        mockMvc.perform(get("/games").queryParam("date", "2026-08-09"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].gameState").value("CANCELED"))
+                .andExpect(jsonPath("$.data[0].cancelReason").value("폭염취소"))
+                // 취소 경기의 0-0 은 껍데기라 점수는 null 로 나가야 한다
+                .andExpect(jsonPath("$.data[0].homeTeamScore").isEmpty())
+                .andExpect(jsonPath("$.data[0].awayTeamScore").isEmpty());
     }
 
     @Test
@@ -132,7 +164,8 @@ class GameControllerTest {
                 3,
                 5,
                 LocalDateTime.of(2026, 8, 1, 18, 30, 0),
-                "FINISHED");
+                "FINISHED",
+                null);
         given(gameService.getGames(LocalDate.of(2026, 8, 1))).willReturn(List.of(gameWithoutStadium));
 
         // when & then
@@ -148,9 +181,9 @@ class GameControllerTest {
     void getGames_returnsServiceOrderUnchanged() throws Exception {
         // given
         GameResponse earlyGame = new GameResponse("20260801OBSK02026", "잠실야구장", "두산", 1L, "SSG", 2L, 1, 0,
-                LocalDateTime.of(2026, 8, 1, 14, 0, 0), "FINISHED");
+                LocalDateTime.of(2026, 8, 1, 14, 0, 0), "FINISHED", null);
         GameResponse lateGame = new GameResponse("20260801LGHT02026", "잠실야구장", "LG", 3L, "KIA", 7L, 3, 5,
-                LocalDateTime.of(2026, 8, 1, 18, 30, 0), "IN_PROGRESS");
+                LocalDateTime.of(2026, 8, 1, 18, 30, 0), "IN_PROGRESS", null);
         given(gameService.getGames(LocalDate.of(2026, 8, 1))).willReturn(List.of(earlyGame, lateGame));
 
         // when & then

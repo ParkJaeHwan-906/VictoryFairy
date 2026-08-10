@@ -61,6 +61,14 @@ public class Game {
     @JoinColumn(name = "game_status_id", nullable = false)
     private GameStatus gameStatus;
 
+    // 취소 사유(예: 폭염취소·우천취소). gameStatus 가 CANCELED 일 때만 채워지고 그 외에는 null 이다.
+    // 상태를 코드 테이블에 더 쪼개 담지 않는 이유: 사유는 닫힌 집합이 아니라 늘어나는데,
+    // game_statuses 에 섞으면 CANCELED 판정 코드가 사유 종류마다 깨진다.
+    // 값의 출처는 KBO 공식 일정표다 — 네이버 스케줄 API 는 취소를 "경기취소" 로만 알려줘
+    // 사유가 구분되지 않는다. 채우는 주체는 py-collector 이고 이 앱에 쓰기 경로는 없다.
+    @Column(name = "cancel_reason", length = 50, nullable = true)
+    private String cancelReason;
+
     // 네이버 스포츠 gameId — py-collector가 재실행해도 중복 없이 upsert하기 위한 소스 자연키(UNIQUE)
     @Column(name = "naver_game_id", length = 20, unique = true)
     private String naverGameId;
@@ -75,7 +83,8 @@ public class Game {
 
     @Builder
     private Game(LocalDateTime gameDate, Team homeTeam, Team awayTeam, Stadium stadium,
-            Integer homeScore, Integer awayScore, GameStatus gameStatus, String naverGameId) {
+            Integer homeScore, Integer awayScore, GameStatus gameStatus, String cancelReason,
+            String naverGameId) {
         this.gameDate = gameDate;
         this.homeTeam = homeTeam;
         this.awayTeam = awayTeam;
@@ -83,6 +92,7 @@ public class Game {
         this.homeScore = homeScore;
         this.awayScore = awayScore;
         this.gameStatus = gameStatus;
+        this.cancelReason = cancelReason;
         this.naverGameId = naverGameId;
     }
 }

@@ -14,7 +14,8 @@ public record GameResponse(String gameId,
                            Integer homeTeamScore,
                            Integer awayTeamScore,
                            LocalDateTime gameDate,
-                           String gameState) {
+                           String gameState,
+                           String cancelReason) {
 
     /**
      * {@code stadium} 은 {@code Game} 에서 유일하게 선택적인 연관({@code stadium_id} nullable)이라
@@ -25,6 +26,10 @@ public record GameResponse(String gameId,
      * 홈/원정에 대응시키기 위한 값이다 — 이 값이 없으면 클라이언트가 구단 이름 문자열 비교에 기대야 한다.
      * 두 FK 는 {@code optional = false} 라 null 검사가 필요 없고, id 접근은 프록시를 깨우지 않는 데다
      * {@code GameRepository} 의 {@code @EntityGraph} 가 이미 두 구단을 함께 읽으므로 SQL 이 늘지 않는다.
+     *
+     * <p>{@code cancelReason} 은 {@code gameState} 가 {@code CANCELED} 일 때만 값이 있고 그 외에는
+     * {@code null} 이다. 연관이 아니라 {@code games} 의 일반 컬럼이라 {@code @EntityGraph} 를 손댈
+     * 필요가 없다 — 연관을 더할 때만 그쪽과 1:1 로 맞춰야 한다.
      */
     public static GameResponse from(Game game) {
         return new GameResponse(game.getNaverGameId(),
@@ -36,7 +41,8 @@ public record GameResponse(String gameId,
                 game.getHomeScore(),
                 game.getAwayScore(),
                 game.getGameDate(),
-                game.getGameStatus().getName()
+                game.getGameStatus().getName(),
+                game.getCancelReason()
         );
     }
 }

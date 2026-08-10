@@ -85,10 +85,33 @@ class GameTest {
         assertThat(game.getStadium()).isNull();
         assertThat(game.getHomeScore()).isNull();
         assertThat(game.getAwayScore()).isNull();
+        assertThat(game.getCancelReason()).isNull();
         assertThat(game.getGameStatus()).isSameAs(scheduled);
         assertThat(game.getGameStatus().getName()).isEqualTo("SCHEDULED");
         assertThat(game.getHomeTeam()).isSameAs(home);
         assertThat(game.getAwayTeam()).isSameAs(away);
+    }
+
+    @Test
+    @DisplayName("CANCELED 경기는 cancelReason(폭염취소)을 담고, 취소 경기의 0-0 껍데기 대신 점수는 null로 남는다")
+    void builder_withCancelReason_keepsReasonAndLeavesScoresNull() {
+        // given
+        GameStatus canceled = newGameStatus("CANCELED");
+
+        // when
+        Game game = Game.builder()
+                .gameDate(LocalDateTime.of(2026, 8, 9, 18, 0))
+                .homeTeam(newTeam("LG 트윈스"))
+                .awayTeam(newTeam("KIA 타이거즈"))
+                .gameStatus(canceled)
+                .cancelReason("폭염취소")
+                .build();
+
+        // then
+        assertThat(game.getCancelReason()).isEqualTo("폭염취소");
+        assertThat(game.getGameStatus().getName()).isEqualTo("CANCELED");
+        assertThat(game.getHomeScore()).isNull();
+        assertThat(game.getAwayScore()).isNull();
     }
 
     @Test
