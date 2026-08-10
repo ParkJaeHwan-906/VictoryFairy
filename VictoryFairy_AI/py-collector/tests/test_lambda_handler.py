@@ -238,23 +238,27 @@ def test_handler_export_job_uses_db_function(monkeypatch, settings):
 
 # --- games_sync job (경기 상태 동기화) — kbo-collector-db 함수 경로 ---
 
+def _fake_sync_range(captured, returns=0):
+    def _f(s, d, start, end):
+        captured["settings"] = s
+        captured["db"] = d
+        captured["range"] = (start, end)
+        return returns
+    return _f
+
+
 def test_handler_games_sync_job(monkeypatch, settings):
     db = _isolate_db(monkeypatch, settings)
     captured = {}
 
-    def fake_games_sync(s, d, date):
-        captured["settings"] = s
-        captured["db"] = d
-        captured["date"] = date
-        return 12
-
-    monkeypatch.setattr(handler.run, "job_games_sync", fake_games_sync)
+    monkeypatch.setattr(handler.run, "job_games_sync_range", _fake_sync_range(captured, 12))
     monkeypatch.setattr(handler.run, "land_registrations", _boom("land_registrations"))
     monkeypatch.setattr(handler.run, "land_game_records_range", _boom("land_game_records_range"))
     out = handler.handler({"job": "games_sync", "date": "2026-07-31"}, None)
     assert captured["settings"] is settings
     assert captured["db"] is db
-    assert captured["date"] == "2026-07-31"
+    # days 없이 부르면 당일치 그대로 (라이브 10분 룰의 기존 동작)
+    assert captured["range"] == ("2026-07-31", "2026-07-31")
     assert out["gamesSynced"] == 12
     assert db.closed
 
@@ -267,11 +271,54 @@ def test_handler_games_sync_defaults_to_kst_today_not_utc(monkeypatch, settings)
     monkeypatch.setattr(handler, "_today", _boom("_today"))
     captured = {}
 
-    def fake_games_sync(s, d, date):
-        captured["date"] = date
-        return 0
-
-    monkeypatch.setattr(handler.run, "job_games_sync", fake_games_sync)
+    monkeypatch.setattr(handler.run, "job_games_sync_range", _fake_sync_range(captured))
     handler.handler({"job": "games_sync"}, None)
-    assert captured["date"] == "2026-08-01"
+    assert captured["range"] == ("2026-08-01", "2026-08-01")
     assert db.closed
+
+
+def test_handler_games_sync_days_opens_forward_window(monkeypatch, settings):
+    # 일정 선적재 룰: {"days": 7} 이면 오늘~+7일. 상태 추적(당일)과 같은 잡을
+    # 다른 구간으로 부르는 것이 이 기능의 전부다.
+    db = _isolate_db(monkeypatch, settings)
+    monkeypatch.setattr(handler, "_kst_today", lambda: "2026-08-11")
+    captured = {}
+
+    monkeypatch.setattr(handler.run, "job_games_sync_range", _fake_sync_range(captured, 40))
+    out = handler.handler({"job": "games_sync", "days": 7}, None)
+    assert captured["range"] == ("2026-08-11", "2026-08-18")
+    assert out["from"] == "2026-08-11" and out["to"] == "2026-08-18"
+    assert out["gamesSynced"] == 40
+
+
+def test_handler_games_sync_days_capped_at_max(monkeypatch, settings):
+    # days 는 EventBridge 룰 input(Terraform)에서 오는 값이라, 라이브 10분 룰에
+    # 실수로 붙어도 원천을 폭주시키지 않도록 코드에서 자른다.
+    db = _isolate_db(monkeypatch, settings)
+    monkeypatch.setattr(handler, "_kst_today", lambda: "2026-08-11")
+    captured = {}
+
+    monkeypatch.setattr(handler.run, "job_games_sync_range", _fake_sync_range(captured))
+    handler.handler({"job": "games_sync", "days": 365}, None)
+    assert captured["range"] == ("2026-08-11", handler._plus_days("2026-08-11",
+                                                                 handler.MAX_SYNC_DAYS))
+
+
+def test_handler_games_sync_from_to_backfill_also_capped(monkeypatch, settings):
+    db = _isolate_db(monkeypatch, settings)
+    captured = {}
+
+    monkeypatch.setattr(handler.run, "job_games_sync_range", _fake_sync_range(captured))
+    handler.handler({"job": "games_sync", "from": "2026-03-28", "to": "2026-10-01"}, None)
+    start, end = captured["range"]
+    assert start == "2026-03-28"
+    assert end == handler._plus_days("2026-03-28", handler.MAX_SYNC_DAYS)
+
+
+def test_handler_games_sync_from_to_within_cap_is_untouched(monkeypatch, settings):
+    db = _isolate_db(monkeypatch, settings)
+    captured = {}
+
+    monkeypatch.setattr(handler.run, "job_games_sync_range", _fake_sync_range(captured))
+    handler.handler({"job": "games_sync", "from": "2026-08-11", "to": "2026-08-18"}, None)
+    assert captured["range"] == ("2026-08-11", "2026-08-18")

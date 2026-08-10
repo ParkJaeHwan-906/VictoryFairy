@@ -502,18 +502,29 @@ def land_game_records(date, *, settings, db, client, team_ids=None) -> tuple[lis
     return loaded, failed
 
 
-def job_games_sync(settings, db, date):
-    """당일 KBO 경기 전부의 상태를 games 테이블에 동기화 (취소·예정 포함).
+def _scheduled_game_stadium(settings, client, game, status, log):
+    """경기 전 구장 이름 (얻지 못하면 None).
 
-    점수는 LIVE/RESULT 에서만 채운다 — SCHEDULED/CANCELED 의 0-0 은 껍데기라
-    NULL 로 적재해야 미시작 경기가 0:0 무승부처럼 보이지 않는다.
+    스케줄 목록 응답에는 구장 필드가 아예 없어 경기 상세를 한 번 더 부른다
+    (land_results 가 쓰는 것과 같은 엔드포인트). SCHEDULED 일 때만 부르는 이유:
+    경기가 시작되면 records 잡이 박스스코어에서 구장을 확정 적재하므로 중복이고,
+    라이브 10분 주기에 얹히면 얻을 것 없이 호출량만 늘기 때문.
     """
-    log = logging.getLogger("games_sync")
-    with fetch.build_client(settings) as client:
-        resp = fetch.fetch(client, game_records.schedule_url(settings, date),
+    if status != "SCHEDULED":
+        return None
+    try:
+        resp = fetch.fetch(client, naver.result_url(settings, game["gameId"]),
                            settings=settings, referer=settings.naver_referer)
+        return ((resp.json().get("result") or {}).get("game") or {}).get("stadium") or None
+    except Exception as exc:  # 구장은 부가 정보 — 실패해도 일정 적재까지 막지 않는다
+        log.warning("stadium fetch fail %s: %s", game.get("gameId"), exc)
+        return None
+
+
+def _sync_games_for_date(settings, db, client, date, team_ids, log) -> int:
+    resp = fetch.fetch(client, game_records.schedule_url(settings, date),
+                       settings=settings, referer=settings.naver_referer)
     games = game_records.list_kbo_games(resp.json())
-    team_ids = db.upsert_teams(dimensions.TEAMS)
     synced, skipped = 0, 0
     for g in games:
         status = game_records.map_status(g)
@@ -523,16 +534,49 @@ def job_games_sync(settings, db, date):
             continue
         live_or_done = status in ("IN_PROGRESS", "FINISHED", "DRAW")
         dt = (g.get("gameDateTime") or "").replace("T", " ") or f"{date} 00:00:00"
+        stadium = _scheduled_game_stadium(settings, client, g, status, log)
         db.sync_game(
             naver_game_id=g["gameId"], game_dt=dt,
             home_team_id=team_ids[g["homeTeamCode"]],
             away_team_id=team_ids[g["awayTeamCode"]],
             home_score=g.get("homeTeamScore") if live_or_done else None,
             away_score=g.get("awayTeamScore") if live_or_done else None,
-            status_id=db.status_id(status))
+            status_id=db.status_id(status),
+            stadium_id=db.stadium_id(stadium))
         synced += 1
     log.info("%s: synced=%d skipped=%d", date, synced, skipped)
     return synced
+
+
+def job_games_sync(settings, db, date):
+    """당일 KBO 경기 전부의 상태를 games 테이블에 동기화 (취소·예정 포함)."""
+    return job_games_sync_range(settings, db, date, date)
+
+
+def job_games_sync_range(settings, db, start, end, sleep=time.sleep) -> int:
+    """[start, end] 각 날짜의 KBO 경기를 games 에 동기화하고 총 건수 반환.
+
+    오늘~+N일로 부르면 아직 열리지 않은 경기가 SCHEDULED 행으로 미리 깔린다 —
+    이 잡에서는 일정 적재와 상태 동기화가 같은 upsert 다. 점수는 LIVE/RESULT
+    에서만 채운다: SCHEDULED/CANCELED 의 0-0 은 껍데기라 NULL 로 적재해야
+    미시작 경기가 0:0 무승부처럼 보이지 않는다.
+    """
+    log = logging.getLogger("games_sync")
+    team_ids = db.upsert_teams(dimensions.TEAMS)
+    d0, d1 = date_cls.fromisoformat(start), date_cls.fromisoformat(end)
+    total = 0
+    with fetch.build_client(settings) as client:
+        d = d0
+        while d <= d1:
+            day = d.isoformat()
+            try:
+                total += _sync_games_for_date(settings, db, client, day, team_ids, log)
+            except Exception as exc:  # 하루가 막혀도 나머지 날짜는 적재한다
+                log.warning("games_sync fail %s: %s", day, exc)
+            d += timedelta(days=1)
+            if d <= d1:
+                sleep(settings.fetch_delay_ms / 1000)
+    return total
 
 
 def land_game_records_range(start, end, *, settings, db, client, sleep=time.sleep) -> dict:
@@ -631,9 +675,12 @@ def main(argv=None) -> int:
         db = DbSink(settings)
         try:
             if args.job == "games_sync":
-                # job_games_sync 는 fetch 클라이언트를 자체 관리한다(Task 9 Lambda
-                # 핸들러가 settings/db/date 세 인자만으로 직접 호출하는 것과 동일 경로).
-                job_games_sync(settings, db, date)
+                # job_games_sync_range 는 fetch 클라이언트를 자체 관리한다(Lambda
+                # 핸들러가 settings/db/구간만으로 직접 호출하는 것과 동일 경로).
+                # records 와 같은 --from/--to 로 구간(예: 오늘~+7일)을 받는다.
+                start = args.from_date or date
+                end = args.to_date or start
+                job_games_sync_range(settings, db, start, end)
             else:
                 with fetch.build_client(settings) as client:
                     if args.job == "teams":
