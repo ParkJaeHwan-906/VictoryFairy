@@ -29,16 +29,20 @@ game_schedule = "cron(0 18 * * ? *)"
 quiz_source_jobs_enabled = true
 
 # --- KBO 취소 사유 잡 게이트 ---
-# 선행 조건 둘이 다 끝난 뒤 true 로 올린다(절차는 quiz_source_jobs_enabled 와 동일):
-#   1. games.cancel_reason 컬럼 — dev_be PR #281 머지 후 user 앱 기동(ddl-auto=update).
-#      컬럼 없이 켜면 UPDATE 가 Unknown column 으로 매일 실패한다.
-#   2. cancel_reasons 잡을 아는 이미지 — dev_ai PR #283 머지 후 ECR 배포.
-#      모르는 job 은 빈 summary 만 내고 끝나 실패로도 안 드러난다.
-# 확인 방법: 아래 페이로드를 수동 호출해 cancelReasons 키가 응답에 오는지 본다.
-#   aws lambda invoke --function-name kbo-collector-db \
-#     --cli-binary-format raw-in-base64-out \
-#     --payload '{"job":"cancel_reasons","months":["2026-08"]}' out.json
-cancel_reasons_enabled = false
+# 2026-08-10 에 켰다. 선행 조건 둘을 실제로 확인한 뒤다(절차는 quiz_source_jobs_enabled 와 동일):
+#   1. games.cancel_reason 컬럼 — dev_be #281 머지 후 user 앱 재기동으로 생성됐다.
+#      운영 DB 실측: cancel_reason varchar(50) YES.
+#   2. cancel_reasons 잡을 아는 이미지 — dev_ai #283 머지 후 06:47 UTC 에 두 함수 갱신.
+#      수동 호출 응답에 결과 키가 왔다: {"job":"cancel_reasons", ..., "cancelReasons": 30}.
+#      모르는 job 은 StatusCode 200 에 빈 summary 라 이 확인 없이는 구분이 안 된다.
+# 같은 날 8월 취소 30건이 games.cancel_reason 에 전부 반영된 것까지 확인했다
+# (8/01~8/09 취소 경기 커버리지 100%).
+#
+# ⚠ 사유가 붙으려면 그 경기의 games 행이 먼저 있어야 한다. 8/07 이전 취소 경기는
+#   행 자체가 없어 처음엔 15/30 만 붙었고, games_sync 백필(8/01~8/06)로 25행을 만든
+#   뒤에야 30/30 이 됐다. 룰 순서(00:30 games_sync -> 01:00 cancel_reasons)가 이 선후를
+#   지키는 장치다.
+cancel_reasons_enabled = true
 
 # --- DB 적재 잡 (records/registrations) — 2026-07-29 조회값 ---
 # 서브넷/SG는 infra 스택 소유. db_host 는 데이터 EC2 프라이빗 IP —
