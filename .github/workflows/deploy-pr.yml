@@ -1,0 +1,85 @@
+name: Deploy PR
+
+# PR 자동화 2단계: dev_* 에 머지가 들어오면 main 으로 가는 배포 PR 을 자동 생성한다.
+# 생성된 PR 은 pr-guard.yml 을 다시 타고(충돌 검사 → 리뷰 → 승인 → 머지) main 에 들어가며,
+# main push 를 트리거로 deploy-eks / deploy-fe / deploy-ai 가 실제 배포를 수행한다.
+#
+# AUTOMATION_TOKEN 으로 PR 을 만드는 이유:
+# GITHUB_TOKEN 이 만든 PR 은 워크플로를 트리거하지 않는다(재귀 방지). 그러면 배포 PR 이
+# 리뷰도 머지도 되지 않고 그대로 멈춘다.
+
+on:
+  push:
+    branches:
+      - dev_*
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: deploy-pr-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  open-deploy-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Open or update deploy PR
+        env:
+          GH_TOKEN: ${{ secrets.AUTOMATION_TOKEN }}
+          BRANCH: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::AUTOMATION_TOKEN 시크릿이 없습니다. 배포 PR 을 만들 수 없습니다."
+            exit 1
+          fi
+
+          git fetch --no-tags --quiet origin main
+
+          if git diff --quiet origin/main "origin/${BRANCH}"; then
+            echo "main 과 내용이 동일 — 배포 PR 불필요"
+            exit 0
+          fi
+
+          existing=$(gh pr list --repo "$REPO" --base main --head "$BRANCH" \
+            --state open --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            echo "이미 열려 있는 배포 PR #${existing} — 새 커밋이 자동 반영됩니다"
+            exit 0
+          fi
+
+          # 직전 배포 이후 쌓인 커밋만 싣는다.
+          # main 은 squash 머지라 `git log main..dev_*` 는 이미 배포된 커밋까지 계속 잡힌다.
+          since=$(gh pr list --repo "$REPO" --base main --head "$BRANCH" --state merged \
+            --limit 1 --json mergedAt --jq '.[0].mergedAt // empty')
+          if [ -n "$since" ]; then
+            commits=$(git log --since="$since" --pretty='- %s (%an)' "origin/${BRANCH}")
+          else
+            commits=$(git log -20 --pretty='- %s (%an)' "origin/${BRANCH}")
+          fi
+
+          {
+            echo "\`${BRANCH}\` 에 머지된 변경을 \`main\` 으로 배포합니다. (자동 생성)"
+            echo
+            echo "### 포함 커밋"
+            echo
+            echo "${commits:-- (없음)}"
+            echo
+            echo "### 변경 규모"
+            echo
+            echo '```'
+            git diff --stat origin/main "origin/${BRANCH}" | tail -n 40
+            echo '```'
+          } >pr-body.md
+
+          gh pr create --repo "$REPO" --base main --head "$BRANCH" \
+            --title "Deploy: ${BRANCH} → main" --body-file pr-body.md
