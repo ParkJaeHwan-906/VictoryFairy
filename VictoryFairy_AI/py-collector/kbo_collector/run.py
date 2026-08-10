@@ -8,7 +8,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date as date_cls
 from datetime import datetime, timedelta, timezone
 
-from . import community, dimensions, fetch, game_records, keys, kbo_register, kbo_trade, naver
+from . import (community, dimensions, fetch, game_records, kbo_register, kbo_schedule,
+               kbo_trade, keys, naver)
 from .config import get_settings
 from .journal import Journal, setup_logging
 from .sink import S3RawSink
@@ -579,6 +580,49 @@ def job_games_sync_range(settings, db, start, end, sleep=time.sleep) -> int:
     return total
 
 
+def _cancel_reason_months(date_str: str) -> list[str]:
+    """훑을 달 목록: 기준일의 달 + 사흘 전의 달.
+
+    대개 같은 달이라 호출 1회고, 월초 사흘만 2회가 된다 — 월말 취소분이 달을
+    넘겨 조회에서 빠지는 걸 막는 최소한의 여유다.
+    """
+    d = date_cls.fromisoformat(date_str)
+    return sorted({d.strftime("%Y-%m"), (d - timedelta(days=3)).strftime("%Y-%m")})
+
+
+def job_cancel_reasons(settings, db, date=None, months=None) -> int:
+    """KBO 공식 일정표의 취소 사유를 games.cancel_reason 에 반영, 갱신 행 수 반환.
+
+    네이버에는 사유가 없어서(취소를 "경기취소" 로만 준다) 이 잡만 KBO 를 긁는다.
+    games_sync 에 얹지 않고 따로 둔 이유는 KBO 응답이 월 단위이기 때문 — 날짜
+    루프에 넣으면 같은 달을 날짜 수만큼 반복해서 받게 된다.
+    """
+    log = logging.getLogger("cancel_reasons")
+    months = months or _cancel_reason_months(date or _kst_today())
+    team_ids = db.upsert_teams(dimensions.TEAMS)
+    total = 0
+    with fetch.build_client(settings) as client:
+        for ym in months:
+            season, month = ym.split("-")
+            try:
+                rows = kbo_schedule.fetch_month(season, month, settings=settings, client=client)
+            except Exception as exc:  # 한 달이 막혀도 나머지 달은 반영한다
+                log.warning("kbo schedule fetch fail %s: %s", ym, exc)
+                continue
+            cancelled = kbo_schedule.cancelled_rows(rows)
+            updated = 0
+            for r in cancelled:
+                home = team_ids.get(r["home_code"])
+                away = team_ids.get(r["away_code"])
+                if home is None or away is None:
+                    continue
+                updated += db.set_cancel_reason(
+                    date=r["date"], home_team_id=home, away_team_id=away, reason=r["note"])
+            log.info("%s: cancelled=%d updated=%d", ym, len(cancelled), updated)
+            total += updated
+    return total
+
+
 def land_game_records_range(start, end, *, settings, db, client, sleep=time.sleep) -> dict:
     """[start, end] 날짜 구간 백필. teams 시드 후 일자별 반복."""
     team_ids = db.upsert_teams(dimensions.TEAMS)
@@ -602,7 +646,8 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="kbo_collector")
     parser.add_argument("job", choices=["schedule", "result", "relay", "game",
                                         "community", "all", "teams", "registrations",
-                                        "records", "games_sync", "collect", "export"])
+                                        "records", "games_sync", "cancel_reasons",
+                                        "collect", "export"])
     parser.add_argument("--target", default=None,
                         help="collect: source_id / export: docType")
     parser.add_argument("--date", default=None, help="YYYY-MM-DD (default: today UTC)")
@@ -670,11 +715,15 @@ def main(argv=None) -> int:
                 db.close()
         return 0
 
-    if args.job in ("teams", "registrations", "records", "games_sync"):
+    if args.job in ("teams", "registrations", "records", "games_sync", "cancel_reasons"):
         from .db import DbSink
         db = DbSink(settings)
         try:
-            if args.job == "games_sync":
+            if args.job == "cancel_reasons":
+                # job_cancel_reasons 도 클라이언트를 자체 관리한다(KBO 세션 쿠키를
+                # 선발급받아야 해서 호출부와 수명을 맞출 이유가 없다).
+                job_cancel_reasons(settings, db, date=args.date)
+            elif args.job == "games_sync":
                 # job_games_sync_range 는 fetch 클라이언트를 자체 관리한다(Lambda
                 # 핸들러가 settings/db/구간만으로 직접 호출하는 것과 동일 경로).
                 # records 와 같은 --from/--to 로 구간(예: 오늘~+7일)을 받는다.
