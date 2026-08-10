@@ -1,0 +1,262 @@
+name: PR Guard
+
+# PR 자동화 1단계: 충돌 검사 → Claude 코드리뷰 → 승인 → 머지.
+#
+#   feature → dev_*   : 여기서 리뷰·승인·머지까지 끝난다.
+#   dev_*   → main    : deploy-pr.yml 이 만든 배포 PR 도 같은 경로를 탄다.
+#
+# 충돌이 나면 리뷰 이전에 멈추고, 어디서 어떻게 충돌했는지 이슈로 남긴 뒤
+# PR 작성자와 반대편 커밋 작성자를 멘션한다. (사람이 개입해야 하는 유일한 지점)
+#
+# 에스컬레이션 해제용 라벨:
+#   hold          — 자동화 전체를 건너뛴다
+#   no-auto-merge — 리뷰·승인까지만 하고 머지는 사람이 한다
+
+on:
+  pull_request:
+    # labeled/unlabeled 은 넣지 않는다. 이 워크플로가 직접 라벨을 붙이므로 자기 자신을 재트리거할 수 있다.
+    # 라벨로 자동화를 풀었다면 재푸시하거나 Actions 에서 재실행한다.
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches:
+      - main
+      - dev_*
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  checks: read
+  actions: read
+  id-token: write # claude-code-action OIDC
+
+concurrency:
+  group: pr-guard-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  PR_NUMBER: ${{ github.event.pull_request.number }}
+  BASE_REF: ${{ github.event.pull_request.base.ref }}
+  HEAD_REF: ${{ github.event.pull_request.head.ref }}
+  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+  PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+
+jobs:
+  # ── 1단계: 충돌 검사 ────────────────────────────────────────────
+  conflict:
+    if: >-
+      github.event.pull_request.draft == false &&
+      !contains(github.event.pull_request.labels.*.name, 'hold')
+    runs-on: ubuntu-latest
+    outputs:
+      conflicted: ${{ steps.check.outputs.conflicted }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Ensure labels exist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create merge-conflict --color B60205 --description "자동 머지 중 충돌 발생" --force
+          gh label create claude-reviewed --color 0E8A16 --description "Claude 코드리뷰 통과" --force
+          gh label create no-auto-merge   --color FBCA04 --description "자동 머지 제외" --force
+          gh label create hold            --color 5319E7 --description "자동화 일시 중지" --force
+
+      - name: Detect merge conflicts
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash .github/scripts/conflict-report.sh "$BASE_REF" "$HEAD_SHA" conflict-report.md
+
+      # 충돌 이슈는 PR 당 하나만 유지한다. 같은 PR 에 재푸시되면 새로 만들지 않고 코멘트를 덧붙인다.
+      - name: Open or update conflict issue
+        if: steps.check.outputs.conflicted == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          title="[충돌] PR #${PR_NUMBER}: ${HEAD_REF} → ${BASE_REF}"
+          counterparts=$(cat counterparts.txt 2>/dev/null || true)
+          mentions="@${PR_AUTHOR}"
+          for login in $counterparts; do
+            [ "$login" = "$PR_AUTHOR" ] && continue
+            mentions="${mentions} @${login}"
+          done
+
+          {
+            echo "${mentions} 자동 머지를 진행할 수 없습니다. 검토가 필요합니다."
+            echo
+            echo "- 대상 PR: #${PR_NUMBER} (\`${HEAD_REF}\` → \`${BASE_REF}\`)"
+            echo "- 감지 커밋: \`${HEAD_SHA}\`"
+            echo "- 워크플로 로그: ${RUN_URL}"
+            echo
+            cat conflict-report.md
+            echo
+            echo "---"
+            echo
+            echo "### 해결 방법"
+            echo
+            echo '```bash'
+            echo "git fetch origin"
+            echo "git switch ${HEAD_REF}"
+            echo "git merge origin/${BASE_REF}   # 충돌 해결 후 커밋"
+            echo "git push"
+            echo '```'
+            echo
+            echo "PR 에 다시 푸시하면 이 자동화가 충돌을 재검사하고, 해소되면 이 이슈를 닫습니다."
+          } >issue-body.md
+
+          existing=$(gh issue list --state open --label merge-conflict \
+            --search "\"PR #${PR_NUMBER}:\" in:title" --json number,title \
+            --jq "[.[] | select(.title == \"${title}\")][0].number // empty")
+
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body-file issue-body.md
+            echo "기존 이슈 #${existing} 갱신"
+          else
+            existing=$(gh issue create --title "$title" --body-file issue-body.md \
+              --label merge-conflict --assignee "$PR_AUTHOR" \
+              | grep -oE '[0-9]+$')
+            echo "이슈 #${existing} 생성"
+          fi
+
+          gh pr edit "$PR_NUMBER" --add-label merge-conflict
+          gh pr comment "$PR_NUMBER" --body "머지 충돌로 자동화를 중단했습니다. 상세 내역은 #${existing} 을 확인해 주세요."
+
+      # 충돌이 해소되면 라벨을 떼고 이슈를 닫는다.
+      - name: Resolve conflict issue
+        if: steps.check.outputs.conflicted == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh pr edit "$PR_NUMBER" --remove-label merge-conflict 2>/dev/null || true
+          title="[충돌] PR #${PR_NUMBER}: ${HEAD_REF} → ${BASE_REF}"
+          num=$(gh issue list --state open --label merge-conflict \
+            --search "\"PR #${PR_NUMBER}:\" in:title" --json number,title \
+            --jq "[.[] | select(.title == \"${title}\")][0].number // empty")
+          if [ -n "$num" ]; then
+            gh issue close "$num" --comment "PR #${PR_NUMBER} 의 충돌이 해소되어 자동으로 닫습니다."
+          fi
+
+      - name: Fail on conflict
+        if: steps.check.outputs.conflicted == 'true'
+        run: |
+          echo "::error::머지 충돌 ${{ steps.check.outputs.files }}개 파일 — 이슈를 확인하세요."
+          exit 1
+
+  # ── 2단계: Claude 코드리뷰 + 승인/변경요청 ──────────────────────
+  review:
+    needs: conflict
+    if: needs.conflict.outputs.conflicted == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      # 인증 시크릿이 없으면 조용히 통과시키지 않고 여기서 멈춘다.
+      # 리뷰 없이 머지되는 것보다 PR 이 막혀 있는 편이 낫다.
+      - name: Require Claude credentials
+        env:
+          HAS_KEY: ${{ secrets.ANTHROPIC_API_KEY != '' || secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+        run: |
+          if [ "$HAS_KEY" != "true" ]; then
+            echo "::error::ANTHROPIC_API_KEY 또는 CLAUDE_CODE_OAUTH_TOKEN 시크릿이 필요합니다."
+            exit 1
+          fi
+
+      - uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # 둘 중 등록된 것으로 인증한다. Claude GitHub App 설치는 선택이며,
+          # 앱 없이 ANTHROPIC_API_KEY + 기본 GITHUB_TOKEN 만으로 동작한다.
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          claude_args: |
+            --max-turns 40
+            --allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr review:*),Bash(gh pr edit:*)"
+          prompt: |
+            저장소 ${{ github.repository }} 의 PR #${{ env.PR_NUMBER }} (`${{ env.HEAD_REF }}` → `${{ env.BASE_REF }}`) 를 리뷰하고,
+            마지막에 반드시 `gh pr review` 로 승인 또는 변경요청을 제출한다.
+
+            ## 저장소 구조
+            모노레포다. `VictoryFairy_BE`(Spring Boot·Gradle 멀티모듈), `VictoryFairy_FE`,
+            `VictoryFairy_AI`(파이썬 수집/퀴즈 파이프라인), `VictoryFairy_Infra`(Terraform·k8s).
+
+            ## 리뷰 방법
+            1. `gh pr diff ${{ env.PR_NUMBER }}` 로 변경 전체를 본다.
+            2. 변경된 파일의 주변 코드를 Read/Grep 으로 확인한다. diff 만 보고 판단하지 않는다.
+            3. base 가 `main` 인 PR 은 dev_* 브랜치의 배포 PR 이다. 개별 라인은 이미 feature PR 에서
+               리뷰됐으므로, 배포 리스크(스키마 변경, 파괴적 인프라 변경, 설정·시크릿, 롤백 가능성)에 집중한다.
+
+            ## 차단(변경요청) 사유 — 이것만 request-changes 한다
+            - 동작을 깨뜨리는 버그, 널/경계/동시성 결함
+            - 시크릿·자격증명 하드코딩, 인젝션, 인증·인가 우회
+            - 데이터 손실 위험: 파괴적 DB 마이그레이션, 되돌릴 수 없는 삭제
+            - Terraform 에서 리소스 destroy/replace 를 유발하는 변경 (특히 DB·네트워크)
+            - 이 저장소 규약 위반: `dev_*` 브랜치는 서로 독립 트리라 `main` → `dev_*` 머지 금지,
+              커밋 메시지에 Claude 관련 트레일러·푸터 금지
+
+            ## 차단하지 않는 것
+            네이밍, 스타일, 리팩터링 제안, 테스트 추가 권유 등은 코멘트로만 남기고 승인한다.
+
+            ## 출력
+            - 리뷰 본문은 한국어. 결론을 먼저 쓰고, 근거를 `파일:라인` 으로 지목한다.
+            - 요구사항 명세를 복창하는 서술은 쓰지 않는다. 위험과 이유만 쓴다.
+            - 차단 사유가 없으면:
+              `gh pr review ${{ env.PR_NUMBER }} --approve --body "<리뷰 본문>"`
+              이어서 `gh pr edit ${{ env.PR_NUMBER }} --add-label claude-reviewed`
+            - 차단 사유가 있으면:
+              `gh pr review ${{ env.PR_NUMBER }} --request-changes --body "<리뷰 본문>"`
+            - 판단이 서지 않으면 승인하지 말고 변경요청으로 두고 그 이유를 쓴다.
+
+  # ── 3단계: 승인됐고 다른 체크가 통과했으면 머지 ─────────────────
+  merge:
+    needs: [conflict, review]
+    if: >-
+      needs.conflict.outputs.conflicted == 'false' &&
+      !contains(github.event.pull_request.labels.*.name, 'no-auto-merge')
+    runs-on: ubuntu-latest
+    steps:
+      # GITHUB_TOKEN 은 CODEOWNERS 승인 요건을 만족시키지 못해 머지가 거부된다.
+      # 룰셋을 우회할 수 있는 관리자 PAT 으로 머지한다. 없으면 승인 상태로만 남긴다.
+      - name: Merge when approved
+        env:
+          GH_TOKEN: ${{ secrets.AUTOMATION_TOKEN || secrets.GITHUB_TOKEN }}
+          HAS_PAT: ${{ secrets.AUTOMATION_TOKEN != '' }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          approved=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json reviews \
+            --jq '[.reviews[] | select(.state == "APPROVED")] | length')
+          changes=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json reviews \
+            --jq '[.reviews[] | select(.state == "CHANGES_REQUESTED")] | length')
+
+          if [ "$changes" -gt 0 ] || [ "$approved" -eq 0 ]; then
+            echo "승인 없음(approved=${approved}, changes_requested=${changes}) — 머지하지 않음"
+            exit 0
+          fi
+
+          if [ "$HAS_PAT" != "true" ]; then
+            echo "::warning::AUTOMATION_TOKEN 이 없어 자동 머지를 건너뜁니다. 승인 상태까지만 진행했습니다."
+            exit 0
+          fi
+
+          # 다른 체크가 이미 실패했으면 머지하지 않는다.
+          # --watch 는 쓰지 않는다. 지금 실행 중인 이 잡 자신을 기다리다 교착에 빠진다.
+          failed=$(gh api "repos/${REPO}/commits/${HEAD_SHA}/check-runs" --paginate \
+            --jq '[.check_runs[] | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out")] | length')
+          if [ "$failed" -gt 0 ]; then
+            echo "::error::실패한 체크 ${failed}개 — 머지하지 않음"
+            exit 1
+          fi
+
+          gh pr merge "$PR_NUMBER" --repo "$REPO" --squash \
+            --subject "$(gh pr view "$PR_NUMBER" --repo "$REPO" --json title --jq .title) (#${PR_NUMBER})"
+          echo "PR #${PR_NUMBER} squash 머지 완료"
