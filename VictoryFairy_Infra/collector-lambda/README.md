@@ -15,6 +15,7 @@ ECR 리포 하나의 이미지를 Lambda 함수 두 개가 공유한다:
 
 ```
 00:30  games_sync      일정 선적재 오늘~+7일             (RDB)
+01:00  cancel_reasons  KBO 일정표 취소 사유 -> games     (RDB, 게이트 off)
 03:00  game            일정·결과·중계 크롤              -> S3 raw-json/
 03:30  records         완료 경기 -> games/game_lineups   (RDB)
 04:00  export          games/game_lineups -> envelope    -> S3 question-source/
@@ -36,6 +37,12 @@ ECR 리포 하나의 이미지를 Lambda 함수 두 개가 공유한다:
 
 `game`(03:00)과 `game_schedule`(08:30)은 이름이 닮았지만 방향이 반대다 — 앞은 끝난
 경기(UTC 앵커), 뒤는 그날 아직 시작 전인 경기(KST 앵커)를 본다.
+
+`cancel_reasons`(01:00)는 **취소 "사유"만** 담당한다. 상태(`CANCELED`)는 `games_sync`가
+네이버에서 받아오지만 네이버는 취소를 `"경기취소"`로만 알려줘 사유가 없다 — 사유가
+적힌 곳은 KBO 공식 일정표뿐이라 이 잡만 KBO를 긁는다. 01:00 인 이유는 그 직전
+`games_sync`가 경기 행을 만들어 둔 뒤라야 갱신할 행이 있기 때문이다.
+**`cancel_reasons_enabled` 기본값이 `false`**이니 켜는 절차는 아래 컷오버 절 참고.
 
 함수를 나눈 이유, 잡별 상세·수동 실행·백필은
 [`VictoryFairy_AI/py-collector/deploy/lambda/README.md`](../../VictoryFairy_AI/py-collector/deploy/lambda/README.md)(dev_ai) 참고.
@@ -203,6 +210,28 @@ vf-local-test-game-schedule   cron(30 23 * * ? *)  -> kbo-collector-local-test
 `games_sync` 3 개는 게이트 없이 바로 생성된다 — 핸들러가 이미 지원하므로 apply 즉시 돈다.
 `days` 를 모르는 이미지로 롤백해도 안전하다: 모르는 이벤트 키는 무시되어 세 룰 모두
 당일치 동기화로 조용히 내려앉을 뿐, 실패하지 않는다.
+
+### 취소 사유 잡 컷오버 (`cancel_reasons_enabled`)
+
+`quiz_source_jobs_enabled` 와 같은 절차인데, 선행 조건이 **둘**이라 하나만 봐서는 안 된다.
+
+1. **`games.cancel_reason` 컬럼** (dev_be) — 없으면 잡의 UPDATE 가 `Unknown column` 으로
+   매일 실패한다. 컬럼은 `user` 앱의 `ddl-auto=update` 가 기동 시 만든다(1회성 DDL 불필요).
+2. **잡을 아는 이미지** (dev_ai) — 모르는 `job` 값은 예외 없이 빈 summary 만 내고 끝나
+   `StatusCode 200` 이 나오므로, 이걸 확인하지 않으면 "매일 성공하는데 아무것도 안 하는"
+   룰이 된다.
+
+둘 다 끝났는지는 수동 호출 한 번으로 같이 확인된다 — 응답에 `cancelReasons` 키가 있고
+컬럼이 없으면 여기서 에러가 난다:
+
+```bash
+aws lambda invoke --function-name kbo-collector-db \
+  --cli-binary-format raw-in-base64-out \
+  --payload '{"job":"cancel_reasons","months":["2026-08"]}' out.json && cat out.json
+# {"job": "cancel_reasons", "date": "...", "cancelReasons": 30}
+```
+
+확인 뒤 `config.auto.tfvars` 의 `cancel_reasons_enabled = true` 로 올린다.
 
 ## 다른 스택과의 접점
 
