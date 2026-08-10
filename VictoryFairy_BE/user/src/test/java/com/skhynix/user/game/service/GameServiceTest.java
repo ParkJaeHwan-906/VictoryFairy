@@ -179,6 +179,37 @@ class GameServiceTest {
         assertThat(response.awayTeamScore()).isEqualTo(5);
         assertThat(response.gameDate()).isEqualTo(gameDateTime);
         assertThat(response.gameState()).isEqualTo("FINISHED");
+        assertThat(response.cancelReason()).isNull();
+    }
+
+    @Test
+    @DisplayName("취소된 경기는 cancelReason이 응답까지 그대로 전달된다(취소가 아니면 null)")
+    void getGames_canceledGame_mapsCancelReasonToResponse() {
+        // given
+        LocalDate date = LocalDate.of(2026, 8, 9);
+        LocalDateTime gameDateTime = LocalDateTime.of(2026, 8, 9, 18, 0, 0);
+        Game canceled = Game.builder()
+                .gameDate(gameDateTime)
+                .homeTeam(teamOf("LG"))
+                .awayTeam(teamOf("KIA"))
+                .stadium(stadiumOf("잠실야구장"))
+                .gameStatus(statusOf("CANCELED"))
+                .cancelReason("폭염취소")
+                .naverGameId("20260809HTLG02026")
+                .build();
+        given(gameRepository.findAllByGameDateGreaterThanEqualAndGameDateLessThanOrderByGameDateAsc(
+                date.atStartOfDay(), date.plusDays(1).atStartOfDay())).willReturn(List.of(canceled));
+
+        // when
+        List<GameResponse> result = gameService.getGames(date);
+
+        // then
+        GameResponse response = result.get(0);
+        assertThat(response.gameState()).isEqualTo("CANCELED");
+        assertThat(response.cancelReason()).isEqualTo("폭염취소");
+        // 취소 경기의 0-0 은 껍데기라 점수는 적재되지 않는다(py-collector 규약)
+        assertThat(response.homeTeamScore()).isNull();
+        assertThat(response.awayTeamScore()).isNull();
     }
 
     @Test
