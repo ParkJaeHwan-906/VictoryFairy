@@ -363,22 +363,25 @@ def test_empty_rows_noop():
 # --------------------------------------------------------------------------- games_sync (Task 8)
 # GAME_SYNC_UPSERT / sync_game don't exist yet -> imported lazily inside each test
 # so the rest of this file still collects cleanly while these are RED.
-def test_game_sync_upsert_sql_inserts_null_stadium_and_coalesces_scores():
+def test_game_sync_upsert_sql_binds_stadium_and_coalesces_scores():
     from kbo_collector.db import GAME_SYNC_UPSERT
-    assert "VALUES (%s, %s, %s, %s, NULL, %s, %s, %s, NOW(6), NOW(6))" in GAME_SYNC_UPSERT
+    # 경기 전에는 records 잡이 아직 안 돌아 구장이 비므로, 일정 선적재가 채울 수
+    # 있도록 stadium_id 도 바인딩 파라미터로 받는다(예전엔 NULL 리터럴이었다).
+    assert "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(6), NOW(6))" in GAME_SYNC_UPSERT
     assert "home_score=COALESCE(VALUES(home_score), home_score)" in GAME_SYNC_UPSERT
     assert "away_score=COALESCE(VALUES(away_score), away_score)" in GAME_SYNC_UPSERT
 
 
-def test_game_sync_upsert_sql_excludes_stadium_id_from_update_clause():
+def test_game_sync_upsert_never_nulls_out_a_stadium_records_already_landed():
     from kbo_collector.db import GAME_SYNC_UPSERT
-    # stadium_id 는 records 잡 소유 — games_sync 의 UPDATE 목록에 있으면 records가
-    # 적재한 구장을 games_sync가 NULL로 덮어써버린다.
+    # stadium_id 의 최종 진실은 여전히 records 잡이다. games_sync 가 구장을 못 얻어
+    # NULL 을 넘겨도 COALESCE 가 기존 값을 지켜야 한다 — 무조건 VALUES() 로 덮으면
+    # 박스스코어로 확정된 구장이 매 동기화마다 지워진다.
     update_clause = GAME_SYNC_UPSERT.split("ON DUPLICATE KEY UPDATE", 1)[1]
-    assert "stadium_id" not in update_clause
+    assert "stadium_id=COALESCE(VALUES(stadium_id), stadium_id)" in update_clause
 
 
-def test_sync_game_upserts_with_null_stadium_and_commits():
+def test_sync_game_upserts_and_commits():
     from kbo_collector.db import GAME_SYNC_UPSERT
     conn = FakeConn()
     pk = DbSink(None, connection=conn).sync_game(
@@ -386,9 +389,20 @@ def test_sync_game_upserts_with_null_stadium_and_commits():
         home_team_id=3, away_team_id=2, home_score=5, away_score=3, status_id=7)
     kind, sql, params = conn.log[0]
     assert kind == "execute" and sql == GAME_SYNC_UPSERT
-    assert params == ("20260708LGSS02026", "2026-07-08 18:30:00", 3, 2, 5, 3, 7)
+    # stadium_id 미지정 -> None (INSERT 시 NULL, UPDATE 시 COALESCE 로 기존 값 유지)
+    assert params == ("20260708LGSS02026", "2026-07-08 18:30:00", 3, 2, None, 5, 3, 7)
     assert pk == 101
     assert conn.commits == 1
+
+
+def test_sync_game_binds_stadium_when_given():
+    conn = FakeConn()
+    DbSink(None, connection=conn).sync_game(
+        naver_game_id="20260811HHOB02026", game_dt="2026-08-11 19:00:00",
+        home_team_id=1, away_team_id=9, home_score=None, away_score=None,
+        status_id=1, stadium_id=42)
+    _, _, params = conn.log[0]
+    assert params[4] == 42
 
 
 def test_sync_game_passes_none_scores_through_for_scheduled_or_cancelled():

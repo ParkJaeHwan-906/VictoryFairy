@@ -117,13 +117,16 @@ GAME_UPSERT = (
     "  updated_at=NOW(6)"
 )
 
-# games_sync 전용: 점수는 제공될 때만 갱신(COALESCE), stadium_id 는 records 잡
-# 소유라 건드리지 않는다(INSERT 시 NULL, UPDATE 목록에서 제외).
+# games_sync 전용: 점수·구장은 제공될 때만 갱신(COALESCE).
+# stadium_id 의 최종 진실은 여전히 records 잡이다 — GAME_UPSERT 는 무조건 덮어쓰고
+# 여기선 NULL 일 때만 메운다. 경기 전에는 records 가 아직 안 돌아 구장이 비는데,
+# 일정을 미리 적재하는 잡(games_sync 의 +N일 윈도)이 그 구멍을 채우기 위한 것.
 GAME_SYNC_UPSERT = (
     "INSERT INTO games (naver_game_id, game_date, home_team_id, away_team_id, "
     " stadium_id, home_score, away_score, game_status_id, created_at, updated_at) "
-    "VALUES (%s, %s, %s, %s, NULL, %s, %s, %s, NOW(6), NOW(6)) "
+    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(6), NOW(6)) "
     "ON DUPLICATE KEY UPDATE game_date=VALUES(game_date), "
+    "  stadium_id=COALESCE(VALUES(stadium_id), stadium_id), "
     "  home_score=COALESCE(VALUES(home_score), home_score), "
     "  away_score=COALESCE(VALUES(away_score), away_score), "
     "  game_status_id=VALUES(game_status_id), updated_at=NOW(6)"
@@ -315,13 +318,13 @@ class DbSink:
         return pk
 
     def sync_game(self, *, naver_game_id, game_dt, home_team_id, away_team_id,
-                 home_score, away_score, status_id) -> int:
-        """games_sync 잡 전용 upsert. GAME_SYNC_UPSERT 를 써서 stadium_id 는
-        건드리지 않고(records 잡 소유), 점수는 COALESCE로 기존 값을 지킨다."""
+                 home_score, away_score, status_id, stadium_id=None) -> int:
+        """games_sync 잡 전용 upsert. GAME_SYNC_UPSERT 를 써서 점수·구장은
+        COALESCE로 기존 값을 지킨다(구장의 최종 진실은 records 잡)."""
         with self._conn.cursor() as cur:
             cur.execute(GAME_SYNC_UPSERT, (
                 naver_game_id, game_dt, home_team_id, away_team_id,
-                home_score, away_score, status_id,
+                stadium_id, home_score, away_score, status_id,
             ))
             pk = cur.lastrowid
         self._conn.commit()

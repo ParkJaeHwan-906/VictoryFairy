@@ -12,8 +12,9 @@ Events:
   {"job": "records", "from": .., "to": ..}  -> date-range backfill
   {"job": "registrations"}                  -> KBO 1-gun roster -> prod MySQL (11:00 KST)
   {"job": "games_sync"}                     -> today's games' status -> prod MySQL
-                                                (schedule proposal, infra pending — see README)
   {"job": "games_sync", "date": ..}         -> a specific date (backfill)
+  {"job": "games_sync", "days": 7}          -> 오늘~+7일 일정 선적재 (하루 1회 룰)
+  {"job": "games_sync", "from": .., "to": ..} -> date-range backfill
   {"job": "kbo_records"}                    -> KBO 기록실 스냅샷 -> S3 (07:00 KST)
   {"job": "game_schedule"}                  -> 당일(KST) 예정경기 -> S3 export (08:30 KST)
   {"job": "game_schedule", "date": ..}      -> 특정 날짜 백필
@@ -49,6 +50,17 @@ def _kst_today() -> str:
     return kst.strftime("%Y-%m-%d")
 
 
+# games_sync 가 한 번에 훑는 날짜 수의 천장. days/from/to 는 EventBridge 룰의 input
+# (Terraform)에서 오는 값이라, 라이브 10분 주기 룰에 실수로 붙으면 하루 42회 발화 x
+# 날짜 수만큼 원천을 두드리게 된다. 코드에서 잘라 그 사고를 구조적으로 막는다.
+MAX_SYNC_DAYS = 14
+
+
+def _plus_days(date_str: str, days: int) -> str:
+    d = datetime.date.fromisoformat(date_str) + datetime.timedelta(days=days)
+    return d.isoformat()
+
+
 def handler(event, context):
     setup_logging()
     settings = get_settings()
@@ -71,9 +83,15 @@ def handler(event, context):
         db = DbSink(settings)
         try:
             if job == "games_sync":
-                # job_games_sync 는 fetch 클라이언트를 자체 관리한다(CLI main()과 동일
-                # 경로) — 다른 DB 잡처럼 여기서 별도 client 를 만들 필요가 없다.
-                summary["gamesSynced"] = run.job_games_sync(settings, db, date)
+                # job_games_sync_range 는 fetch 클라이언트를 자체 관리한다(CLI main()과
+                # 동일 경로) — 다른 DB 잡처럼 여기서 별도 client 를 만들 필요가 없다.
+                # days 없이 부르면 start==end 라 당일치 그대로다(라이브 10분 룰).
+                start = event.get("from") or date
+                end = event.get("to") or _plus_days(
+                    start, min(int(event.get("days") or 0), MAX_SYNC_DAYS))
+                end = min(end, _plus_days(start, MAX_SYNC_DAYS))  # ISO 문자열 비교 = 날짜 비교
+                summary["from"], summary["to"] = start, end
+                summary["gamesSynced"] = run.job_games_sync_range(settings, db, start, end)
             else:
                 with fetch.build_client(settings) as client:
                     if job == "registrations":
