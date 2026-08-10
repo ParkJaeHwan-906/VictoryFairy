@@ -2,6 +2,7 @@ package com.skhynix.quiz.quiz.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -28,11 +29,15 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -119,10 +124,21 @@ class QuizServiceTest {
     }
 
     private void givenNoPreference() {
-        given(userSupportTeamRepository.findWithTeamByUserAccount_IdAndOpposeIsNull(USER_ID))
+        givenNoPreference(USER_ID);
+    }
+
+    private void givenNoPreference(Long userAccountId) {
+        given(userSupportTeamRepository.findWithTeamByUserAccount_IdAndOpposeIsNull(userAccountId))
                 .willReturn(Optional.empty());
-        given(userSupportPlayerRepository.findAllActiveWithPlayerAndTeam(USER_ID))
+        given(userSupportPlayerRepository.findAllActiveWithPlayerAndTeam(userAccountId))
                 .willReturn(List.of());
+    }
+
+    /** 그룹 내 순열이 갈릴 만큼 충분한 개수(10건)의 무선호 문제 목록. */
+    private List<Quiz> manyQuizzes() {
+        return IntStream.rangeClosed(1, 10)
+                .mapToObj(i -> quiz((long) i, "객관식", "문제" + i, "EASY", 10.0))
+                .toList();
     }
 
     private void givenSupportTeam(Team team) {
@@ -147,7 +163,9 @@ class QuizServiceTest {
         given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY))
                 .willReturn(List.of(oxQuiz, multiQuiz));
         givenNoPreference();
-        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(List.of(1L, 2L)))
+        // 두 문제 모두 비선호라 사용자별 셔플로 순서가 바뀔 수 있으므로 어떤 순서로 IN 조회가
+        // 나가도 매칭되게 anyList()로 스텁한다 — 순서는 아래 캡처로 별도 검증한다.
+        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(anyList()))
                 .willReturn(List.of(
                         option(oxQuiz, 0, "O"), option(oxQuiz, 1, "X"),
                         option(multiQuiz, 0, "LG"), option(multiQuiz, 1, "한화"),
@@ -156,25 +174,29 @@ class QuizServiceTest {
         List<QuizResponse> result = quizService.getTodayQuizzes(USER_ID, false);
 
         assertThat(result).hasSize(2);
-        QuizResponse first = result.get(0);
-        assertThat(first.id()).isEqualTo(1L);
-        assertThat(first.type()).isEqualTo("O/X");
-        assertThat(first.question()).isEqualTo("문동주는 한화 소속이다?");
-        assertThat(first.difficulty()).isEqualTo("EASY");
-        assertThat(first.point()).isEqualTo(10.0);
-        assertThat(first.options())
+        Map<Long, QuizResponse> byId = result.stream()
+                .collect(Collectors.toMap(QuizResponse::id, r -> r));
+        assertThat(byId.get(1L).type()).isEqualTo("O/X");
+        assertThat(byId.get(1L).question()).isEqualTo("문동주는 한화 소속이다?");
+        assertThat(byId.get(1L).difficulty()).isEqualTo("EASY");
+        assertThat(byId.get(1L).point()).isEqualTo(10.0);
+        assertThat(byId.get(1L).options())
                 .extracting(QuizResponse.OptionResponse::no, QuizResponse.OptionResponse::text)
                 .containsExactly(
                         org.assertj.core.groups.Tuple.tuple(0, "O"),
                         org.assertj.core.groups.Tuple.tuple(1, "X"));
-        QuizResponse second = result.get(1);
-        assertThat(second.id()).isEqualTo(2L);
-        assertThat(second.type()).isEqualTo("객관식");
-        assertThat(second.options())
+        assertThat(byId.get(2L).type()).isEqualTo("객관식");
+        assertThat(byId.get(2L).options())
                 .extracting(QuizResponse.OptionResponse::no)
                 .containsExactly(0, 1, 2, 3);
-        // 문제 수와 무관하게 보기 조회는 단 1회 — 문제마다 단건 조회하면 N+1 회귀다
-        verify(quizOptionRepository).findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(List.of(1L, 2L));
+
+        // 문제 수와 무관하게 보기 조회는 단 1회 — 문제마다 단건 조회하면 N+1 회귀다. IN 절
+        // 대상은 순서 무관하게 두 문제 id를 정확히 담아야 한다.
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Long>> quizIdsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(quizOptionRepository)
+                .findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(quizIdsCaptor.capture());
+        assertThat(quizIdsCaptor.getValue()).containsExactlyInAnyOrder(1L, 2L);
     }
 
     @Test
@@ -247,9 +269,9 @@ class QuizServiceTest {
     // ---------- 오늘의 퀴즈: 선호 정렬 ----------
 
     @Test
-    @DisplayName("응원팀이 team 또는 opponentTeam과 일치하는 문제가 preferred로 앞서고, "
-            + "그룹 안에서는 id ASC가 유지된다")
-    void getTodayQuizzes_supportTeamMatches_sortsPreferredFirstKeepingIdAscWithinGroups() {
+    @DisplayName("응원팀이 team 또는 opponentTeam과 일치하는 문제가 preferred 그룹으로 전부 앞선다"
+            + "(그룹 내부 순서는 사용자별 셔플이라 단언하지 않음)")
+    void getTodayQuizzes_supportTeamMatches_sortsPreferredGroupFirst() {
         Team hanwha = team(100L, "HH", "한화");
         Quiz general = quiz(1L, "객관식", "일반 문제", "EASY", 10.0);
         Quiz teamQuiz = quiz(2L, "객관식", "한화 문제", "EASY", 10.0, hanwha, null, null);
@@ -259,12 +281,13 @@ class QuizServiceTest {
                 .willReturn(List.of(general, teamQuiz, matchupQuiz));
         givenSupportTeam(hanwha);
         givenSupportPlayers();
-        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(List.of(2L, 3L, 1L)))
+        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(anyList()))
                 .willReturn(List.of());
 
         List<QuizResponse> result = quizService.getTodayQuizzes(USER_ID, false);
 
-        assertThat(result).extracting(QuizResponse::id).containsExactly(2L, 3L, 1L);
+        assertThat(result).extracting(QuizResponse::id).containsExactlyInAnyOrder(1L, 2L, 3L);
+        // 선호 그룹 경계: preferred 문제(id 2,3)가 전부 비선호(id 1)보다 앞선다
         assertThat(result).extracting(QuizResponse::preferred).containsExactly(true, true, false);
     }
 
@@ -289,19 +312,21 @@ class QuizServiceTest {
     }
 
     @Test
-    @DisplayName("응원팀·응원 선수가 없으면 전부 preferred=false로 id ASC 순서가 그대로다")
-    void getTodayQuizzes_noPreference_keepsIdAscWithAllNotPreferred() {
+    @DisplayName("응원팀·응원 선수가 없으면 대상 team이 있어도 전부 preferred=false다"
+            + "(응원 정보가 없으면 매칭 대상이 없음)")
+    void getTodayQuizzes_noPreference_allMarkedNotPreferred() {
         Quiz first = quiz(1L, "객관식", "문제1", "EASY", 10.0, team(100L, "HH", "한화"), null, null);
         Quiz second = quiz(2L, "객관식", "문제2", "EASY", 10.0);
         given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY))
                 .willReturn(List.of(first, second));
         givenNoPreference();
-        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(List.of(1L, 2L)))
+        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(anyList()))
                 .willReturn(List.of());
 
         List<QuizResponse> result = quizService.getTodayQuizzes(USER_ID, false);
 
-        assertThat(result).extracting(QuizResponse::id).containsExactly(1L, 2L);
+        // 반환 집합 자체는 순서 무관하게 기존과 동일
+        assertThat(result).extracting(QuizResponse::id).containsExactlyInAnyOrder(1L, 2L);
         assertThat(result).extracting(QuizResponse::preferred).containsExactly(false, false);
     }
 
@@ -336,12 +361,81 @@ class QuizServiceTest {
         given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY))
                 .willReturn(List.of(first, second));
         givenNoPreference();
-        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(List.of(1L, 2L)))
+        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(anyList()))
                 .willReturn(List.of());
 
         List<QuizResponse> result = quizService.getTodayQuizzes(USER_ID, true);
 
-        assertThat(result).extracting(QuizResponse::id).containsExactly(1L, 2L);
+        assertThat(result).extracting(QuizResponse::id).containsExactlyInAnyOrder(1L, 2L);
+    }
+
+    // ---------- 오늘의 퀴즈: 사용자별 고정 랜덤(shuffleKey) ----------
+
+    @Test
+    @DisplayName("같은 사용자로 두 번 호출하면 순서가 동일하다(결정성)")
+    void getTodayQuizzes_calledTwiceForSameUser_returnsSameOrder() {
+        List<Quiz> quizzes = manyQuizzes();
+        given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY)).willReturn(quizzes);
+        givenNoPreference();
+        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(anyList()))
+                .willReturn(List.of());
+
+        List<Long> firstCall = quizService.getTodayQuizzes(USER_ID, false).stream()
+                .map(QuizResponse::id).toList();
+        List<Long> secondCall = quizService.getTodayQuizzes(USER_ID, false).stream()
+                .map(QuizResponse::id).toList();
+
+        assertThat(secondCall).containsExactlyElementsOf(firstCall);
+    }
+
+    @Test
+    @DisplayName("서로 다른 계정은 셔플 순서가 다르다 — 문제 수가 충분(10건)해 순열이 갈릴 만큼 "
+            + "우연히 전부 같을 확률은 무시할 만하다")
+    void getTodayQuizzes_differentAccounts_produceDifferentOrders() {
+        List<Quiz> quizzes = manyQuizzes();
+        given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY)).willReturn(quizzes);
+        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(anyList()))
+                .willReturn(List.of());
+
+        List<Long> accountIds = List.of(USER_ID, 20L, 300L);
+        List<List<Long>> orders = accountIds.stream()
+                .map(accountId -> {
+                    givenNoPreference(accountId);
+                    return quizService.getTodayQuizzes(accountId, false).stream()
+                            .map(QuizResponse::id).toList();
+                })
+                .toList();
+
+        // 세 계정의 순서가 서로 전부 다르다(하나만 달라도 사용자 구분 성질은 성립하지만,
+        // 10건 순열 공간에서는 이 강한 형태도 flaky 하지 않다)
+        assertThat(orders).doesNotHaveDuplicates();
+    }
+
+    @Test
+    @DisplayName("문제 하나를 푼 것으로 제외해도 남은 문제들의 상대 순서는 그대로 보존된다"
+            + "(부분집합 안정성 — Collections.shuffle이었다면 깨지는 성질)")
+    void getTodayQuizzes_afterExcludingSolvedQuiz_preservesRelativeOrderOfRemaining() {
+        List<Quiz> quizzes = manyQuizzes();
+        List<Long> allIds = quizzes.stream().map(Quiz::getId).toList();
+        given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY)).willReturn(quizzes);
+        givenNoPreference();
+        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(anyList()))
+                .willReturn(List.of());
+        given(quizUserSubmitRepository.findSubmittedQuizIds(USER_ID, allIds)).willReturn(List.of());
+
+        List<Long> fullOrder = quizService.getTodayQuizzes(USER_ID, false).stream()
+                .map(QuizResponse::id).toList();
+
+        Long solvedId = fullOrder.get(3);
+        given(quizUserSubmitRepository.findSubmittedQuizIds(USER_ID, allIds))
+                .willReturn(List.of(solvedId));
+        List<Long> orderAfterSolving = quizService.getTodayQuizzes(USER_ID, false).stream()
+                .map(QuizResponse::id).toList();
+
+        List<Long> expectedRemaining = fullOrder.stream()
+                .filter(id -> !id.equals(solvedId))
+                .toList();
+        assertThat(orderAfterSolving).containsExactlyElementsOf(expectedRemaining);
     }
 
     // ---------- 단건 상세 ----------
