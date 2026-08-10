@@ -136,6 +136,7 @@ jobs:
           docker push "$IMG"
 
       - name: Deploy to EKS (manifest apply + blue-green rollout)
+        id: deploy
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
           IMAGE: ${{ steps.img.outputs.image }} # 위 스텝이 실제로 push(또는 재사용)한 이미지
@@ -183,7 +184,10 @@ jobs:
           kubectl -n "$NAMESPACE" rollout status "deploy/${{ matrix.module }}-app" --timeout=300s
 
       - name: Rollback on failure
-        if: failure()
+        # 배포 스텝이 실패했을 때만 돈다. 그냥 failure() 로 두면 빌드 실패나 매니페스트 치환 검증
+        # 실패처럼 **클러스터를 건드리지도 않은** 실패에서도 rollout undo 가 돌아, 멀쩡히 서비스 중인
+        # 파드를 직전 리비전으로 내린다. apply 전환으로 apply 이전 실패 지점이 늘어 노출이 커졌다.
+        if: failure() && steps.deploy.outcome == 'failure'
         run: |
           # ⚠ 한계: apply 는 Deployment·Service·HPA·ServiceAccount 를 함께 반영하지만
           #   rollout undo 는 Deployment(파드 템플릿)만 직전 리비전으로 되돌린다.
