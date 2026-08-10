@@ -225,10 +225,11 @@ jobs:
       # 쥐여주면 PR 본문이나 코드에 심긴 프롬프트 인젝션이 그대로 머지 권한으로 이어진다.
       # Write 는 경로를 좁히지 않았지만 러너 워크스페이스는 일회용이고, 다음 스텝은
       # review-verdict.txt / review-body.md 두 파일만 읽는다.
+      # 이 스텝에는 GH_TOKEN 을 두지 않는다. 에이전트가 셸 이스케이프에 성공하더라도
+      # 손에 쥘 GitHub 자격증명이 없어야 PR 승인·머지로 이어지지 않는다.
+      # 리뷰에 필요한 자료는 앞 스텝이 파일로 만들어 두었으므로 gh 는 필요 없다.
       - uses: anthropics/claude-code-action@v1
         if: steps.ready.outputs.ready == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           # 둘 중 등록된 것으로 인증한다. Claude GitHub App 설치는 선택이며,
           # 앱 없이 ANTHROPIC_API_KEY + 기본 GITHUB_TOKEN 만으로 동작한다.
@@ -237,12 +238,19 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           # 허용 목록이 좁으면 에이전트가 흔한 명령마다 거부에 부딪히고, 거부 한 번이
           # 턴 하나(약 10초)를 그대로 태운다. 실측에서 19턴 중 11턴이 거부였다.
-          # 그래서 읽기 전용 명령은 넉넉히 열어 둔다. 쓰기·네트워크로 나가는 명령
-          # (git push, gh api, curl 등)은 계속 막는다.
+          # 그래서 읽기 전용 명령은 열어 두되, 셸 이스케이프가 가능한 것은 제외한다.
+          #   find  — -exec 으로 임의 바이너리 실행
+          #   awk   — system() 내장 함수
+          #   sed   — GNU 확장 e 커맨드
+          #   sort  — --compress-program 으로 외부 프로그램 실행
+          # Bash(패턴:*) 매칭은 명령 문자열의 접두어만 보므로 위 넷은 허용 목록을
+          # 문자 그대로 통과하면서 임의 명령을 실행한다. 텍스트 검색·치환은
+          # Read/Grep/Glob 툴로 충분하다.
+          # gh 도 뺐다. 리뷰 자료는 앞 스텝이 파일로 만들어 두었다.
           # 배포 PR(base=main)은 개별 라인이 feature 단계에서 이미 리뷰됐으므로 턴을 더 조인다.
           claude_args: |
             --max-turns ${{ github.event.pull_request.base.ref == 'main' && 12 || 20 }}
-            --allowedTools "Read,Grep,Glob,Write,Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(wc:*),Bash(find:*),Bash(grep:*),Bash(sed:*),Bash(awk:*),Bash(sort:*),Bash(uniq:*),Bash(cut:*),Bash(tr:*),Bash(basename:*),Bash(dirname:*),Bash(jq:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*),Bash(git rev-parse:*),Bash(git ls-files:*),Bash(git merge-base:*),Bash(git blame:*),Bash(git cat-file:*),Bash(git branch:*),Bash(git grep:*),Bash(gh pr view:*),Bash(gh pr diff:*)"
+            --allowedTools "Read,Grep,Glob,Write,Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(wc:*),Bash(grep:*),Bash(cut:*),Bash(tr:*),Bash(uniq:*),Bash(basename:*),Bash(dirname:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*),Bash(git rev-parse:*),Bash(git ls-files:*),Bash(git merge-base:*),Bash(git blame:*),Bash(git cat-file:*),Bash(git branch:*),Bash(git grep:*)"
           prompt: |
             저장소 ${{ github.repository }} 의 PR #${{ env.PR_NUMBER }} (`${{ env.HEAD_REF }}` → `${{ env.BASE_REF }}`) 를 리뷰한다.
 
