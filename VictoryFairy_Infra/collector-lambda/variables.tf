@@ -174,15 +174,36 @@ variable "registrations_schedule" {
 }
 
 variable "games_sync_morning_schedule" {
-  description = "당일 경기 상태 선반영(SCHEDULED). 기본 08:00 KST = 23:00 UTC."
+  description = "일정 선적재(오늘~+N일). 기본 08:00 KST = 23:00 UTC."
   type        = string
   default     = "cron(0 23 * * ? *)"
 }
 
+# 라이브 윈도(~23:50 KST)가 닫힌 직후. 순연·편성 변경은 대체로 그날 경기가 끝날
+# 무렵 확정되는데, 아침 룰만 있으면 그게 다음 날 08:00 까지 반영되지 않는다.
+variable "games_sync_nightly_schedule" {
+  description = "일정 선적재 2회차(오늘~+N일). 기본 00:30 KST = 15:30 UTC."
+  type        = string
+  default     = "cron(30 15 * * ? *)"
+}
+
 variable "games_sync_live_schedule" {
-  description = "경기 시간대 상태 폴링. 기본 17:00~23:50 KST 10분 간격 = 08:00~14:50 UTC."
+  description = "경기 시간대 상태 폴링(당일만). 기본 17:00~23:50 KST 10분 간격 = 08:00~14:50 UTC."
   type        = string
   default     = "cron(0/10 8-14 * * ? *)"
+}
+
+# 상한 14 는 handler.py 의 MAX_SYNC_DAYS 와 같은 값이다. 핸들러가 어차피 자르므로
+# 여기서 막지 않아도 사고는 안 나지만, plan 단계에서 걸리는 편이 낫다.
+variable "games_sync_lookahead_days" {
+  description = "일정 선적재 윈도(오늘~+N일). 라이브 폴링 룰은 이 값과 무관하게 당일만 훑는다."
+  type        = number
+  default     = 7
+
+  validation {
+    condition     = var.games_sync_lookahead_days >= 1 && var.games_sync_lookahead_days <= 14
+    error_message = "games_sync_lookahead_days 는 1~14 이어야 한다 (handler.py MAX_SYNC_DAYS 상한)."
+  }
 }
 
 variable "export_game_result_schedule" {

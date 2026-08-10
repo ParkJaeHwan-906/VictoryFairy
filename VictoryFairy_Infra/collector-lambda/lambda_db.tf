@@ -164,33 +164,44 @@ resource "aws_lambda_permission" "registrations" {
   source_arn    = aws_cloudwatch_event_rule.registrations[0].arn
 }
 
-# --- games_sync: 당일 경기 상태 -> games (아침 1회 + 경기 시간대 폴링) ---
+# --- games_sync: 경기 일정·상태 -> games ---
 #
-# records(완료 경기 박스스코어)와 달리 취소·예정·진행 상태를 따라간다. 한 잡에
-# 스케줄이 둘이라 for_each 로 묶었다 — 룰/타깃/권한 3종을 두 벌 복붙하면 한쪽만
-# 고치는 사고가 난다.
+# records(완료 경기 박스스코어)와 달리 취소·예정·진행 상태를 따라간다. 같은 잡을
+# 세 주기로 부르되 훑는 구간이 다르다 — days 가 붙은 룰은 "일정 선적재"(오늘~+N일),
+# 붙지 않은 룰은 "상태 추적"(당일). 룰/타깃/권한 3종을 여러 벌 복붙하면 한쪽만
+# 고치는 사고가 나므로 for_each 로 묶는다.
+#
+# ⚠ days 를 모르는 이미지(핸들러에 games_sync 구간 분기가 없는 버전)로 롤백해도
+#   안전하다 — 모르는 이벤트 키는 무시되어 당일치 동기화로 조용히 내려앉는다.
 locals {
-  games_sync_schedules = local.db_enabled ? {
-    # 당일 SCHEDULED 를 미리 깔아둔다.
-    morning = var.games_sync_morning_schedule
-    # 경기 시간대에 LIVE/종료/취소를 따라간다.
-    live = var.games_sync_live_schedule
+  games_sync_rules = local.db_enabled ? {
+    # 아침에 앞으로의 일정을 미리 깔아둔다(구장 포함).
+    morning = { schedule = var.games_sync_morning_schedule, days = var.games_sync_lookahead_days }
+    # 경기 시간대에 LIVE/종료/취소를 따라간다 — 당일만.
+    live = { schedule = var.games_sync_live_schedule, days = 0 }
+    # 라이브 윈도가 닫힌 직후 일정을 다시 받는다(순연·편성 변경 반영).
+    nightly = { schedule = var.games_sync_nightly_schedule, days = var.games_sync_lookahead_days }
   } : {}
 }
 
 resource "aws_cloudwatch_event_rule" "games_sync" {
-  for_each            = local.games_sync_schedules
+  for_each            = local.games_sync_rules
   name                = "${var.name}-games-sync-${each.key}"
-  description         = "당일(KST) 경기 상태 -> prod MySQL games (${each.key})"
-  schedule_expression = each.value
+  description         = "KBO 경기 일정·상태 -> prod MySQL games (${each.key})"
+  schedule_expression = each.value.schedule
   tags                = var.tags
 }
 
 resource "aws_cloudwatch_event_target" "games_sync" {
-  for_each = aws_cloudwatch_event_rule.games_sync
-  rule     = each.value.name
+  for_each = local.games_sync_rules
+  rule     = aws_cloudwatch_event_rule.games_sync[each.key].name
   arn      = aws_lambda_function.db[0].arn
-  input    = jsonencode({ job = "games_sync" })
+  # days 를 아예 빼야 핸들러의 당일치 기본 경로를 탄다 (days=0 을 실어 보내도 결과는
+  # 같지만, 라이브 룰의 이벤트에 선적재용 키가 보이면 읽는 사람이 오해한다).
+  input = jsonencode(merge(
+    { job = "games_sync" },
+    each.value.days > 0 ? { days = each.value.days } : {},
+  ))
 }
 
 resource "aws_lambda_permission" "games_sync" {
