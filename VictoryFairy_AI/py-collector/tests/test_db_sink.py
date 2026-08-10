@@ -408,25 +408,33 @@ def test_cancel_reason_update_uses_half_open_day_interval_not_equality():
     assert "BETWEEN" not in CANCEL_REASON_UPDATE.upper()
 
 
-def test_set_cancel_reason_matches_by_date_and_matchup_and_returns_affected():
+def test_cancel_reason_update_skips_rows_that_already_have_the_same_reason():
+    from kbo_collector.db import CANCEL_REASON_UPDATE
+    # 이 조건이 없으면 updated_at=NOW(6) 탓에 값이 같아도 행이 매번 "변경"되어
+    # (1) 매일 같은 행을 다시 쓰고 (2) rowcount 가 "바뀐 행"이 아니라 "매칭된 행"이 된다.
+    assert "cancel_reason IS NULL OR cancel_reason <> %s" in CANCEL_REASON_UPDATE
+
+
+def test_set_cancel_reason_matches_by_date_and_matchup_and_returns_changed():
     from kbo_collector.db import CANCEL_REASON_UPDATE
     conn = FakeConn(rowcounts=[1])
-    affected = DbSink(None, connection=conn).set_cancel_reason(
+    changed = DbSink(None, connection=conn).set_cancel_reason(
         date="2026-08-09", home_team_id=3, away_team_id=7, reason="폭염취소")
     kind, sql, params = conn.log[0]
     assert kind == "execute" and sql == CANCEL_REASON_UPDATE
-    # 날짜가 두 번 들어간다 — 하한과 DATE_ADD 상한에 같은 값을 쓴다
-    assert params == ("폭염취소", "2026-08-09", "2026-08-09", 3, 7)
-    assert affected == 1
+    # 날짜가 두 번(하한·DATE_ADD 상한), 사유도 두 번(SET·동일값 스킵 조건) 들어간다
+    assert params == ("폭염취소", "2026-08-09", "2026-08-09", 3, 7, "폭염취소")
+    assert changed == 1
     assert conn.commits == 1
 
 
-def test_set_cancel_reason_zero_affected_is_not_an_error():
-    # games_sync 가 아직 그 날짜를 적재하지 않았으면 매칭될 행이 없다 — 정상이다.
+def test_set_cancel_reason_zero_changed_is_not_an_error():
+    # 0 이 정상인 경우가 둘이다 — 이미 같은 사유가 적혀 있거나(재실행), 매칭될
+    # 행이 아직 없거나(games_sync 미적재). 어느 쪽도 실패가 아니다.
     conn = FakeConn(rowcounts=[0])
-    affected = DbSink(None, connection=conn).set_cancel_reason(
+    changed = DbSink(None, connection=conn).set_cancel_reason(
         date="2026-09-01", home_team_id=1, away_team_id=2, reason="우천취소")
-    assert affected == 0
+    assert changed == 0
 
 
 def test_sync_game_binds_stadium_when_given():
