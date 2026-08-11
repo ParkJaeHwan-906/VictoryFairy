@@ -2,13 +2,16 @@ package com.skhynix.quiz.quiz.controller;
 
 import com.skhynix.common.response.ApiResponse;
 import com.skhynix.quiz.quiz.dto.QuizDetailResponse;
+import com.skhynix.quiz.quiz.dto.QuizLikeResponse;
 import com.skhynix.quiz.quiz.dto.QuizResponse;
+import com.skhynix.quiz.quiz.service.QuizLikeService;
 import com.skhynix.quiz.quiz.service.QuizService;
 import java.util.List;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -27,6 +30,7 @@ import lombok.RequiredArgsConstructor;
 public class QuizController {
 
     private final QuizService quizService;
+    private final QuizLikeService quizLikeService;
 
     /**
      * 오늘(KST) 출제분 목록 — 선호(응원팀·응원 선수 관련) 먼저 정렬. {@code preferredOnly=true}면
@@ -53,5 +57,19 @@ public class QuizController {
             @AuthenticationPrincipal Long userAccountId,
             @PathVariable Long quizId) {
         return ResponseEntity.ok(ApiResponse.ok(quizService.getQuiz(userAccountId, quizId)));
+    }
+
+    /**
+     * 좋아요 토글(요청 본문 없음 — 다음 상태는 서버가 정한다). 응답의 {@code liked}가 화면 상태의
+     * 정본이다: 멱등이 아니라 같은 요청을 두 번 보내면 원상 복귀한다.
+     *
+     * <p><b>내가 제출한 문제에만 허용된다.</b> 미존재·미편성·미제출은 전부 같은 403 이며 클라이언트는
+     * 셋을 구분할 수 없다(서비스 javadoc — 구분해 주면 편성 전 문제의 존재가 새어 나간다).
+     */
+    @PostMapping("/{quizId}/like")
+    public ResponseEntity<ApiResponse<QuizLikeResponse>> toggleLike(
+            @AuthenticationPrincipal Long userAccountId,
+            @PathVariable Long quizId) {
+        return ResponseEntity.ok(ApiResponse.ok(quizLikeService.toggle(userAccountId, quizId)));
     }
 }

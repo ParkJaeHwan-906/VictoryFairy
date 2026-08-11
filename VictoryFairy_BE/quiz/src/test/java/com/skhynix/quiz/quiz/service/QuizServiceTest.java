@@ -23,6 +23,7 @@ import com.skhynix.domain.support.repository.UserSupportPlayerRepository;
 import com.skhynix.domain.support.repository.UserSupportTeamRepository;
 import com.skhynix.domain.team.entity.Team;
 import com.skhynix.quiz.quiz.dto.QuizDetailResponse;
+import com.skhynix.quiz.quiz.dto.QuizLikeResponse;
 import com.skhynix.quiz.quiz.dto.QuizResponse;
 import java.time.Clock;
 import java.time.LocalDate;
@@ -72,6 +73,9 @@ class QuizServiceTest {
     @Mock
     private QuizUserSubmitRepository quizUserSubmitRepository;
 
+    @Mock
+    private QuizLikeService quizLikeService;
+
     private QuizService quizService;
 
     @BeforeEach
@@ -80,7 +84,7 @@ class QuizServiceTest {
                 ZonedDateTime.of(TODAY.atTime(12, 0), KST).toInstant(), KST);
         quizService = new QuizService(quizRepository, quizOptionRepository,
                 userSupportTeamRepository, userSupportPlayerRepository, quizUserSubmitRepository,
-                fixedKst);
+                quizLikeService, fixedKst);
     }
 
     // ---------- 픽스처 ----------
@@ -510,12 +514,16 @@ class QuizServiceTest {
                 .willReturn(List.of(option(quiz, 0, "LG"), wrongPick));
         given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, 1L))
                 .willReturn(Optional.of(submit));
+        given(quizLikeService.likeOf(USER_ID, 1L))
+                .willReturn(new QuizLikeResponse(true, 3L));
 
         QuizDetailResponse result = quizService.getQuiz(USER_ID, 1L);
 
         assertThat(result.submitted()).isTrue();
         assertThat(result.myOption()).isEqualTo(1);
         assertThat(result.correct()).isFalse();
+        assertThat(result.liked()).isTrue();
+        assertThat(result.likeCount()).isEqualTo(3L);
         assertThat(result.answer()).isEqualTo(0); // quiz() 픽스처의 정답 보기 번호
     }
 }

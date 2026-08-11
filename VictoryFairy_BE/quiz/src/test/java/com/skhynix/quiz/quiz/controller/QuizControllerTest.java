@@ -3,6 +3,7 @@ package com.skhynix.quiz.quiz.controller;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -14,6 +15,7 @@ import com.skhynix.domain.user.repository.UserAccountRepository;
 import com.skhynix.quiz.global.config.SecurityConfig;
 import com.skhynix.quiz.quiz.dto.QuizDetailResponse;
 import com.skhynix.quiz.quiz.dto.QuizResponse;
+import com.skhynix.quiz.quiz.service.QuizLikeService;
 import com.skhynix.quiz.quiz.service.QuizService;
 import com.skhynix.websupport.error.GlobalExceptionHandler;
 import java.nio.charset.StandardCharsets;
@@ -57,6 +59,9 @@ class QuizControllerTest {
     private QuizService quizService;
 
     @MockitoBean
+    private QuizLikeService quizLikeService;
+
+    @MockitoBean
     private UserAccountRepository userAccountRepository;
 
     private static RequestPostProcessor authenticatedAs(Long userAccountId) {
@@ -76,8 +81,9 @@ class QuizControllerTest {
     }
 
     @Test
-    @DisplayName("인증 사용자가 요청하면 200과 문제 목록을 반환하고, 응답 JSON 어디에도 "
-            + "answer 키가 없다(정답 미노출 계약)")
+    @DisplayName("[AC-LIKE-31-1,2] 인증 사용자가 요청하면 200과 문제 목록을 반환하고, 응답 JSON 어디에도 "
+            + "answer·liked·likeCount 키가 없으며 QuizLikeService는 전혀 호출되지 않는다"
+            + "(정답 미노출 계약 + /today 좋아요 집계 비용 없음)")
     void getTodayQuizzes_authenticated_returns200WithoutAnswerKey() throws Exception {
         given(quizService.getTodayQuizzes(USER_ID, false)).willReturn(List.of(
                 new QuizResponse(1L, "객관식", "2025 정규시즌 우승 구단은?", "MEDIUM", 30.0, true,
@@ -107,11 +113,17 @@ class QuizControllerTest {
                 .andExpect(jsonPath("$.data[1].options.length()").value(2))
                 .andExpect(jsonPath("$.data[0].answer").doesNotExist())
                 .andExpect(jsonPath("$.data[1].answer").doesNotExist())
+                .andExpect(jsonPath("$.data[0].liked").doesNotExist())
+                .andExpect(jsonPath("$.data[0].likeCount").doesNotExist())
+                .andExpect(jsonPath("$.data[1].liked").doesNotExist())
+                .andExpect(jsonPath("$.data[1].likeCount").doesNotExist())
                 .andReturn();
 
         // "answer" 라는 문자열 자체가 응답 본문 어디에도 없어야 한다(isAnswer·answerRate 류까지 차단)
         String body = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertThat(body).doesNotContain("answer");
+        // AC-LIKE-31-2: /today 처리 중 QuizLikeService 를 아예 호출하지 않는다(집계 쿼리도 발생 안 함)
+        verifyNoInteractions(quizLikeService);
     }
 
     @Test
@@ -141,8 +153,8 @@ class QuizControllerTest {
     // ---------- GET /quizzes/{quizId} ----------
 
     @Test
-    @DisplayName("미제출 문제 상세는 200이되, 응답 본문에 \"answer\" 문자열 자체가 없다"
-            + "(NON_NULL 직렬화 — 키가 null 값으로도 실리면 안 된다)")
+    @DisplayName("[AC-LIKE-33-1] 미제출 문제 상세는 200이되, 응답 본문에 \"answer\" 문자열 자체가 없고 "
+            + "liked·likeCount 키도 부재다(NON_NULL 직렬화 — 키가 null 값으로도 실리면 안 된다)")
     void getQuiz_notSubmitted_returns200WithoutAnswerKeyAnywhere() throws Exception {
         given(quizService.getQuiz(USER_ID, 1L)).willReturn(QuizDetailResponseFixture.unsubmitted());
 
@@ -157,6 +169,8 @@ class QuizControllerTest {
                 .andExpect(jsonPath("$.data.myOption").doesNotExist())
                 .andExpect(jsonPath("$.data.correct").doesNotExist())
                 .andExpect(jsonPath("$.data.answer").doesNotExist())
+                .andExpect(jsonPath("$.data.liked").doesNotExist())
+                .andExpect(jsonPath("$.data.likeCount").doesNotExist())
                 .andReturn();
 
         String body = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
@@ -164,7 +178,7 @@ class QuizControllerTest {
     }
 
     @Test
-    @DisplayName("제출한 문제 상세는 myOption·correct·answer를 함께 싣는다")
+    @DisplayName("[AC-LIKE-32-1] 제출한 문제 상세는 myOption·correct·answer·liked·likeCount를 함께 싣는다")
     void getQuiz_submitted_returns200WithAnswerFields() throws Exception {
         given(quizService.getQuiz(USER_ID, 1L)).willReturn(QuizDetailResponseFixture.submitted());
 
@@ -173,7 +187,9 @@ class QuizControllerTest {
                 .andExpect(jsonPath("$.data.submitted").value(true))
                 .andExpect(jsonPath("$.data.myOption").value(1))
                 .andExpect(jsonPath("$.data.correct").value(false))
-                .andExpect(jsonPath("$.data.answer").value(0));
+                .andExpect(jsonPath("$.data.answer").value(0))
+                .andExpect(jsonPath("$.data.liked").value(true))
+                .andExpect(jsonPath("$.data.likeCount").value(5));
     }
 
     @Test
@@ -205,12 +221,12 @@ class QuizControllerTest {
 
         static QuizDetailResponse unsubmitted() {
             return new QuizDetailResponse(1L, "객관식", "2025 정규시즌 우승 구단은?", "MEDIUM",
-                    30.0, TODAY, OPTIONS, false, null, null, null);
+                    30.0, TODAY, OPTIONS, false, null, null, null, null, null);
         }
 
         static QuizDetailResponse submitted() {
             return new QuizDetailResponse(1L, "객관식", "2025 정규시즌 우승 구단은?", "MEDIUM",
-                    30.0, TODAY, OPTIONS, true, 1, false, 0);
+                    30.0, TODAY, OPTIONS, true, 1, false, 0, true, 5L);
         }
     }
 }
