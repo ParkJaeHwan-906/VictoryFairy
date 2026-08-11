@@ -74,6 +74,8 @@ class GameControllerTest {
             5,
             LocalDateTime.of(2026, 8, 1, 18, 30, 0),
             "FINISHED",
+            null,
+            null,
             null);
 
     @Test
@@ -120,7 +122,9 @@ class GameControllerTest {
                 null,
                 LocalDateTime.of(2026, 8, 9, 18, 0, 0),
                 "CANCELED",
-                "폭염취소");
+                "폭염취소",
+                null,
+                null);
         given(gameService.getGames(LocalDate.of(2026, 8, 9))).willReturn(List.of(canceled));
 
         // when & then
@@ -131,6 +135,51 @@ class GameControllerTest {
                 // 취소 경기의 0-0 은 껍데기라 점수는 null 로 나가야 한다
                 .andExpect(jsonPath("$.data[0].homeTeamScore").isEmpty())
                 .andExpect(jsonPath("$.data[0].awayTeamScore").isEmpty());
+    }
+
+    @Test
+    @DisplayName("진행 중인 경기는 inning/inningHalf가 그대로 응답에 실려 나간다"
+            + "(inningHalf는 ORDINAL 저장값이 아니라 enum 이름 문자열)")
+    void getGames_inProgressGame_returnsInningAndInningHalf() throws Exception {
+        // given
+        GameResponse inProgress = new GameResponse(
+                "20260811SSNC02026",
+                "인천SSG랜더스필드",
+                "SSG",
+                1L,
+                "NC",
+                2L,
+                3,
+                2,
+                LocalDateTime.of(2026, 8, 11, 18, 30, 0),
+                "IN_PROGRESS",
+                null,
+                7,
+                "BOTTOM");
+        given(gameService.getGames(LocalDate.of(2026, 8, 11))).willReturn(List.of(inProgress));
+
+        // when & then
+        mockMvc.perform(get("/games").queryParam("date", "2026-08-11"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].gameState").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.data[0].inning").value(7))
+                .andExpect(jsonPath("$.data[0].inningHalf").value("BOTTOM"));
+    }
+
+    @Test
+    @DisplayName("진행 중이 아닌 경기(FINISHED)는 inning/inningHalf 키는 존재하되 값은 null로 나간다"
+            + "(NPE 없이 null 직렬화 — inningHalf는 Game.getInningHalf()가 null일 때 .name()을 호출하지 않는다)")
+    void getGames_notInProgressGame_returnsInningAndInningHalfAsJsonNull() throws Exception {
+        // given: SAMPLE_GAME은 FINISHED이고 inning/inningHalf가 둘 다 null이다.
+        given(gameService.getGames(LocalDate.of(2026, 8, 1))).willReturn(List.of(SAMPLE_GAME));
+
+        // when & then
+        mockMvc.perform(get("/games").queryParam("date", "2026-08-01"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].inning").hasJsonPath())
+                .andExpect(jsonPath("$.data[0].inning").isEmpty())
+                .andExpect(jsonPath("$.data[0].inningHalf").hasJsonPath())
+                .andExpect(jsonPath("$.data[0].inningHalf").isEmpty());
     }
 
     @Test
@@ -165,6 +214,8 @@ class GameControllerTest {
                 5,
                 LocalDateTime.of(2026, 8, 1, 18, 30, 0),
                 "FINISHED",
+                null,
+                null,
                 null);
         given(gameService.getGames(LocalDate.of(2026, 8, 1))).willReturn(List.of(gameWithoutStadium));
 
@@ -181,9 +232,9 @@ class GameControllerTest {
     void getGames_returnsServiceOrderUnchanged() throws Exception {
         // given
         GameResponse earlyGame = new GameResponse("20260801OBSK02026", "잠실야구장", "두산", 1L, "SSG", 2L, 1, 0,
-                LocalDateTime.of(2026, 8, 1, 14, 0, 0), "FINISHED", null);
+                LocalDateTime.of(2026, 8, 1, 14, 0, 0), "FINISHED", null, null, null);
         GameResponse lateGame = new GameResponse("20260801LGHT02026", "잠실야구장", "LG", 3L, "KIA", 7L, 3, 5,
-                LocalDateTime.of(2026, 8, 1, 18, 30, 0), "IN_PROGRESS", null);
+                LocalDateTime.of(2026, 8, 1, 18, 30, 0), "IN_PROGRESS", null, 7, "BOTTOM");
         given(gameService.getGames(LocalDate.of(2026, 8, 1))).willReturn(List.of(earlyGame, lateGame));
 
         // when & then

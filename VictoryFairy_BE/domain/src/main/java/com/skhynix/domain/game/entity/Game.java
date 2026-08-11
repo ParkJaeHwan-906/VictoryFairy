@@ -2,8 +2,11 @@ package com.skhynix.domain.game.entity;
 
 import com.skhynix.domain.stadium.entity.Stadium;
 import com.skhynix.domain.team.entity.Team;
+import jakarta.persistence.CheckConstraint;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -23,9 +26,24 @@ import org.hibernate.annotations.UpdateTimestamp;
 // idx_games_game_date(game_date): 필터·정렬 컬럼이 동일해 단일 컬럼 인덱스만으로 레인지 스캔+정렬이
 // 해결된다(GameRepository의 반개구간 조회). home/away team·stadium·game_status는 @EntityGraph 조인
 // 대상이라 넣지 않음 — 제거하면 날짜별 조회가 games 풀스캔 + filesort로 떨어진다.
+//
+// CHECK 제약 2개는 이닝 컬럼이 nullable 인 것과 충돌하지 않는다 — SQL 의 CHECK 는 결과가 UNKNOWN 이면
+// 통과시키므로 NULL 행은 그대로 허용된다. 제약 이름을 명시하는 이유는 UNIQUE 와 같다: 이름을
+// Hibernate 자동 생성에 맡기면 이미 뜬 환경에 손으로 도는 1회성 DDL(infra/sql/migrate-game-inning.sql)과
+// 이름이 어긋나 "이미 걸렸는지" 를 확인할 수 없다. 그 SQL 이 따로 필요한 이유는 ddl-auto=update 가
+// 이미 존재하는 테이블에는 제약을 추가하지 않기 때문이고, 여기 선언은 신규 환경에만 적용된다.
+//
+// ⚠ inning_half 에는 여기 선언과 별개로 Hibernate 가 @Enumerated(ORDINAL) 컬럼에 자동으로 붙이는
+// 서수 범위 검사가 따라온다 — ddl-auto=update 가 만든 add column 문에 `check (inning_half between
+// 0 and 1)` 이 딸려 나가고, 이름은 games_chk_N 자동 생성명이다(2026-08-11 devdb 실측). 뜻은 아래
+// ck_games_inning_half 와 같지만 이름이 환경마다 달라 "이미 걸렸는지" 를 이름으로 판단할 수 없고,
+// 그대로 두면 같은 뜻의 CHECK 가 두 개 남는다. 정리 절차는 migrate-game-inning.sql Step 4-2 에 있다.
 @Entity
 @Table(name = "games", indexes = {
         @Index(name = "idx_games_game_date", columnList = "game_date")
+}, check = {
+        @CheckConstraint(name = "ck_games_current_inning", constraint = "current_inning BETWEEN 1 AND 11"),
+        @CheckConstraint(name = "ck_games_inning_half", constraint = "inning_half IN (0, 1)")
 })
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -69,6 +87,15 @@ public class Game {
     @Column(name = "cancel_reason", length = 50, nullable = true)
     private String cancelReason;
 
+    // 진행 중인 경기의 현재 이닝과 초/말. 진행 중이 아닌 경기(예정·종료·취소·무승부)는 둘 다 null 이라
+    // nullable 이며, cancel_reason 과 마찬가지로 채우는 주체는 py-collector 다(이 앱에 games 쓰기 경로 없음).
+    @Column(name = "current_inning", columnDefinition = "TINYINT", nullable = true)
+    private Integer currentInning;
+
+    @Enumerated(EnumType.ORDINAL)
+    @Column(name = "inning_half", columnDefinition = "TINYINT", nullable = true)
+    private InningHalf inningHalf;
+
     // 네이버 스포츠 gameId — py-collector가 재실행해도 중복 없이 upsert하기 위한 소스 자연키(UNIQUE)
     @Column(name = "naver_game_id", length = 20, unique = true)
     private String naverGameId;
@@ -84,7 +111,7 @@ public class Game {
     @Builder
     private Game(LocalDateTime gameDate, Team homeTeam, Team awayTeam, Stadium stadium,
             Integer homeScore, Integer awayScore, GameStatus gameStatus, String cancelReason,
-            String naverGameId) {
+            Integer currentInning, InningHalf inningHalf, String naverGameId) {
         this.gameDate = gameDate;
         this.homeTeam = homeTeam;
         this.awayTeam = awayTeam;
@@ -93,6 +120,8 @@ public class Game {
         this.awayScore = awayScore;
         this.gameStatus = gameStatus;
         this.cancelReason = cancelReason;
+        this.currentInning = currentInning;
+        this.inningHalf = inningHalf;
         this.naverGameId = naverGameId;
     }
 }
