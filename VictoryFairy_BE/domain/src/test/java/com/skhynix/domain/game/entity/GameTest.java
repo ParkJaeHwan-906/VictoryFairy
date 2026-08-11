@@ -132,4 +132,55 @@ class GameTest {
         assertThat(game.getGameStatus()).isSameAs(draw);
         assertThat(game.getGameStatus().getName()).isEqualTo("DRAW");
     }
+
+    @Test
+    @DisplayName("IN_PROGRESS 경기: currentInning/inningHalf를 채워 build하면 그대로 보존된다")
+    void builder_withCurrentInningAndInningHalf_keepsBothFields() {
+        // given
+        GameStatus inProgress = newGameStatus("IN_PROGRESS");
+
+        // when
+        Game game = Game.builder()
+                .gameDate(LocalDateTime.of(2026, 8, 11, 18, 30))
+                .homeTeam(newTeam("SSG 랜더스"))
+                .awayTeam(newTeam("NC 다이노스"))
+                .gameStatus(inProgress)
+                .currentInning(7)
+                .inningHalf(InningHalf.BOTTOM)
+                .build();
+
+        // then
+        assertThat(game.getCurrentInning()).isEqualTo(7);
+        assertThat(game.getInningHalf()).isEqualTo(InningHalf.BOTTOM);
+    }
+
+    @Test
+    @DisplayName("진행 중이 아닌 경기(예: SCHEDULED): currentInning/inningHalf를 지정하지 않고 build하면 "
+            + "둘 다 null로 남는다")
+    void builder_withoutInningFields_leavesCurrentInningAndInningHalfNull() {
+        // given
+        GameStatus scheduled = newGameStatus("SCHEDULED");
+
+        // when
+        Game game = Game.builder()
+                .gameDate(LocalDateTime.of(2026, 8, 12, 18, 30))
+                .homeTeam(newTeam("키움 히어로즈"))
+                .awayTeam(newTeam("KT 위즈"))
+                .gameStatus(scheduled)
+                .build();
+
+        // then
+        assertThat(game.getCurrentInning()).isNull();
+        assertThat(game.getInningHalf()).isNull();
+    }
+
+    @Test
+    @DisplayName("[회귀] InningHalf의 ORDINAL 저장 순서는 TOP=0, BOTTOM=1로 고정된다 — "
+            + "선언 순서가 바뀌면 DB에 이미 저장된 값의 의미가 조용히 뒤집히므로 이 테스트가 그 변경을 막는다")
+    void inningHalf_ordinalOrder_isFixedTopZeroBottomOne() {
+        // then
+        assertThat(InningHalf.TOP.ordinal()).isEqualTo(0);
+        assertThat(InningHalf.BOTTOM.ordinal()).isEqualTo(1);
+        assertThat(InningHalf.values()).containsExactly(InningHalf.TOP, InningHalf.BOTTOM);
+    }
 }

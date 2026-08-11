@@ -15,7 +15,9 @@ public record GameResponse(String gameId,
                            Integer awayTeamScore,
                            LocalDateTime gameDate,
                            String gameState,
-                           String cancelReason) {
+                           String cancelReason,
+                           Integer inning,
+                           String inningHalf) {
 
     /**
      * {@code stadium} 은 {@code Game} 에서 유일하게 선택적인 연관({@code stadium_id} nullable)이라
@@ -30,6 +32,11 @@ public record GameResponse(String gameId,
      * <p>{@code cancelReason} 은 {@code gameState} 가 {@code CANCELED} 일 때만 값이 있고 그 외에는
      * {@code null} 이다. 연관이 아니라 {@code games} 의 일반 컬럼이라 {@code @EntityGraph} 를 손댈
      * 필요가 없다 — 연관을 더할 때만 그쪽과 1:1 로 맞춰야 한다.
+     *
+     * <p>{@code inning}/{@code inningHalf} 도 같은 이유로 {@code @EntityGraph} 와 무관한 일반 컬럼이며,
+     * 진행 중이 아닌 경기에서는 둘 다 {@code null} 이다. {@code inningHalf} 는 {@code gameState} 가
+     * {@code GameStatus.getName()} 문자열을 그대로 내보내는 것과 같은 방식으로 enum 이름을 내보낸다 —
+     * ORDINAL 저장값(0/1)을 노출하면 선언 순서가 API 계약이 되어 버린다.
      */
     public static GameResponse from(Game game) {
         return new GameResponse(game.getNaverGameId(),
@@ -42,7 +49,9 @@ public record GameResponse(String gameId,
                 game.getAwayScore(),
                 game.getGameDate(),
                 game.getGameStatus().getName(),
-                game.getCancelReason()
+                game.getCancelReason(),
+                game.getCurrentInning(),
+                game.getInningHalf() == null ? null : game.getInningHalf().name()
         );
     }
 }

@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verify;
 
 import com.skhynix.domain.game.entity.Game;
 import com.skhynix.domain.game.entity.GameStatus;
+import com.skhynix.domain.game.entity.InningHalf;
 import com.skhynix.domain.game.repository.GameRepository;
 import com.skhynix.domain.stadium.entity.Stadium;
 import com.skhynix.domain.team.entity.Team;
@@ -180,6 +181,57 @@ class GameServiceTest {
         assertThat(response.gameDate()).isEqualTo(gameDateTime);
         assertThat(response.gameState()).isEqualTo("FINISHED");
         assertThat(response.cancelReason()).isNull();
+    }
+
+    @Test
+    @DisplayName("진행 중인 경기는 currentInning/inningHalf가 응답에 그대로 매핑되고, "
+            + "inningHalf는 ORDINAL 저장값이 아니라 enum 이름 문자열(\"BOTTOM\")로 나간다")
+    void getGames_inProgressGame_mapsCurrentInningAndInningHalfToResponse() {
+        // given
+        LocalDate date = LocalDate.of(2026, 8, 11);
+        LocalDateTime gameDateTime = LocalDateTime.of(2026, 8, 11, 18, 30, 0);
+        Game inProgress = Game.builder()
+                .gameDate(gameDateTime)
+                .homeTeam(teamOf("SSG"))
+                .awayTeam(teamOf("NC"))
+                .stadium(stadiumOf("인천SSG랜더스필드"))
+                .homeScore(3)
+                .awayScore(2)
+                .gameStatus(statusOf("IN_PROGRESS"))
+                .currentInning(7)
+                .inningHalf(InningHalf.BOTTOM)
+                .naverGameId("20260811SSNC02026")
+                .build();
+        given(gameRepository.findAllByGameDateGreaterThanEqualAndGameDateLessThanOrderByGameDateAsc(
+                date.atStartOfDay(), date.plusDays(1).atStartOfDay())).willReturn(List.of(inProgress));
+
+        // when
+        List<GameResponse> result = gameService.getGames(date);
+
+        // then
+        GameResponse response = result.get(0);
+        assertThat(response.inning()).isEqualTo(7);
+        assertThat(response.inningHalf()).isEqualTo("BOTTOM");
+    }
+
+    @Test
+    @DisplayName("진행 중이 아닌 경기(currentInning/inningHalf가 둘 다 null인 엔티티)를 매핑해도 "
+            + "NPE 없이 inning/inningHalf가 null인 GameResponse가 된다")
+    void getGames_notInProgressGame_mapsNullInningFieldsWithoutNpe() {
+        // given: gameOf() 헬퍼는 currentInning/inningHalf를 지정하지 않아 둘 다 null인 Game이다.
+        LocalDate date = LocalDate.of(2026, 8, 1);
+        Game finished = gameOf(LocalDateTime.of(2026, 8, 1, 18, 30, 0), "LG", "KIA", 3, 5, "FINISHED",
+                "20260801LGHT02026");
+        given(gameRepository.findAllByGameDateGreaterThanEqualAndGameDateLessThanOrderByGameDateAsc(
+                date.atStartOfDay(), date.plusDays(1).atStartOfDay())).willReturn(List.of(finished));
+
+        // when
+        List<GameResponse> result = gameService.getGames(date);
+
+        // then
+        GameResponse response = result.get(0);
+        assertThat(response.inning()).isNull();
+        assertThat(response.inningHalf()).isNull();
     }
 
     @Test
