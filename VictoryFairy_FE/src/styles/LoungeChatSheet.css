@@ -334,6 +334,101 @@
 }
 
 /* ------------------------------------------------------------------ *
+ * 길게 눌러 신고하기
+ * ------------------------------------------------------------------ */
+
+/*
+ * 남의 말풍선은 버튼이다. 생김새는 `.lounge-chat__bubble` 그대로 두고
+ * 버튼의 기본 장식(테두리·글꼴·가운데 정렬)만 걷어낸다.
+ */
+.lounge-chat__bubble--pressable {
+  appearance: none;
+  border: 0;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  /*
+   * 세로 스크롤은 브라우저에 넘기고 가로 제스처만 우리가 받는다. 이걸 빼면
+   * 말풍선 위에서 시작한 손가락으로 목록을 넘길 수 없다.
+   */
+  touch-action: pan-y;
+  /*
+   * 길게 누르면 모바일 브라우저가 글자를 선택하거나 복사 메뉴를 띄운다.
+   * 신고 메뉴와 겹치므로 막는다 — 대신 이 말풍선의 글자는 복사할 수 없다.
+   */
+  user-select: none;
+  -webkit-touch-callout: none;
+  /*
+   * 커질 때도 돌아올 때도 같은 곡선을 탄다. 끝으로 갈수록 느려지는 곡선이라
+   * 손을 떼면 툭 끊기지 않고 제자리로 미끄러진다.
+   */
+  transition: transform 220ms cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+/*
+ * 누르고 있는 동안 살짝 커진다 — "지금 눌리고 있다"를 알리는 유일한 신호다.
+ * 왼쪽 기준으로 키워 말풍선이 아바타 쪽으로 밀려들지 않게 한다.
+ */
+.lounge-chat__bubble--pressing {
+  transform: scale(1.06);
+  transform-origin: left center;
+}
+
+/* 신고 · 취소 아이콘 — 말풍선 옆에 나란히 붙는 작은 원형 버튼. */
+.lounge-chat__report-icon {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-40);
+  background-color: var(--color-background-gray);
+  cursor: pointer;
+  /* 길게 누르기가 끝나는 순간 튀어나오지 않게 짧게 떠오른다. */
+  animation: lounge-chat-icon-in 160ms cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+.lounge-chat__report-icon:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+@keyframes lounge-chat-icon-in {
+  from {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+}
+
+.lounge-chat__report-icon-glyph {
+  width: 16px;
+  height: 16px;
+  background-color: var(--color-error-strong);
+  -webkit-mask: url('../assets/report.svg') no-repeat center / contain;
+  mask: url('../assets/report.svg') no-repeat center / contain;
+}
+
+/* 취소는 같은 크기·모양에 색만 뺀다 — 신고 쪽이 더 눈에 띄어야 한다. */
+.lounge-chat__cancel-icon-glyph {
+  width: 14px;
+  height: 14px;
+  background-color: var(--color-label-alternative);
+  -webkit-mask: url('../assets/x.svg') no-repeat center / contain;
+  mask: url('../assets/x.svg') no-repeat center / contain;
+}
+
+.lounge-chat__report-error {
+  margin: 6px 0 0;
+  color: var(--color-error-strong);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+/* ------------------------------------------------------------------ *
  * 반응형 · 접근성
  * ------------------------------------------------------------------ */
 @media (max-width: 359px) {
@@ -348,6 +443,22 @@
 
 @media (prefers-reduced-motion: reduce) {
   .lounge-chat__sheet {
+    animation: none;
+  }
+
+  /*
+   * 확대는 남긴다. 누르고 있다는 걸 알리는 유일한 신호라 없애면 기능이 사라진다.
+   * 움직임에 예민한 사용자를 위해 커지는 정도만 줄이고 전환은 끈다.
+   */
+  .lounge-chat__bubble--pressable {
+    transition: none;
+  }
+
+  .lounge-chat__bubble--pressing {
+    transform: scale(1.02);
+  }
+
+  .lounge-chat__report-icon {
     animation: none;
   }
 }
