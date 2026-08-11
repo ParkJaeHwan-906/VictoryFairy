@@ -29,15 +29,18 @@ import org.hibernate.annotations.UpdateTimestamp;
 //
 // CHECK 제약 2개는 이닝 컬럼이 nullable 인 것과 충돌하지 않는다 — SQL 의 CHECK 는 결과가 UNKNOWN 이면
 // 통과시키므로 NULL 행은 그대로 허용된다. 제약 이름을 명시하는 이유는 UNIQUE 와 같다: 이름을
-// Hibernate 자동 생성에 맡기면 이미 뜬 환경에 손으로 도는 1회성 DDL(infra/sql/migrate-game-inning.sql)과
-// 이름이 어긋나 "이미 걸렸는지" 를 확인할 수 없다. 그 SQL 이 따로 필요한 이유는 ddl-auto=update 가
-// 이미 존재하는 테이블에는 제약을 추가하지 않기 때문이고, 여기 선언은 신규 환경에만 적용된다.
+// Hibernate 자동 생성에 맡기면 손으로 도는 1회성 DDL 과 이름이 어긋나 "이미 걸렸는지" 를 확인할 수 없다.
 //
-// ⚠ inning_half 에는 여기 선언과 별개로 Hibernate 가 @Enumerated(ORDINAL) 컬럼에 자동으로 붙이는
-// 서수 범위 검사가 따라온다 — ddl-auto=update 가 만든 add column 문에 `check (inning_half between
-// 0 and 1)` 이 딸려 나가고, 이름은 games_chk_N 자동 생성명이다(2026-08-11 devdb 실측). 뜻은 아래
-// ck_games_inning_half 와 같지만 이름이 환경마다 달라 "이미 걸렸는지" 를 이름으로 판단할 수 없고,
-// 그대로 두면 같은 뜻의 CHECK 가 두 개 남는다. 정리 절차는 migrate-game-inning.sql Step 4-2 에 있다.
+// ⚠ ddl-auto=update 가 이 선언을 기존 테이블에 반영하는지는 환경에 따라 갈렸다(2026-08-11 실측).
+//   prod  — 이미 있던 games 에 ck_games_current_inning·ck_games_inning_half 가 둘 다 걸렸다.
+//           games 의 CREATE_TIME 이 파드 기동 직후로 갱신됐고, 배포 파이프라인에 SQL 적용 경로가
+//           없으며 손으로 돈 적도 없다.
+//   devdb·로컬 — 같은 코드로 add column 만 나가고 두 제약 다 걸리지 않았다. 대신 Hibernate 가
+//           @Enumerated(ORDINAL) 컬럼에 자동으로 붙이는 서수 범위 검사가 add column 에 딸려
+//           `games_chk_N`(자동 생성명) 으로 남았다.
+//   갈린 원인은 규명하지 못했다. 그래서 "선언했으니 걸려 있다" 도, "update 는 안 건다" 도 전제로
+//   삼지 말고, 환경마다 information_schema 로 실제 상태를 조회해 판단할 것.
+//   확인·정리 절차는 infra/sql/migrate-game-inning.sql 에 있다.
 @Entity
 @Table(name = "games", indexes = {
         @Index(name = "idx_games_game_date", columnList = "game_date")
