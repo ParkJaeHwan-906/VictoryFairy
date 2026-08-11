@@ -37,6 +37,19 @@ export interface Game {
   awayTeamScore: number | null;
   gameDate: string;
   gameState: GameState;
+  /**
+   * 취소 사유(`폭염취소` 등). `gameState` 가 `CANCELED` 일 때만 채워지고 그 외에는 `null` 이다.
+   *
+   * **역은 성립하지 않는다** — `CANCELED` 인데 `null` 일 수 있다(수집기가 아직 못 채운 구간 등).
+   * 그래서 표시할 때 기본 문구 fallback 이 필요하고, 그 fallback 은
+   * **`CANCELED` 일 때만** 적용해야 한다(다른 상태에 적용하면 정상 경기에 취소 문구가 붙는다).
+   * 두 규칙 모두 `getGameStateDisplay` 안에 있으니 화면에서 직접 읽지 말고 그 함수를 쓴다.
+   *
+   * 값의 종류는 닫힌 집합이 아니다(현재 관측된 건 `폭염취소` 하나뿐이지만 계속 늘어난다) —
+   * 특정 문자열로 분기하지 말고 사유를 그대로 실어 보여준다
+   * (표시할 때 끝의 `취소` 앞에 공백만 넣는다 — `getGameStateDisplay` 참고).
+   */
+  cancelReason: string | null;
 }
 
 /**

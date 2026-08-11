@@ -70,7 +70,8 @@ export default function GameDetailSheet({ game, onClose }: GameDetailSheetProps)
   /* 로그인해야 닿는 화면이라 프로필은 이미 스토어에 있다(다른 화면들과 같은 전제). */
   const profile = useMyProfile();
 
-  const state = getGameStateDisplay(game.gameState);
+  // 취소 경기면 칩 문구가 취소 사유로 바뀐다.
+  const state = getGameStateDisplay(game);
 
   /* Esc 로 닫기 — 시트가 떠 있는 동안에만 듣는다. */
   useEffect(() => {
@@ -175,7 +176,8 @@ export default function GameDetailSheet({ game, onClose }: GameDetailSheetProps)
               <span className="game-sheet__stadium">{game.stadium ?? '구장 미정'}</span>
               <span className="game-sheet__time">{formatGameTime(game.gameDate)}</span>
             </p>
-            <span className={`game-sheet__chip game-sheet__chip--${state.tone}`}>
+            {/* 긴 취소 사유는 칩에서 잘리므로 전체 문구를 title 로 남긴다 */}
+            <span className={`game-sheet__chip game-sheet__chip--${state.tone}`} title={state.label}>
               {state.label}
             </span>
           </div>
