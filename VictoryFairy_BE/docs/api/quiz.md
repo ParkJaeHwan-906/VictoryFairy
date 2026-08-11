@@ -1,9 +1,9 @@
 # 퀴즈(quiz) API 명세
 
-> **도메인** `quiz` — 오늘의 퀴즈 조회·개별 조회·제출(채점)·풀이 이력.
-> **모듈** quiz (포트 8081) · **경로 접두사** `/rt/quizzes` · **엔드포인트** 4개
-> **컨트롤러** `quiz/src/main/java/com/skhynix/quiz/quiz/controller/QuizController.java`(조회), `QuizSubmissionController.java`(제출·이력) — `/rt`는 context-path가 붙인다
-> **최종 갱신** 2026-08-10 — `/today` 정렬을 "선호 우선·id ASC"에서 "선호 우선·사용자별 고정 랜덤"으로 변경(응답 필드·상태코드·에러코드 변화 없음).
+> **도메인** `quiz` — 오늘의 퀴즈 조회·개별 조회·제출(채점)·풀이 이력·좋아요.
+> **모듈** quiz (포트 8081) · **경로 접두사** `/rt/quizzes` · **엔드포인트** 5개
+> **컨트롤러** `quiz/src/main/java/com/skhynix/quiz/quiz/controller/QuizController.java`(조회·좋아요 토글), `QuizSubmissionController.java`(제출·이력) — `/rt`는 context-path가 붙인다
+> **최종 갱신** 2026-08-11 — 좋아요 기능 신설(`POST /{quizId}/like` 신규, 단건 상세·풀이 이력 응답에 `liked`·`likeCount` 필드 추가).
 > 공통 규약(응답 래퍼·인증·401 정책)은 [README.md](README.md)를 먼저 볼 것.
 
 ## 엔드포인트 목록
@@ -11,9 +11,10 @@
 | 메서드 | 경로 | 성공 | 용도 |
 |---|---|---|---|
 | GET | [/rt/quizzes/today](#get-rtquizzestoday) | 200 | 오늘(KST) 세트 목록 — 선호 문제 우선 정렬, `preferredOnly` 필터 |
-| GET | [/rt/quizzes/{quizId}](#get-rtquizzesquizid) | 200 | 단건 상세 — 제출 전엔 정답 비노출, 제출 후엔 복기 정보 포함 |
+| GET | [/rt/quizzes/{quizId}](#get-rtquizzesquizid) | 200 | 단건 상세 — 제출 전엔 정답 비노출, 제출 후엔 복기 정보 + 좋아요 상태 포함 |
 | POST | [/rt/quizzes/{quizId}/submit](#post-rtquizzesquizidsubmit) | 200 | 제출·서버 채점 — 정답이면 포인트 적립 |
-| GET | [/rt/quizzes/submissions](#get-rtquizzessubmissions) | 200 | 내 풀이 이력(페이지) + 전체 요약(정답률) |
+| GET | [/rt/quizzes/submissions](#get-rtquizzessubmissions) | 200 | 내 풀이 이력(페이지) + 전체 요약(정답률), 각 항목 좋아요 상태 포함 |
+| POST | [/rt/quizzes/{quizId}/like](#post-rtquizzesquizidlike) | 200 | 좋아요 토글 — 내가 제출한 문제에만 허용 |
 
 ## 이 도메인의 특이사항
 
@@ -26,6 +27,8 @@
 **정답(answer)은 제출 전엔 어떤 응답에도 없다 — 제출 후에만 공개된다.** 조회 응답(`/today`, 미제출 상세)에는 `answer` 키 자체가 없다(클라이언트 개발자 도구 노출 방지, 테스트로 고정). 제출 응답과 제출 후 상세·이력에는 정답이 실린다(복기 화면 전제).
 
 **채점·적립은 서버 트랜잭션 안에서 원자적이다.** 정답이면 `quizzes.score`(배점)만큼 `users_account.point`에 적립한다(비관적 락으로 동시 적립 유실 방지). `users_bq.bq_score`는 레이팅 설계 확정 전이라 건드리지 않는다. 중복 제출은 409 — 동시 요청 race는 `uk_quiz_users_submit_account_quiz` UNIQUE가 최종 중재하고, 그 위반도 500이 아니라 409로 접는다.
+
+**좋아요는 "풀어본 사람의 평가"로 좁혀져 있다.** 신호로 이력 행을 쌓지 않고 `(계정, 문제)` 한 행의 플래그로만 관리한다(응원 `oppose` 토글·제출 UNIQUE와 같은 설계 계열). **제출 이력이 좋아요의 선행조건**이라 "존재하지 않는 문제"·"미편성 풀 문제"·"편성됐지만 안 푼 문제" 셋이 요청자 입장에서 같은 상태로 합쳐지고, 거절 응답도 하나(403 `QUIZ_LIKE_NOT_ALLOWED`)로 합쳐진다 — 404가 아닌 이유가 이것이다. 토글이라 멱등이 아니며, 동시 충돌은 500이 아니라 200 + 확정 상태로 흡수된다. `likeCount`는 취소된 행을 제외한 **현재 `liked = true`인 행 수**다.
 
 ---
 
@@ -58,6 +61,8 @@
 
 **정답·근거·대상 FK는 응답에 없다.** 빈 배열은 "오늘 세트 없음"과 "오늘 세트를 다 품" **둘 다**를 뜻한다(에러 아님) — 구분이나 진행률("10문제 중 7개 완료")이 필요하면 [풀이 이력](#get-rtquizzessubmissions)을 병용한다.
 
+**이 응답에는 `liked`·`likeCount`가 없다(2026-08-11 좋아요 기능 추가 후에도 불변).** 좋아요는 제출한 문제에만 허용되는데 `/today`는 이미 제출한 문제를 목록에서 빼고 내려주므로, 이 목록의 모든 항목이 애초에 좋아요 대상이 아니다 — 집계 쿼리를 붙여도 쓰이지 않아 아예 실행하지 않는다.
+
 **실패**: 401 UNAUTHENTICATED 뿐.
 
 ```bash
@@ -67,7 +72,7 @@ curl http://localhost:8081/rt/quizzes/today?preferredOnly=true -H 'Authorization
 ---
 
 ## GET /rt/quizzes/{quizId}
-> 최종 변경: 2026-08-08 — 신규
+> 최종 변경: 2026-08-11 — 제출한 문제일 때 `liked`·`likeCount` 필드 추가(미제출이면 두 키 모두 부재). 상태코드·에러코드 변화 없음
 
 단건 상세. `QuizService.getQuiz(userAccountId, quizId)`.
 
@@ -79,8 +84,10 @@ curl http://localhost:8081/rt/quizzes/today?preferredOnly=true -H 'Authorization
 | data.myOption | int | **제출한 경우에만 존재.** 내가 낸 보기 번호 |
 | data.correct | boolean | **제출한 경우에만 존재.** 정오 |
 | data.answer | int | **제출한 경우에만 존재.** 정답 보기 번호 |
+| data.liked | boolean | **제출한 경우에만 존재.** 내 현재 좋아요 상태 |
+| data.likeCount | long | **제출한 경우에만 존재.** 그 문제에 대해 `liked = true`인 행 수(취소한 좋아요는 세지 않음) |
 
-미제출이면 위 세 키는 **본문에서 키 자체가 빠진다**(`@JsonInclude(NON_NULL)` — 정답 유출 방지, 테스트로 고정).
+미제출이면 위 다섯 키는 **본문에서 키 자체가 빠진다**(`@JsonInclude(NON_NULL)` — 정답 유출 방지, 테스트로 고정). 좋아요 자체가 제출한 문제에만 허용되므로 미제출 시엔 좋아요 관련 조회조차 하지 않는다(키 부재와 쿼리 부재가 같은 분기).
 
 **실패**
 
@@ -88,6 +95,26 @@ curl http://localhost:8081/rt/quizzes/today?preferredOnly=true -H 'Authorization
 |---|---|---|
 | 401 | UNAUTHENTICATED | 무토큰 |
 | 404 | QUIZ_NOT_FOUND | 미존재 **또는 미편성 풀 문제**(구분 불가가 의도 — 존재 은닉) |
+
+**예시 — 미제출**
+
+```bash
+curl http://localhost:8081/rt/quizzes/23 -H 'Authorization: Bearer eyJ...'
+# {"success":true,"data":{"id":23,"type":"O/X","question":"...","difficulty":"EASY","point":50.0,
+#   "quizDate":"2026-08-10","options":[{"no":0,"text":"O"},{"no":1,"text":"X"}],
+#   "submitted":false},"message":null}
+# (myOption·correct·answer·liked·likeCount 키 자체가 없음)
+```
+
+**예시 — 제출함**
+
+```bash
+curl http://localhost:8081/rt/quizzes/23 -H 'Authorization: Bearer eyJ...'
+# {"success":true,"data":{"id":23,"type":"O/X","question":"...","difficulty":"EASY","point":50.0,
+#   "quizDate":"2026-08-10","options":[{"no":0,"text":"O"},{"no":1,"text":"X"}],
+#   "submitted":true,"myOption":0,"correct":true,"answer":0,
+#   "liked":false,"likeCount":5},"message":null}
+```
 
 ---
 
@@ -127,7 +154,7 @@ curl -X POST http://localhost:8081/rt/quizzes/23/submit \
 ---
 
 ## GET /rt/quizzes/submissions
-> 최종 변경: 2026-08-08 — 신규
+> 최종 변경: 2026-08-11 — 각 이력 항목에 `liked`·`likeCount` 필드 추가(항상 포함, 키 부재 케이스 없음). 상태코드·에러코드 변화 없음
 
 내 풀이 이력 + 전체 요약. `QuizSubmitService.getHistory(userAccountId, page)` — 최신 제출 먼저, 페이지 크기 서버 고정 20(채팅 이력과 같은 규약).
 
@@ -141,9 +168,64 @@ curl -X POST http://localhost:8081/rt/quizzes/23/submit \
 | data.summary.correctCount | long | 전체 정답 수 |
 | data.summary.accuracy | double | 정답률(0.0~1.0). 제출 0건이면 0.0 |
 | data.submissions | object | [chat](chat.md)과 동일한 `PageResponse` — content·page·size·totalElements·totalPages·hasNext |
-| ...content[] | | quizId · question · type · difficulty · quizDate · myOption · myOptionText · correct · answer · answerText · earnedPoint · submittedAt |
+| ...content[] | | quizId · question · type · difficulty · quizDate · myOption · myOptionText · correct · answer · answerText · earnedPoint · submittedAt · **liked** · **likeCount** |
 
-정답 번호·텍스트가 실리는 것은 의도다(제출한 문제의 복기 화면). **실패**: 401뿐 — 이력 0건도 200이다.
+정답 번호·텍스트가 실리는 것은 의도다(제출한 문제의 복기 화면). **`liked`·`likeCount`는 이력 항목 전부에 항상 포함된다**(키 부재 케이스 없음) — 이력 항목은 정의상 전부 제출한 문제라 좋아요가 불가능한 항목이 섞이지 않는다(`/{quizId}` 상세와 달리 `NON_NULL` 처리가 필요 없어 원시 타입). 좋아요 상태 조립은 페이지 항목 수와 무관하게 고정 쿼리 2건(집계 1 + 내 좋아요 1)으로 끝난다(N+1 금지). **실패**: 401뿐 — 이력 0건도 200이다.
+
+```bash
+curl "http://localhost:8081/rt/quizzes/submissions?page=0" -H 'Authorization: Bearer eyJ...'
+# {"success":true,"data":{"summary":{"total":12,"correctCount":9,"accuracy":0.75},
+#   "submissions":{"content":[{"quizId":23,"question":"...","type":"O/X","difficulty":"EASY",
+#     "quizDate":"2026-08-10","myOption":0,"myOptionText":"O","correct":true,"answer":0,
+#     "answerText":"O","earnedPoint":50,"submittedAt":"2026-08-10T09:12:03",
+#     "liked":true,"likeCount":5}, "..."],
+#     "page":0,"size":20,"totalElements":12,"totalPages":1,"hasNext":false}},"message":null}
+```
+
+---
+
+## POST /rt/quizzes/{quizId}/like
+> 최종 변경: 2026-08-11 — 신규
+
+좋아요 토글. `QuizLikeService.toggle(userAccountId, quizId)` → `QuizLikeToggler.toggleOnce`. **내가 제출한 문제에만 허용**된다 — 대상 계정은 오직 토큰(`@AuthenticationPrincipal Long userAccountId`)에서만 해석하며 요청 본문·경로·쿼리 어디에도 계정 식별자를 받는 자리가 없다.
+
+**인증 필요.** **요청 본문 없음.**
+
+**동작(토글, 멱등 아님)**: 같은 `(계정, 문제)`에 좋아요 행이 없으면 새로 만들어 `liked=true`로 켠다. 있으면 그 행의 `liked`만 뒤집는다(`true↔false`). **취소해도 행은 삭제되지 않고 `liked=false`로 남는다.** 같은 경로를 연속 호출하면 `liked`가 매번 왕복한다 — 클라이언트는 낙관적으로 뒤집지 말고 **응답의 `liked`를 화면 상태의 정본**으로 삼아야 한다(재시도로 두 번 토글되면 원상 복귀함).
+
+**동시성**: 같은 계정·같은 문제로 최초 좋아요가 동시에 들어와 `uk_quizzes_like_account_quiz` UNIQUE가 충돌해도 **500이 아니라 200 + 그 시점의 확정 상태**를 반환한다(둘 다 "켜기"를 의도했으므로 최종 상태는 `liked=true`). 진 쪽 요청이 다시 토글하지 않고 확정 상태만 읽어 반환한다.
+
+**응답 200 OK** `ApiResponse<QuizLikeResponse>` — 토글 후 확정 상태.
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| data.liked | boolean | 토글 후 요청자의 확정 좋아요 상태 |
+| data.likeCount | long | 토글 반영 후 그 문제의 `liked=true` 행 수(취소된 좋아요는 세지 않음, 자기 자신의 이번 변경 포함) |
+
+내부 PK(`id`)는 응답에 노출하지 않는다.
+
+**실패**
+
+| 상태 | ErrorCode | 조건 |
+|---|---|---|
+| 401 | UNAUTHENTICATED | 무토큰 |
+| 403 | QUIZ_LIKE_NOT_ALLOWED | 요청자에게 그 `quizId`의 제출 이력이 없음 |
+
+**⚠ 403은 미존재·미편성 풀·미제출 세 경우를 구분하지 않는 단일 응답이다(404가 아니다).** 제출이 좋아요의 선행조건이 되는 순간, 요청자 입장에서 "그 문제가 존재하지 않음"과 "존재하지만 아직 안 풀었음"이 같은 상태로 합쳐진다 — 어느 쪽이든 "너는 이 문제에 좋아요할 수 없다"이므로 하나의 403으로 통일해 퀴즈 존재 여부와 내일 출제분(미편성 풀)이 새어 나가지 않게 한다. 세 경우 모두 상태코드·에러코드·메시지·응답 본문 문자열이 완전히 동일하며(테스트로 바이트 단위 고정), `data`는 항상 `null`이다. 판정 순서(문제 존재→편성→제출 이력)는 계약이 아니며 구현은 제출 이력 존재 확인 하나로 세 경우를 한 번에 가른다.
+
+메시지: `"좋아요는 직접 푼 문제에만 할 수 있습니다."`
+
+```bash
+curl -X POST http://localhost:8081/rt/quizzes/23/like -H 'Authorization: Bearer eyJ...'
+# {"success":true,"data":{"liked":true,"likeCount":5},"message":null}
+
+curl -X POST http://localhost:8081/rt/quizzes/23/like -H 'Authorization: Bearer eyJ...'
+# {"success":true,"data":{"liked":false,"likeCount":4},"message":null}
+
+# 제출 이력이 없는(또는 존재하지 않는/미편성) quizId
+curl -X POST http://localhost:8081/rt/quizzes/999999/like -H 'Authorization: Bearer eyJ...'
+# {"success":false,"data":null,"message":"좋아요는 직접 푼 문제에만 할 수 있습니다."}
+```
 
 ---
 
