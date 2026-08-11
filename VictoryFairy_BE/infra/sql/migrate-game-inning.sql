@@ -2,10 +2,20 @@
 -- games 현재 이닝 컬럼 + CHECK 제약 추가 (1회성, MySQL 8.0 — prod/dev 수동 실행)
 --
 -- 이 파일의 진짜 목적은 **CHECK 제약**이다. `Game` 엔티티에 `ck_games_current_inning`/
--- `ck_games_inning_half` 를 선언했지만, **`ddl-auto=update` 는 이미 존재하는 테이블에
--- 제약을 추가하지 않는다**(2026-08-05 실측으로 UNIQUE 에서 확인된 성질이 그대로 적용된다).
---   → 신규 환경: Hibernate 가 테이블을 만들며 엔티티 선언대로 함께 건다. 이 파일 불필요.
---   → 이미 뜬 prod/dev: 이 파일을 **한 번** 적용해야 실제로 걸린다.
+-- `ck_games_inning_half` 를 선언했다.
+--
+-- ⚠ **2026-08-11 현재 prod·devdb 둘 다 이 파일을 적용할 필요가 없다.** 두 환경 모두 이미
+--    제약 2건이 걸려 있다(prod 는 `ddl-auto=update` 가 걸었고, devdb 는 같은 날 prod 스냅샷으로
+--    덮어써 따라왔다). 아래 절차는 **제약이 없는 환경**을 위한 것이다.
+--
+-- ⚠ **"update 는 기존 테이블에 CHECK 를 안 건다" 를 전제하지 말 것.** 종전 이 파일은 그렇게
+--    적혀 있었으나 실측에서 환경마다 갈렸다:
+--      prod        — 이미 있던 games 에 선언한 CHECK 2건이 **걸렸다**(games 의 CREATE_TIME 이
+--                    파드 기동 직후로 갱신됐고, 배포 경로에 SQL 적용 단계가 없다).
+--      devdb·로컬  — 같은 코드로 `add column` 만 나가고 **안 걸렸다.** 대신 Hibernate 가
+--                    ORDINAL enum 컬럼에 자동으로 붙이는 서수 체크만 `games_chk_N` 으로 남았다.
+--    갈린 원인은 규명되지 않았다. 그러니 **Step 4-0 으로 실제 상태를 먼저 조회**하고, 없는 것만
+--    골라 추가할 것. 이미 있는데 또 걸면 같은 뜻의 CHECK 가 두 개 남는다(MySQL 은 안 막는다).
 --
 -- 반면 **컬럼 자체는 손댈 필요가 없을 수 있다** — `user` 앱이 `ddl-auto=update` 라, 배포 후
 -- 기동만으로 Hibernate 가 `current_inning`/`inning_half` 를 붙인다(nullable 컬럼 추가는
@@ -76,18 +86,19 @@ WHERE inning_half IS NOT NULL
 -- 제약 이름은 엔티티 @Table(check = @CheckConstraint(name = ...)) 선언과 같은 값이어야 한다 —
 -- 신규 환경에서 Hibernate 가 만드는 이름과 일치시켜 환경 간 스키마를 같게 유지한다.
 --
--- ⚠ 먼저 읽을 것 — `inning_half` 에는 **우리 것이 아닌 CHECK 가 이미 붙어 있을 수 있다.**
---   2026-08-11 devdb 실측: `ddl-auto=update` 기동 후 `SHOW CREATE TABLE games` 에
---     CONSTRAINT `games_chk_1` CHECK ((`inning_half` between 0 and 1))
---   이 있었다. 이것은 우리가 선언한 `ck_games_inning_half`(`IN (0, 1)`) 가 아니다 — 문구가
---   `between 0 and 1` 인 데서 드러나듯, **Hibernate 가 @Enumerated(ORDINAL) 컬럼에 자동으로
---   붙이는 서수 범위 검사**가 `add column` 문에 딸려 들어간 것이다. 실제 기동 로그:
---     alter table games add column current_inning TINYINT
---     alter table games add column inning_half TINYINT check ((inning_half between 0 and 1))
---   → 테이블 레벨 CHECK 2건은 **둘 다 걸리지 않았다**(위 헤더의 전제 그대로). 컬럼에 딸려오는
---     자동 검사만 통과한 것이라 "비대칭" 처럼 보이지만 원인은 이 둘의 차이다.
---   → 이름이 `games_chk_N` 자동 생성명이라 **환경마다 다를 수 있다.** 반드시 아래 4-0 으로
---     실제 이름을 확인한 뒤 진행할 것.
+-- ⚠ 먼저 읽을 것 — 환경에 따라 **선언한 CHECK 가 이미 걸려 있거나, 우리 것이 아닌 CHECK 가
+--   대신 붙어 있을 수 있다.** 2026-08-11 실측:
+--     prod        — `ck_games_current_inning`·`ck_games_inning_half` 둘 다 존재. 자동 생성 제약 없음.
+--                   → 이 Step 은 통째로 불필요하다.
+--     devdb·로컬  — 선언한 CHECK 는 둘 다 없고 대신
+--                     CONSTRAINT `games_chk_1` CHECK ((`inning_half` between 0 and 1))
+--                   이 있었다. 이것은 `ck_games_inning_half`(`IN (0, 1)`) 가 아니다 — 문구가
+--                   `between 0 and 1` 인 데서 드러나듯, **Hibernate 가 @Enumerated(ORDINAL)
+--                   컬럼에 자동으로 붙이는 서수 범위 검사**가 `add column` 에 딸려 들어간 것이다:
+--                     alter table games add column current_inning TINYINT
+--                     alter table games add column inning_half TINYINT check ((inning_half between 0 and 1))
+--   자동 생성명은 `games_chk_N` 이라 **환경마다 다를 수 있다.** 반드시 아래 4-0 으로 실제 상태와
+--   이름을 확인한 뒤, 없는 것만 골라 추가할 것.
 -- ============================================================================
 
 -- 4-0. 이미 붙어 있는 CHECK 확인 (이름은 환경마다 다를 수 있다)
@@ -101,12 +112,14 @@ JOIN information_schema.TABLE_CONSTRAINTS tc
 WHERE tc.TABLE_NAME = 'games';
 
 
--- 4-1. current_inning — 자동 검사가 붙지 않는다(enum 이 아니라 Integer). 그대로 추가한다.
+-- 4-1. current_inning — 4-0 에 ck_games_current_inning 이 **없을 때만** 실행한다.
+--      (이미 있는데 또 걸면 ERROR 3822 Duplicate check constraint name)
 ALTER TABLE games
     ADD CONSTRAINT ck_games_current_inning CHECK (current_inning BETWEEN 1 AND 11);
 
 
--- 4-2. inning_half — 4-0 에서 자동 생성 CHECK 를 발견했다면 **먼저 지우고** 우리 이름으로 다시 건다.
+-- 4-2. inning_half — 4-0 에 ck_games_inning_half 가 **없을 때만** 실행한다.
+--      같은 뜻의 자동 생성 CHECK(`games_chk_N`)를 발견했다면 **먼저 지우고** 우리 이름으로 건다.
 --      MySQL 은 논리적으로 중복인 CHECK 를 막지 않으므로, 지우지 않고 추가하면 같은 뜻의 제약이
 --      두 개 남는다(스키마가 깨지진 않지만 환경마다 제약 개수가 달라져 "이미 걸렸는지" 판단이 무너진다).
 --      <자동생성명> 자리에 4-0 에서 확인한 실제 이름을 넣을 것(devdb 관측값은 games_chk_1).
