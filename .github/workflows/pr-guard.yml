@@ -237,11 +237,13 @@ jobs:
             - 시크릿·자격증명 하드코딩, 인젝션, 인증·인가 우회
             - 데이터 손실 위험: 파괴적 DB 마이그레이션, 되돌릴 수 없는 삭제
             - Terraform 에서 리소스 destroy/replace 를 유발하는 변경 (특히 DB·네트워크)
-            - 이 저장소 규약 위반: `dev_*` 브랜치는 서로 독립 트리라 `main` → `dev_*` 머지 금지,
-              커밋 메시지에 Claude 관련 트레일러·푸터 금지
+            - 이 저장소 규약 위반: `dev_*` 브랜치는 서로 독립 트리라 `main` → `dev_*` 머지 금지
 
             ## 차단하지 않는 것
             네이밍, 스타일, 리팩터링 제안, 테스트 추가 권유 등은 코멘트로만 남기고 승인한다.
+            커밋 메시지의 Claude 트레일러·푸터(`Co-Authored-By: Claude ...`, `Generated with Claude Code`)도
+            차단하지 않는다. 새 커밋에 넣지 않는 것이 규약이지만 코드 자체의 결함이 아니고,
+            이미 머지된 커밋은 되돌릴 수 없어 배포 PR 이 영구히 막힌다. 필요하면 코멘트로만 남긴다.
 
             ## 출력
             리뷰를 직접 제출하지 않는다. 워크스페이스 루트에 파일 두 개를 쓰는 것으로 끝낸다.
@@ -352,14 +354,27 @@ jobs:
           # 브랜치 보호의 "오래된 리뷰 무효화" 는 승인에만 적용되기 때문이다. 그대로 두면
           # 재검토 후 승인이 나도 reviewDecision 이 CHANGES_REQUESTED 로 남아 영원히 막힌다.
           # 사람이 남긴 리뷰는 절대 건드리지 않는다. 자동화 자신의 것만 걷어낸다.
+          #
+          # 변경요청은 REVIEW_TOKEN(리뷰 전용 계정)이 우선 제출하고 봇 토큰은 그 다음이다.
+          # 봇 신원만 걷어내면 리뷰 계정이 남긴 변경요청이 그대로 남아, 재검토가 승인해도
+          # 머지 잡의 미해소 변경요청 검사에 걸려 PR 이 영원히 멈춘다.
+          # 관리자 PAT 신원은 사람 계정과 구분되지 않으므로 걷어내지 않는다.
+          dismissable="github-actions[bot]"
+          if [ -n "${REVIEW:-}" ]; then
+            reviewer=$(GH_TOKEN="$REVIEW" gh api user --jq .login 2>/dev/null || true)
+            [ -n "$reviewer" ] && dismissable="${dismissable} ${reviewer}"
+          fi
+
+          # 로그인 이름을 jq 표현식에 끼워 넣지 않는다. 값은 셸에서 대조한다.
           GH_TOKEN="$PAT" gh api "repos/${REPO}/pulls/${PR_NUMBER}/reviews" --paginate \
-            --jq '.[] | select(.user.login == "github-actions[bot]" and .state == "CHANGES_REQUESTED") | .id' \
-            | while read -r rid; do
+            --jq '.[] | select(.state == "CHANGES_REQUESTED") | "\(.id) \(.user.login)"' \
+            | while read -r rid login; do
                 [ -z "$rid" ] && continue
+                case " ${dismissable} " in *" ${login} "*) ;; *) continue ;; esac
                 GH_TOKEN="$PAT" gh api -X PUT \
                   "repos/${REPO}/pulls/${PR_NUMBER}/reviews/${rid}/dismissals" \
                   -f message="자동화가 재검토 후 승인했습니다." -f event=DISMISS >/dev/null \
-                  && echo "이전 변경요청 리뷰 ${rid} 해제"
+                  && echo "이전 변경요청 리뷰 ${rid} (${login}) 해제"
               done
 
   # ── 3단계: 승인됐고 다른 체크가 통과했으면 머지 ─────────────────
