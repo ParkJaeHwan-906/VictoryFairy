@@ -1,12 +1,22 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import {
   CHAT_MESSAGE_MAX_LENGTH,
   findMyTeamChatRoom,
   getChatMessages,
+  isChatMessageNotFound,
   isChatRoomNotFound,
   isChatTeamMismatch,
+  isSelfReport,
   isSupportTeamRequired,
   leaveChatRoom,
+  reportChatMessage,
   sendChatMessage,
   subscribeChatRoom,
   validateChatMessageContent,
@@ -26,6 +36,23 @@ function formatSentAt(createdAt: string) {
 
 /** 목록 끝에서 이만큼 안쪽에 있으면 "맨 아래를 보고 있다"고 보고 새 메시지를 따라 내려간다. */
 const STICK_TO_BOTTOM_THRESHOLD_PX = 80;
+
+/**
+ * 말풍선을 이만큼 누르고 있으면 신고 · 취소 아이콘이 나온다.
+ *
+ * 짧게 잡으면 목록을 넘기려다 메뉴가 뜬다. 아이콘을 누르면 확인 없이 바로 신고가
+ * 나가므로, 모바일 기본값(500ms 안팎)보다 길게 잡아 실수로 열리는 쪽을 더 막는다.
+ */
+const LONG_PRESS_MS = 800;
+
+/**
+ * 누른 채 이만큼 움직이면 길게 누르기가 아니라 스크롤로 본다.
+ *
+ * 손가락은 누르는 동안에도 미세하게 움직인다 — 0 으로 두면 대부분의 길게 누르기가
+ * 스크롤로 취소된다. 브라우저가 스크롤을 시작하면 `pointercancel` 도 오지만, 그건
+ * 목록이 실제로 움직일 때뿐이라 맨 위·맨 아래에서는 오지 않는다.
+ */
+const PRESS_MOVE_TOLERANCE_PX = 10;
 
 /**
  * 이미 그린 메시지에 새로 받은 것을 합친다. 같은 `id` 는 덮어쓴다.
@@ -84,6 +111,24 @@ export default function LoungeChatSheet({ onClose }: LoungeChatSheetProps) {
   const [draft, setDraft] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+
+  /*
+   * 신고는 두 단계다 — 길게 누르는 중 → 신고 · 취소 아이콘.
+   *
+   * 아이콘을 누르면 확인 절차 없이 바로 신고가 나간다. 서버는 관리자 개입 없이 즉시
+   * blind 처리하고 되돌릴 수 없으므로(`reportChatMessage` 주석), 실수를 막는 몫이
+   * 전부 앞단계인 길게 누르기에 실린다 — `LONG_PRESS_MS` 를 넉넉히 잡은 이유다.
+   */
+  /** 지금 누르고 있는 메시지. 눌린 것을 보여주는 데만 쓴다. */
+  const [pressingId, setPressingId] = useState<number | null>(null);
+  /** 신고 · 취소 아이콘을 띄운 메시지. */
+  const [reportTargetId, setReportTargetId] = useState<number | null>(null);
+  const [isReporting, setIsReporting] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
+
+  const pressTimerRef = useRef<number | null>(null);
+  /** 누르기 시작한 좌표. 여기서 얼마나 움직였는지로 스크롤인지 가른다. */
+  const pressOriginRef = useRef<{ x: number; y: number } | null>(null);
 
   const listRef = useRef<HTMLOListElement>(null);
   /** 사용자가 맨 아래를 보고 있는지. 위로 올려 지난 대화를 읽는 중이면 끌어내리지 않는다. */
@@ -257,6 +302,101 @@ export default function LoungeChatSheet({ onClose }: LoungeChatSheetProps) {
     stickToBottomRef.current = distanceFromBottom < STICK_TO_BOTTOM_THRESHOLD_PX;
   };
 
+  /* ---------------------------------------------------------------- *
+   * 길게 눌러 신고하기
+   * ---------------------------------------------------------------- */
+
+  /** 누르기를 접는다. 타이머만 끄고 이미 열린 메뉴는 건드리지 않는다. */
+  const cancelPress = useCallback(() => {
+    if (pressTimerRef.current !== null) {
+      window.clearTimeout(pressTimerRef.current);
+      pressTimerRef.current = null;
+    }
+    pressOriginRef.current = null;
+    setPressingId(null);
+  }, []);
+
+  /** 열린 신고 UI 를 닫는다. */
+  const closeReport = useCallback(() => {
+    cancelPress();
+    setReportTargetId(null);
+    setReportError(null);
+  }, [cancelPress]);
+
+  /* 타이머가 남은 채로 시트가 닫히면 사라진 화면의 state 를 건드린다. */
+  useEffect(() => cancelPress, [cancelPress]);
+
+  /* 방이 바뀌면(구단 변경 등) 이전 방 메시지를 겨눈 메뉴가 남으면 안 된다. */
+  useEffect(() => {
+    closeReport();
+  }, [room, closeReport]);
+
+  const startPress = (messageId: number, event: ReactPointerEvent<HTMLElement>) => {
+    // 마우스는 왼쪽 버튼만. 오른쪽 클릭은 브라우저 메뉴에 맡긴다.
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+
+    cancelPress();
+    pressOriginRef.current = { x: event.clientX, y: event.clientY };
+    setPressingId(messageId);
+
+    pressTimerRef.current = window.setTimeout(() => {
+      pressTimerRef.current = null;
+      pressOriginRef.current = null;
+      setPressingId(null);
+      // 다른 메시지를 겨누고 있었다면 그쪽은 접는다 — 메뉴는 한 번에 하나다.
+      setReportTargetId(messageId);
+      setReportError(null);
+    }, LONG_PRESS_MS);
+  };
+
+  const handlePressMove = (event: ReactPointerEvent<HTMLElement>) => {
+    const origin = pressOriginRef.current;
+    if (!origin) return;
+
+    const moved = Math.hypot(event.clientX - origin.x, event.clientY - origin.y);
+    if (moved > PRESS_MOVE_TOLERANCE_PX) cancelPress();
+  };
+
+  /**
+   * 신고를 보낸다.
+   *
+   * 서버는 즉시 blind 처리하지만 **이미 그려진 메시지는 지워 주지 않는다**
+   * (`reportChatMessage` 주석). 목록에서 빼는 건 여기 몫이다.
+   */
+  const handleReport = async (messageId: number) => {
+    if (!room || isReporting) return;
+
+    setIsReporting(true);
+    setReportError(null);
+
+    try {
+      await reportChatMessage(room.roomUid, messageId);
+      setMessages((prev) => prev.filter((message) => message.id !== messageId));
+      closeReport();
+    } catch (error) {
+      if (isChatMessageNotFound(error)) {
+        // 이미 지워졌거나 남이 먼저 신고해 blind 된 메시지다. 목적은 이뤄졌으므로 치운다.
+        setMessages((prev) => prev.filter((message) => message.id !== messageId));
+        closeReport();
+      } else if (isChatRoomNotFound(error)) {
+        setStatus('no-room');
+        setRoom(null);
+      } else if (isSupportTeamRequired(error) || isChatTeamMismatch(error)) {
+        // 전송 실패와 같은 처리 — 이 방은 더 쓸 수 없다.
+        setStatus(isSupportTeamRequired(error) ? 'no-team' : 'team-changed');
+        setRoom(null);
+        void fetchProfile();
+      } else if (isSelfReport(error)) {
+        // 내 메시지에는 아이콘을 띄우지 않으므로 정상 흐름에서는 오지 않는다.
+        setReportError('내가 보낸 메시지는 신고할 수 없어요');
+      } else {
+        setReportError('신고하지 못했어요. 다시 시도해주세요');
+      }
+    } finally {
+      setIsReporting(false);
+    }
+  };
+
   /**
    * 지난 대화 한 페이지(30개)를 더 받아 위에 붙인다.
    *
@@ -407,11 +547,70 @@ export default function LoungeChatSheet({ onClose }: LoungeChatSheetProps) {
                   <div className="lounge-chat__body">
                     <p className="lounge-chat__sender">{message.senderNickname}</p>
                     <div className="lounge-chat__bubble-row">
-                      <p className="lounge-chat__bubble">{message.content}</p>
+                      {/*
+                        길게 누르면 신고 아이콘이 나온다. 버튼으로 둔 건 키보드·스크린리더
+                        에서도 닿게 하기 위해서다 — 길게 누르기에는 대응하는 키 입력이 없다.
+                      */}
+                      <button
+                        className={`lounge-chat__bubble lounge-chat__bubble--pressable${
+                          pressingId === message.id ? ' lounge-chat__bubble--pressing' : ''
+                        }`}
+                        type="button"
+                        aria-haspopup="true"
+                        aria-expanded={reportTargetId === message.id}
+                        aria-label={`${message.senderNickname}님의 메시지. 길게 눌러 신고할 수 있어요`}
+                        onPointerDown={(event) => startPress(message.id, event)}
+                        onPointerMove={handlePressMove}
+                        onPointerUp={cancelPress}
+                        onPointerCancel={cancelPress}
+                        onPointerLeave={cancelPress}
+                        // 길게 누르면 모바일 브라우저가 자체 메뉴를 띄운다. 그건 우리 메뉴와 겹친다.
+                        onContextMenu={(event) => event.preventDefault()}
+                        onClick={(event) => {
+                          // detail 0 은 키보드(Enter·Space)로 눌렀다는 뜻이다. 손가락 탭은 1 이상이라
+                          // 짧게 스친 것만으로 메뉴가 열리지 않는다.
+                          if (event.detail === 0) setReportTargetId(message.id);
+                        }}
+                      >
+                        {message.content}
+                      </button>
                       <time className="lounge-chat__time" dateTime={message.createdAt}>
                         {formatSentAt(message.createdAt)}
                       </time>
+
+                      {/*
+                        신고와 취소를 나란히 둔다. 누르면 확인 없이 바로 나가므로
+                        취소를 같은 자리에 붙여, 잘못 열었을 때 손을 옮기지 않고 닫게 한다.
+                      */}
+                      {reportTargetId === message.id && (
+                        <>
+                          <button
+                            className="lounge-chat__report-icon"
+                            type="button"
+                            aria-label="이 메시지 신고하기"
+                            onClick={() => void handleReport(message.id)}
+                            disabled={isReporting}
+                          >
+                            <span className="lounge-chat__report-icon-glyph" aria-hidden="true" />
+                          </button>
+                          <button
+                            className="lounge-chat__report-icon lounge-chat__report-icon--cancel"
+                            type="button"
+                            aria-label="신고 취소"
+                            onClick={closeReport}
+                            disabled={isReporting}
+                          >
+                            <span className="lounge-chat__cancel-icon-glyph" aria-hidden="true" />
+                          </button>
+                        </>
+                      )}
                     </div>
+
+                    {reportError && reportTargetId === message.id && (
+                      <p className="lounge-chat__report-error" role="alert">
+                        {reportError}
+                      </p>
+                    )}
                   </div>
                 </li>
               ),
