@@ -1,0 +1,59 @@
+name: Sync .github
+
+# PR 자동화 0단계: main 의 .github/ 를 dev_* 브랜치들에 복제한다.
+#
+# pull_request 이벤트는 대상(base) 브랜치 쪽 워크플로 정의로 실행된다. CI 를 고쳐 main 에
+# 넣어도 dev_* 로 향하는 PR 은 그 브랜치의 옛 정의로 계속 돌고, dev_* 는 서로 독립 트리라
+# main 을 머지해 맞출 수 없다. 그래서 지금까지는 브랜치 수만큼 PR 을 손으로 올려야 했다.
+# 여기서 자동으로 옮긴다. 판단은 .github/scripts/sync-github.sh 에 있다.
+#
+# 이 파일 자신도 동기화 대상이다. main 에 처음 들어오는 순간 스스로를 dev_* 로 복제한다.
+#
+# 되돌리려면: 워크플로를 disable 하거나 workflow_dispatch 로 dry_run=true 만 돌린다.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/**"
+  # 브랜치를 새로 만들었을 때나 push 실패를 재시도할 때 손으로 돌린다.
+  workflow_dispatch:
+    inputs:
+      branches:
+        description: "대상 브랜치 (공백 구분). 비우면 dev_* 전체"
+        default: ""
+        required: false
+      dry_run:
+        description: "push 하지 않고 무엇이 바뀌는지만 본다"
+        type: boolean
+        default: false
+
+permissions:
+  # 실제 push 는 AUTOMATION_TOKEN 으로 한다. dev_* 는 "PR 필수" 룰셋으로 보호돼 있고
+  # 그 룰셋을 우회할 수 있는 것은 관리자뿐이라, GITHUB_TOKEN 에 write 를 줘도 거부된다.
+  contents: read
+
+concurrency:
+  group: sync-github
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          # 체크아웃이 심어 두는 GITHUB_TOKEN 자격증명을 남기지 않는다.
+          # push 는 스크립트가 관리자 토큰으로 직접 한다.
+          persist-credentials: false
+
+      - name: Sync .github to dev_* branches
+        env:
+          PAT: ${{ secrets.AUTOMATION_TOKEN }}
+          REPO: ${{ github.repository }}
+          MAIN_SHA: ${{ github.sha }}
+          BEFORE: ${{ github.event.before }}
+          TARGETS: ${{ inputs.branches }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: bash .github/scripts/sync-github.sh
