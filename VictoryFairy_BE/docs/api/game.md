@@ -3,7 +3,7 @@
 > **도메인** `game` — 날짜별 KBO 경기 일정·스코어, 경기별 선발 라인업.
 > **모듈** user (포트 8080) · **경로 접두사** `/api/games` · **엔드포인트** 2개
 > **컨트롤러** `user/src/main/java/com/skhynix/user/game/controller/GameController.java`(`@RequestMapping("/games")`) · `GameLineupController.java`(`@RequestMapping("/games/lineup")`)
-> **최종 갱신** 2026-08-11 — `GET /api/games` 응답에 `cancelReason` 필드 반영(10→11필드, 커밋 f01d08e #281). 같은 날 운영 DB 실측으로 py-collector 쓰기가 이미 동작 중임을 확인해 서술 정정, `cancelReason` 미채움 시 클라이언트 fallback(`"경기취소"`) 권장 규칙 추가(아래 참고).
+> **최종 갱신** 2026-08-11 — `GET /api/games` 응답에 `inning`/`inningHalf` 필드 추가(11→13필드, `games` 테이블에 `current_inning`/`inning_half` 컬럼 신설). 같은 날 devdb 실측으로 현재는 항상 `null`임을 확인(아래 참고). (직전: 같은 날 `cancelReason` 필드 반영(10→11필드, 커밋 f01d08e #281). 같은 날 운영 DB 실측으로 py-collector 쓰기가 이미 동작 중임을 확인해 서술 정정, `cancelReason` 미채움 시 클라이언트 fallback(`"경기취소"`) 권장 규칙 추가(아래 참고).)
 > 공통 규약(응답 래퍼·401 정책)은 [README.md](README.md)를 먼저 볼 것.
 
 ## 엔드포인트 목록
@@ -26,7 +26,7 @@
 ---
 
 ## GET /api/games
-> 최종 변경: 2026-08-11 — 응답에 `cancelReason` 추가(10→11필드, 커밋 f01d08e #281), 같은 날 운영 DB 실측 결과 반영("수집기 미구현·항상 null" 서술을 실측값으로 정정), `cancelReason` 미채움 시 클라이언트 fallback(`cancelReason ?? "경기취소"`, `CANCELED`일 때만 적용) 권장 규칙 추가. (직전: 2026-08-04 `homeTeamId`/`awayTeamId` 추가, 8→10필드)
+> 최종 변경: 2026-08-11 — 응답에 `inning`/`inningHalf` 추가(11→13필드, `games.current_inning`/`games.inning_half` 컬럼 신설). **현재는 항상 `null`**이다 — 이 값을 채우는 주체는 py-collector이고 수집기 쪽 구현이 아직 없다(`cancelReason`이 처음 추가됐을 때와 같은 상태, 아래 참고). (직전: 같은 날 응답에 `cancelReason` 추가(10→11필드, 커밋 f01d08e #281), 같은 날 운영 DB 실측 결과 반영("수집기 미구현·항상 null" 서술을 실측값으로 정정), `cancelReason` 미채움 시 클라이언트 fallback(`cancelReason ?? "경기취소"`, `CANCELED`일 때만 적용) 권장 규칙 추가. (그 이전: 2026-08-04 `homeTeamId`/`awayTeamId` 추가, 8→10필드))
 
 날짜별 경기 목록 조회. `GameController` → `GameService.getGames(LocalDate)` → `GameRepository.findAllByGameDateGreaterThanEqualAndGameDateLessThanOrderByGameDateAsc(...)`.
 
@@ -61,7 +61,11 @@
 | data[].gameDate | LocalDateTime | 경기 시각. `LocalDateTime` 직렬화 형태 그대로(예: `"2026-08-01T18:30:00"`) — 별도 포맷 지정 없음 |
 | data[].gameState | String | `Game.gameStatus.name`(`game_statuses` 테이블 값). 코드 상수가 아니라 DB 행이라 이론상 임의 문자열일 수 있으나, 현재 py-collector가 채우는 값은 `SCHEDULED`\|`IN_PROGRESS`\|`FINISHED`\|`DRAW`\|`CANCELED` 5종(`GameStatus` 엔티티 Javadoc 참고) |
 | data[].cancelReason | String \| null | 경기 취소 사유. `Game.cancelReason`(`games.cancel_reason`, `VARCHAR(50)`, nullable). **`gameState`가 `CANCELED`일 때만 값이 채워지고 그 외 상태는 항상 `null`이다**(실측: 아래 참고, `CANCELED`가 아닌데 값이 채워진 행 0건). ⚠ **역은 완전히 성립하지는 않는다 — `CANCELED`인데 `cancelReason`이 `null`인 경우도 스키마상 가능하다**(nullable 컬럼, 취소 직후 수집기가 아직 채우기 전 구간, KBO 일정표 비고가 비어 있는 취소 등). 다만 **실측상(아래 참고) 현재 그런 행은 0건**이라 "드물지만 가능"한 수준으로 봐야 한다("항상 null"이 아니다). 값을 채우는 주체는 py-collector이며 **이 값의 출처는 KBO 공식 일정표다**(네이버 스케줄 API는 취소를 `"경기취소"`로만 알려줄 뿐 사유 필드가 없어 이 값의 소스가 될 수 없다). **실측(2026-08-11, EKS `victoryfairy` 네임스페이스에 일회용 `mysql:8.0` 파드를 띄워 user-app이 실제로 읽는 서빙 DB `mysql.victoryfairy.svc.cluster.local`에 접속해 `games` 전수 조회):** 총 564건 중 `CANCELED` 30건 전부 `cancel_reason`이 채워져 있고(null 0건), `FINISHED`(487)·`SCHEDULED`(35)·`DRAW`(12) 564-30=534건은 전부 `null`이었다. 30건 전부 값이 동일하게 `"폭염취소"`이고, 대상 경기 날짜 범위는 2026-08-01~2026-08-09, `updated_at`이 2026-08-10 06:57 UTC로 이 컬럼을 추가한 커밋 f01d08e(2026-08-10 06:16 UTC 머지) 약 40분 뒤였다 — **py-collector의 쓰기 로직은 이미 구현돼 동작 중이다.** ⚠ **단 이 30건은 2026-08 스냅샷 기준 관측치일 뿐 값의 종류가 닫혔다는 뜻이 아니다** — 사유를 `game_statuses` 행으로 세분화하지 않고 별도 컬럼으로 둔 이유도 `positionName`과 같은 논리다("닫힌 집합이 아니라 계속 늘어난다"). 지금까지는 `"폭염취소"` 하나만 관측됐지만 `"우천취소"` 등 다른 사유가 언제든 나타날 수 있다. **실제로 값이 채워지는 지금, 클라이언트가 특정 문자열로 `switch`하면 안 된다는 경고가 이전보다 더 중요해졌다**([`/games/lineup`의 `positionName` 경고](#get-apigameslineup)와 같은 성격) |
+| data[].inning | Integer \| null | **2026-08-11 신규.** 현재 진행 중인 이닝. `Game.currentInning`(`games.current_inning`, `TINYINT`, nullable). 값이 있으면 범위는 **1~11**(정규 9회 + 연장 2회) — DB CHECK 제약 `ck_games_current_inning`(`current_inning BETWEEN 1 AND 11`)이 강제한다. **`gameState`가 `IN_PROGRESS`일 때만 값이 있고 그 외(예정·종료·취소·무승부)에는 `null`이다.** ⚠ **현재는 `IN_PROGRESS` 경기에서도 항상 `null`이다** — 이 값을 채우는 주체는 py-collector이고, `cancelReason`과 달리 **수집기 쪽 쓰기 구현이 아직 없다**(2026-08-11 devdb 실측 참고, 아래). 표시 형태(예: `"9회초"`로 합쳐 보여주기)는 서버가 정하지 않는다 — **클라이언트가 `inning`과 `inningHalf`를 조합해 표시 문자열을 만든다** |
+| data[].inningHalf | String \| null | **2026-08-11 신규.** 이닝 초/말. `Game.inningHalf`(`games.inning_half`, `TINYINT`, `@Enumerated(EnumType.ORDINAL)`, nullable — DB에는 `TOP=0`/`BOTTOM=1`로 저장). **응답에는 ORDINAL 값이 아니라 enum 이름 문자열**(`"TOP"`\|`"BOTTOM"`)로 나간다 — `gameState`가 `GameStatus.getName()` 문자열을 그대로 내보내는 것과 같은 방식(`GameResponse.from()`이 `game.getInningHalf() == null ? null : game.getInningHalf().name()`으로 변환, DB 선언 순서가 API 계약이 되는 것을 피하기 위함). `inning`과 동일하게 **`IN_PROGRESS`일 때만 값이 있고 그 외에는 `null`**이며, **현재는 py-collector 미구현으로 항상 `null`**이다 |
 | message | null | 사용되지 않음 |
+
+**`inning`/`inningHalf`는 2026-08-11 신규 필드이며 현재는 항상 `null`이다.** `games` 테이블에 진행 중 이닝 정보를 담을 컬럼(`current_inning`/`inning_half`)이 막 추가됐지만, 이 값을 채우는 주체인 py-collector 쪽에는 아직 쓰기 로직이 없다 — `cancelReason`이 컬럼 추가 시점엔 마찬가지로 항상 `null`이었다가 이후 py-collector 구현이 배포되며 실제 값이 채워지기 시작한 것과 같은 경로를 밟을 것으로 예상된다(위 `cancelReason` 필드 설명의 실측 이력 참고). **실측(2026-08-11, devdb, `GET /api/games?date=2026-08-13`, 대상 경기 전부 `SCHEDULED`):** 응답의 모든 항목에서 `"inning":null,"inningHalf":null`을 확인했다. `IN_PROGRESS` 상태 경기에 대한 실측은 아직 없다(devdb에 해당 상태 데이터가 없었음 — 아래 "확인 필요" 참고).
 
 **`cancelReason`의 권장 표시 규칙(클라이언트 구현, 서버 미구현).** `gameState`가 `CANCELED`인데 `cancelReason`이 `null`인 드문 경우(위 필드 설명 참고)를 화면에서 자연스럽게 처리하려면, 클라이언트가 다음 fallback을 적용하는 것을 권장한다:
 
@@ -73,7 +77,7 @@ cancelReason ?? "경기취소"   // gameState === "CANCELED" 일 때만 적용
 
 ⚠ **이 fallback은 `gameState === "CANCELED"`일 때만 적용해야 한다.** 다른 상태에서는 `cancelReason`이 항상 `null`이므로(위 필드 설명 참고), 상태 구분 없이 이 fallback을 적용하면 취소되지 않은 정상 경기에도 `"경기취소"`가 표시되는 오류가 난다.
 
-**`GameResponse`의 실제 필드 순서는 `gameId`, `stadium`, `homeTeam`, `homeTeamId`, `awayTeam`, `awayTeamId`, `homeTeamScore`, `awayTeamScore`, `gameDate`, `gameState`, `cancelReason` 11개다**(record 컴포넌트 선언 순서, `user/src/main/java/com/skhynix/user/game/dto/GameResponse.java`). 기존 10개 필드의 이름·순서·의미는 그대로이며, `cancelReason`이 맨 뒤에 추가됐다.
+**`GameResponse`의 실제 필드 순서는 `gameId`, `stadium`, `homeTeam`, `homeTeamId`, `awayTeam`, `awayTeamId`, `homeTeamScore`, `awayTeamScore`, `gameDate`, `gameState`, `cancelReason`, `inning`, `inningHalf` 13개다**(record 컴포넌트 선언 순서, `user/src/main/java/com/skhynix/user/game/dto/GameResponse.java`). 기존 11개 필드의 이름·순서·의미는 그대로이며, `inning`/`inningHalf`가 맨 뒤에 추가됐다.
 
 **`Game.id`(PK)·`createdAt`·`updatedAt`은 의도적으로 응답에 없다.** `GameResponse.from()`이 엔티티를 그대로 직렬화하지 않고 필드를 골라 변환한다.
 
@@ -100,19 +104,28 @@ Authorization 헤더가 있어도(만료·무효 토큰이어도) 이 경로는 
 curl -i -X GET "http://localhost:8080/api/games?date=2026-08-01"
 ```
 ```json
-{"success":true,"data":[{"gameId":"20260801LGSS02026","stadium":"잠실","homeTeam":"LG","homeTeamId":1,"awayTeam":"삼성","awayTeamId":5,"homeTeamScore":null,"awayTeamScore":null,"gameDate":"2026-08-01T18:30:00","gameState":"SCHEDULED","cancelReason":null}],"message":null}
+{"success":true,"data":[{"gameId":"20260801LGSS02026","stadium":"잠실","homeTeam":"LG","homeTeamId":1,"awayTeam":"삼성","awayTeamId":5,"homeTeamScore":null,"awayTeamScore":null,"gameDate":"2026-08-01T18:30:00","gameState":"SCHEDULED","cancelReason":null,"inning":null,"inningHalf":null}],"message":null}
 ```
 
 구장 미정 경기 예시(`stadium: null`):
 ```json
-{"success":true,"data":[{"gameId":"20260801LGSS02026","stadium":null,"homeTeam":"LG","homeTeamId":1,"awayTeam":"삼성","awayTeamId":5,"homeTeamScore":null,"awayTeamScore":null,"gameDate":"2026-08-01T18:30:00","gameState":"SCHEDULED","cancelReason":null}],"message":null}
+{"success":true,"data":[{"gameId":"20260801LGSS02026","stadium":null,"homeTeam":"LG","homeTeamId":1,"awayTeam":"삼성","awayTeamId":5,"homeTeamScore":null,"awayTeamScore":null,"gameDate":"2026-08-01T18:30:00","gameState":"SCHEDULED","cancelReason":null,"inning":null,"inningHalf":null}],"message":null}
 ```
 
-취소 경기 예시(`gameState: "CANCELED"`) — **실측**(2026-08-11, 운영 서빙 DB `games` 전수 조회, 위 필드 설명 참고). `naver_game_id`는 실제 취소 경기 중 하나인 `20260809HTLG02026`(2026-08-09, `cancelReason: "폭염취소"`)를 예로 든다:
+취소 경기 예시(`gameState: "CANCELED"`) — **실측**(2026-08-11, 운영 서빙 DB `games` 전수 조회, 위 필드 설명 참고). `naver_game_id`는 실제 취소 경기 중 하나인 `20260809HTLG02026`(2026-08-09, `cancelReason: "폭염취소"`)를 예로 든다. `inning`/`inningHalf`는 이 실측 시점엔 아직 컬럼이 없어 직접 확인되지 않았으나, `CANCELED`는 `IN_PROGRESS`가 아니므로 위 필드 설명에 따라 `null`이다:
 ```json
-{"success":true,"data":[{"gameId":"20260809HTLG02026","stadium":"잠실","homeTeam":"LG","homeTeamId":1,"awayTeam":"KIA","awayTeamId":2,"homeTeamScore":null,"awayTeamScore":null,"gameDate":"2026-08-09T18:30:00","gameState":"CANCELED","cancelReason":"폭염취소"}],"message":null}
+{"success":true,"data":[{"gameId":"20260809HTLG02026","stadium":"잠실","homeTeam":"LG","homeTeamId":1,"awayTeam":"KIA","awayTeamId":2,"homeTeamScore":null,"awayTeamScore":null,"gameDate":"2026-08-09T18:30:00","gameState":"CANCELED","cancelReason":"폭염취소","inning":null,"inningHalf":null}],"message":null}
 ```
 (실측상 2026-08-11 기준 `CANCELED` 30건 전부 `"폭염취소"` 하나로만 관측됐다. 값의 종류가 닫힌 집합이라는 뜻은 아니므로 — 위 필드 설명 참고 — `switch`로 분기하지 말 것)
+
+`inning`/`inningHalf` 실측 예시(2026-08-11, devdb, `GET /api/games?date=2026-08-13`, 200 OK, 대상 경기 전부 `SCHEDULED`) — 응답의 각 항목에 다음 두 키가 그대로 확인됐다(다른 필드 값은 이 실측 대상이 아니므로 생략):
+```bash
+curl -i -X GET "http://localhost:8080/api/games?date=2026-08-13"
+```
+```json
+{"inning":null,"inningHalf":null}
+```
+`IN_PROGRESS` 상태 경기에 대한 `inning`/`inningHalf` 실측은 아직 없다(py-collector가 값을 채우지 않아 devdb에도 그런 데이터가 없다).
 
 `date` 생략 예시(200, `Asia/Seoul` 기준 오늘 경기):
 ```bash
@@ -279,6 +292,7 @@ curl -i -X GET "http://localhost:8080/api/games/lineup"
 - `Game.id`(PK)·`createdAt`·`updatedAt`이 응답에서 제외되는 이유는 코드·Javadoc에 명시적으로 적혀 있지 않다.
 - 경기 상세 조회, 기간 범위 조회(`from`/`to`), 구단별 필터 엔드포인트는 없다 — 하루 단위 조회가 전부다.
 - `gameState`는 코드 상수가 아니라 `game_statuses` 테이블 행이라 이론상 임의 문자열일 수 있다. 현재 py-collector가 채우는 5종 밖의 값이 나타날 가능성은 코드로 막혀 있지 않다.
+- **`inning`/`inningHalf`를 채우는 py-collector 쓰기 로직의 소스코드는 이 저장소 범위 밖이라 확인 불가**(`games.current_inning`/`games.inning_half` 컬럼과 `GameResponse` 노출은 코드로 확인됨). 2026-08-11 devdb 실측(`GET /api/games?date=2026-08-13`, 대상 전부 `SCHEDULED`)에서는 두 필드 모두 `null`이었다. `IN_PROGRESS` 상태 경기에서 실제로 값이 채워지는지는 이 저장소만으로는 확인 불가하고, `cancelReason`처럼 이후 py-collector 구현이 배포되면 값이 채워지기 시작할 것으로 예상만 할 뿐이다. `(확인 필요)`
 - **`cancelReason`을 채우는 py-collector 쓰기 로직 자체의 소스코드는 이 저장소 범위 밖이라 확인 불가**(`games.cancel_reason` 컬럼과 `GameResponse.cancelReason` 노출은 코드로 확인됨 — user·domain 양쪽에 이 앱이 이 컬럼에 쓰는 경로는 없음, `Game`은 `@Builder`로만 생성되고 setter가 없다). 다만 **"이미 채우고 있는지" 자체는 코드가 아니라 운영 DB 실측으로 확인했다**: 2026-08-11, EKS `victoryfairy` 네임스페이스에서 user-app이 실제로 읽는 서빙 DB(`mysql.victoryfairy.svc.cluster.local`)에 일회용 `mysql:8.0` 파드로 접속해 `games` 테이블을 전수 조회한 결과 `CANCELED` 30건 전부 `cancel_reason`이 채워져 있었고(전부 `"폭염취소"`, 대상 날짜 2026-08-01~09), `updated_at`이 커밋 f01d08e 머지(2026-08-10 06:16 UTC) 약 40분 뒤인 2026-08-10 06:57 UTC였다. **py-collector 쓰기 로직 자체는 확인 불가지만, 그 로직이 이미 배포·동작 중이라는 사실은 실측으로 확인됐다.** `(확인 필요)`로 남기는 부분은 이 로직이 "정확히 언제부터" 동작했는지(커밋 머지~2026-08-10 06:57 UTC 사이 어느 시점인지는 실측 범위 밖)와, `"폭염취소"` 외 다른 사유 문자열이 실제로 나온 사례가 있는지(2026-08 스냅샷에서는 관측되지 않음, 값 집합이 닫혔다는 뜻은 아님) 두 가지뿐이다.
 
 ## 관련 문서
