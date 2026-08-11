@@ -3,7 +3,7 @@
 > **도메인** `game` — 날짜별 KBO 경기 일정·스코어, 경기별 선발 라인업.
 > **모듈** user (포트 8080) · **경로 접두사** `/api/games` · **엔드포인트** 2개
 > **컨트롤러** `user/src/main/java/com/skhynix/user/game/controller/GameController.java`(`@RequestMapping("/games")`) · `GameLineupController.java`(`@RequestMapping("/games/lineup")`)
-> **최종 갱신** 2026-08-04 — `positionName` 매핑 표에 실측 58종 복수 포지션 원문(2글자) 절 추가.
+> **최종 갱신** 2026-08-11 — `GET /api/games` 응답에 `cancelReason` 필드 반영(10→11필드, 커밋 f01d08e #281).
 > 공통 규약(응답 래퍼·401 정책)은 [README.md](README.md)를 먼저 볼 것.
 
 ## 엔드포인트 목록
@@ -26,7 +26,7 @@
 ---
 
 ## GET /api/games
-> 최종 변경: 2026-08-04 — 응답에 `homeTeamId`/`awayTeamId` 추가(8→10필드)
+> 최종 변경: 2026-08-11 — 응답에 `cancelReason` 추가(10→11필드, 커밋 f01d08e #281). (직전: 2026-08-04 `homeTeamId`/`awayTeamId` 추가, 8→10필드)
 
 날짜별 경기 목록 조회. `GameController` → `GameService.getGames(LocalDate)` → `GameRepository.findAllByGameDateGreaterThanEqualAndGameDateLessThanOrderByGameDateAsc(...)`.
 
@@ -60,9 +60,10 @@
 | data[].awayTeamScore | Integer \| null | 원정 팀 점수. 경기 전(`SCHEDULED`)이면 `null` |
 | data[].gameDate | LocalDateTime | 경기 시각. `LocalDateTime` 직렬화 형태 그대로(예: `"2026-08-01T18:30:00"`) — 별도 포맷 지정 없음 |
 | data[].gameState | String | `Game.gameStatus.name`(`game_statuses` 테이블 값). 코드 상수가 아니라 DB 행이라 이론상 임의 문자열일 수 있으나, 현재 py-collector가 채우는 값은 `SCHEDULED`\|`IN_PROGRESS`\|`FINISHED`\|`DRAW`\|`CANCELED` 5종(`GameStatus` 엔티티 Javadoc 참고) |
+| data[].cancelReason | String \| null | 경기 취소 사유(예: `"폭염취소"`·`"우천취소"`). `Game.cancelReason`(`games.cancel_reason`, `VARCHAR(50)`, nullable). **`gameState`가 `CANCELED`일 때만 값이 채워지고 그 외 상태는 항상 `null`이다.** ⚠ **역은 성립하지 않는다 — `CANCELED`여도 `cancelReason`이 `null`일 수 있다.** 이 값을 채우는 주체는 py-collector이고 **이 앱(user 모듈)에는 쓰기 경로가 전혀 없다**(컬럼은 2026-08-10(#281)에 추가됐지만 실제 채우는 수집기 로직은 아직 구현 전이라, 현재 운영 데이터 기준으로는 `CANCELED` 행조차 `cancelReason`이 사실상 항상 `null`이다). 값의 출처는 KBO 공식 일정표이며(네이버 스케줄 API는 취소를 `"경기취소"`로만 알려줄 뿐 사유 필드가 없어 이 값의 소스가 될 수 없다), 사유를 `game_statuses` 행으로 세분화하지 않고 별도 컬럼으로 둔 이유도 `positionName`과 같은 논리다 — **닫힌 집합이 아니라 계속 늘어나므로** 상태에 섞으면 `CANCELED` 판정 코드가 사유 종류마다 깨진다. **클라이언트가 특정 문자열로 `switch`하면 안 되는 열린 집합**([`/games/lineup`의 `positionName` 경고](#get-apigameslineup) 참고) |
 | message | null | 사용되지 않음 |
 
-**`GameResponse`의 실제 필드 순서는 `gameId`, `stadium`, `homeTeam`, `homeTeamId`, `awayTeam`, `awayTeamId`, `homeTeamScore`, `awayTeamScore`, `gameDate`, `gameState` 10개다**(record 컴포넌트 선언 순서, `user/src/main/java/com/skhynix/user/game/dto/GameResponse.java`). 기존 8개 필드의 이름·순서·의미는 그대로이며, `homeTeamId`/`awayTeamId` 두 필드가 각각 `homeTeam`/`awayTeam` 바로 뒤에 추가됐다.
+**`GameResponse`의 실제 필드 순서는 `gameId`, `stadium`, `homeTeam`, `homeTeamId`, `awayTeam`, `awayTeamId`, `homeTeamScore`, `awayTeamScore`, `gameDate`, `gameState`, `cancelReason` 11개다**(record 컴포넌트 선언 순서, `user/src/main/java/com/skhynix/user/game/dto/GameResponse.java`). 기존 10개 필드의 이름·순서·의미는 그대로이며, `cancelReason`이 맨 뒤에 추가됐다.
 
 **`Game.id`(PK)·`createdAt`·`updatedAt`은 의도적으로 응답에 없다.** `GameResponse.from()`이 엔티티를 그대로 직렬화하지 않고 필드를 골라 변환한다.
 
@@ -89,13 +90,19 @@ Authorization 헤더가 있어도(만료·무효 토큰이어도) 이 경로는 
 curl -i -X GET "http://localhost:8080/api/games?date=2026-08-01"
 ```
 ```json
-{"success":true,"data":[{"gameId":"20260801LGSS02026","stadium":"잠실","homeTeam":"LG","homeTeamId":1,"awayTeam":"삼성","awayTeamId":5,"homeTeamScore":null,"awayTeamScore":null,"gameDate":"2026-08-01T18:30:00","gameState":"SCHEDULED"}],"message":null}
+{"success":true,"data":[{"gameId":"20260801LGSS02026","stadium":"잠실","homeTeam":"LG","homeTeamId":1,"awayTeam":"삼성","awayTeamId":5,"homeTeamScore":null,"awayTeamScore":null,"gameDate":"2026-08-01T18:30:00","gameState":"SCHEDULED","cancelReason":null}],"message":null}
 ```
 
 구장 미정 경기 예시(`stadium: null`):
 ```json
-{"success":true,"data":[{"gameId":"20260801LGSS02026","stadium":null,"homeTeam":"LG","homeTeamId":1,"awayTeam":"삼성","awayTeamId":5,"homeTeamScore":null,"awayTeamScore":null,"gameDate":"2026-08-01T18:30:00","gameState":"SCHEDULED"}],"message":null}
+{"success":true,"data":[{"gameId":"20260801LGSS02026","stadium":null,"homeTeam":"LG","homeTeamId":1,"awayTeam":"삼성","awayTeamId":5,"homeTeamScore":null,"awayTeamScore":null,"gameDate":"2026-08-01T18:30:00","gameState":"SCHEDULED","cancelReason":null}],"message":null}
 ```
+
+취소 경기 예시(`gameState: "CANCELED"`) — **⚠ `cancelReason`은 스키마상 값이 들어갈 수 있는 자리이지 현재 실제로 채워지는 값이 아니다.** 채우는 주체(py-collector)의 쓰기 로직이 아직 구현되지 않아, 이 문서 작성 시점 기준 운영 데이터의 `CANCELED` 행도 `cancelReason`은 `null`로 나간다. 아래는 컬럼이 채워졌을 때의 응답 형태를 보여주기 위한 예시이며 실측이 아니다:
+```json
+{"success":true,"data":[{"gameId":"20260809HTLG02026","stadium":"잠실","homeTeam":"LG","homeTeamId":1,"awayTeam":"KIA","awayTeamId":2,"homeTeamScore":null,"awayTeamScore":null,"gameDate":"2026-08-09T18:30:00","gameState":"CANCELED","cancelReason":null}],"message":null}
+```
+(위 예시가 사유까지 채워졌다면 `"cancelReason":"폭염취소"`처럼 나가되, 이 문자열은 닫힌 집합이 아니므로 `switch`로 분기하지 말 것 — 위 필드 설명 참고)
 
 `date` 생략 예시(200, `Asia/Seoul` 기준 오늘 경기):
 ```bash
@@ -262,6 +269,7 @@ curl -i -X GET "http://localhost:8080/api/games/lineup"
 - `Game.id`(PK)·`createdAt`·`updatedAt`이 응답에서 제외되는 이유는 코드·Javadoc에 명시적으로 적혀 있지 않다.
 - 경기 상세 조회, 기간 범위 조회(`from`/`to`), 구단별 필터 엔드포인트는 없다 — 하루 단위 조회가 전부다.
 - `gameState`는 코드 상수가 아니라 `game_statuses` 테이블 행이라 이론상 임의 문자열일 수 있다. 현재 py-collector가 채우는 5종 밖의 값이 나타날 가능성은 코드로 막혀 있지 않다.
+- **`cancelReason`을 채우는 py-collector 쓰기 로직은 이 저장소 범위 밖이라 확인 불가.** `games.cancel_reason` 컬럼과 `GameResponse.cancelReason` 노출은 코드로 확인됐지만(user·domain 양쪽에 이 앱이 이 컬럼에 쓰는 경로는 없음, `Game`은 `@Builder`로만 생성되고 setter가 없다), 실제 수집기가 언제부터 KBO 공식 일정표의 취소 사유를 채워 넣기 시작하는지는 이 코드베이스로 알 수 없다. `(확인 필요)` — 수집기 구현 전까지는 `CANCELED` 행도 `cancelReason`이 사실상 항상 `null`이라고 가정하고 클라이언트를 짜는 편이 안전하다.
 
 ## 관련 문서
 
