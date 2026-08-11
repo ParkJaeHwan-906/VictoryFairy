@@ -47,6 +47,7 @@ public class QuizService {
     private final UserSupportTeamRepository userSupportTeamRepository;
     private final UserSupportPlayerRepository userSupportPlayerRepository;
     private final QuizUserSubmitRepository quizUserSubmitRepository;
+    private final QuizLikeService quizLikeService;
     private final Clock clock;
 
     /**
@@ -118,6 +119,9 @@ public class QuizService {
      *
      * <p>내가 이미 제출한 문제면 내 선택·정오·정답을 함께 싣는다(복기 화면). 미제출이면 세 필드는
      * 응답 본문에서 <b>키 자체가 빠진다</b>({@link QuizDetailResponse} — 정답 유출 방지).
+     *
+     * <p>좋아요({@code liked}·{@code likeCount})도 제출한 경우에만 싣는다 — 좋아요 자체가 푼 문제에만
+     * 허용되므로 미제출 상세에서는 조회조차 하지 않는다(키 부재와 쿼리 부재가 같은 분기에서 나온다).
      */
     @Transactional(readOnly = true)
     public QuizDetailResponse getQuiz(Long userAccountId, Long quizId) {
@@ -126,7 +130,8 @@ public class QuizService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.QUIZ_NOT_FOUND));
         List<QuizOption> options = quizOptionRepository.findAllByQuiz_IdOrderByOptionAsc(quizId);
         return quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(userAccountId, quizId)
-                .map(submit -> QuizDetailResponse.submitted(quiz, options, submit))
+                .map(submit -> QuizDetailResponse.submitted(quiz, options, submit,
+                        quizLikeService.likeOf(userAccountId, quizId)))
                 .orElseGet(() -> QuizDetailResponse.unsubmitted(quiz, options));
     }
 
