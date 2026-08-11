@@ -65,6 +65,8 @@ export default function LoungeChatSheet({ onClose }: LoungeChatSheetProps) {
   const myNickname = useMyNickname();
   /** 서버가 "네 구단 정보가 틀렸다"(400·403)고 할 때만 쓴다 — 초기 로딩용이 아니다. */
   const fetchProfile = useAccountStore((state) => state.fetchProfile);
+  /** 구단이 없는 것인지 프로필이 아직 안 온 것인지 가르는 데 쓴다. */
+  const profileStatus = useAccountStore((state) => state.status);
 
   /** 들어갈 방을 정하는 값. 아직 고르지 않았거나 프로필 전이면 `null`. */
   const teamId = useSupportTeam()?.id ?? null;
@@ -111,13 +113,25 @@ export default function LoungeChatSheet({ onClose }: LoungeChatSheetProps) {
   /*
    * 구단이 없으면 들어갈 방이 없다 — 온보딩에서 아직 안 골랐다는 뜻이다.
    *
-   * 프로필은 여기서 받지 않는다. 로그인해야 이 화면까지 올 수 있고 프로필은 그때
-   * 전역 스토어에 채워지므로, 시트를 열 때마다 `users/me` 를 다시 부를 이유가 없다.
+   * 단, **구단이 없는 것과 프로필을 아직 모르는 것은 다르다.** 둘 다 `teamId` 가
+   * null 이라 구분하지 않으면 프로필이 오기 전에 구단 선택 안내가 뜬다. 실제로
+   * 새로고침 직후 채팅을 열면 그랬다. 프로필이 `ready` 로 도착한 뒤에만 "구단 없음"
+   * 으로 결론 내고, 그 전에는 로딩을 유지한다.
+   *
+   * 프로필은 여기서 받지 않는다. 보호 라우트(`ProtectedRoute`)가 채워 두므로 시트를
+   * 열 때마다 `users/me` 를 다시 부를 이유가 없다.
    */
   useEffect(() => {
     if (teamId !== null) return;
-    setStatus('no-team');
-  }, [teamId]);
+
+    if (profileStatus === 'idle' || profileStatus === 'loading') {
+      setStatus('loading');
+      return;
+    }
+
+    // 프로필을 못 받아온 경우다. 구단을 안 골랐다고 안내하면 사실이 아니다.
+    setStatus(profileStatus === 'error' ? 'error' : 'no-team');
+  }, [teamId, profileStatus]);
 
   /*
    * 내 응원 구단의 방을 찾고 최신 히스토리 한 페이지를 받는다.

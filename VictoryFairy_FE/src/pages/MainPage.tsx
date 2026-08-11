@@ -7,7 +7,7 @@ import MatchCard from '../components/MatchCard';
 import { getTeamDisplay } from '../data/kboTeams';
 import { getPlayerPositionLabel } from '../data/playerPositions';
 import { ROUTES } from '../routes';
-import { useAccountStore, useMyProfile } from '../stores/useAccountStore';
+import { useMyProfile } from '../stores/useAccountStore';
 import { getTodayInSeoul } from '../utils/date';
 import '../styles/MainPage.css';
 
@@ -55,17 +55,10 @@ function SupportTeamBadge({ name }: { name: string }) {
  *   오늘 경기(`GET /games`) — 경기 화면과 같은 함수를 그대로 쓴다
  */
 export default function MainPage() {
+  // 프로필은 새로고침하면 비어 있는 상태로 시작한다(persist 하지 않는다). 채우는 일은
+  // 보호 라우트(`ProtectedRoute`)가 맡는다 — 홈만 거치는 게 아니라 어느 화면으로 바로
+  // 들어와도 채워져야 해서 여기서 부르지 않는다.
   const profile = useMyProfile();
-  const profileStatus = useAccountStore((state) => state.status);
-  const fetchProfile = useAccountStore((state) => state.fetchProfile);
-
-  // 프로필은 새로고침하면 비어 있는 상태로 시작한다(persist 하지 않는다).
-  // 홈이 로그인 후 첫 화면이라 여기서 채운다. 진행 중이면 스토어가 같은 요청에 합류시킨다.
-  useEffect(() => {
-    if (profileStatus === 'idle') {
-      void fetchProfile();
-    }
-  }, [profileStatus, fetchProfile]);
 
   // 서버가 판정하는 "오늘"과 같은 기준(Asia/Seoul). 화면이 살아 있는 동안 고정이다.
   const [today] = useState(getTodayInSeoul);
