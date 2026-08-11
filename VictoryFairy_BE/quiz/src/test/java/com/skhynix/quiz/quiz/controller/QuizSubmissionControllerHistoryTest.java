@@ -66,12 +66,13 @@ class QuizSubmissionControllerHistoryTest {
     }
 
     @Test
-    @DisplayName("이력을 조회하면 200과 summary + submissions 페이지 구조를 그대로 반환한다")
+    @DisplayName("[AC-LIKE-34-1] 이력을 조회하면 200과 summary + submissions 페이지 구조를 그대로 반환하고 "
+            + "각 항목에 liked·likeCount가 실린다")
     void getSubmissions_returns200WithSummaryAndPage() throws Exception {
         QuizSubmissionItemResponse item = new QuizSubmissionItemResponse(
                 10L, "문제 지문", "객관식", "EASY", LocalDate.of(2026, 8, 8),
                 1, "오답 보기", false, 0, "정답 보기", 0L,
-                LocalDateTime.of(2026, 8, 8, 9, 30));
+                LocalDateTime.of(2026, 8, 8, 9, 30), true, 5L);
         given(quizSubmitService.getHistory(USER_ID, 0)).willReturn(historyOf(List.of(item), 4L, 2L, 0.5));
 
         mockMvc.perform(get("/quizzes/submissions")
@@ -91,6 +92,8 @@ class QuizSubmissionControllerHistoryTest {
                 .andExpect(jsonPath("$.data.submissions.content[0].answer").value(0))
                 .andExpect(jsonPath("$.data.submissions.content[0].answerText").value("정답 보기"))
                 .andExpect(jsonPath("$.data.submissions.content[0].earnedPoint").value(0))
+                .andExpect(jsonPath("$.data.submissions.content[0].liked").value(true))
+                .andExpect(jsonPath("$.data.submissions.content[0].likeCount").value(5))
                 .andExpect(jsonPath("$.data.submissions.size").value(20))
                 .andExpect(jsonPath("$.data.submissions.hasNext").value(false));
 

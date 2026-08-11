@@ -6,9 +6,11 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import com.skhynix.common.error.BusinessException;
@@ -22,13 +24,16 @@ import com.skhynix.domain.quiz.repository.QuizRepository;
 import com.skhynix.domain.quiz.repository.QuizUserSubmitRepository;
 import com.skhynix.domain.user.entity.UserAccount;
 import com.skhynix.domain.user.repository.UserAccountRepository;
+import com.skhynix.quiz.quiz.dto.QuizLikeResponse;
 import com.skhynix.quiz.quiz.dto.QuizSubmissionHistoryResponse;
 import com.skhynix.quiz.quiz.dto.QuizSubmissionItemResponse;
 import com.skhynix.quiz.quiz.dto.QuizSubmitResponse;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -66,6 +71,9 @@ class QuizSubmitServiceTest {
 
     @Mock
     private UserAccountRepository userAccountRepository;
+
+    @Mock
+    private QuizLikeService quizLikeService;
 
     @InjectMocks
     private QuizSubmitService quizSubmitService;
@@ -283,6 +291,9 @@ class QuizSubmitServiceTest {
                         option(quiz2, 0, "O"), option(quiz2, 1, "X")));
         given(quizUserSubmitRepository.countByUserAccount_Id(USER_ID)).willReturn(10L);
         given(quizUserSubmitRepository.countByUserAccount_IdAndIsAnswerTrue(USER_ID)).willReturn(4L);
+        given(quizLikeService.likesOf(USER_ID, List.of(20L, 10L))).willReturn(Map.of(
+                20L, new QuizLikeResponse(true, 7L),
+                10L, new QuizLikeResponse(false, 0L)));
 
         QuizSubmissionHistoryResponse response = quizSubmitService.getHistory(USER_ID, 0);
 
@@ -307,6 +318,8 @@ class QuizSubmitServiceTest {
         assertThat(first.answerText()).isEqualTo("X");
         assertThat(first.earnedPoint()).isEqualTo(5L);
         assertThat(first.submittedAt()).isEqualTo(LocalDateTime.of(2026, 8, 8, 9, 30));
+        assertThat(first.liked()).isTrue();
+        assertThat(first.likeCount()).isEqualTo(7L);
 
         QuizSubmissionItemResponse second = response.submissions().content().get(1);
         assertThat(second.quizId()).isEqualTo(10L);
@@ -314,6 +327,55 @@ class QuizSubmitServiceTest {
         assertThat(second.myOptionText()).isEqualTo("오답 보기");
         assertThat(second.answerText()).isEqualTo("정답 보기");
         assertThat(second.earnedPoint()).isZero();
+        // AC-LIKE-36: liked=true 행만 세므로, 켜진 적 없는(또는 group by 에서 빠진) 문제는 0으로 흡수된다
+        assertThat(second.liked()).isFalse();
+        assertThat(second.likeCount()).isZero();
+    }
+
+    @Test
+    @DisplayName("[AC-LIKE-35-1,2] 이력 항목이 20건이어도 좋아요 조립 호출은 1건이다"
+            + "(N+1 금지 — 항목 수와 무관하게 QuizLikeService.likesOf 는 정확히 1회)")
+    void getHistory_twentyItems_callsLikesOfExactlyOnce() {
+        UserAccount account = account(0L);
+        List<QuizUserSubmit> submits = IntStream.rangeClosed(1, 20)
+                .mapToObj(i -> {
+                    Quiz quiz = quiz((long) i, 0, 10.0, LocalDate.of(2026, 8, 8));
+                    return submitOf(account, quiz, option(quiz, 0, "정답 보기"), true,
+                            LocalDateTime.of(2026, 8, 8, 9, 0));
+                })
+                .toList();
+        given(quizUserSubmitRepository.findHistoryByUserAccountId(USER_ID, PageRequest.of(0, 20)))
+                .willReturn(new PageImpl<>(submits, PageRequest.of(0, 20), 20));
+        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(any()))
+                .willReturn(List.of());
+        given(quizUserSubmitRepository.countByUserAccount_Id(USER_ID)).willReturn(20L);
+        given(quizUserSubmitRepository.countByUserAccount_IdAndIsAnswerTrue(USER_ID)).willReturn(20L);
+        given(quizLikeService.likesOf(eq(USER_ID), any())).willReturn(Map.of());
+
+        quizSubmitService.getHistory(USER_ID, 0);
+
+        verify(quizLikeService, times(1)).likesOf(eq(USER_ID), any());
+    }
+
+    @Test
+    @DisplayName("[AC-LIKE-35-2] 이력 항목이 1건이어도 좋아요 조립 호출은 1건이다"
+            + "(20건일 때와 호출 횟수가 같다 — N+1 이면 1건일 때만 우연히 통과할 수 있어 별도로 고정한다)")
+    void getHistory_oneItem_callsLikesOfExactlyOnceSameAsTwentyItems() {
+        UserAccount account = account(0L);
+        Quiz quiz = quiz(1L, 0, 10.0, LocalDate.of(2026, 8, 8));
+        QuizUserSubmit submit = submitOf(account, quiz, option(quiz, 0, "정답 보기"), true,
+                LocalDateTime.of(2026, 8, 8, 9, 0));
+        given(quizUserSubmitRepository.findHistoryByUserAccountId(USER_ID, PageRequest.of(0, 20)))
+                .willReturn(new PageImpl<>(List.of(submit), PageRequest.of(0, 20), 1));
+        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(any()))
+                .willReturn(List.of());
+        given(quizUserSubmitRepository.countByUserAccount_Id(USER_ID)).willReturn(1L);
+        given(quizUserSubmitRepository.countByUserAccount_IdAndIsAnswerTrue(USER_ID)).willReturn(1L);
+        given(quizLikeService.likesOf(eq(USER_ID), any())).willReturn(Map.of());
+
+        quizSubmitService.getHistory(USER_ID, 0);
+
+        verify(quizLikeService, times(1)).likesOf(eq(USER_ID), any());
     }
 
     @Test
