@@ -3,7 +3,7 @@
 > **도메인** `quiz` — 오늘의 퀴즈 조회·개별 조회·제출(채점)·풀이 이력·좋아요.
 > **모듈** quiz (포트 8081) · **경로 접두사** `/rt/quizzes` · **엔드포인트** 5개
 > **컨트롤러** `quiz/src/main/java/com/skhynix/quiz/quiz/controller/QuizController.java`(조회·좋아요 토글), `QuizSubmissionController.java`(제출·이력) — `/rt`는 context-path가 붙인다
-> **최종 갱신** 2026-08-11 — 좋아요 기능 신설(`POST /{quizId}/like` 신규, 단건 상세·풀이 이력 응답에 `liked`·`likeCount` 필드 추가).
+> **최종 갱신** 2026-08-12 — 경로 변수/쿼리 파라미터/요청 본문 표기를 chat.md 형식으로 통일(계약 변경 없음, 직전: 2026-08-11 좋아요 기능 신설(`POST /{quizId}/like` 신규, 단건 상세·풀이 이력 응답에 `liked`·`likeCount` 필드 추가)).
 > 공통 규약(응답 래퍼·인증·401 정책)은 [README.md](README.md)를 먼저 볼 것.
 
 ## 엔드포인트 목록
@@ -39,7 +39,7 @@
 
 **인증 필요** — `Authorization: Bearer <accessToken>`
 
-**요청** — 쿼리 파라미터
+**쿼리 파라미터**
 
 | 파라미터 | 타입 | 기본 | 설명 |
 |---|---|---|---|
@@ -76,7 +76,15 @@ curl http://localhost:8081/rt/quizzes/today?preferredOnly=true -H 'Authorization
 
 단건 상세. `QuizService.getQuiz(userAccountId, quizId)`.
 
-**인증 필요.** **응답 200 OK** `ApiResponse<QuizDetailResponse>` — 공통 필드는 `/today`와 동일(id·type·question·difficulty·point·quizDate·options) + 제출 상태:
+**인증 필요** — `Authorization: Bearer <accessToken>`
+
+**경로 변수**
+
+| 변수 | 타입 | 설명 |
+|---|---|---|
+| quizId | Long | 퀴즈 내부 PK. `/today` 응답의 `data[].id`(또는 이력의 `quizId`)로 얻는다 |
+
+**응답 200 OK** `ApiResponse<QuizDetailResponse>` — 공통 필드는 `/today`와 동일(id·type·question·difficulty·point·quizDate·options) + 제출 상태:
 
 | 필드 | 타입 | 설명 |
 |---|---|---|
@@ -123,7 +131,15 @@ curl http://localhost:8081/rt/quizzes/23 -H 'Authorization: Bearer eyJ...'
 
 제출·채점. `QuizSubmitService.submit(userAccountId, quizId, option)` — 검증(404→409→400) 후 채점, 정답이면 계정 행을 비관적 락으로 잠그고 `round(score)`만큼 적립, 제출 기록 저장까지 한 트랜잭션.
 
-**인증 필요.** **요청 본문** `{"option": 0}` — `options[].no`의 값(0-기반). 필수(`@NotNull`).
+**인증 필요** — `Authorization: Bearer <accessToken>`
+
+**경로 변수**
+
+| 변수 | 타입 | 설명 |
+|---|---|---|
+| quizId | Long | 퀴즈 내부 PK. `/today` 응답의 `data[].id`(또는 이력의 `quizId`)로 얻는다 |
+
+**요청 본문** `{"option": 0}` — `options[].no`의 값(0-기반). 필수(`@NotNull`).
 
 **응답 200 OK** `ApiResponse<QuizSubmitResponse>`
 
@@ -158,7 +174,13 @@ curl -X POST http://localhost:8081/rt/quizzes/23/submit \
 
 내 풀이 이력 + 전체 요약. `QuizSubmitService.getHistory(userAccountId, page)` — 최신 제출 먼저, 페이지 크기 서버 고정 20(채팅 이력과 같은 규약).
 
-**인증 필요.** **요청**: `?page=0`(0-기반, 기본 0).
+**인증 필요.**
+
+**쿼리 파라미터**
+
+| 파라미터 | 타입 | 기본 | 설명 |
+|---|---|---|---|
+| page | int | 0 | 0-기반 페이지 번호 |
 
 **응답 200 OK** `ApiResponse<QuizSubmissionHistoryResponse>`
 
@@ -189,7 +211,15 @@ curl "http://localhost:8081/rt/quizzes/submissions?page=0" -H 'Authorization: Be
 
 좋아요 토글. `QuizLikeService.toggle(userAccountId, quizId)` → `QuizLikeToggler.toggleOnce`. **내가 제출한 문제에만 허용**된다 — 대상 계정은 오직 토큰(`@AuthenticationPrincipal Long userAccountId`)에서만 해석하며 요청 본문·경로·쿼리 어디에도 계정 식별자를 받는 자리가 없다.
 
-**인증 필요.** **요청 본문 없음.**
+**인증 필요** — `Authorization: Bearer <accessToken>`
+
+**경로 변수**
+
+| 변수 | 타입 | 설명 |
+|---|---|---|
+| quizId | Long | 퀴즈 내부 PK. `/today` 응답의 `data[].id`(또는 이력의 `quizId`)로 얻는다 |
+
+**요청 본문 없음.**
 
 **동작(토글, 멱등 아님)**: 같은 `(계정, 문제)`에 좋아요 행이 없으면 새로 만들어 `liked=true`로 켠다. 있으면 그 행의 `liked`만 뒤집는다(`true↔false`). **취소해도 행은 삭제되지 않고 `liked=false`로 남는다.** 같은 경로를 연속 호출하면 `liked`가 매번 왕복한다 — 클라이언트는 낙관적으로 뒤집지 말고 **응답의 `liked`를 화면 상태의 정본**으로 삼아야 한다(재시도로 두 번 토글되면 원상 복귀함).
 
