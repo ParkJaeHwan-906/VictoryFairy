@@ -45,8 +45,16 @@ jobs:
 
           git fetch --no-tags --quiet origin main
 
-          if git diff --quiet origin/main "origin/${BRANCH}"; then
-            echo "main 과 내용이 동일 — 배포 PR 불필요"
+          # "머지하면 main 이 실제로 바뀌는가" 로 판정한다.
+          # 두 커밋을 그냥 diff 하면(2-dot) main 이 다른 dev_* 머지로 앞서 있는 부분까지
+          # 차이로 잡혀, 배포할 것이 없어도 항상 PR 이 열린다. 특히 sync-github.yml 이
+          # .github 만 복제한 직후가 그렇다 — 내용은 이미 main 에 있는데 PR 이 생긴다.
+          # merge-tree 는 머지 결과 트리를 실제로 만들어 주므로 그 오탐이 없다.
+          # 충돌하면 비정상 종료하는데, 그때는 배포할 것이 있다고 보고 PR 을 연다.
+          # (충돌 PR 은 conflict-watch.yml 이 이슈로 드러낸다.)
+          if merged=$(git merge-tree --write-tree origin/main "origin/${BRANCH}" 2>/dev/null) \
+             && [ "$merged" = "$(git rev-parse 'origin/main^{tree}')" ]; then
+            echo "머지해도 main 이 바뀌지 않음 — 배포 PR 불필요"
             exit 0
           fi
 
