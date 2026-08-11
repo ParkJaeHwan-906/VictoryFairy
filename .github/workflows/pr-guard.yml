@@ -354,14 +354,27 @@ jobs:
           # 브랜치 보호의 "오래된 리뷰 무효화" 는 승인에만 적용되기 때문이다. 그대로 두면
           # 재검토 후 승인이 나도 reviewDecision 이 CHANGES_REQUESTED 로 남아 영원히 막힌다.
           # 사람이 남긴 리뷰는 절대 건드리지 않는다. 자동화 자신의 것만 걷어낸다.
+          #
+          # 변경요청은 REVIEW_TOKEN(리뷰 전용 계정)이 우선 제출하고 봇 토큰은 그 다음이다.
+          # 봇 신원만 걷어내면 리뷰 계정이 남긴 변경요청이 그대로 남아, 재검토가 승인해도
+          # 머지 잡의 미해소 변경요청 검사에 걸려 PR 이 영원히 멈춘다.
+          # 관리자 PAT 신원은 사람 계정과 구분되지 않으므로 걷어내지 않는다.
+          dismissable="github-actions[bot]"
+          if [ -n "${REVIEW:-}" ]; then
+            reviewer=$(GH_TOKEN="$REVIEW" gh api user --jq .login 2>/dev/null || true)
+            [ -n "$reviewer" ] && dismissable="${dismissable} ${reviewer}"
+          fi
+
+          # 로그인 이름을 jq 표현식에 끼워 넣지 않는다. 값은 셸에서 대조한다.
           GH_TOKEN="$PAT" gh api "repos/${REPO}/pulls/${PR_NUMBER}/reviews" --paginate \
-            --jq '.[] | select(.user.login == "github-actions[bot]" and .state == "CHANGES_REQUESTED") | .id' \
-            | while read -r rid; do
+            --jq '.[] | select(.state == "CHANGES_REQUESTED") | "\(.id) \(.user.login)"' \
+            | while read -r rid login; do
                 [ -z "$rid" ] && continue
+                case " ${dismissable} " in *" ${login} "*) ;; *) continue ;; esac
                 GH_TOKEN="$PAT" gh api -X PUT \
                   "repos/${REPO}/pulls/${PR_NUMBER}/reviews/${rid}/dismissals" \
                   -f message="자동화가 재검토 후 승인했습니다." -f event=DISMISS >/dev/null \
-                  && echo "이전 변경요청 리뷰 ${rid} 해제"
+                  && echo "이전 변경요청 리뷰 ${rid} (${login}) 해제"
               done
 
   # ── 3단계: 승인됐고 다른 체크가 통과했으면 머지 ─────────────────
