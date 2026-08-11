@@ -16,11 +16,17 @@ import java.util.List;
  * 드러나고, 직렬화 설정이 바뀌는 순간 값까지 새는 한 줄 사고와의 거리가 가까워진다. 문자열
  * {@code "answer"} 부재는 컨트롤러 테스트가 본문 전체 검색으로 고정한다.
  *
+ * <p>좋아요 두 필드도 같은 방식으로 다룬다 — 좋아요는 <b>내가 푼 문제에만</b> 가능하므로 미제출 상세에
+ * 실리면 누를 수 없는 버튼의 재료만 내려보내는 셈이다. 그래서 {@code boolean}/{@code long}이 아니라
+ * 래퍼 타입이다(원시 타입이면 {@code false}/{@code 0}이 강제로 실려 키를 내릴 수가 없다).
+ *
  * @param submitted 내 제출 존재 여부. 아래 세 필드의 유무와 논리적으로 동치지만, FE 가 "미제출"을
  *     키 부재 검사로 판정하게 하지 않으려고 명시 플래그로 둔다
  * @param myOption 내가 고른 보기 번호(제출 시에만)
  * @param correct 내 제출의 정오(제출 시에만) — 제출 시점 확정값({@code QuizUserSubmit.isAnswer})
  * @param answer 정답 보기 번호(제출 시에만)
+ * @param liked 내 현재 좋아요 상태(제출 시에만)
+ * @param likeCount 그 문제의 좋아요 수(제출 시에만) — 취소된 좋아요는 세지 않는다
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record QuizDetailResponse(
@@ -34,20 +40,23 @@ public record QuizDetailResponse(
         boolean submitted,
         Integer myOption,
         Boolean correct,
-        Integer answer) {
+        Integer answer,
+        Boolean liked,
+        Long likeCount) {
 
     public static QuizDetailResponse unsubmitted(Quiz quiz, List<QuizOption> options) {
-        return of(quiz, options, false, null, null, null);
+        return of(quiz, options, false, null, null, null, null, null);
     }
 
     public static QuizDetailResponse submitted(Quiz quiz, List<QuizOption> options,
-            QuizUserSubmit submit) {
+            QuizUserSubmit submit, QuizLikeResponse like) {
         return of(quiz, options, true,
-                submit.getSubmitOption().getOption(), submit.isAnswer(), quiz.getAnswer());
+                submit.getSubmitOption().getOption(), submit.isAnswer(), quiz.getAnswer(),
+                like.liked(), like.likeCount());
     }
 
     private static QuizDetailResponse of(Quiz quiz, List<QuizOption> options, boolean submitted,
-            Integer myOption, Boolean correct, Integer answer) {
+            Integer myOption, Boolean correct, Integer answer, Boolean liked, Long likeCount) {
         return new QuizDetailResponse(
                 quiz.getId(),
                 quiz.getQuizType().getName(),
@@ -59,6 +68,8 @@ public record QuizDetailResponse(
                 submitted,
                 myOption,
                 correct,
-                answer);
+                answer,
+                liked,
+                likeCount);
     }
 }

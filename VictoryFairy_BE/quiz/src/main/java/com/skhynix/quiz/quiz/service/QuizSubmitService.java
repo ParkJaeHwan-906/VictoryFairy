@@ -11,6 +11,7 @@ import com.skhynix.domain.quiz.repository.QuizUserSubmitRepository;
 import com.skhynix.domain.user.entity.UserAccount;
 import com.skhynix.domain.user.repository.UserAccountRepository;
 import com.skhynix.quiz.chat.dto.PageResponse;
+import com.skhynix.quiz.quiz.dto.QuizLikeResponse;
 import com.skhynix.quiz.quiz.dto.QuizSubmissionHistoryResponse;
 import com.skhynix.quiz.quiz.dto.QuizSubmissionItemResponse;
 import com.skhynix.quiz.quiz.dto.QuizSubmitResponse;
@@ -45,6 +46,7 @@ public class QuizSubmitService {
     private final QuizOptionRepository quizOptionRepository;
     private final QuizUserSubmitRepository quizUserSubmitRepository;
     private final UserAccountRepository userAccountRepository;
+    private final QuizLikeService quizLikeService;
 
     /**
      * 제출 → 채점 → 정답이면 포인트 적립 → 기록 저장.
@@ -100,6 +102,9 @@ public class QuizSubmitService {
      * <p>정답 보기 텍스트는 페이지의 quizId 들을 모아 {@code quiz_id IN (...)} 한 방으로 받아 메모리에서
      * 매핑한다 — 행마다 단건 조회하면 그대로 N+1 이다({@code QuizOptionRepository} javadoc 의 2쿼리 방식).
      * 같은 번호 중복 행이 있으면 첫 행(id 최소 아님에 유의 — (quizId, option) 정렬의 첫 행)을 쓴다.
+     *
+     * <p>좋아요도 같은 quizId 묶음으로 한 번에 받는다 — 항목이 1건이든 20건이든 추가 쿼리는 2건
+     * (집계 1 + 내 좋아요 1)으로 고정이다({@code QuizLikeService.likesOf}).
      */
     @Transactional(readOnly = true)
     public QuizSubmissionHistoryResponse getHistory(Long userAccountId, int page) {
@@ -117,11 +122,16 @@ public class QuizSubmitService {
                                 Collectors.toMap(QuizOption::getOption, QuizOption::getContents,
                                         (first, dup) -> first)));
 
+        Map<Long, QuizLikeResponse> likeByQuizId = quizLikeService.likesOf(userAccountId, quizIds);
+
         Page<QuizSubmissionItemResponse> items = submits.map(submit ->
                 QuizSubmissionItemResponse.from(submit,
                         optionTextByQuizId
                                 .getOrDefault(submit.getQuiz().getId(), Map.of())
-                                .get(submit.getQuiz().getAnswer())));
+                                .get(submit.getQuiz().getAnswer()),
+                        // 좋아요가 0인 문제는 집계에서 빠져 있을 수 있다 — 없는 키는 0으로 채운다
+                        likeByQuizId.getOrDefault(submit.getQuiz().getId(),
+                                QuizLikeResponse.none())));
 
         long total = quizUserSubmitRepository.countByUserAccount_Id(userAccountId);
         long correctCount = quizUserSubmitRepository.countByUserAccount_IdAndIsAnswerTrue(userAccountId);
