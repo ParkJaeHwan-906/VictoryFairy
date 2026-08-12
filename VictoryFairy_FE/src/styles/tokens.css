@@ -32,12 +32,16 @@
   --color-primary-500: #f04e23;
 
   /* Color — Red (검증 실패 / 에러) */
+  /* Figma Style: Error/Normal — 퀴즈 X 글리프처럼 색이 곧 도형인 자리에 쓴다 */
+  --color-red-300: #f79e95;
   --color-red-500: #e5342b;
 
   /* Color — Green (검증 통과). Figma Style: Success/Strong
      ⚠ 흰 배경 대비가 약 3.1:1 이라 14px 본문 기준 WCAG AA(4.5:1)에 못 미친다.
      디자인 값이라 그대로 쓰되, 색만으로 상태를 알리지 않도록 아이콘·문구를 함께 둔다. */
   --color-green-500: #2fa758;
+  /* Figma Style: Success/Normal — Error/Normal 과 짝. 도형·게이지 채움용이다. */
+  --color-green-300: #86dfa0;
 
   /* Color — Yellow (경기 종료 · 퀴즈 결과) */
   --color-yellow-300: #ffcb4d;
@@ -78,6 +82,12 @@
   --color-error-strong: var(--color-red-500);
   /* Figma Style: Success/Strong — 검증 통과 문구. Error/Strong 과 짝을 이룬다. */
   --color-success-strong: var(--color-green-500);
+  /* Figma Style: Error/Normal · Success/Normal — 글자가 아니라 도형에 쓰는 옅은 짝.
+     Strong 은 그 도형에 붙는 글자 색이다(퀴즈 O/X 가 이 조합이다). */
+  --color-error-normal: var(--color-red-300);
+  --color-success-normal: var(--color-green-300);
+  /* Figma Style: Background/Red — 퀴즈 문항 번호 칩 바탕 */
+  --color-background-red: var(--color-primary-50);
 
   /* ---------------------------------------------------------------- *
    * Radius
