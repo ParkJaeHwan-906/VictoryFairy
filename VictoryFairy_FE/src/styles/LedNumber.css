@@ -1,0 +1,58 @@
+/**
+ * LedNumber(전광판 점 숫자) 스타일.
+ * Figma: SWM / [Game] 퀴즈 결과 (node 597:9739) 의 `ETC/Number_LED`·`ETC/Sign_LED`.
+ *
+ * 점 4px · 간격 1px 이 이 컴포넌트의 유일한 치수다.
+ *   숫자 6칸 x 10줄 → 29 x 49   퍼센트 5칸 x 5줄 → 24 x 24
+ * 격자 크기는 컴포넌트가 `--led-columns`·`--led-rows` 로 내려준다.
+ */
+
+.led-number {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.led-number__glyphs {
+  display: flex;
+  /* 퍼센트 기호가 숫자보다 낮아 아래를 맞춰야 한 줄로 읽힌다 */
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.led-number__grid {
+  display: grid;
+  grid-template-columns: repeat(var(--led-columns), 4px);
+  grid-template-rows: repeat(var(--led-rows), 4px);
+  gap: 1px;
+}
+
+/*
+ * 꺼진 점도 그린다. 판 색과 같아 눈에는 안 보이지만, 격자를 채워 두어야 글자마다
+ * 칸이 어긋나지 않는다(켜진 점만 그리면 위치를 따로 지정해야 한다).
+ */
+.led-number__dot {
+  border-radius: 2px;
+  background-color: var(--color-board);
+}
+
+.led-number[data-tone='primary'] .led-number__dot[data-on] {
+  background-color: var(--color-primary-400);
+}
+
+.led-number[data-tone='white'] .led-number__dot[data-on] {
+  background-color: var(--color-white);
+}
+
+/* 값은 보조기기에만 문장으로 전한다(핸들 설명과 같은 방식). */
+.led-number__label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}

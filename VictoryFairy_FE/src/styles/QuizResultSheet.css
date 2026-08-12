@@ -1,0 +1,310 @@
+/**
+ * QuizResultSheet(문제 및 정답 바텀시트) 스타일.
+ * Figma: SWM / [Game] 퀴즈 결과 상세보기-펼침예시 (node 724:18166), 기준 프레임 402 x 874.
+ *
+ * 시트는 y=154 에서 시작해 화면 끝까지(720) 차지한다. 안쪽은 핸들 · 제목(고정) /
+ * 문제 목록(스크롤) 2단이며, 딤·핸들·올라오는 동작은 라운지 채팅 시트와 같은 규칙이다.
+ */
+
+.quiz-result-sheet {
+  position: fixed;
+  z-index: 10;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+/* 딤 — 클릭하면 닫힌다. 버튼이지만 화면에는 어두운 면으로만 보인다. */
+.quiz-result-sheet__dim {
+  position: absolute;
+  inset: 0;
+  padding: 0;
+  border: none;
+  background-color: var(--color-dim);
+  cursor: default;
+}
+
+.quiz-result-sheet__panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--layout-app-width);
+  height: min(720px, 100dvh);
+  border-radius: var(--radius-40) var(--radius-40) 0 0;
+  background-color: var(--color-surface);
+  overflow: clip;
+  animation: quiz-result-sheet-rise 0.24s ease-out;
+}
+
+@keyframes quiz-result-sheet-rise {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * 핸들 · 제목 — 시트 상단 고정 영역
+ * ------------------------------------------------------------------ */
+.quiz-result-sheet__handle {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 12px 0;
+}
+
+.quiz-result-sheet__handle-bar {
+  width: 48px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-label-assistive);
+}
+
+.quiz-result-sheet__title {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  height: 42px;
+  margin: 0;
+  padding-inline: var(--layout-gutter);
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  text-align: center;
+}
+
+/* ------------------------------------------------------------------ *
+ * 목록 — 묶음 머리말 + 문제 카드
+ * ------------------------------------------------------------------ */
+.quiz-result-sheet__body {
+  flex: 1 0 0;
+  min-height: 0;
+  padding: 14px var(--layout-gutter) 24px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.quiz-result-sheet__group {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.quiz-result-sheet__group-name {
+  color: var(--color-label-normal);
+  font-size: var(--font-size-title3);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title3);
+}
+
+.quiz-result-sheet__group-count {
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+}
+
+.quiz-result-sheet__cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  /* 카드 그림자가 잘리지 않게 목록 좌우로 2px 씩 숨 쉴 자리를 준다 */
+  padding: 2px;
+  list-style: none;
+}
+
+/* ------------------------------------------------------------------ *
+ * 문제 카드 — 누르면 답이 펼쳐진다
+ * ------------------------------------------------------------------ */
+.quiz-result-sheet__card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  padding: 12px;
+  border-radius: var(--radius-10);
+  background-color: var(--color-surface);
+  /* Figma drop-shadow(0 0 2px Gray/200) */
+  box-shadow: 0 0 2px var(--color-gray-200);
+  text-align: left;
+}
+
+.quiz-result-sheet__card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+
+.quiz-result-sheet__card-title {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* 번호 칩 — 정답이면 초록, 오답이면 붉은 계열. 색이 곧 정오 표시다. */
+.quiz-result-sheet__chip {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  min-width: 25px;
+  padding: 2px 5px;
+  border-radius: var(--radius-15);
+  background-color: var(--color-background-red);
+  color: var(--color-error-strong);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  text-align: center;
+}
+
+.quiz-result-sheet__chip[data-correct] {
+  background-color: var(--color-success-light);
+  color: var(--color-success-strong);
+}
+
+/* 접혀 있을 때는 한 줄로 자르고, 펼치면 전문이 보인다 */
+.quiz-result-sheet__question {
+  min-width: 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quiz-result-sheet__card[data-open] .quiz-result-sheet__question {
+  overflow-wrap: break-word;
+  white-space: normal;
+}
+
+.quiz-result-sheet__card-arrow {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  background-color: var(--color-label-assistive);
+  -webkit-mask: url('../assets/arrow_d.svg') center / contain no-repeat;
+  mask: url('../assets/arrow_d.svg') center / contain no-repeat;
+}
+
+.quiz-result-sheet__card[data-open] .quiz-result-sheet__card-arrow {
+  -webkit-mask-image: url('../assets/arrow_u.svg');
+  mask-image: url('../assets/arrow_u.svg');
+}
+
+/* ------------------------------------------------------------------ *
+ * 펼친 답 — 내가 고른 답 | 정답
+ * ------------------------------------------------------------------ */
+.quiz-result-sheet__answers {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  align-self: flex-end;
+  width: calc(100% - 37px);
+  min-height: 44px;
+  padding: 8px 32px;
+  border-radius: var(--radius-10);
+  background-color: var(--color-background-gray);
+}
+
+.quiz-result-sheet__answer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.quiz-result-sheet__answer-label {
+  flex-shrink: 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  white-space: nowrap;
+}
+
+.quiz-result-sheet__answer-divider {
+  flex-shrink: 0;
+  width: 2px;
+  height: 20px;
+  border-radius: 2px;
+  background-color: var(--color-label-disable);
+}
+
+/* O·X 는 그림으로, 그 밖의 보기는 글자로 보여 준다 */
+.quiz-result-sheet__answer-glyph {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  background-color: var(--color-success-strong);
+}
+
+.quiz-result-sheet__answer-glyph[data-mark='o'] {
+  -webkit-mask: url('../assets/o.svg') center / contain no-repeat;
+  mask: url('../assets/o.svg') center / contain no-repeat;
+}
+
+.quiz-result-sheet__answer-glyph[data-mark='x'] {
+  -webkit-mask: url('../assets/x.svg') center / contain no-repeat;
+  mask: url('../assets/x.svg') center / contain no-repeat;
+}
+
+.quiz-result-sheet__answer-glyph[data-tone='wrong'],
+.quiz-result-sheet__answer-text[data-tone='wrong'] {
+  background-color: var(--color-error-strong);
+  color: var(--color-error-strong);
+}
+
+.quiz-result-sheet__answer-text {
+  min-width: 0;
+  color: var(--color-success-strong);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 시한을 넘겨 답을 내지 못한 문제 */
+.quiz-result-sheet__answer-none {
+  color: var(--color-label-assistive);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  white-space: nowrap;
+}
+
+.quiz-result-sheet__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quiz-result-sheet__panel {
+    animation: none;
+  }
+}

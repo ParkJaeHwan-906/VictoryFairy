@@ -38,6 +38,14 @@
   --color-red-300: #f79e95;
   --color-red-500: #e5342b;
 
+  /* Color — Ink Black (퀴즈 결과 전광판). 회색 계열과 달리 따뜻한 먹색이다. */
+  --color-black-900: #1a1a18;
+  --color-black-800: #2c2c2a;
+  --color-black-700: #3d3b37;
+
+  /* Figma Style: Success/Light — 정답 표시 칩 바탕 */
+  --color-green-100: #dff7e6;
+
   /* Color — Green (검증 통과). Figma Style: Success/Strong
      ⚠ 흰 배경 대비가 약 3.1:1 이라 14px 본문 기준 WCAG AA(4.5:1)에 못 미친다.
      디자인 값이라 그대로 쓰되, 색만으로 상태를 알리지 않도록 아이콘·문구를 함께 둔다. */
@@ -88,12 +96,20 @@
      Strong 은 그 도형에 붙는 글자 색이다(퀴즈 O/X 가 이 조합이다). */
   --color-error-normal: var(--color-red-300);
   --color-success-normal: var(--color-green-300);
+  /* Figma Style: Success/Light — Strong 글자를 얹는 옅은 바탕 */
+  --color-success-light: var(--color-green-100);
+  /* Figma Style: Ink Black/Dark·Strong·Normal — 전광판 판·눌린 점·나사 */
+  --color-board: var(--color-black-900);
+  --color-board-dim: var(--color-black-800);
+  --color-board-raised: var(--color-black-700);
   /* Figma Style: Background/Red — 퀴즈 문항 번호 칩 바탕 */
   --color-background-red: var(--color-primary-50);
 
   /* ---------------------------------------------------------------- *
    * Radius
    * ---------------------------------------------------------------- */
+  --radius-4: 4px;
+  --radius-5: 5px;
   --radius-10: 10px;
   --radius-12: 12px;
   --radius-15: 15px;

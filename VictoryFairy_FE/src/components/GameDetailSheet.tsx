@@ -152,6 +152,16 @@ export default function GameDetailSheet({ game, onClose }: GameDetailSheetProps)
     navigate(ROUTES.quiz, { state: quizState });
   };
 
+  /**
+   * 종료된 경기의 "퀴즈 결과 확인하기".
+   *
+   * 넘길 값이 없다 — 결과 화면은 내 풀이 이력을 통째로 보여주고(경기로 좁히는 API 가 없다)
+   * 화면에 경기 이름도 쓰지 않는다.
+   */
+  const handleQuizResult = () => {
+    navigate(ROUTES.quizResult);
+  };
+
   return (
     <div className="game-sheet">
       {/* 딤. 클릭하면 닫히지만 읽어 줄 내용은 없다. */}
@@ -210,8 +220,11 @@ export default function GameDetailSheet({ game, onClose }: GameDetailSheetProps)
           <button
             className={`game-sheet__cta game-sheet__cta--${state.cta.tone}`}
             type="button"
-            // TODO: react-agent - 종료 경기의 "퀴즈 결과 확인하기" 화면이 생기면 연결한다.
-            onClick={state.cta.tone === 'live' ? handleQuizStart : undefined}
+            /*
+             * 같은 자리의 버튼이 경기 상태에 따라 다른 곳으로 간다 —
+             * 진행중이면 문제를 풀러, 종료됐으면 결과를 보러 간다.
+             */
+            onClick={state.cta.tone === 'live' ? handleQuizStart : handleQuizResult}
           >
             {state.cta.label}
           </button>

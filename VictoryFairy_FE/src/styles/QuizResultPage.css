@@ -1,0 +1,318 @@
+/**
+ * QuizResultPage(퀴즈 결과) 스타일.
+ * Figma: SWM / [Game] 퀴즈 결과 (node 597:9739), 기준 프레임 402 x 874.
+ *
+ * 세로 좌표를 흐름 레이아웃으로 환산한 값(iOS 상태 바 47px 은 다른 화면들과 같이 제외):
+ *   상단 바 0~60 → 제목 80(=127-47) → 전광판 168(=215-47) → "회별 정답률" 375 → 행 408
+ * 제목은 24px·행간 1.4 두 줄(67.2)이라 전광판까지 남는 간격이 20 이다.
+ */
+
+.quiz-result-page {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--layout-app-width);
+  min-height: 100dvh;
+  margin-inline: auto;
+  padding-bottom: 48px;
+  background-color: var(--color-background-basic);
+}
+
+/* ------------------------------------------------------------------ *
+ * Bar/Top — 뒤로가기 · 타이틀 (다른 화면들과 같은 컴포넌트)
+ * ------------------------------------------------------------------ */
+.quiz-result-page__topbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.quiz-result-page__back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 60px;
+  padding: 10px;
+  border-radius: var(--radius-10);
+  overflow: clip;
+}
+
+.quiz-result-page__back-icon {
+  width: 20px;
+  height: 20px;
+  background-color: var(--color-label-assistive);
+  -webkit-mask: url('../assets/arrow_l.svg') center / contain no-repeat;
+  mask: url('../assets/arrow_l.svg') center / contain no-repeat;
+}
+
+.quiz-result-page__topbar-title {
+  min-width: 0;
+  margin: 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  text-align: center;
+}
+
+.quiz-result-page__topbar-spacer {
+  flex-shrink: 0;
+  width: 60px;
+  height: 60px;
+}
+
+/* Title/Title1 — "오늘 경기 감각이 정말 좋았어요!" */
+.quiz-result-page__heading {
+  flex-shrink: 0;
+  margin: 20px 0 0;
+  padding-inline: var(--layout-gutter);
+  color: var(--color-label-normal);
+  font-size: var(--font-size-title1);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title1);
+}
+
+/* ------------------------------------------------------------------ *
+ * 전광판 — 획득 포인트 · 정답률
+ *
+ * 디자인은 두 묶음을 좌우 절대 좌표(41 / 213)로 놓았지만, 가운데 구분선을 사이에 둔
+ * 반반 배치와 시각적으로 같아 흐름으로 옮겼다(폭이 달라져도 균형이 유지된다).
+ * 세로는 디자인 그대로다: 위 24 → 칩 21 → 12 → 숫자 49 → 20 → 아래 줄 21 → 20.
+ * ------------------------------------------------------------------ */
+.quiz-result-page__board {
+  position: relative;
+  flex-shrink: 0;
+  margin: 20px var(--layout-gutter) 0;
+  padding: 24px 0 20px;
+  border-radius: var(--radius-20);
+  background-color: var(--color-board);
+  box-shadow: 0 0 4px var(--color-gray-200);
+  overflow: clip;
+}
+
+.quiz-result-page__board-main {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+}
+
+.quiz-result-page__board-col {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* 판에서 한 겹 올라온 이름표 */
+.quiz-result-page__board-chip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 80px;
+  margin: 0;
+  padding: 2px 12px;
+  border-radius: var(--radius-5);
+  background-color: var(--color-board-raised);
+  color: var(--color-white);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  white-space: nowrap;
+}
+
+/* 두 칸을 가르는 세로 홈 */
+.quiz-result-page__board-divider {
+  flex-shrink: 0;
+  align-self: center;
+  width: 4px;
+  height: 82px;
+  border-radius: 2px;
+  background-color: var(--color-board-dim);
+}
+
+.quiz-result-page__board-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 20px 32px 0;
+}
+
+.quiz-result-page__board-note {
+  margin: 0;
+  color: var(--color-white);
+  font-size: var(--font-size-body4);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body4);
+  text-align: center;
+}
+
+/* 통풍구 — 4칸 x 3줄 점. 판이 기계라는 인상을 주는 장식이다. */
+.quiz-result-page__grille {
+  display: grid;
+  flex-shrink: 0;
+  grid-template-columns: repeat(4, 4px);
+  grid-template-rows: repeat(3, 4px);
+  gap: 1px;
+}
+
+.quiz-result-page__grille > span {
+  border-radius: 2px;
+  background-color: var(--color-board-dim);
+}
+
+/* 네 귀퉁이 나사 — 8px 원판에 45° 홈이 하나 파여 있다 */
+.quiz-result-page__screw {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 4px;
+  background-color: var(--color-board-raised);
+  overflow: clip;
+}
+
+.quiz-result-page__screw::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 2px;
+  height: 9.17px;
+  background-color: var(--color-board-dim);
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.quiz-result-page__screw[data-corner='tl'] {
+  top: 12px;
+  left: 12px;
+}
+
+.quiz-result-page__screw[data-corner='tr'] {
+  top: 12px;
+  right: 12px;
+}
+
+.quiz-result-page__screw[data-corner='bl'] {
+  bottom: 12px;
+  left: 12px;
+}
+
+.quiz-result-page__screw[data-corner='br'] {
+  right: 12px;
+  bottom: 12px;
+}
+
+/* ------------------------------------------------------------------ *
+ * 회별 정답률
+ * ------------------------------------------------------------------ */
+.quiz-result-page__section-title {
+  flex-shrink: 0;
+  margin: 40px 0 8px;
+  padding-inline: var(--layout-gutter);
+  color: var(--color-label-normal);
+  font-size: var(--font-size-title3);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title3);
+}
+
+.quiz-result-page__innings {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0 var(--layout-gutter);
+  list-style: none;
+}
+
+/* 한 줄 56 = 위아래 16 + 안쪽 24 */
+.quiz-result-page__inning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 16px 0;
+  text-align: left;
+}
+
+.quiz-result-page__inning-label {
+  flex-shrink: 0;
+  width: 28px;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+}
+
+/*
+ * 정답률 게이지 — 10칸을 반올림해 채운다.
+ * 줄의 gap(8)이 양옆 간격을 이미 만들므로 여기서 여백을 더 주면 안 된다 —
+ * 그래야 디자인의 눈금 폭 228(= 21 x 10 + 2 x 9)이 그대로 나온다.
+ */
+.quiz-result-page__gauge {
+  display: flex;
+  flex: 1 1 auto;
+  gap: 2px;
+  min-width: 0;
+}
+
+.quiz-result-page__gauge > span {
+  flex: 1 1 0;
+  height: 16px;
+  border-radius: var(--radius-4);
+  background-color: var(--color-line-light);
+}
+
+.quiz-result-page__gauge > span[data-on] {
+  background-color: var(--color-primary-400);
+}
+
+.quiz-result-page__inning-score {
+  flex-shrink: 0;
+  min-width: 46px;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  text-align: right;
+}
+
+.quiz-result-page__inning-arrow {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  margin-left: 8px;
+  background-color: var(--color-label-assistive);
+  -webkit-mask: url('../assets/arrow_r.svg') center / contain no-repeat;
+  mask: url('../assets/arrow_r.svg') center / contain no-repeat;
+}
+
+/* ------------------------------------------------------------------ *
+ * 상태 안내 — 로딩 · 실패 · 계산 범위 알림(디자인 없음, 토큰 규칙만 따른다)
+ * ------------------------------------------------------------------ */
+.quiz-result-page__status {
+  margin: 40px var(--layout-gutter);
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-body2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body2);
+  text-align: center;
+}
+
+.quiz-result-page__status--error {
+  color: var(--color-error-strong);
+}
+
+.quiz-result-page__status--note {
+  margin: 12px var(--layout-gutter) 0;
+  font-size: var(--font-size-caption2);
+  line-height: var(--line-height-tight);
+}
+
+@media (max-width: 379px) {
+  .quiz-result-page__board-foot {
+    margin-inline: 16px;
+  }
+}
