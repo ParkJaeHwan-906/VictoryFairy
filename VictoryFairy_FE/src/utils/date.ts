@@ -36,6 +36,19 @@ export function formatDateLabel(date: string): string {
   return `${date.replaceAll('-', '.')}(${weekday})`;
 }
 
+/**
+ * 카드 머리말에 쓰는 표기. 예) `2026-07-23` → `2026년 7월 23일 (목)`
+ *
+ * `formatDateLabel`(`2026.07.23(목)`)과 같은 값을 다르게 읽는 두 표기다 —
+ * 상단 바는 좁아서 점 표기를, 퀴즈 카드는 넉넉해서 풀어 쓴 표기를 쓴다.
+ * 월·일에 0 을 붙이지 않는 것도 디자인 그대로다.
+ */
+export function formatKoreanDate(date: string): string {
+  const [year, month, day] = date.split('-').map(Number);
+  const weekday = WEEKDAYS[new Date(Date.UTC(year, month - 1, day)).getUTCDay()];
+  return `${year}년 ${month}월 ${day}일 (${weekday})`;
+}
+
 /** `gameDate`(LocalDateTime 문자열)의 `HH:mm`. 오프셋이 없어 파싱하지 않고 잘라 쓴다. */
 export function formatGameTime(gameDate: string): string {
   return gameDate.slice(11, 16);
