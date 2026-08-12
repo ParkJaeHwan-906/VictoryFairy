@@ -454,3 +454,54 @@ def test_sync_game_passes_none_scores_through_for_scheduled_or_cancelled():
         home_team_id=3, away_team_id=2, home_score=None, away_score=None, status_id=1)
     _, _, params = conn.log[0]
     assert params[4] is None and params[5] is None  # home_score, away_score
+
+
+# --------------------------------------------------------------------------- preview 라인업 정리
+def test_lineup_done_games_returns_pks_from_query():
+    conn = FakeConn(fetch_results=[[(11,), (13,)]])
+    assert DbSink(None, connection=conn).lineup_done_games([11, 12, 13]) == {11, 13}
+    kind, sql, params = conn.log[0]
+    # 완성 판정은 '두 팀 × 타순 9' — 한 팀만 공시된 경기를 완료로 보면 나머지 팀이
+    # 영영 안 들어온다.
+    assert "COUNT(DISTINCT team_id) = 2" in sql and "COUNT(*) >= 18" in sql
+    assert params == [11, 12, 13]
+
+
+def test_lineup_done_games_skips_query_when_no_pks():
+    conn = FakeConn()
+    assert DbSink(None, connection=conn).lineup_done_games([]) == set()
+    assert DbSink(None, connection=conn).lineup_done_games([None]) == set()
+    assert conn.log == []
+
+
+def test_delete_lineups_except_keeps_only_boxscore_players():
+    conn = FakeConn(rowcounts=[2])
+    assert DbSink(None, connection=conn).delete_lineups_except(77, [5, 9, 5]) == 2
+    kind, sql, params = conn.log[0]
+    assert "NOT IN" in sql and params[0] == 77 and sorted(params[1:]) == [5, 9]
+    assert conn.commits == 1
+
+
+def test_delete_lineups_except_is_a_noop_without_player_ids():
+    # 파싱 실패로 빈 목록이 오면 NOT IN () 가 그 경기 라인업을 통째로 날린다 — 막아야 한다.
+    conn = FakeConn()
+    assert DbSink(None, connection=conn).delete_lineups_except(77, []) == 0
+    assert DbSink(None, connection=conn).delete_lineups_except(77, [None]) == 0
+    assert conn.log == [] and conn.commits == 0
+
+
+def test_delete_lineups_if_unplayed_guards_on_missing_boxscore():
+    # 서스펜디드처럼 '치렀는데 나중에 취소로 표시'된 경기의 확정 라인업까지 날리면 안 된다.
+    conn = FakeConn(rowcounts=[20])
+    assert DbSink(None, connection=conn).delete_lineups_if_unplayed(77) == 20
+    kind, sql, params = conn.log[0]
+    assert "NOT EXISTS" in sql and "batter_records" in sql
+    assert params == (77, 77)
+
+
+def test_games_with_stadium_returns_known_ids():
+    conn = FakeConn(fetch_results=[[("g1",)]])
+    got = DbSink(None, connection=conn).games_with_stadium(["g1", "g2"])
+    assert got == {"g1"}
+    kind, sql, params = conn.log[0]
+    assert "stadium_id IS NOT NULL" in sql and params == ["g1", "g2"]
