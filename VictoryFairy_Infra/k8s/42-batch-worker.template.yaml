@@ -59,6 +59,10 @@ spec:
           # TODO: 워커 이미지로 교체. latest 금지(불변 태그).
           image: "<ACCOUNT_ID>.dkr.ecr.ap-northeast-2.amazonaws.com/victoryfairy-batch-worker:<commit-sha>"
           env:
+            # ⚠ user-app·quiz-app 과 반드시 같은 값이어야 한다 — 같은 MySQL 에 쓰는 워크로드끼리
+            #   시간대가 갈리면 한 컬럼에 두 존의 값이 섞여 나중에 구분할 수 없게 된다.
+            - name: TZ
+              value: "Asia/Seoul"
             - name: STAGE
               value: "crawl"        # crawl | refine | generate
             # 배치 카운터 = 배치 전용 임시 Redis (서비스 Redis 아님)
