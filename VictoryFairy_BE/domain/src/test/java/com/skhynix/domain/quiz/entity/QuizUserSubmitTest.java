@@ -68,4 +68,45 @@ class QuizUserSubmitTest {
         assertThat(submit.getSubmitOption().getOption()).isNotEqualTo(quiz.getAnswer());
         assertThat(submit.isAnswer()).isTrue();
     }
+
+    @Test
+    @DisplayName("Builder로 inning을 지정하면 그 값이 그대로 배선된다(QUIZ-INN-1 — 제출한 이닝은 이 "
+            + "컬럼 하나에만 보관)")
+    void builder_wiresInningField() {
+        // given
+        Quiz quiz = newQuiz();
+        QuizOption option = QuizOption.builder().quiz(quiz).contents("2번 보기").option(2).build();
+
+        // when
+        QuizUserSubmit submit = QuizUserSubmit.builder()
+                .userAccount(newUserAccount("응시자3"))
+                .quiz(quiz)
+                .submitOption(option)
+                .isAnswer(true)
+                .inning(6)
+                .build();
+
+        // then
+        assertThat(submit.getInning()).isEqualTo(6);
+    }
+
+    @Test
+    @DisplayName("inning을 지정하지 않으면 null로 남는다(QUIZ-INN-2 — 통계용이라 누락 허용, score "
+            + "미지정 시 null인 Quiz와 같은 계열이며 0 등으로 보정되지 않는다)")
+    void inning_isNullWhenNotGiven() {
+        // given
+        Quiz quiz = newQuiz();
+        QuizOption option = QuizOption.builder().quiz(quiz).contents("2번 보기").option(2).build();
+
+        // when
+        QuizUserSubmit submit = QuizUserSubmit.builder()
+                .userAccount(newUserAccount("응시자4"))
+                .quiz(quiz)
+                .submitOption(option)
+                .isAnswer(true)
+                .build();
+
+        // then
+        assertThat(submit.getInning()).isNull();
+    }
 }

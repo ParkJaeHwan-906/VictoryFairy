@@ -113,6 +113,25 @@ public class QuizUserSubmit {
     @Column(name = "is_answer", columnDefinition = "TINYINT", nullable = false)
     private boolean isAnswer;
 
+    /**
+     * 그 문제를 푼 시점의 경기 이닝 — {@code games.current_inning}을 <b>그대로 복사한 값</b>이며
+     * 앱이 보정·반올림하지 않는다. 정의역도 원천과 같은 1~11({@code ck_games_current_inning}).
+     * 초/말({@code inning_half})은 담지 않는다.
+     *
+     * <p><b>nullable 이고 {@code @ColumnDefault}를 두지 않는다.</b> 용도가 통계·분석이라 값 누락이
+     * 허용되는데, "이미 행이 있는 테이블에 NOT NULL 컬럼 추가"( {@code UserAccount.point} 선례)가
+     * 요구하는 초기값 {@code 0} 은 이닝 정의역 밖이라 기존 제출 전부에 "0회에 풀었다"는 거짓을
+     * 남긴다. 이닝 정의역에는 "모름"을 표현할 숫자가 없으므로 NULL 로 표현한다.
+     *
+     * <p>CHECK 제약도 걸지 않는다 — 값의 출처가 이미 CHECK 로 닫힌 컬럼이고, {@code ddl-auto=update}
+     * 가 기존 테이블에 CHECK 를 거는지는 환경마다 갈렸다(2026-08-11 prod/devdb 실측).
+     *
+     * <p>{@code isAnswer}와 같은 계열의 <b>제출 시점 스냅샷</b>이다 — 그 뒤 경기가 진행돼도 이미
+     * 저장된 값은 변하지 않고, 조회 경로가 다시 계산하지도 않는다.
+     */
+    @Column(name = "inning", columnDefinition = "TINYINT", nullable = true)
+    private Integer inning;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -121,12 +140,15 @@ public class QuizUserSubmit {
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 
+    // inning 은 빌더 파라미터로 받는다 — uid·타임스탬프처럼 "항상 정해진 초기값에서 시작하는 값"이
+    // 아니라 제출 시점에 정해지는 관측값이라, 만드는 쪽이 알고 있는 값을 넣어야 한다(모르면 null).
     @Builder
     private QuizUserSubmit(UserAccount userAccount, Quiz quiz, QuizOption submitOption,
-            boolean isAnswer) {
+            boolean isAnswer, Integer inning) {
         this.userAccount = userAccount;
         this.quiz = quiz;
         this.submitOption = submitOption;
         this.isAnswer = isAnswer;
+        this.inning = inning;
     }
 }
