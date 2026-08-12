@@ -570,6 +570,8 @@ def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=
     resp = fetch.fetch(client, game_records.schedule_url(settings, date),
                        settings=settings, referer=settings.naver_referer)
     games = game_records.list_kbo_games(resp.json())
+    # 구장은 한 번 채우면 변하지 않는다 — 아는 경기는 상세 API 를 다시 부르지 않는다.
+    known_stadium = db.games_with_stadium([g.get("gameId") for g in games])
     synced, skipped = 0, 0
     pending: list[tuple[str, int]] = []
     for g in games:
@@ -580,7 +582,8 @@ def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=
             continue
         live_or_done = status in ("IN_PROGRESS", "FINISHED", "DRAW")
         dt = (g.get("gameDateTime") or "").replace("T", " ") or f"{date} 00:00:00"
-        stadium = _scheduled_game_stadium(settings, client, g, status, log)
+        stadium = (None if g.get("gameId") in known_stadium
+                   else _scheduled_game_stadium(settings, client, g, status, log))
         game_pk = db.sync_game(
             naver_game_id=g["gameId"], game_dt=dt,
             home_team_id=team_ids[g["homeTeamCode"]],

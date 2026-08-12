@@ -562,6 +562,9 @@ class _RecordingSyncDb:
             status_id=status_id, stadium_id=stadium_id))
         return len(self.calls)  # 실제 sync_game 처럼 game PK 를 돌려준다
 
+    def games_with_stadium(self, naver_game_ids):
+        return {g for g in naver_game_ids if g in self._with_stadium}
+
     def lineup_done_games(self, game_pks):
         return {pk for pk in game_pks if pk in self._done}
 
@@ -1135,3 +1138,17 @@ def test_job_games_sync_lookahead_range_does_not_fetch_previews(monkeypatch, set
 
     assert _previewed(urls) == []
     assert db.lineup_calls == []
+
+
+def test_job_games_sync_skips_stadium_fetch_when_already_known(monkeypatch, settings):
+    # 구장은 한 번 채우면 변하지 않는다 — 1분 폴링에서 같은 값을 계속 다시 받지 않는다.
+    import contextlib
+    urls = []
+    monkeypatch.setattr(run.fetch, "build_client", lambda settings: contextlib.nullcontext(object()))
+    monkeypatch.setattr(run.fetch, "fetch", _lineup_fetch(urls))
+    db = _RecordingSyncDb(team_ids={"OB": 1, "LG": 2}, with_stadium={"scheduled"})
+
+    run.job_games_sync(settings, db, "2026-07-10")
+
+    detail = [u for u in urls if "?" not in u and not u.endswith("/preview")]
+    assert detail == []  # 유일한 SCHEDULED 경기의 구장을 이미 알고 있었다

@@ -497,3 +497,11 @@ def test_delete_lineups_if_unplayed_guards_on_missing_boxscore():
     kind, sql, params = conn.log[0]
     assert "NOT EXISTS" in sql and "batter_records" in sql
     assert params == (77, 77)
+
+
+def test_games_with_stadium_returns_known_ids():
+    conn = FakeConn(fetch_results=[[("g1",)]])
+    got = DbSink(None, connection=conn).games_with_stadium(["g1", "g2"])
+    assert got == {"g1"}
+    kind, sql, params = conn.log[0]
+    assert "stadium_id IS NOT NULL" in sql and params == ["g1", "g2"]

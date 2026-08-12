@@ -150,6 +150,14 @@ LINEUP_DONE_GAMES = (
     "GROUP BY game_id HAVING COUNT(DISTINCT team_id) = 2 AND COUNT(*) >= 18"
 )
 
+# 구장을 이미 아는 경기. 구장은 스케줄 목록에 없어 경기마다 상세 API 를 한 번 더
+# 불러야 하는데, 한 번 채우면 변하지 않는다 — 폴링이 1분이면 같은 값을 하루 수백 번
+# 다시 받게 되므로 아는 경기는 건너뛴다.
+GAMES_WITH_STADIUM = (
+    "SELECT naver_game_id FROM games "
+    "WHERE naver_game_id IN ({ph}) AND stadium_id IS NOT NULL"
+)
+
 # preview(경기 전 공시)로 적재해 놓고 실제로는 출전하지 않은 선수를 걷어낸다.
 # records 잡이 박스스코어로 확정 적재한 뒤 부르며, 박스스코어에 없는 행이 곧 유령이다.
 LINEUP_DELETE_EXCEPT = (
@@ -408,6 +416,14 @@ class DbSink:
             return set()
         ph = ",".join(["%s"] * len(pks))
         return {row[0] for row in self.fetch_all(LINEUP_DONE_GAMES.format(ph=ph), pks)}
+
+    def games_with_stadium(self, naver_game_ids) -> set:
+        """구장이 이미 채워진 naver_game_id 집합 (GAMES_WITH_STADIUM 판정)."""
+        ids = [gid for gid in naver_game_ids if gid]
+        if not ids:
+            return set()
+        ph = ",".join(["%s"] * len(ids))
+        return {row[0] for row in self.fetch_all(GAMES_WITH_STADIUM.format(ph=ph), ids)}
 
     def delete_lineups_except(self, game_pk, player_ids) -> int:
         """박스스코어에 없는 라인업 행 삭제 -> 지운 행 수.
