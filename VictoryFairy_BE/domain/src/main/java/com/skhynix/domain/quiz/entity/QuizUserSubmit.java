@@ -1,5 +1,6 @@
 package com.skhynix.domain.quiz.entity;
 
+import com.skhynix.domain.game.entity.Game;
 import com.skhynix.domain.user.entity.UserAccount;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -7,6 +8,7 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
@@ -59,10 +61,20 @@ import org.hibernate.annotations.UpdateTimestamp;
 // FK 자동 인덱스가 이미 받는다.
 // ⚠ ddl-auto=update 는 기존 테이블에 UNIQUE 를 추가하지 않는다(game_statuses 실측) — 테이블이 이미
 //   생성된 환경(dev)은 infra/sql/migrate-quiz-ingest.sql 을 1회 수동 실행해야 한다.
+//
+// idx_quiz_users_submit_account_game_inning(user_account_id, game_id, inning): "이 사용자가 그 경기의
+// 그 이닝에 이미 세트를 받았는가"(회차 제한)를 커버링 존재 검사로 끝내기 위한 인덱스다.
+// ⚠ UNIQUE 가 아니다 — 한 이닝에 세트(최대 20문제)가 통째로 들어오므로 같은 세 값의 행이 여러 건인
+//   것이 정상이다. UNIQUE 로 승격하면 두 번째 문제의 INSERT 부터 실패한다.
+// FK 자동 인덱스(game_id 단독)로는 부족하다 — 그 인덱스로 진입하면 "그 경기를 받은 모든 사용자"를
+// 훑게 되고, uk_quiz_users_submit_account_quiz 로 진입하면 "그 사용자의 모든 제출"을 훑는다.
 @Entity
 @Table(name = "quiz_users_submit", uniqueConstraints = {
         @UniqueConstraint(name = "uk_quiz_users_submit_account_quiz",
                 columnNames = {"user_account_id", "quiz_id"})
+}, indexes = {
+        @Index(name = "idx_quiz_users_submit_account_game_inning",
+                columnList = "user_account_id, game_id, inning")
 })
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -139,9 +151,30 @@ public class QuizUserSubmit {
     private boolean isAnswer;
 
     /**
-     * 그 문제를 <b>받은 시점</b>의 경기 이닝 — {@code games.current_inning}을 <b>그대로 복사한 값</b>이며
-     * 앱이 보정·반올림하지 않는다. 정의역도 원천과 같은 1~11({@code ck_games_current_inning}).
-     * 초/말({@code inning_half})은 담지 않는다.
+     * 그 행을 <b>받은 경기</b> — 요청자가 {@code GET /today}의 {@code gameId}로 지목한, 자기 응원 구단이
+     * 뛰는 진행 중인 경기다. 아래 {@code inning}의 출처이며 둘이 함께 <b>회차 판정 키
+     * {@code (user_account_id, game_id, inning)}</b>를 이룬다.
+     *
+     * <p>⚠ <b>{@code quizzes.game_id} 와 이름만 같고 뜻이 다르다.</b> 그쪽은 "문제가 다루는 경기",
+     * 이쪽은 "사용자가 그 문제를 받은 경기"다 — 두 값이 서로 달라도 정상이고 앱이 일치를 검사하지
+     * 않는다. 이닝은 <b>문제의 속성이 아니라 요청자의 관전 시점</b>이라, 한 번의 {@code /today}로
+     * 만들어진 행은 문제와 무관하게 전부 같은 {@code (game, inning)} 을 갖는다.
+     *
+     * <p><b>nullable 인 것은 개정 이전에 쌓인 행 때문이다</b> — 새로 만들어지는 행은 반드시 값을 갖는다
+     * (경기를 특정하지 못하면 세트 자체를 주지 않는다). 값이 NULL 인 옛 행은 {@code NULL = ?} 가 참이
+     * 아니라 회차 판정에 자연히 걸리지 않으며, 백필하지 않는다.
+     *
+     * <p>{@code @OnDelete} 를 걸지 않는다 — 경기는 마스터 데이터라 경기 행이 사라졌다고 제출 기록이
+     * 함께 지워지면 안 된다({@code Quiz.game}·{@code Game.homeTeam} 과 같은 판단).
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "game_id", nullable = true)
+    private Game game;
+
+    /**
+     * 그 문제를 <b>받은 시점</b>의 위 {@code game} 이닝 — {@code games.current_inning}을 <b>그대로 복사한
+     * 값</b>이며 앱이 보정·반올림하지 않는다. 정의역도 원천과 같은 1~11
+     * ({@code ck_games_current_inning}). 초/말({@code inning_half})은 담지 않는다.
      *
      * <p><b>nullable 이고 {@code @ColumnDefault}를 두지 않는다.</b> 용도가 통계·분석이라 값 누락이
      * 허용되는데, "이미 행이 있는 테이블에 NOT NULL 컬럼 추가"( {@code UserAccount.point} 선례)가
@@ -155,6 +188,10 @@ public class QuizUserSubmit {
      * <b>서빙 시점</b>에 확정되고, 그 뒤 경기가 진행돼도(또는 제출이 한참 뒤에 와도) 변하지 않는다.
      * 제출 처리는 {@code games}를 다시 읽지 않는다: 남기려는 값이 "받아서 푼 시점의 이닝"이라,
      * 오래 붙들었다 낸 제출에 지금 이닝을 적으면 사실이 아닌 값을 남기게 된다.
+     *
+     * <p>⚠ 새 행에서 이 값이 NULL 이 되는 경로는 없다 — 이닝을 못 읽으면 세트를 주지 않는다. NULL 이
+     * 쌓이면 회차 판정({@code NULL = ?} 가 참이 아니다)이 그 행을 못 봐 <b>그 사용자만 이닝당 1회
+     * 제한을 무제한으로 우회</b>하게 되기 때문이다.
      */
     @Column(name = "inning", columnDefinition = "TINYINT", nullable = true)
     private Integer inning;
@@ -167,17 +204,18 @@ public class QuizUserSubmit {
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 
-    // inning 은 빌더 파라미터로 받는다 — uid·타임스탬프처럼 "항상 정해진 초기값에서 시작하는 값"이
+    // game·inning 은 빌더 파라미터로 받는다 — uid·타임스탬프처럼 "항상 정해진 초기값에서 시작하는 값"이
     // 아니라 행이 생기는 시점에 정해지는 관측값이라, 만드는 쪽이 알고 있는 값을 넣어야 한다(모르면 null).
     // ⚠ 서빙 경로(GET /today)의 미답 행 생성은 이 빌더를 쓰지 않는다 — 항목 수만큼 왕복이 생기지
     //   않게 한 문장으로 넣는 QuizUserSubmitRepository.insertUnansweredRows 가 그 자리다.
     @Builder
     private QuizUserSubmit(UserAccount userAccount, Quiz quiz, QuizOption submitOption,
-            boolean isAnswer, Integer inning) {
+            boolean isAnswer, Game game, Integer inning) {
         this.userAccount = userAccount;
         this.quiz = quiz;
         this.submitOption = submitOption;
         this.isAnswer = isAnswer;
+        this.game = game;
         this.inning = inning;
     }
 }

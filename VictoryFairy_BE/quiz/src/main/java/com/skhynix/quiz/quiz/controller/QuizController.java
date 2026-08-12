@@ -35,16 +35,28 @@ public class QuizController {
     /**
      * 오늘(KST) 출제분 목록 — 선호(응원팀·응원 선수 관련) 먼저 정렬. {@code preferredOnly=true}면
      * 선호 문제만(응원 정보가 없으면 전체 — 서비스 javadoc). 정답은 응답에 없다
-     * ({@link QuizResponse} 참고 — 채점은 제출 API 몫). 출제분이 없는 날(루틴 미실행·실패)은
-     * 200 + 빈 배열이다 — 클라이언트가 "오늘은 퀴즈가 없어요" 상태를 구분할 필요가 없게 에러로
-     * 만들지 않는다.
+     * ({@link QuizResponse} 참고 — 채점은 제출 API 몫).
+     *
+     * <p><b>{@code gameId} 는 필수다</b> — 값은 내부 PK 가 아니라 {@code games.naver_game_id}
+     * 문자열(예: {@code 20260812LGWO02026})이고, {@code GameResponse.gameId} 로 이미 노출된 그 값이다.
+     * 클라이언트가 <b>지금 보고 있는 자기 팀 경기를 지목</b>하면 서버가 그 경기를 검증하고
+     * (오늘·내 응원 구단·진행 중) 그 경기의 현재 이닝을 기록에 남긴다. 이닝은 파라미터로 받지
+     * 않는다 — 받게 하면 아무 숫자나 보내 "이닝당 1회"를 무한히 우회할 수 있다.
+     *
+     * <p>⚠ <b>{@code required = false} + 기본값으로 바꾸지 말 것.</b> 누락을 흡수하면 서버가 경기를
+     * 알아서 고르던 예전 동작으로 조용히 되돌아가고, 그 순간 회차 제한의 키가 무너진다.
+     *
+     * <p>성공은 200 이고, 세트를 <b>줄 수 있는데 줄 게 없으면</b>(오늘 세트 없음·남은 문제를 이미
+     * 다 받음) 빈 배열이다. "지금은 줄 수 없다"는 전부 에러다 — 그 이닝에 이미 받았으면 409
+     * {@code QUIZ_ALREADY_SERVED_IN_INNING}, 그 밖의 제공 불가는 403 {@code QUIZ_NOT_SERVABLE}.
      */
     @GetMapping("/today")
     public ResponseEntity<ApiResponse<List<QuizResponse>>> getTodayQuizzes(
             @AuthenticationPrincipal Long userAccountId,
+            @RequestParam String gameId,
             @RequestParam(defaultValue = "false") boolean preferredOnly) {
         return ResponseEntity.ok(ApiResponse.ok(
-                quizService.getTodayQuizzes(userAccountId, preferredOnly)));
+                quizService.getTodayQuizzes(userAccountId, gameId, preferredOnly)));
     }
 
     /**

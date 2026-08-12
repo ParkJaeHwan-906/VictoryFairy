@@ -22,4 +22,14 @@ public interface GameRepository extends JpaRepository<Game, Long> {
     // 구단·구장·상태를 읽지 않으므로, 연관을 끌고 오면 쓰지도 않는 조인 4개가 매 요청 붙는다.
     // 없는 값이면 빈 Optional → 호출부가 GAME_NOT_FOUND(404)로 바꾼다(빈 문자열도 같은 경로로 흡수).
     Optional<Game> findByNaverGameId(String naverGameId);
+
+    // 위와 같은 해석 조회에 상태(game_statuses)만 함께 실어 오는 변형 — quiz 앱의 GET /today 가
+    // "지목된 경기가 오늘·내 응원 구단·IN_PROGRESS 인가" 4종을 판정하는 데 쓴다.
+    // ⚠ 그 판정은 요청당 games 조회 1회가 계약이다. 상태는 이름(name) 문자열로 봐야 하는데
+    //   (game_statuses 의 id 는 py-collector 가 만난 순서로 부여돼 환경마다 다르다) name 은 FK 값이
+    //   아니라 상태 행의 컬럼이라, 조인 없이 LAZY 로 두면 판정 순간 SELECT 가 한 번 더 나간다.
+    // homeTeam/awayTeam 을 attributePaths 에 넣지 않은 것은 의도다 — 응원 구단 판정이 id 비교뿐이고
+    //   그 id 는 games 행의 FK 컬럼이라 프록시 초기화 없이 읽힌다(조인을 더해도 얻는 게 없다).
+    @EntityGraph(attributePaths = {"gameStatus"})
+    Optional<Game> findWithStatusByNaverGameId(String naverGameId);
 }
