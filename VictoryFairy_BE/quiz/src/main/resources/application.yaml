@@ -10,12 +10,14 @@ spring:
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:dev}
   data:
-    # ⚠ 전 프로파일 필수다. 두 용도가 이 연결을 함께 쓴다:
-    #   1) 퀴즈 제출 티켓(QuizSubmissionTicketStore) — 모든 프로파일. 없으면 /today 와 제출이 500 이다
-    #      (폴백을 두지 않는 것이 계약 — 파드가 여럿이면 인메모리 폴백은 자격 검사를 무작위로 깬다).
-    #   2) 실시간 fan-out pub/sub — prod 전용(RedisPubSubPublisher/RealtimeRedisConfig).
-    #      이쪽만 프로파일이 갈린다(기동 시 구독 연결을 여는 리스너 컨테이너라 별개 축).
-    # 운영 값은 k8s configmap app-config 가 주입한다. dev·로컬·CI 에도 실제 값이 주입돼야 한다.
+    # 실시간 fan-out pub/sub 용(prod 전용 — RedisPubSubPublisher/RealtimeRedisConfig).
+    # 운영 값은 k8s configmap app-config 가 주입한다. prod 이외 프로파일은 연결을 맺는 빈이
+    # 아예 등록되지 않으므로(=InMemoryPublisher 사용) 이 값이 쓰이지 않는다.
+    # ⚠ 한때 퀴즈 제출 티켓이 전 프로파일에서 이 연결을 함께 썼으나, 제출 자격의 근거가 Redis 키에서
+    #   DB 행(quiz_users_submit 의 미답 행)으로 옮겨가며 사라졌다 — 퀴즈 조회·제출은 이제 Redis 장애와
+    #   무관하다. 되살리자는 제안(티켓과 DB 행을 AND 로 묶기)은 명시적으로 기각됐다: 두 저장소가 같은
+    #   명제를 각자 주장하므로 거짓 거절만 늘고, 키 축출·재시작이 곧 "정상적으로 받은 문제를 영영 못
+    #   내는" 상태가 된다.
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
@@ -88,5 +90,7 @@ quiz:
     # GET /today 한 번에 내려줄 최대 문제 수(QuizService). 위 daily-count 와 별개 축이다 —
     # 저건 '그날 세트를 몇 개로 편성하느냐'(편성), 이건 '한 번에 몇 개까지 보여주느냐'(서빙)다.
     # 기본값끼리는 편성 10 < 상한 20 이라 상한이 발동하지 않는다(세트가 20 을 넘는 날에만 의미).
-    # ⚠ 여기서 잘려 나간 문제는 티켓을 못 받아 제출도 403 이다 — 낮출 때 그 영향을 함께 볼 것.
+    # ⚠ 여기서 잘려 나간 문제는 미답 행이 안 생겨 제출도 403 이다 — 낮출 때 그 영향을 함께 볼 것.
+    # ⚠ 이 값이 곧 "한 번에 시계에 들어가는 문제 수"다 — 실린 문제는 각자 8분 시한을 갖고 시작하며,
+    #   연장 수단이 없다(문제당 10~20초 × 20문제 ≒ 7분이 그 8분의 근거).
     max-today-count: ${QUIZ_SERVE_MAX_TODAY_COUNT:20}

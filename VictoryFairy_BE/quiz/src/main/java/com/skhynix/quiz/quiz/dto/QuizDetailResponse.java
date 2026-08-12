@@ -20,8 +20,15 @@ import java.util.List;
  * 실리면 누를 수 없는 버튼의 재료만 내려보내는 셈이다. 그래서 {@code boolean}/{@code long}이 아니라
  * 래퍼 타입이다(원시 타입이면 {@code false}/{@code 0}이 강제로 실려 키를 내릴 수가 없다).
  *
- * @param submitted 내 제출 존재 여부. 아래 세 필드의 유무와 논리적으로 동치지만, FE 가 "미제출"을
- *     키 부재 검사로 판정하게 하지 않으려고 명시 플래그로 둔다
+ * @param submitted <b>내가 답을 냈는지</b>. ⚠ 행의 존재가 아니라 <b>답의 존재</b>가 기준이다 —
+ *     행은 {@code /today}로 받는 순간 생기므로 행 유무로 판정하면 아직 안 푼 문제에 정답이 실린다.
+ *     아래 세 필드의 유무와 논리적으로 동치지만, FE 가 "미제출"을 키 부재 검사로 판정하게 하지
+ *     않으려고 명시 플래그로 둔다
+ * @param expired 받아 놓고 <b>시한(받은 시각 + 8분)을 넘긴</b> 상태인지. 답한 문제는 항상 false 이고,
+ *     받은 적 없는 문제도 false 다(둘의 구분은 이 응답의 몫이 아니다). {@code (submitted, expired)}
+ *     조합이 곧 화면 상태다: {@code (false,false)}=진행 중 · {@code (true,*)}=답함 ·
+ *     {@code (false,true)}=시한 초과(제출하면 403). 저장된 플래그가 아니라 <b>조회 시각 기준 계산</b>이라
+ *     같은 문제가 8분 전후로 다르게 나온다
  * @param myOption 내가 고른 보기 번호(제출 시에만)
  * @param correct 내 제출의 정오(제출 시에만) — 제출 시점 확정값({@code QuizUserSubmit.isAnswer})
  * @param answer 정답 보기 번호(제출 시에만)
@@ -38,25 +45,33 @@ public record QuizDetailResponse(
         LocalDate quizDate,
         List<QuizResponse.OptionResponse> options,
         boolean submitted,
+        boolean expired,
         Integer myOption,
         Boolean correct,
         Integer answer,
         Boolean liked,
         Long likeCount) {
 
-    public static QuizDetailResponse unsubmitted(Quiz quiz, List<QuizOption> options) {
-        return of(quiz, options, false, null, null, null, null, null);
+    /**
+     * 아직 답이 없는 상태 — <b>받은 적 없음과 진행 중과 시한 초과를 모두 담는다.</b> 앞의 둘은
+     * {@code expired = false} 로 같은 모양이 된다(구분이 필요한 쪽은 {@code /today} 목록이다).
+     */
+    public static QuizDetailResponse unsubmitted(Quiz quiz, List<QuizOption> options,
+            boolean expired) {
+        return of(quiz, options, false, expired, null, null, null, null, null);
     }
 
+    /** 답을 낸 상태. 시한은 이미 소진됐고 되돌아갈 수 없으므로 {@code expired} 는 항상 false 다. */
     public static QuizDetailResponse submitted(Quiz quiz, List<QuizOption> options,
             QuizUserSubmit submit, QuizLikeResponse like) {
-        return of(quiz, options, true,
+        return of(quiz, options, true, false,
                 submit.getSubmitOption().getOption(), submit.isAnswer(), quiz.getAnswer(),
                 like.liked(), like.likeCount());
     }
 
     private static QuizDetailResponse of(Quiz quiz, List<QuizOption> options, boolean submitted,
-            Integer myOption, Boolean correct, Integer answer, Boolean liked, Long likeCount) {
+            boolean expired, Integer myOption, Boolean correct, Integer answer, Boolean liked,
+            Long likeCount) {
         return new QuizDetailResponse(
                 quiz.getId(),
                 quiz.getQuizType().getName(),
@@ -66,6 +81,7 @@ public record QuizDetailResponse(
                 quiz.getQuizDate(),
                 options.stream().map(QuizResponse.OptionResponse::from).toList(),
                 submitted,
+                expired,
                 myOption,
                 correct,
                 answer,

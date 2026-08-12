@@ -3,10 +3,9 @@ package com.skhynix.quiz.quiz.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.ArgumentMatchers.anyMap;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
-import static org.mockito.BDDMockito.willThrow;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -22,6 +21,7 @@ import com.skhynix.domain.quiz.entity.QuizUserSubmit;
 import com.skhynix.domain.quiz.repository.QuizOptionRepository;
 import com.skhynix.domain.quiz.repository.QuizRepository;
 import com.skhynix.domain.quiz.repository.QuizUserSubmitRepository;
+import com.skhynix.domain.quiz.repository.QuizUserSubmitStateView;
 import com.skhynix.domain.support.entity.UserSupportPlayer;
 import com.skhynix.domain.support.entity.UserSupportTeam;
 import com.skhynix.domain.support.repository.UserSupportPlayerRepository;
@@ -30,7 +30,6 @@ import com.skhynix.domain.team.entity.Team;
 import com.skhynix.quiz.quiz.dto.QuizDetailResponse;
 import com.skhynix.quiz.quiz.dto.QuizLikeResponse;
 import com.skhynix.quiz.quiz.dto.QuizResponse;
-import com.skhynix.quiz.quiz.store.QuizSubmissionTicketStore;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -39,7 +38,6 @@ import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.BeforeEach;
@@ -49,16 +47,16 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.test.util.ReflectionTestUtils;
 
 /**
  * {@link QuizService}를 리포지토리 목으로 단위 검증한다. DB·Spring 컨텍스트 없음.
  *
- * <p>'오늘'은 KST 고정 클록으로 결정되므로 {@code Clock.fixed}를 직접 주입한다(프로덕션은
- * {@code QuizIngestConfig.kstClock}). 핵심 검증은 세 가지다 — 보기 조회가 문제 수와 무관하게
- * <b>IN 한 방(2쿼리 방식)</b>인지, 선호(응원팀·응원 선수) 정렬·필터가 명세대로인지, 그리고 단건
- * 상세가 미제출 응답에서 정답 관련 필드를 정말 비우는지.
+ * <p>'오늘'({@code quiz_date} 판정)은 KST 고정 클록으로 결정되므로 {@code Clock.fixed}를 직접
+ * 주입한다. 반면 <b>제출 시한 계산({@link QuizSubmitWindow})은 이 클록을 쓰지 않는다</b> — 비교
+ * 대상 {@code created_at}이 JVM 기본 존의 {@code LocalDateTime.now()}로 찍히기 때문이다
+ * ({@code QuizSubmitWindow} javadoc). 그래서 시한 관련 테스트는 {@code QuizSubmitWindow.now()}를
+ * 직접 불러 기준 시각을 얻는다(같은 패키지라 package-private 접근 가능).
  */
 @ExtendWith(MockitoExtension.class)
 class QuizServiceTest {
@@ -88,9 +86,6 @@ class QuizServiceTest {
     @Mock
     private QuizLikeService quizLikeService;
 
-    @Mock
-    private QuizSubmissionTicketStore ticketStore;
-
     private QuizService quizService;
     private Clock clock;
 
@@ -103,7 +98,7 @@ class QuizServiceTest {
     private QuizService newQuizService(int maxTodayCount) {
         return new QuizService(quizRepository, quizOptionRepository,
                 userSupportTeamRepository, userSupportPlayerRepository, quizUserSubmitRepository,
-                quizLikeService, ticketStore, clock, maxTodayCount);
+                quizLikeService, clock, maxTodayCount);
     }
 
     // ---------- 픽스처 ----------
@@ -146,6 +141,27 @@ class QuizServiceTest {
         return QuizOption.builder().quiz(quiz).option(no).contents(text).build();
     }
 
+    /** 상태 조회({@code findSubmitStates})가 돌려주는 프로젝션 행의 목 구현. */
+    private static QuizUserSubmitStateView state(Long quizId, Long submitOptionId,
+            LocalDateTime createdAt) {
+        return new QuizUserSubmitStateView() {
+            @Override
+            public Long getQuizId() {
+                return quizId;
+            }
+
+            @Override
+            public Long getSubmitOptionId() {
+                return submitOptionId;
+            }
+
+            @Override
+            public LocalDateTime getCreatedAt() {
+                return createdAt;
+            }
+        };
+    }
+
     private void givenNoPreference() {
         givenNoPreference(USER_ID);
     }
@@ -155,6 +171,11 @@ class QuizServiceTest {
                 .willReturn(Optional.empty());
         given(userSupportPlayerRepository.findAllActiveWithPlayerAndTeam(userAccountId))
                 .willReturn(List.of());
+    }
+
+    /** 넘긴 quizId들에 대해 기존 행이 전혀 없는 상태(빈 상태 목록)를 스텁한다 — 가장 흔한 기본값. */
+    private void givenNoExistingRows(List<Long> quizIds) {
+        given(quizUserSubmitRepository.findSubmitStates(USER_ID, quizIds)).willReturn(List.of());
     }
 
     /** 그룹 내 순열이 갈릴 만큼 충분한 개수(10건)의 무선호 문제 목록. */
@@ -186,6 +207,7 @@ class QuizServiceTest {
         given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY))
                 .willReturn(List.of(oxQuiz, multiQuiz));
         givenNoPreference();
+        givenNoExistingRows(List.of(1L, 2L));
         // 두 문제 모두 비선호라 사용자별 셔플로 순서가 바뀔 수 있으므로 어떤 순서로 IN 조회가
         // 나가도 매칭되게 anyList()로 스텁한다 — 순서는 아래 캡처로 별도 검증한다.
         given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(anyList()))
@@ -223,7 +245,7 @@ class QuizServiceTest {
     }
 
     @Test
-    @DisplayName("오늘 출제분이 없으면 빈 리스트를 반환하고 보기·응원 조회 쿼리를 아예 부르지 않는다")
+    @DisplayName("오늘 출제분이 없으면 빈 리스트를 반환하고 보기·응원·행 상태 조회를 아예 부르지 않는다")
     void getTodayQuizzes_emptyDay_returnsEmptyListWithoutFurtherQueries() {
         given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY)).willReturn(List.of());
 
@@ -231,7 +253,7 @@ class QuizServiceTest {
 
         assertThat(result).isEmpty();
         verifyNoInteractions(quizOptionRepository, userSupportTeamRepository,
-                userSupportPlayerRepository);
+                userSupportPlayerRepository, quizUserSubmitRepository);
     }
 
     @Test
@@ -240,6 +262,7 @@ class QuizServiceTest {
         Quiz orphan = quiz(7L, "객관식", "보기가 아직 없는 문제", null, null);
         given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY)).willReturn(List.of(orphan));
         givenNoPreference();
+        givenNoExistingRows(List.of(7L));
         given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(List.of(7L)))
                 .willReturn(List.of());
 
@@ -251,36 +274,111 @@ class QuizServiceTest {
         assertThat(result.get(0).difficulty()).isNull();
     }
 
-    // ---------- 오늘의 퀴즈: 푼 문제 제외 ----------
+    // ---------- 오늘의 퀴즈: 제외 기준 3갈래(QUIZ-INN-74, 가장 중요한 회귀) ----------
 
     @Test
-    @DisplayName("이미 제출한 문제는 오늘 목록에서 빠진다 — 보기 조회도 남은 문제로만 나간다(정책: 푼 문제 비노출)")
-    void getTodayQuizzes_submittedQuiz_excludedFromList() {
-        Quiz solved = quiz(1L, "O/X", "이미 푼 문제", "EASY", 10.0);
-        Quiz unsolved = quiz(2L, "객관식", "아직 안 푼 문제", "MEDIUM", 30.0);
+    @DisplayName("[AC-INN-74-2,74-3,74-4,66-3] 답한 행은 제외되고, 시한이 지난 미답 행도 제외되며, "
+            + "시한이 남은 미답 행과 행이 아예 없는 문제는 계속(또는 처음) 서빙된다 — 세 갈래 판정이 "
+            + "조회 시각 기준으로 한 번에 갈린다")
+    void getTodayQuizzes_threeWaySplit_excludesAnsweredAndExpiredKeepsInProgressAndNew() {
+        Quiz answered = quiz(1L, "객관식", "이미 답한 문제", "EASY", 10.0);
+        Quiz expiredUnanswered = quiz(2L, "객관식", "시한 지난 미답 문제", "EASY", 10.0);
+        Quiz inProgress = quiz(3L, "객관식", "시한 남은 미답 문제", "EASY", 10.0);
+        Quiz brandNew = quiz(4L, "객관식", "아직 행이 없는 문제", "EASY", 10.0);
         given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY))
-                .willReturn(List.of(solved, unsolved));
-        given(quizUserSubmitRepository.findSubmittedQuizIds(USER_ID, List.of(1L, 2L)))
-                .willReturn(List.of(1L));
+                .willReturn(List.of(answered, expiredUnanswered, inProgress, brandNew));
         givenNoPreference();
-        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(List.of(2L)))
-                .willReturn(List.of(option(unsolved, 0, "LG")));
+        LocalDateTime now = QuizSubmitWindow.now();
+        given(quizUserSubmitRepository.findSubmitStates(USER_ID, List.of(1L, 2L, 3L, 4L)))
+                .willReturn(List.of(
+                        state(1L, 100L, now.minusMinutes(3)), // 답함(submitOptionId != null)
+                        state(2L, null, now.minusMinutes(9)), // 미답 + 시한(8분) 초과
+                        state(3L, null, now.minusMinutes(1)))); // 미답 + 시한 내
+        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(anyList()))
+                .willReturn(List.of());
 
         List<QuizResponse> result = quizService.getTodayQuizzes(USER_ID, false);
 
-        assertThat(result).extracting(QuizResponse::id).containsExactly(2L);
-        verify(quizOptionRepository).findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(List.of(2L));
+        assertThat(result).extracting(QuizResponse::id).containsExactlyInAnyOrder(3L, 4L);
+
+        // missing = 서빙 대상(3,4) 중 기존 행이 없던 것 = 4번뿐(3번은 이미 행이 있어 INSERT 대상에서 빠진다)
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<Long, Integer>> insertedCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(quizUserSubmitRepository, times(1))
+                .insertUnansweredRows(org.mockito.ArgumentMatchers.eq(USER_ID),
+                        insertedCaptor.capture(), org.mockito.ArgumentMatchers.any());
+        assertThat(insertedCaptor.getValue().keySet()).containsExactly(4L);
     }
 
     @Test
-    @DisplayName("오늘 세트를 전부 풀었으면 빈 리스트 — 응원·보기 조회는 아예 부르지 않는다")
-    void getTodayQuizzes_allSubmitted_returnsEmptyWithoutPreferenceQueries() {
+    @DisplayName("[AC-INN-74-1,66-2,62-1,62-2] /today를 연속 두 번 호출하면 두 번째도 같은 문제 목록을 "
+            + "반환하고, 두 번째 호출은 쓰기 SQL을 만들지 않는다 — 새로고침 한 번에 세트를 통째로 "
+            + "못 풀게 되는 사고를 고정하는 가장 중요한 회귀 테스트다")
+    void getTodayQuizzes_calledTwiceInARow_returnsSameListAndSecondCallWritesNothing() {
+        Quiz first = quiz(1L, "객관식", "문제1", "EASY", 10.0);
+        Quiz second = quiz(2L, "객관식", "문제2", "EASY", 10.0);
+        given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY))
+                .willReturn(List.of(first, second));
+        givenNoPreference();
+        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(anyList()))
+                .willReturn(List.of());
+        LocalDateTime servedAt = QuizSubmitWindow.now();
+        // 첫 호출: 아무 행도 없다 → 둘 다 INSERT 대상
+        // 두 번째 호출: 첫 호출이 만든(가정한) 행이 이미 있고, 아직 시한 안이며 미답이다
+        given(quizUserSubmitRepository.findSubmitStates(USER_ID, List.of(1L, 2L)))
+                .willReturn(List.of())
+                .willReturn(List.of(
+                        state(1L, null, servedAt),
+                        state(2L, null, servedAt)));
+
+        List<Long> firstIds = quizService.getTodayQuizzes(USER_ID, false).stream()
+                .map(QuizResponse::id).toList();
+        List<Long> secondIds = quizService.getTodayQuizzes(USER_ID, false).stream()
+                .map(QuizResponse::id).toList();
+
+        assertThat(firstIds).containsExactlyInAnyOrder(1L, 2L);
+        // 핵심 단언: 두 번째 응답도 첫 번째와 같은 문제 집합이다(순서까지 동일 — 셔플 키가 사용자·문제
+        // 조합에만 의존해 같은 입력이면 항상 같은 순서를 낸다)
+        assertThat(secondIds).containsExactlyElementsOf(firstIds);
+
+        // 두 번째 호출에서는 만들 행이 하나도 없으므로 insertUnansweredRows 자체가 호출되지 않는다
+        // (첫 호출까지 합쳐 총 1회여야 한다 — 재호출이 쓰기 SQL을 만들지 않는다는 계약)
+        verify(quizUserSubmitRepository, times(1)).insertUnansweredRows(
+                org.mockito.ArgumentMatchers.eq(USER_ID), org.mockito.ArgumentMatchers.anyMap(),
+                org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    @DisplayName("[AC-INN-66-2] 요청한 모든 문제에 이미 시한 내 미답 행이 있으면 insertUnansweredRows가 "
+            + "아예 호출되지 않는다(차집합이 빈 상태 — 단일 호출로도 고정)")
+    void getTodayQuizzes_allRowsAlreadyExist_neverCallsInsert() {
+        Quiz single = quiz(1L, "객관식", "문제1", "EASY", 10.0);
+        given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY)).willReturn(List.of(single));
+        givenNoPreference();
+        LocalDateTime now = QuizSubmitWindow.now();
+        given(quizUserSubmitRepository.findSubmitStates(USER_ID, List.of(1L)))
+                .willReturn(List.of(state(1L, null, now.minusMinutes(1))));
+        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(anyList()))
+                .willReturn(List.of());
+
+        List<QuizResponse> result = quizService.getTodayQuizzes(USER_ID, false);
+
+        assertThat(result).extracting(QuizResponse::id).containsExactly(1L);
+        verify(quizUserSubmitRepository, never()).insertUnansweredRows(
+                org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyMap(),
+                org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    @DisplayName("오늘 세트를 전부 풀었으면(모두 답한 행) 빈 리스트 — 응원·보기 조회는 아예 부르지 않는다")
+    void getTodayQuizzes_allAnswered_returnsEmptyWithoutPreferenceQueries() {
         Quiz first = quiz(1L, "O/X", "문제1", "EASY", 10.0);
         Quiz second = quiz(2L, "객관식", "문제2", "MEDIUM", 30.0);
         given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY))
                 .willReturn(List.of(first, second));
-        given(quizUserSubmitRepository.findSubmittedQuizIds(USER_ID, List.of(1L, 2L)))
-                .willReturn(List.of(1L, 2L));
+        LocalDateTime now = QuizSubmitWindow.now();
+        given(quizUserSubmitRepository.findSubmitStates(USER_ID, List.of(1L, 2L)))
+                .willReturn(List.of(state(1L, 10L, now), state(2L, 20L, now)));
 
         List<QuizResponse> result = quizService.getTodayQuizzes(USER_ID, false);
 
@@ -304,6 +402,7 @@ class QuizServiceTest {
                 .willReturn(List.of(general, teamQuiz, matchupQuiz));
         givenSupportTeam(hanwha);
         givenSupportPlayers();
+        givenNoExistingRows(List.of(1L, 2L, 3L));
         given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(anyList()))
                 .willReturn(List.of());
 
@@ -325,6 +424,7 @@ class QuizServiceTest {
         given(userSupportTeamRepository.findWithTeamByUserAccount_IdAndOpposeIsNull(USER_ID))
                 .willReturn(Optional.empty());
         givenSupportPlayers(moonDongJu);
+        givenNoExistingRows(List.of(1L, 2L));
         given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(List.of(2L, 1L)))
                 .willReturn(List.of());
 
@@ -343,6 +443,7 @@ class QuizServiceTest {
         given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY))
                 .willReturn(List.of(first, second));
         givenNoPreference();
+        givenNoExistingRows(List.of(1L, 2L));
         given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(anyList()))
                 .willReturn(List.of());
 
@@ -365,6 +466,7 @@ class QuizServiceTest {
                 .willReturn(List.of(general, teamQuiz));
         givenSupportTeam(hanwha);
         givenSupportPlayers();
+        givenNoExistingRows(List.of(1L, 2L));
         given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(List.of(2L)))
                 .willReturn(List.of(option(teamQuiz, 0, "O")));
 
@@ -384,6 +486,7 @@ class QuizServiceTest {
         given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY))
                 .willReturn(List.of(first, second));
         givenNoPreference();
+        givenNoExistingRows(List.of(1L, 2L));
         given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(anyList()))
                 .willReturn(List.of());
 
@@ -398,8 +501,10 @@ class QuizServiceTest {
     @DisplayName("같은 사용자로 두 번 호출하면 순서가 동일하다(결정성)")
     void getTodayQuizzes_calledTwiceForSameUser_returnsSameOrder() {
         List<Quiz> quizzes = manyQuizzes();
+        List<Long> ids = quizzes.stream().map(Quiz::getId).toList();
         given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY)).willReturn(quizzes);
         givenNoPreference();
+        given(quizUserSubmitRepository.findSubmitStates(USER_ID, ids)).willReturn(List.of());
         given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(anyList()))
                 .willReturn(List.of());
 
@@ -416,6 +521,7 @@ class QuizServiceTest {
             + "우연히 전부 같을 확률은 무시할 만하다")
     void getTodayQuizzes_differentAccounts_produceDifferentOrders() {
         List<Quiz> quizzes = manyQuizzes();
+        List<Long> ids = quizzes.stream().map(Quiz::getId).toList();
         given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY)).willReturn(quizzes);
         given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(anyList()))
                 .willReturn(List.of());
@@ -424,6 +530,8 @@ class QuizServiceTest {
         List<List<Long>> orders = accountIds.stream()
                 .map(accountId -> {
                     givenNoPreference(accountId);
+                    given(quizUserSubmitRepository.findSubmitStates(accountId, ids))
+                            .willReturn(List.of());
                     return quizService.getTodayQuizzes(accountId, false).stream()
                             .map(QuizResponse::id).toList();
                 })
@@ -435,30 +543,212 @@ class QuizServiceTest {
     }
 
     @Test
-    @DisplayName("문제 하나를 푼 것으로 제외해도 남은 문제들의 상대 순서는 그대로 보존된다"
+    @DisplayName("문제 하나를 답한 것으로 제외해도 남은 문제들의 상대 순서는 그대로 보존된다"
             + "(부분집합 안정성 — Collections.shuffle이었다면 깨지는 성질)")
-    void getTodayQuizzes_afterExcludingSolvedQuiz_preservesRelativeOrderOfRemaining() {
+    void getTodayQuizzes_afterExcludingAnsweredQuiz_preservesRelativeOrderOfRemaining() {
         List<Quiz> quizzes = manyQuizzes();
         List<Long> allIds = quizzes.stream().map(Quiz::getId).toList();
         given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY)).willReturn(quizzes);
         givenNoPreference();
         given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(anyList()))
                 .willReturn(List.of());
-        given(quizUserSubmitRepository.findSubmittedQuizIds(USER_ID, allIds)).willReturn(List.of());
+        given(quizUserSubmitRepository.findSubmitStates(USER_ID, allIds)).willReturn(List.of());
 
         List<Long> fullOrder = quizService.getTodayQuizzes(USER_ID, false).stream()
                 .map(QuizResponse::id).toList();
 
-        Long solvedId = fullOrder.get(3);
-        given(quizUserSubmitRepository.findSubmittedQuizIds(USER_ID, allIds))
-                .willReturn(List.of(solvedId));
-        List<Long> orderAfterSolving = quizService.getTodayQuizzes(USER_ID, false).stream()
+        Long answeredId = fullOrder.get(3);
+        LocalDateTime now = QuizSubmitWindow.now();
+        given(quizUserSubmitRepository.findSubmitStates(USER_ID, allIds))
+                .willReturn(List.of(state(answeredId, 999L, now)));
+        List<Long> orderAfterAnswering = quizService.getTodayQuizzes(USER_ID, false).stream()
                 .map(QuizResponse::id).toList();
 
         List<Long> expectedRemaining = fullOrder.stream()
-                .filter(id -> !id.equals(solvedId))
+                .filter(id -> !id.equals(answeredId))
                 .toList();
-        assertThat(orderAfterSolving).containsExactlyElementsOf(expectedRemaining);
+        assertThat(orderAfterAnswering).containsExactlyElementsOf(expectedRemaining);
+    }
+
+    // ---------- 오늘의 퀴즈: 이닝 스냅샷(QUIZ-INN-64~66) ----------
+
+    @Test
+    @DisplayName("[AC-INN-64-1,65-1,65-2,65-3] games.current_inning 값 그대로 insertUnansweredRows에 "
+            + "전달된다 — 경기 미귀속·이닝 미상 문제는 null이지만 둘 다 행 생성 대상에서 빠지지 않는다")
+    void getTodayQuizzes_passesInningsExactlyAsGameCurrentInningToInsert() {
+        Team home = team(100L, "HH", "한화");
+        Team away = team(101L, "KT", "KT");
+        GameStatus gameStatus = GameStatus.builder().name("IN_PROGRESS").build();
+        Game gameWithInning = Game.builder()
+                .gameDate(LocalDateTime.of(2026, 8, 7, 18, 30))
+                .homeTeam(home).awayTeam(away).gameStatus(gameStatus)
+                .naverGameId("20260807HHKT02026")
+                .currentInning(6)
+                .build();
+        Quiz gameQuizWithInning = Quiz.builder()
+                .quizType(QuizType.builder().name("객관식").build())
+                .team(home).opponentTeam(away).game(gameWithInning)
+                .content("경기 문제").answer(0).quizDate(TODAY).difficulty("EASY").score(10.0)
+                .build();
+        ReflectionTestUtils.setField(gameQuizWithInning, "id", 1L);
+
+        Game gameWithoutInning = Game.builder() // currentInning 미지정 → null(이닝 미상)
+                .gameDate(LocalDateTime.of(2026, 8, 7, 18, 30))
+                .homeTeam(home).awayTeam(away).gameStatus(gameStatus)
+                .naverGameId("20260807HHKT12026")
+                .build();
+        Quiz gameQuizWithoutInning = Quiz.builder()
+                .quizType(QuizType.builder().name("객관식").build())
+                .team(home).opponentTeam(away).game(gameWithoutInning)
+                .content("이닝 미상 경기 문제").answer(0).quizDate(TODAY).difficulty("EASY").score(10.0)
+                .build();
+        ReflectionTestUtils.setField(gameQuizWithoutInning, "id", 2L);
+
+        Quiz noGameQuiz = quiz(3L, "객관식", "경기 미귀속 문제", "EASY", 10.0);
+
+        given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY))
+                .willReturn(List.of(gameQuizWithInning, gameQuizWithoutInning, noGameQuiz));
+        givenNoPreference();
+        givenNoExistingRows(List.of(1L, 2L, 3L));
+        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(anyList()))
+                .willReturn(List.of());
+
+        quizService.getTodayQuizzes(USER_ID, false);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<Long, Integer>> insertedCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(quizUserSubmitRepository).insertUnansweredRows(
+                org.mockito.ArgumentMatchers.eq(USER_ID), insertedCaptor.capture(),
+                org.mockito.ArgumentMatchers.any());
+        Map<Long, Integer> inserted = insertedCaptor.getValue();
+        assertThat(inserted).containsKeys(1L, 2L, 3L); // 셋 다 행은 생긴다(자격 축과 이닝 값 축은 별개)
+        assertThat(inserted.get(1L)).isEqualTo(6);
+        assertThat(inserted.get(2L)).isNull();
+        assertThat(inserted.get(3L)).isNull();
+    }
+
+    @Test
+    @DisplayName("[AC-INN-61-2] 상한으로 잘려 나간 문제에는 행이 생기지 않는다 — insertUnansweredRows에 "
+            + "실리는 대상은 실제로 응답에 실린 문제와 정확히 같다")
+    void getTodayQuizzes_issuesRowsOnlyForServedQuizzes() {
+        QuizService cappedService = newQuizService(6);
+        List<Quiz> quizzes = manyQuizzes(); // 10건
+        List<Long> ids = quizzes.stream().map(Quiz::getId).toList();
+        given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY)).willReturn(quizzes);
+        givenNoPreference();
+        given(quizUserSubmitRepository.findSubmitStates(USER_ID, ids)).willReturn(List.of());
+        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(anyList()))
+                .willReturn(List.of());
+
+        List<QuizResponse> result = cappedService.getTodayQuizzes(USER_ID, false);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<Long, Integer>> insertedCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(quizUserSubmitRepository).insertUnansweredRows(
+                org.mockito.ArgumentMatchers.eq(USER_ID), insertedCaptor.capture(),
+                org.mockito.ArgumentMatchers.any());
+        assertThat(insertedCaptor.getValue().keySet())
+                .isEqualTo(result.stream().map(QuizResponse::id).collect(Collectors.toSet()));
+        assertThat(insertedCaptor.getValue()).hasSize(6); // 상한으로 잘린 4건은 대상에서 빠진다
+    }
+
+    // ---------- 오늘의 퀴즈: 응답 개수 상한(quiz.serve.max-today-count) ----------
+
+    @Test
+    @DisplayName("[AC-INN-6-1,6-3] 조건을 만족하는 문제가 25건이면 상한 20에서 잘려 200과 길이 20으로 "
+            + "응답한다(에러도 별도 표식도 없다)")
+    void getTodayQuizzes_moreThanCap_truncatesToMaxTodayCount() {
+        List<Quiz> quizzes = IntStream.rangeClosed(1, 25)
+                .mapToObj(i -> quiz((long) i, "객관식", "문제" + i, "EASY", 10.0))
+                .toList();
+        List<Long> ids = quizzes.stream().map(Quiz::getId).toList();
+        given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY)).willReturn(quizzes);
+        givenNoPreference();
+        given(quizUserSubmitRepository.findSubmitStates(USER_ID, ids)).willReturn(List.of());
+        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(anyList()))
+                .willReturn(List.of());
+
+        List<QuizResponse> result = quizService.getTodayQuizzes(USER_ID, false);
+
+        assertThat(result).hasSize(20);
+    }
+
+    @Test
+    @DisplayName("[AC-INN-6-2] 19건이면 상한 20이 발동하지 않아 그대로 19건이다")
+    void getTodayQuizzes_underCap_returnsAllWithoutTruncation() {
+        List<Quiz> quizzes = IntStream.rangeClosed(1, 19)
+                .mapToObj(i -> quiz((long) i, "객관식", "문제" + i, "EASY", 10.0))
+                .toList();
+        List<Long> ids = quizzes.stream().map(Quiz::getId).toList();
+        given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY)).willReturn(quizzes);
+        givenNoPreference();
+        given(quizUserSubmitRepository.findSubmitStates(USER_ID, ids)).willReturn(List.of());
+        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(anyList()))
+                .willReturn(List.of());
+
+        List<QuizResponse> result = quizService.getTodayQuizzes(USER_ID, false);
+
+        assertThat(result).hasSize(19);
+    }
+
+    @Test
+    @DisplayName("[AC-INN-7-1,7-2] max-today-count 생성자 인자를 5로 낮추면 같은 세트에서 5건만 "
+            + "반환된다(설정값으로 배선돼 있다는 계약 — 하드코딩이면 이 인자가 무시된다)")
+    void getTodayQuizzes_customMaxTodayCount_limitsToConfiguredValue() {
+        QuizService limitedService = newQuizService(5);
+        List<Quiz> quizzes = manyQuizzes(); // 10건
+        List<Long> ids = quizzes.stream().map(Quiz::getId).toList();
+        given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY)).willReturn(quizzes);
+        givenNoPreference();
+        given(quizUserSubmitRepository.findSubmitStates(USER_ID, ids)).willReturn(List.of());
+        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(anyList()))
+                .willReturn(List.of());
+
+        List<QuizResponse> result = limitedService.getTodayQuizzes(USER_ID, false);
+
+        assertThat(result).hasSize(5);
+    }
+
+    @Test
+    @DisplayName("[AC-INN-8-1,8-2] 상한은 정렬·필터가 끝난 목록의 앞에서부터 자른다 — 상한 적용 결과는 "
+            + "상한 없는 전체 순서의 앞부분과 정확히 일치한다(정렬을 흐트러뜨리는 회귀 방지)")
+    void getTodayQuizzes_capTruncatesFromSortedOrderPrefix() {
+        List<Quiz> quizzes = manyQuizzes(); // 10건, 무선호
+        List<Long> ids = quizzes.stream().map(Quiz::getId).toList();
+        given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY)).willReturn(quizzes);
+        givenNoPreference();
+        given(quizUserSubmitRepository.findSubmitStates(USER_ID, ids)).willReturn(List.of());
+        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(anyList()))
+                .willReturn(List.of());
+
+        List<Long> fullOrder = quizService.getTodayQuizzes(USER_ID, false).stream()
+                .map(QuizResponse::id).toList();
+
+        QuizService cappedService = newQuizService(6);
+        List<Long> cappedOrder = cappedService.getTodayQuizzes(USER_ID, false).stream()
+                .map(QuizResponse::id).toList();
+
+        assertThat(cappedOrder).containsExactlyElementsOf(fullOrder.subList(0, 6));
+    }
+
+    @Test
+    @DisplayName("[AC-INN-8-4] preferredOnly=true로 5건만 남으면 상한(20)과 무관하게 5건이다")
+    void getTodayQuizzes_preferredOnlyFewerThanCap_returnsAllMatched() {
+        Team hanwha = team(100L, "HH", "한화");
+        List<Quiz> preferredQuizzes = IntStream.rangeClosed(1, 5)
+                .mapToObj(i -> quiz((long) i, "객관식", "한화 문제" + i, "EASY", 10.0, hanwha, null, null))
+                .toList();
+        List<Long> ids = preferredQuizzes.stream().map(Quiz::getId).toList();
+        given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY)).willReturn(preferredQuizzes);
+        givenSupportTeam(hanwha);
+        givenSupportPlayers();
+        given(quizUserSubmitRepository.findSubmitStates(USER_ID, ids)).willReturn(List.of());
+        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(anyList()))
+                .willReturn(List.of());
+
+        List<QuizResponse> result = quizService.getTodayQuizzes(USER_ID, true);
+
+        assertThat(result).hasSize(5);
     }
 
     // ---------- 단건 상세 ----------
@@ -496,8 +786,9 @@ class QuizServiceTest {
     }
 
     @Test
-    @DisplayName("미제출 문제 상세는 submitted=false이고 myOption·correct·answer가 전부 null이다")
-    void getQuiz_notSubmitted_omitsAnswerRelatedFields() {
+    @DisplayName("[AC-INN-79-4] 받은 적 없는(행 자체가 없는) 문제 상세는 submitted=false·expired=false다"
+            + "(진행 중과 같은 모양 — 구분은 /today 목록의 몫)")
+    void getQuiz_noRowAtAll_submittedFalseExpiredFalse() {
         Quiz quiz = quiz(1L, "객관식", "2025 정규시즌 우승 구단은?", "MEDIUM", 30.0);
         given(quizRepository.findById(1L)).willReturn(Optional.of(quiz));
         given(quizOptionRepository.findAllByQuiz_IdOrderByOptionAsc(1L))
@@ -513,14 +804,59 @@ class QuizServiceTest {
         assertThat(result.quizDate()).isEqualTo(TODAY);
         assertThat(result.options()).hasSize(2);
         assertThat(result.submitted()).isFalse();
+        assertThat(result.expired()).isFalse();
         assertThat(result.myOption()).isNull();
         assertThat(result.correct()).isNull();
         assertThat(result.answer()).isNull();
     }
 
     @Test
-    @DisplayName("제출한 문제 상세는 내 선택·정오·정답을 함께 싣는다(복기 화면)")
-    void getQuiz_submitted_includesMyOptionCorrectAndAnswer() {
+    @DisplayName("[AC-INN-79-2,79-3] 행은 있지만 아직 미답이고 시한이 남은 문제는 submitted=false·"
+            + "expired=false다(진행 중 — NPE 없이 unsubmitted로 처리된다, 종전에는 여기서 500이었다)")
+    void getQuiz_unansweredWithinWindow_submittedFalseExpiredFalse() {
+        Quiz quiz = quiz(1L, "객관식", "2025 정규시즌 우승 구단은?", "MEDIUM", 30.0);
+        QuizUserSubmit unanswered = QuizUserSubmit.builder().quiz(quiz).isAnswer(false).build();
+        LocalDateTime now = QuizSubmitWindow.now();
+        ReflectionTestUtils.setField(unanswered, "createdAt", now.minusMinutes(1));
+        given(quizRepository.findById(1L)).willReturn(Optional.of(quiz));
+        given(quizOptionRepository.findAllByQuiz_IdOrderByOptionAsc(1L))
+                .willReturn(List.of(option(quiz, 0, "LG"), option(quiz, 1, "한화")));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, 1L))
+                .willReturn(Optional.of(unanswered));
+
+        QuizDetailResponse result = quizService.getQuiz(USER_ID, 1L);
+
+        assertThat(result.submitted()).isFalse();
+        assertThat(result.expired()).isFalse();
+        assertThat(result.myOption()).isNull();
+        assertThat(result.correct()).isNull();
+        assertThat(result.answer()).isNull();
+        verifyNoInteractions(quizLikeService);
+    }
+
+    @Test
+    @DisplayName("[AC-INN-79-2,79-3] 행은 있지만 미답이고 시한(8분)을 넘긴 문제는 submitted=false·"
+            + "expired=true다(제출하면 403이 되는 상태)")
+    void getQuiz_unansweredPastWindow_submittedFalseExpiredTrue() {
+        Quiz quiz = quiz(1L, "객관식", "2025 정규시즌 우승 구단은?", "MEDIUM", 30.0);
+        QuizUserSubmit unanswered = QuizUserSubmit.builder().quiz(quiz).isAnswer(false).build();
+        LocalDateTime now = QuizSubmitWindow.now();
+        ReflectionTestUtils.setField(unanswered, "createdAt", now.minusMinutes(9));
+        given(quizRepository.findById(1L)).willReturn(Optional.of(quiz));
+        given(quizOptionRepository.findAllByQuiz_IdOrderByOptionAsc(1L))
+                .willReturn(List.of(option(quiz, 0, "LG"), option(quiz, 1, "한화")));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, 1L))
+                .willReturn(Optional.of(unanswered));
+
+        QuizDetailResponse result = quizService.getQuiz(USER_ID, 1L);
+
+        assertThat(result.submitted()).isFalse();
+        assertThat(result.expired()).isTrue();
+    }
+
+    @Test
+    @DisplayName("답한 문제 상세는 내 선택·정오·정답·좋아요를 함께 싣고 expired는 항상 false다(복기 화면)")
+    void getQuiz_answered_includesMyOptionCorrectAndAnswerWithExpiredAlwaysFalse() {
         Quiz quiz = quiz(1L, "객관식", "2025 정규시즌 우승 구단은?", "MEDIUM", 30.0);
         QuizOption wrongPick = option(quiz, 1, "한화");
         QuizUserSubmit submit = QuizUserSubmit.builder()
@@ -528,6 +864,9 @@ class QuizServiceTest {
                 .submitOption(wrongPick)
                 .isAnswer(false)
                 .build();
+        LocalDateTime now = QuizSubmitWindow.now();
+        // 답한 뒤 시한이 훌쩍 지났어도(현실적인 시나리오) expired는 항상 false여야 한다
+        ReflectionTestUtils.setField(submit, "createdAt", now.minusDays(1));
         given(quizRepository.findById(1L)).willReturn(Optional.of(quiz));
         given(quizOptionRepository.findAllByQuiz_IdOrderByOptionAsc(1L))
                 .willReturn(List.of(option(quiz, 0, "LG"), wrongPick));
@@ -539,191 +878,11 @@ class QuizServiceTest {
         QuizDetailResponse result = quizService.getQuiz(USER_ID, 1L);
 
         assertThat(result.submitted()).isTrue();
+        assertThat(result.expired()).isFalse();
         assertThat(result.myOption()).isEqualTo(1);
         assertThat(result.correct()).isFalse();
         assertThat(result.liked()).isTrue();
         assertThat(result.likeCount()).isEqualTo(3L);
         assertThat(result.answer()).isEqualTo(0); // quiz() 픽스처의 정답 보기 번호
-    }
-
-    // ---------- 오늘의 퀴즈: 응답 개수 상한(quiz.serve.max-today-count) ----------
-
-    @Test
-    @DisplayName("[AC-INN-6-1,6-3] 조건을 만족하는 문제가 25건이면 상한 20에서 잘려 200과 길이 20으로 "
-            + "응답한다(에러도 별도 표식도 없다)")
-    void getTodayQuizzes_moreThanCap_truncatesToMaxTodayCount() {
-        List<Quiz> quizzes = IntStream.rangeClosed(1, 25)
-                .mapToObj(i -> quiz((long) i, "객관식", "문제" + i, "EASY", 10.0))
-                .toList();
-        given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY)).willReturn(quizzes);
-        givenNoPreference();
-        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(anyList()))
-                .willReturn(List.of());
-
-        List<QuizResponse> result = quizService.getTodayQuizzes(USER_ID, false);
-
-        assertThat(result).hasSize(20);
-    }
-
-    @Test
-    @DisplayName("[AC-INN-6-2] 19건이면 상한 20이 발동하지 않아 그대로 19건이다")
-    void getTodayQuizzes_underCap_returnsAllWithoutTruncation() {
-        List<Quiz> quizzes = IntStream.rangeClosed(1, 19)
-                .mapToObj(i -> quiz((long) i, "객관식", "문제" + i, "EASY", 10.0))
-                .toList();
-        given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY)).willReturn(quizzes);
-        givenNoPreference();
-        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(anyList()))
-                .willReturn(List.of());
-
-        List<QuizResponse> result = quizService.getTodayQuizzes(USER_ID, false);
-
-        assertThat(result).hasSize(19);
-    }
-
-    @Test
-    @DisplayName("[AC-INN-7-1,7-2] max-today-count 생성자 인자를 5로 낮추면 같은 세트에서 5건만 "
-            + "반환된다(설정값으로 배선돼 있다는 계약 — 하드코딩이면 이 인자가 무시된다)")
-    void getTodayQuizzes_customMaxTodayCount_limitsToConfiguredValue() {
-        QuizService limitedService = newQuizService(5);
-        List<Quiz> quizzes = manyQuizzes(); // 10건
-        given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY)).willReturn(quizzes);
-        givenNoPreference();
-        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(anyList()))
-                .willReturn(List.of());
-
-        List<QuizResponse> result = limitedService.getTodayQuizzes(USER_ID, false);
-
-        assertThat(result).hasSize(5);
-    }
-
-    @Test
-    @DisplayName("[AC-INN-8-1,8-2] 상한은 정렬·필터가 끝난 목록의 앞에서부터 자른다 — 상한 적용 결과는 "
-            + "상한 없는 전체 순서의 앞부분과 정확히 일치한다(정렬을 흐트러뜨리는 회귀 방지)")
-    void getTodayQuizzes_capTruncatesFromSortedOrderPrefix() {
-        List<Quiz> quizzes = manyQuizzes(); // 10건, 무선호
-        given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY)).willReturn(quizzes);
-        givenNoPreference();
-        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(anyList()))
-                .willReturn(List.of());
-
-        List<Long> fullOrder = quizService.getTodayQuizzes(USER_ID, false).stream()
-                .map(QuizResponse::id).toList();
-
-        QuizService cappedService = newQuizService(6);
-        List<Long> cappedOrder = cappedService.getTodayQuizzes(USER_ID, false).stream()
-                .map(QuizResponse::id).toList();
-
-        assertThat(cappedOrder).containsExactlyElementsOf(fullOrder.subList(0, 6));
-    }
-
-    @Test
-    @DisplayName("[AC-INN-8-4] preferredOnly=true로 5건만 남으면 상한(20)과 무관하게 5건이다")
-    void getTodayQuizzes_preferredOnlyFewerThanCap_returnsAllMatched() {
-        Team hanwha = team(100L, "HH", "한화");
-        List<Quiz> preferredQuizzes = IntStream.rangeClosed(1, 5)
-                .mapToObj(i -> quiz((long) i, "객관식", "한화 문제" + i, "EASY", 10.0, hanwha, null, null))
-                .toList();
-        given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY)).willReturn(preferredQuizzes);
-        givenSupportTeam(hanwha);
-        givenSupportPlayers();
-        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(anyList()))
-                .willReturn(List.of());
-
-        List<QuizResponse> result = quizService.getTodayQuizzes(USER_ID, true);
-
-        assertThat(result).hasSize(5);
-    }
-
-    // ---------- 오늘의 퀴즈: 제출 티켓 발급(QUIZ-INN-10~16, 34~40) ----------
-
-    @Test
-    @DisplayName("[AC-INN-11-1,11-4] 응답에 실린 문제에만 티켓이 발급된다 — 상한으로 잘려 나간 문제는 "
-            + "issue()에 실리지 않는다")
-    void getTodayQuizzes_issuesTicketsOnlyForServedQuizzes() {
-        QuizService cappedService = newQuizService(6);
-        List<Quiz> quizzes = manyQuizzes(); // 10건
-        given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY)).willReturn(quizzes);
-        givenNoPreference();
-        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(anyList()))
-                .willReturn(List.of());
-
-        List<QuizResponse> result = cappedService.getTodayQuizzes(USER_ID, false);
-
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<Map<Long, Integer>> issuedCaptor = ArgumentCaptor.forClass(Map.class);
-        verify(ticketStore).issue(eq(USER_ID), issuedCaptor.capture());
-        Set<Long> issuedQuizIds = issuedCaptor.getValue().keySet();
-        Set<Long> servedIds = result.stream().map(QuizResponse::id).collect(Collectors.toSet());
-        assertThat(issuedQuizIds).isEqualTo(servedIds);
-        assertThat(issuedQuizIds).hasSize(6); // 상한으로 잘린 4건은 발급 대상에서 빠진다
-    }
-
-    @Test
-    @DisplayName("[AC-INN-12-1,12-2,40-1] 이닝을 확보한 문제는 games.current_inning 값 그대로, 경기 "
-            + "미귀속·이닝 미상 문제는 null로 issue()에 전달된다(둘 다 티켓 자체는 발급된다)")
-    void getTodayQuizzes_passesInningsExactlyAsGameCurrentInning() {
-        Team home = team(100L, "HH", "한화");
-        Team away = team(101L, "KT", "KT");
-        GameStatus gameStatus = GameStatus.builder().name("IN_PROGRESS").build();
-        Game gameWithInning = Game.builder()
-                .gameDate(LocalDateTime.of(2026, 8, 7, 18, 30))
-                .homeTeam(home).awayTeam(away).gameStatus(gameStatus)
-                .naverGameId("20260807HHKT02026")
-                .currentInning(6)
-                .build();
-        Quiz gameQuizWithInning = Quiz.builder()
-                .quizType(QuizType.builder().name("객관식").build())
-                .team(home).opponentTeam(away).game(gameWithInning)
-                .content("경기 문제").answer(0).quizDate(TODAY).difficulty("EASY").score(10.0)
-                .build();
-        ReflectionTestUtils.setField(gameQuizWithInning, "id", 1L);
-
-        Game gameWithoutInning = Game.builder() // currentInning 미지정 → null(이닝 미상)
-                .gameDate(LocalDateTime.of(2026, 8, 7, 18, 30))
-                .homeTeam(home).awayTeam(away).gameStatus(gameStatus)
-                .naverGameId("20260807HHKT12026")
-                .build();
-        Quiz gameQuizWithoutInning = Quiz.builder()
-                .quizType(QuizType.builder().name("객관식").build())
-                .team(home).opponentTeam(away).game(gameWithoutInning)
-                .content("이닝 미상 경기 문제").answer(0).quizDate(TODAY).difficulty("EASY").score(10.0)
-                .build();
-        ReflectionTestUtils.setField(gameQuizWithoutInning, "id", 2L);
-
-        Quiz noGameQuiz = quiz(3L, "객관식", "경기 미귀속 문제", "EASY", 10.0);
-
-        given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY))
-                .willReturn(List.of(gameQuizWithInning, gameQuizWithoutInning, noGameQuiz));
-        givenNoPreference();
-        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(anyList()))
-                .willReturn(List.of());
-
-        quizService.getTodayQuizzes(USER_ID, false);
-
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<Map<Long, Integer>> issuedCaptor = ArgumentCaptor.forClass(Map.class);
-        verify(ticketStore).issue(eq(USER_ID), issuedCaptor.capture());
-        Map<Long, Integer> issued = issuedCaptor.getValue();
-        assertThat(issued).containsKeys(1L, 2L, 3L); // 셋 다 티켓은 발급된다(자격 축과 이닝 값 축은 별개)
-        assertThat(issued.get(1L)).isEqualTo(6);
-        assertThat(issued.get(2L)).isNull();
-        assertThat(issued.get(3L)).isNull();
-    }
-
-    @Test
-    @DisplayName("[AC-INN-34-1,34-2,35-2] 티켓 발급이 실패하면 예외가 그대로 전파되고(500), 보기 조회는 "
-            + "일어나지 않는다 — 목록만 내려주는 부분 성공을 만들지 않는다")
-    void getTodayQuizzes_ticketIssueFails_propagatesAndSkipsOptionLookup() {
-        Quiz single = quiz(1L, "객관식", "문제1", "EASY", 10.0);
-        given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY)).willReturn(List.of(single));
-        givenNoPreference();
-        willThrow(new RedisConnectionFailureException("redis down"))
-                .given(ticketStore).issue(eq(USER_ID), anyMap());
-
-        assertThatThrownBy(() -> quizService.getTodayQuizzes(USER_ID, false))
-                .isInstanceOf(RedisConnectionFailureException.class);
-
-        verifyNoInteractions(quizOptionRepository);
     }
 }
