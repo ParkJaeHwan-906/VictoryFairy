@@ -12,6 +12,12 @@ def relay_url(settings, game_id: str, inning: int) -> str:
     )
 
 
+def preview_url(settings, game_id: str) -> str:
+    return settings.preview_url_template.format(
+        base=settings.naver_base_url, gameId=game_id
+    )
+
+
 def extract_game_ids(schedule_json: dict) -> list[str]:
     """gameIds of finished, non-cancelled KBO first-team games.
 

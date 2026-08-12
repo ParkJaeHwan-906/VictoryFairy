@@ -165,11 +165,20 @@ def map_status(g: dict) -> str | None:
     "DRAW" 껍데기로 오므로(2026-07-08 NCHH 실측) 다른 필드로 판정하면 오답.
     진행 중 statusCode 는 "STARTED"(2026-08-04 실황 3경기 실측). "LIVE" 는
     초기 가정값인데 반례가 없어 호환으로 남겨 둔다.
+
+    미시작은 코드가 둘이고 **경기 당일에 갈린다**: 먼 날짜는 "BEFORE"(statusNum=0)
+    지만 당일 경기는 첫 투구 전까지 "READY"(statusNum=1, statusInfo="경기전")로
+    온다 — 2026-08-12 18:25 KST 에 19:00 시작 5경기 전수 실측. 둘 다 아직 안 한
+    경기이므로 SCHEDULED 로 접는다.
+
+    READY 를 빠뜨리면 **경기 당일 낮~경기 직전 구간의 경기가 통째로 스킵**된다
+    (상태 동기화도, preview 선발 라인업 적재도 일어나지 않는다). 하필 그 구간이
+    선발 공시가 뜨는 때라, 라인업 수집이 조용히 무력화된다.
     """
     if g.get("cancel"):
         return "CANCELED"
     sc = g.get("statusCode")
-    if sc == "BEFORE":
+    if sc in ("BEFORE", "READY"):
         return "SCHEDULED"
     if sc in ("STARTED", "LIVE"):
         return "IN_PROGRESS"
@@ -278,6 +287,84 @@ def parse_record(game_id: str, record: dict) -> GameRow:
         inn_scores=sb.get("inn") or {},
         pitching=pit, batting=bat, players=list(seen.values()),
     )
+
+
+# preview API 의 position 은 숫자 코드다. record API 의 한자 표기로 되돌려
+# db.position_name() 에 태워야 positions 코드테이블이 두 원천에서 갈라지지 않는다.
+_PREVIEW_POSITIONS = {"1": "투", "2": "포", "3": "一", "4": "二", "5": "三",
+                      "6": "유", "7": "좌", "8": "중", "9": "우", "0": "지"}
+
+_PREVIEW_SIDES = (("awayTeamLineUp", "aCode", False), ("homeTeamLineUp", "hCode", True))
+_PREVIEW_BATTERS = 9
+
+
+def parse_preview_lineups(preview: dict) -> tuple[list[LineupRow], list[PlayerRef]]:
+    """preview API -> 경기 전 공시 선발 라인업 (LineupRow, PlayerRef).
+
+    소스: {base}/schedule/games/{gameId}/preview 의
+          previewData.{away,home}TeamLineUp.fullLineUp.
+    record 박스스코어(build_lineups)가 경기 종료 후에야 생기는 것과 달리 이건
+    경기 전에 공시된다 — game_lineups 가 경기 당일 내내 비어 있던 원인이 그거라
+    games_sync 가 이 원천을 함께 쓴다.
+
+    타순은 각 행의 `batorder`(소문자 o) 를 쓴다 — 선발투수는 None, 타자는 1~9.
+    배열 순서도 같은 값이지만 그건 **폴백**이다: 필드가 있으면 그게 원천의 명시적
+    선언이고, 순서는 응답 정렬이 바뀌면 조용히 틀린다. 2026-08-05~08-12 20 팀-사이드
+    실측에서 `batorder` 누락 0, 배열 순서와 100% 일치, record 박스스코어의 batOrder·
+    playerCode 와도 전수 일치했다(선발 180행).
+
+    타자가 9명 미만인 팀은 통째로 버린다 — 공시 전 preview 는 선발투수 1행만
+    오고(2026-08-12 14:23 실측) 그걸 적재하면 타순 없는 반쪽 라인업이 API 로
+    나간다. 한 팀만 공시된 경기는 그 팀만 반환하고 나머지 팀은 다음 폴링에서
+    채운다(적재는 멱등이라 재적재가 무해하다).
+
+    투수 판정은 position=="1" 이 아니라 `batorder` 유무로 한다. 지명타자를 안 쓰는
+    경기에서 선발투수에게 타순이 붙으면 position 으로 거르는 방식은 그 투수를 타자
+    집계에서 빼 9명을 못 채우고 팀 전체를 드롭한다.
+
+    decision 은 항상 None — 승패·세이브는 경기가 끝나야 정해지므로 records 잡 몫이다.
+    """
+    data = (preview.get("result") or {}).get("previewData") or preview.get("previewData") or {}
+    gi = data.get("gameInfo") or {}
+    rows: list[LineupRow] = []
+    refs: list[PlayerRef] = []
+    for side, code_key, is_home in _PREVIEW_SIDES:
+        team_code = gi.get(code_key)
+        full = ((data.get(side) or {}).get("fullLineUp")) or []
+        orders = _preview_bat_orders(full)
+        if not team_code or sum(o is not None for o in orders) < _PREVIEW_BATTERS:
+            continue  # 아직 미공시(선발투수만) 또는 팀 코드 미상 -> 이 팀은 건너뛴다
+        for entry, bat_order in zip(full, orders):
+            pcode = str(entry.get("playerCode") or "")
+            if not pcode or (bat_order is not None and bat_order > _PREVIEW_BATTERS):
+                continue  # 코드 없는 행, 규격 밖(9 초과) 타순은 버린다
+            refs.append(PlayerRef(pcode, entry.get("playerName") or "", team_code))
+            rows.append(LineupRow(
+                pcode=pcode, team_code=team_code, is_home=is_home,
+                bat_order=bat_order,
+                position=_PREVIEW_POSITIONS.get(str(entry.get("position"))),
+                is_starter=True, decision=None,
+            ))
+    return rows, refs
+
+
+def _preview_bat_orders(full: list) -> list:
+    """fullLineUp 행별 타순 목록 (선발투수 자리는 None).
+
+    1순위는 각 행의 `batorder` 필드. 원천이 명시한 값이라 배열 정렬이 바뀌어도 옳다.
+    필드가 통째로 없는 응답에 대비해 등장 순서 폴백을 남기는데, 그때는 타순을 셀
+    기준이 position 밖에 없어 "position=='1' 이 투수" 가정을 쓴다.
+    """
+    if any(p.get("batorder") is not None for p in full):
+        return [_i(p.get("batorder")) for p in full]
+    order, out = 0, []
+    for p in full:
+        if str(p.get("position")) == "1":
+            out.append(None)
+            continue
+        order += 1
+        out.append(order)
+    return out
 
 
 def build_lineups(game: GameRow) -> list[LineupRow]:

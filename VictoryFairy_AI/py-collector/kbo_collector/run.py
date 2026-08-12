@@ -491,8 +491,14 @@ def land_game_records(date, *, settings, db, client, team_ids=None) -> tuple[lis
                 game, team_ids=team_ids,
                 stadium_id=db.stadium_id(game.stadium),
                 status_id=db.status_id(status))
-            db.upsert_lineups(game_pk, game_records.build_lineups(game),
-                              player_map, team_ids)
+            lineups = game_records.build_lineups(game)
+            db.upsert_lineups(game_pk, lineups, player_map, team_ids)
+            # 경기 전 preview 로 깔아둔 선발이 직전 교체됐으면 박스스코어에 없는
+            # 유령 행으로 남는다 — 확정 적재 직후 그 차집합을 걷어낸다.
+            ghosts = db.delete_lineups_except(
+                game_pk, [player_map[r.pcode] for r in lineups if r.pcode in player_map])
+            if ghosts:
+                log.info("%s: 유령 라인업 %d행 정리", gid, ghosts)
             db.upsert_batting(game_pk, game.batting, player_map)
             db.upsert_pitching(game_pk, game.pitching, player_map)
             loaded.append(gid)
@@ -522,11 +528,52 @@ def _scheduled_game_stadium(settings, client, game, status, log):
         return None
 
 
-def _sync_games_for_date(settings, db, client, date, team_ids, log) -> int:
+LINEUP_PENDING_STATUSES = ("SCHEDULED", "IN_PROGRESS")
+
+
+def _land_preview_lineups(settings, db, client, pending, team_ids, log) -> int:
+    """아직 라인업이 안 찬 경기의 preview 선발 공시를 game_lineups 에 적재.
+
+    `pending` 은 (game_id, game_pk) 목록. 이미 완성된 경기는 DB 판정으로 걸러
+    preview 호출 자체를 하지 않는다 — 그날 경기가 다 공시되고 나면 이 단계의
+    외부 호출은 0 이 되므로 1분 폴링에서도 비용이 붙지 않는다.
+
+    한 경기의 실패가 나머지 경기를 막지 않도록 경기 단위로 격리한다. 이 단계
+    전체가 실패해도 호출자의 상태 동기화는 이미 끝나 있다.
+    """
+    done = db.lineup_done_games([pk for _, pk in pending])
+    landed = 0
+    for gid, pk in pending:
+        if pk in done:
+            continue  # 이미 적재 완료 -> preview 호출 자체를 건너뛴다
+        try:
+            resp = fetch.fetch(client, naver.preview_url(settings, gid),
+                               settings=settings, referer=settings.naver_referer)
+            rows, refs = game_records.parse_preview_lineups(resp.json())
+            if not rows:
+                continue  # 아직 미공시 -> 다음 폴링에서 재시도
+            db.upsert_lineups(pk, rows, db.resolve_players(refs, team_ids), team_ids)
+            landed += 1
+            log.info("lineup landed %s: %d rows", gid, len(rows))
+        except Exception as exc:  # 한 경기 실패가 나머지 라인업·잡을 막지 않도록
+            log.warning("preview lineup fail %s: %s", gid, exc)
+    return landed
+
+
+def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=True) -> int:
+    """하루치 경기를 games 에 동기화.
+
+    `live_window`(단일 날짜 호출 = live 룰) 일 때만 선발 라인업까지 따라간다.
+    선적재(morning/nightly, 오늘~+N일)에서는 켜지 않는다 — 미래 경기의 preview 엔
+    라인업이 있을 리 없어 매 실행마다 날짜 수만큼 헛호출이 된다.
+    """
     resp = fetch.fetch(client, game_records.schedule_url(settings, date),
                        settings=settings, referer=settings.naver_referer)
     games = game_records.list_kbo_games(resp.json())
+    # 구장은 한 번 채우면 변하지 않는다 — 아는 경기는 상세 API 를 다시 부르지 않는다.
+    known_stadium = db.games_with_stadium([g.get("gameId") for g in games])
     synced, skipped = 0, 0
+    pending: list[tuple[str, int]] = []
     for g in games:
         status = game_records.map_status(g)
         if status is None:
@@ -535,8 +582,9 @@ def _sync_games_for_date(settings, db, client, date, team_ids, log) -> int:
             continue
         live_or_done = status in ("IN_PROGRESS", "FINISHED", "DRAW")
         dt = (g.get("gameDateTime") or "").replace("T", " ") or f"{date} 00:00:00"
-        stadium = _scheduled_game_stadium(settings, client, g, status, log)
-        db.sync_game(
+        stadium = (None if g.get("gameId") in known_stadium
+                   else _scheduled_game_stadium(settings, client, g, status, log))
+        game_pk = db.sync_game(
             naver_game_id=g["gameId"], game_dt=dt,
             home_team_id=team_ids[g["homeTeamCode"]],
             away_team_id=team_ids[g["awayTeamCode"]],
@@ -545,7 +593,18 @@ def _sync_games_for_date(settings, db, client, date, team_ids, log) -> int:
             status_id=db.status_id(status),
             stadium_id=db.stadium_id(stadium))
         synced += 1
-    log.info("%s: synced=%d skipped=%d", date, synced, skipped)
+        if not live_window:
+            continue
+        if status in LINEUP_PENDING_STATUSES:
+            # 끝난 경기는 제외 — 확정 라인업은 records 잡이 박스스코어로 적재한다.
+            pending.append((g["gameId"], game_pk))
+        elif status == "CANCELED":
+            # 공시 뒤 취소된 경기의 preview 라인업을 걷어낸다(records 가 안 도는 경로).
+            purged = db.delete_lineups_if_unplayed(game_pk)
+            if purged:
+                log.info("%s 취소: 라인업 %d행 정리", g["gameId"], purged)
+    lineups = _land_preview_lineups(settings, db, client, pending, team_ids, log) if pending else 0
+    log.info("%s: synced=%d skipped=%d lineups=%d", date, synced, skipped, lineups)
     return synced
 
 
@@ -561,17 +620,23 @@ def job_games_sync_range(settings, db, start, end, sleep=time.sleep) -> int:
     이 잡에서는 일정 적재와 상태 동기화가 같은 upsert 다. 점수는 LIVE/RESULT
     에서만 채운다: SCHEDULED/CANCELED 의 0-0 은 껍데기라 NULL 로 적재해야
     미시작 경기가 0:0 무승부처럼 보이지 않는다.
+
+    단일 날짜 호출(start==end)은 EventBridge 의 live 룰(days 없음)이 오는 길이라
+    '당일 폴링'으로, 구간 호출은 morning/nightly 의 '선적재'로 취급한다 — 무엇을
+    더 받아올지가 갈리는 근거는 _sync_games_for_date 참고.
     """
     log = logging.getLogger("games_sync")
     team_ids = db.upsert_teams(dimensions.TEAMS)
     d0, d1 = date_cls.fromisoformat(start), date_cls.fromisoformat(end)
+    live_window = d0 == d1
     total = 0
     with fetch.build_client(settings) as client:
         d = d0
         while d <= d1:
             day = d.isoformat()
             try:
-                total += _sync_games_for_date(settings, db, client, day, team_ids, log)
+                total += _sync_games_for_date(settings, db, client, day, team_ids, log,
+                                              live_window=live_window)
             except Exception as exc:  # 하루가 막혀도 나머지 날짜는 적재한다
                 log.warning("games_sync fail %s: %s", day, exc)
             d += timedelta(days=1)
