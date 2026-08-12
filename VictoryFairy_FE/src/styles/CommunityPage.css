@@ -1,10 +1,10 @@
 /**
  * CommunityPage(라운지 메인) 스타일.
- * Figma: SWM / [Lounge] 라운지 메인 (node 724:20029), 기준 프레임 402 x 874.
+ * Figma: SWM / [Lounge] 라운지 메인 (수정) (node 1090:8107), 기준 프레임 402 x 874.
  *
  * Figma 의 절대 좌표는 흐름(flow) 레이아웃으로 옮겼고, 요소 간 간격은 원본 좌표
  * 차이를 그대로 margin 으로 환산해 시각적 결과를 보존한다.
- *   예) 랭킹 목록(top 403) - 헤더 카드 하단(381) = margin-top 22px
+ *   예) 랭킹 목록(top 363) - 시상대 카드 하단(351) = margin-top 12px
  * 디자인 최상단의 iOS 상태 바(47px)는 단말 크롬이라 옮기지 않았다(LoginPage 와 동일).
  * 화면 높이 · 앱 폭(402px) · 하단 NavBar 자리는 AppLayout 이 잡아 준다.
  */
@@ -18,20 +18,17 @@
 }
 
 /* ------------------------------------------------------------------ *
- * Header — 아이보리 카드(제목 + 시상대)
+ * Header — 제목 + 시상대 카드
+ * 제목은 흰 바탕 위에 그대로 놓인다(이전 디자인의 아이보리 카드는 없어졌다).
  * ------------------------------------------------------------------ */
 .community-page__header {
   display: flex;
   flex-direction: column;
-  border-radius: 0 0 var(--radius-20) var(--radius-20);
-  background-color: var(--color-background-ivory);
-  /* Figma: drop-shadow 0 0 2px Gray/200 */
-  filter: drop-shadow(0 0 2px var(--color-gray-200));
 }
 
 .community-page__title {
   margin: 0;
-  padding: 20px var(--layout-gutter) 0;
+  padding: 20px var(--layout-gutter) 12px;
   color: var(--color-label-normal);
   font-size: var(--font-size-title1);
   font-weight: var(--font-weight-semibold);
@@ -40,22 +37,45 @@
 }
 
 /* ------------------------------------------------------------------ *
- * Podium — 2위 · 1위 · 3위 시상대
- * 세 칸이 각 100px, 좌우 51px 여백으로 402px 를 채운다.
+ * Podium — 2위 · 1위 · 3위가 서는 주황 카드
+ *
+ * 세 칸은 각 100px 고정이라 합이 300 이고, 카드(354) 안에서 가운데로 모인다.
+ * Figma 는 좌우 여백을 51 로 잡아 두었지만 칸 합이 안쪽 폭(252)보다 넓어 실제로는
+ * 무시된다 — 그래서 같은 결과가 나오는 16 을 주고 가운데 정렬에 맡긴다.
+ *
+ * 바탕은 가운데가 밝은 타원 그라데이션(Figma 1090:8172, 반지름 692 x 175).
+ * Figma 가 뽑아 준 중간 두 스톱은 양 끝을 선형 보간한 값과 같아 생략했다.
  * ------------------------------------------------------------------ */
 .community-page__podium {
   display: flex;
   align-items: flex-end;
-  padding: 20px 51px;
+  justify-content: center;
+  margin-inline: var(--layout-gutter);
+  padding: 16px;
+  border-radius: var(--radius-20);
+  background-image: radial-gradient(
+    692px 175px at 50% 50%,
+    var(--color-primary-300),
+    var(--color-primary-500)
+  );
 }
 
 .community-page__podium-item {
   display: flex;
-  flex: 1 0 0;
+  flex: 0 1 100px;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: 4px;
   min-width: 0;
+}
+
+/* 왕관 — 1위만 32px, 나머지는 24px. 원본 비율(10:7)은 mask 의 contain 이 지킨다. */
+.community-page__podium-crown {
+  width: 24px;
+  height: 24px;
+  background-color: var(--color-ivory-100);
+  -webkit-mask: url('../assets/crown.svg') center / contain no-repeat;
+  mask: url('../assets/crown.svg') center / contain no-repeat;
 }
 
 .community-page__podium-profile {
@@ -74,9 +94,10 @@
   white-space: nowrap;
 }
 
+/* 주황 바탕 위라 포인트는 아이보리, 이름은 흰색이다 */
 .community-page__podium-point {
   margin: 0;
-  color: var(--color-label-alternative);
+  color: var(--color-ivory-100);
   font-size: var(--font-size-label2);
   font-weight: var(--font-weight-regular);
   line-height: var(--line-height-tight);
@@ -84,7 +105,7 @@
 
 .community-page__podium-name {
   margin: 0;
-  color: var(--color-label-normal);
+  color: var(--color-white);
   font-size: var(--font-size-body1);
   font-weight: var(--font-weight-medium);
   line-height: var(--line-height-body1);
@@ -97,13 +118,12 @@
   object-fit: cover;
 }
 
-/* 시상대 단. 높이·색이 순위마다 다르다. */
-.community-page__podium-bar {
-  width: 100%;
-  border-radius: var(--radius-10) var(--radius-10) 0 0;
+/* 1위 — 왕관·사진·이름이 한 단계씩 크다. 순위 차이를 이 크기만으로 보여 준다. */
+.community-page__podium-item--rank1 .community-page__podium-crown {
+  width: 32px;
+  height: 32px;
 }
 
-/* 1위 — 사진·이름이 한 단계 크고 단이 가장 높다 */
 .community-page__podium-item--rank1 .community-page__podium-profile {
   width: 80px;
 }
@@ -119,26 +139,11 @@
   letter-spacing: var(--letter-spacing-title3);
 }
 
-.community-page__podium-item--rank1 .community-page__podium-bar {
-  height: 60px;
-  background-color: var(--color-primary-normal);
-}
-
-.community-page__podium-item--rank2 .community-page__podium-bar {
-  height: 40px;
-  background-color: var(--color-primary-400);
-}
-
-.community-page__podium-item--rank3 .community-page__podium-bar {
-  height: 20px;
-  background-color: var(--color-primary-lighter);
-}
-
 /* ------------------------------------------------------------------ *
  * Ranking — 4위 이하 목록 + 맨 아래 내 순위
  * ------------------------------------------------------------------ */
 .community-page__ranking {
-  margin: 22px 0 0;
+  margin: 12px 0 0;
   padding: 0 var(--layout-gutter);
   list-style: none;
 }
@@ -255,7 +260,8 @@
  * ------------------------------------------------------------------ */
 @media (max-width: 359px) {
   .community-page__podium {
-    padding-inline: 16px;
+    margin-inline: 16px;
+    padding-inline: 8px;
   }
 
   .community-page__ranking {
