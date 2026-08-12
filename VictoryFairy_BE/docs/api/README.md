@@ -1,6 +1,6 @@
 # API 명세 — 도메인별 문서
 
-> 최종 업데이트: 2026-08-12 — quiz 제출 자격 증명의 근거가 Redis 티켓에서 `quiz_users_submit` DB 행(미답 행)으로 전면 교체됨. `GET /today`가 서빙과 동시에 미답 행을 만드는 쓰기 트랜잭션이 됐고, 시한(8분)은 재호출로 연장되지 않으며 넘기면 그 문제는 이후 `/today`에 다시 실리지 않는다(행동 변화). `GET /{quizId}`·`GET /submissions`에 `expired` 필드 신설, `submitted`의 의미가 "받음"→"답함"으로 재정의, `myOption`/`myOptionText` nullable 완화, `submittedAt`이 `updated_at` 기준으로 재정의, 이력 요약이 미답 문제를 오답으로 집계. `POST /{quizId}/submit`은 판정 순서가 404→409→403→400에서 404→403→400→409로 바뀌어 "이미 답한 문제에 없는 보기 번호" 응답이 409→400으로 바뀜(관측 가능한 계약 변화). 메서드·경로·요청 본문·성공 응답 필드는 불변. (직전: 같은 날 최초 설계는 Redis 제출 자격 티켓(TTL 8분) 기반이었으나 위와 같이 DB 행 기반으로 대체됨). (직전: 2026-08-11 quiz 좋아요 기능 신설(`POST /rt/quizzes/{quizId}/like` 신규, 4→5필드, 단건 상세·풀이 이력 응답에 `liked`·`likeCount` 필드 추가). (직전: 같은 날 game `GET /api/games` 응답에 `inning`/`inningHalf` 필드 반영(11→13필드, `games` 테이블에 진행 이닝 컬럼 신설, 현재는 py-collector 미구현으로 항상 `null`). (직전: 같은 날 `cancelReason` 필드 반영(10→11필드, 커밋 f01d08e #281). (직전: 2026-08-10 quiz `/today` 정렬 방식 변경(선호 그룹 안에서 id ASC → 사용자별 고정 랜덤, 응답 필드·상태코드 불변). (직전: 2026-08-08 quiz 도메인 확장(1→4) — 단건 상세·제출/채점·풀이 이력 추가, 선호 정렬·`preferredOnly` 필터 추가.))))))
+> 최종 업데이트: 2026-08-13 — 공통 규약 정정: `web-support`의 `GlobalExceptionHandler`에 `MissingServletRequestParameterException` 핸들러가 추가돼, **필수 쿼리 파라미터 누락(400)이 이제 `ApiResponse` 래퍼를 탄다**(공유 컴포넌트라 user·quiz 양쪽 적용). 종전엔 타입 변환 실패와 한 덩어리로 "바인딩 실패는 래퍼 아님"이라 서술했으나 이제 둘이 갈린다 — 타입 변환 실패는 여전히 래퍼가 아니다. game `GET /api/games/lineup`의 `gameId` 누락 400 서술을 이 실측으로 정정(직전: 같은 날 game·player 문서의 관련 서술은 이번 개정으로 함께 정정됨). (직전: 2026-08-12 quiz `GET /today`에 `gameId`(내부 PK가 아니라 `games.naver_game_id` 문자열) 필수 쿼리 파라미터가 신설됨(5차 개정). 응원 구단 경기가 `IN_PROGRESS`일 때만 세트를 주고 그 외 사유는 전부 403 `QUIZ_NOT_SERVABLE`로 합쳐지며, "한 이닝에 한 세트" 회차 제한이 신설돼 같은 이닝 재요청은 409 `QUIZ_ALREADY_SERVED_IN_INNING`이다. **재조회가 폐지됨**(가장 큰 FE 영향) — 종전엔 시한이 남은 미답 문제는 다시 호출해도 계속 응답에 실렸으나, 이제 행이 있는 문제는 답 여부·시한과 무관하게 전부 제외되고 FE가 받은 세트를 잃으면 되받을 수 없다. 8분 시한은 이제 제출 경로 전용(목록 재조회와 무관). 빈 배열의 뜻도 좁아짐("지금은 줄 수 없다"가 전부 403·409로 빠짐). 응답 필드·정렬·성공 상태코드(200)·다른 4개 엔드포인트는 불변. (직전: 같은 날 앞선 4차 이하 개정 — quiz 제출 자격 증명의 근거가 Redis 티켓에서 `quiz_users_submit` DB 행(미답 행)으로 전면 교체됨. `GET /today`가 서빙과 동시에 미답 행을 만드는 쓰기 트랜잭션이 됐다. `GET /{quizId}`·`GET /submissions`에 `expired` 필드 신설, `submitted`의 의미가 "받음"→"답함"으로 재정의, `myOption`/`myOptionText` nullable 완화, `submittedAt`이 `updated_at` 기준으로 재정의, 이력 요약이 미답 문제를 오답으로 집계. `POST /{quizId}/submit`은 판정 순서가 404→409→403→400에서 404→403→400→409로 바뀌어 "이미 답한 문제에 없는 보기 번호" 응답이 409→400으로 바뀜). (직전: 같은 날 최초 설계는 Redis 제출 자격 티켓(TTL 8분) 기반이었으나 위와 같이 DB 행 기반으로 대체됨). (직전: 2026-08-11 quiz 좋아요 기능 신설(`POST /rt/quizzes/{quizId}/like` 신규, 4→5필드, 단건 상세·풀이 이력 응답에 `liked`·`likeCount` 필드 추가). (직전: 같은 날 game `GET /api/games` 응답에 `inning`/`inningHalf` 필드 반영(11→13필드, `games` 테이블에 진행 이닝 컬럼 신설, 현재는 py-collector 미구현으로 항상 `null`). (직전: 같은 날 `cancelReason` 필드 반영(10→11필드, 커밋 f01d08e #281). (직전: 2026-08-10 quiz `/today` 정렬 방식 변경(선호 그룹 안에서 id ASC → 사용자별 고정 랜덤, 응답 필드·상태코드 불변). (직전: 2026-08-08 quiz 도메인 확장(1→4) — 단건 상세·제출/채점·풀이 이력 추가, 선호 정렬·`preferredOnly` 필터 추가.))))))))
 
 이 디렉터리는 **도메인 단위**로 나뉜다. 이전에는 Gradle 모듈 단위(`user.md`, `quiz.md`) 두 문서에 모든 엔드포인트가 들어 있었으나, 한 문서가 900줄을 넘고 서로 무관한 도메인(인증·구단·선수·경기·응원)이 뒤섞여 찾기 어려워졌다. **모듈은 배포 단위일 뿐 API 계약의 경계가 아니라는 판단**으로 문서 축을 도메인으로 바꿨다.
 
@@ -12,10 +12,10 @@
 | 계정 | [account.md](account.md) | user | `/api/users` | 2 | 필수 | 2026-08-06 | [🔗](https://app.notion.com/p/3b278fa9b0f981f8b5bcf163fc897b12) |
 | 구단 | [team.md](team.md) | user | `/api/teams` | 1 | 불필요(GET 한정) | 2026-07-28 (추정) | [🔗](https://app.notion.com/p/3b278fa9b0f981859999f42bfc4dd56b) |
 | 선수 | [player.md](player.md) | user | `/api/players` | 1 | 불필요(GET 한정, 단 로그인 시 결과가 달라짐) | 2026-08-06 | [🔗](https://app.notion.com/p/3b278fa9b0f981afb501f9e94e1f32f4) |
-| 경기 | [game.md](game.md) | user | `/api/games` | 2 | 불필요(GET 한정) | 2026-08-11 | [🔗](https://app.notion.com/p/3b278fa9b0f981938659cb3681750105) |
+| 경기 | [game.md](game.md) | user | `/api/games` | 2 | 불필요(GET 한정) | 2026-08-13 | [🔗](https://app.notion.com/p/3b278fa9b0f981938659cb3681750105) |
 | 응원 | [support.md](support.md) | user | `/api/support` | 3 | 필수 | 2026-08-06 | [🔗](https://app.notion.com/p/3b278fa9b0f981f5ae03ff5df8489a63) |
 | 채팅 | [chat.md](chat.md) | quiz | `/rt/chat` | 7 | 필수 | 2026-08-04 | [🔗](https://app.notion.com/p/3b278fa9b0f98165a655fd5cced543d5) |
-| 퀴즈 | [quiz.md](quiz.md) | quiz | `/rt/quizzes` | 5 | 필수 | 2026-08-12 | [🔗](https://app.notion.com/p/3b578fa9b0f981c4b09bd8752fb22711) |
+| 퀴즈 | [quiz.md](quiz.md) | quiz | `/rt/quizzes` | 5 | 필수 | 2026-08-12(5차) | [🔗](https://app.notion.com/p/3b578fa9b0f981c4b09bd8752fb22711) |
 
 `최종 업데이트`는 **계약이 마지막으로 바뀐 날**이지 문서를 손댄 날이 아니다. `(추정)`은 도메인 분리 이전에 엔드포인트별 이력이 없어 해당 컨트롤러의 마지막 커밋 날짜로 역산했다는 뜻이다.
 
@@ -54,7 +54,9 @@
 
 - 비즈니스 예외(`BusinessException`) → `{ "success": false, "data": null, "message": "<ErrorCode 메시지>" }`, 상태코드는 `ErrorCode.getStatus()`.
 - Bean Validation 실패(`MethodArgumentNotValidException`) → `{ "success": false, "data": {"필드명":"메시지", ...}, "message": "입력값이 올바르지 않습니다." }`, 400. `data`에는 **위반한 필드만** 담긴다.
-- **예외: 쿼리 파라미터 바인딩 실패는 `ApiResponse` 래퍼가 아니다.** `?teamId=abc`(player)·`?date=20260801`(game)처럼 타입 변환이 깨지거나, `gameId` 없이 `GET /api/games/lineup`을 호출해 **필수 파라미터 자체가 없는** 경우처럼 컨트롤러 진입 전 바인딩 단계에서 깨지면 `GlobalExceptionHandler`가 아니라 Spring 기본 `DefaultHandlerExceptionResolver`가 400을 만든다.
+- **쿼리 파라미터 바인딩 실패는 두 갈래로 갈린다(2026-08-13부터).** 둘 다 컨트롤러 진입 전 바인딩 단계에서 400이 나지만 경로가 다르다.
+  - **타입 변환 실패**(`?teamId=abc`(player)·`?date=20260801`(game)처럼 값은 있는데 파싱이 안 됨) → 여전히 `ApiResponse` 래퍼가 **아니다**. `MethodArgumentTypeMismatchException`이 `GlobalExceptionHandler`를 타지 않고 Spring 기본 `DefaultHandlerExceptionResolver`가 400을 만든다.
+  - **필수 파라미터 자체가 없음**(`gameId` 키 없이 `GET /api/games/lineup` 호출 등) → **이제 `ApiResponse` 래퍼를 탄다.** `web-support`의 `GlobalExceptionHandler`에 `MissingServletRequestParameterException` 핸들러가 추가돼(`@ExceptionHandler(MissingServletRequestParameterException.class)`), `{ "success": false, "data": null, "message": "필수 요청 파라미터가 누락되었습니다: <파라미터명>" }`을 400으로 반환한다. 공유 컴포넌트(`web-support`)라 user·quiz 두 앱 모두에 적용된다.
 
 quiz 모듈은 `SecurityConfig`가 `web-support`의 `GlobalExceptionHandler`를 `@Import`로 **명시 등록**해 이 변환이 이루어진다(좁은 컴포넌트 스캔 범위 밖이라 자동 감지되지 않는다 — 이 import가 빠지면 `BusinessException`이 스프링 기본 500으로 나간다).
 
