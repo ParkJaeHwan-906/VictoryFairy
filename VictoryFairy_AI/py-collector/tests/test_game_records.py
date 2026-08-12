@@ -168,12 +168,29 @@ def test_map_status_result_draw_by_scores():
 
 
 def test_map_status_unknown_returns_none():
-    assert gr.map_status({"statusCode": "READY", "cancel": False}) is None
+    # 표본은 실재하지 않는 코드여야 한다. 예전엔 "READY" 를 썼는데 그건 **실재하는
+    # 경기 당일 미시작 상태**라, 이 테스트가 초록인 채로 당일 경기가 통째로 스킵되는
+    # 갭을 덮고 있었다(2026-08-12 실측으로 발견).
+    assert gr.map_status({"statusCode": "NOT_A_REAL_STATUS", "cancel": False}) is None
 
 
 def test_map_status_before_is_scheduled():
     g = {"statusCode": "BEFORE", "cancel": False}
     assert gr.map_status(g) == "SCHEDULED"
+
+
+def test_map_status_ready_is_scheduled():
+    # 당일 경기는 첫 투구 전까지 "READY"(statusNum=1, statusInfo="경기전") 로 온다
+    # — 2026-08-12 18:25 KST, 19:00 시작 5경기 전수 실측. 먼 날짜의 "BEFORE" 와
+    # 코드만 다르고 둘 다 미시작이다.
+    #
+    # 이걸 놓치면 하필 선발 공시가 뜨는 구간의 경기가 통째로 스킵돼, 상태 동기화도
+    # preview 라인업 적재도 일어나지 않는다.
+    assert gr.map_status({"statusCode": "READY", "cancel": False}) == "SCHEDULED"
+
+
+def test_map_status_cancel_flag_wins_over_ready():
+    assert gr.map_status({"statusCode": "READY", "cancel": True}) == "CANCELED"
 
 
 def test_map_status_started_or_live_is_in_progress():

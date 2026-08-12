@@ -79,14 +79,15 @@
 | 상태 | 판정 (우선순위 순) | DB `game_statuses.name` |
 |---|---|---|
 | 취소 | `cancel == true` — **최우선.** `statusCode`는 `"BEFORE"`, `winner`는 `"DRAW"` 껍데기로 옴(2026-07-08 `20260708NCHH02026` 실측) | `CANCELED` |
-| 예정 | `statusCode == "BEFORE"` | `SCHEDULED` |
-| 진행중 | `statusCode == "LIVE"` | `IN_PROGRESS` |
+| 예정 | `statusCode in ("BEFORE", "READY")` — **코드가 둘이다.** 먼 날짜는 `BEFORE`(statusNum=0), **경기 당일은 첫 투구 전까지 `READY`**(statusNum=1, statusInfo=`"경기전"`). 2026-08-12 18:25 KST, 19:00 시작 5경기 전수 실측 | `SCHEDULED` |
+| 진행중 | `statusCode in ("STARTED", "LIVE")` — 실측값은 `STARTED`(2026-08-04 실황 3경기). `LIVE`는 초기 가정값이나 반례가 없어 호환 유지 | `IN_PROGRESS` |
 | 완료 | `statusCode == "RESULT"`, 양팀 동점이면 무승부 | `FINISHED` / `DRAW` |
 
 > ⚠️ **판정 시 함정 4가지** (`game_records.py`의 `map_status`, `run.py`의 `job_games_sync` 실측 근거)
 > ① **`winner` 필드로 무승부·취소를 판정하지 말 것** — 취소 경기도 `winner:"DRAW"` 껍데기로 옴.
 > ② **schedule API 광범위 조회 금지** — `fromDate`~`toDate`를 2개월로 걸어 조회한 실측에서 경기 **4건만** 반환됨. 하루 단위(`fromDate=toDate=date`) 조회가 정석.
 > ③ `suspended`(서스펜디드)는 아직 `map_status`에 미반영 — 관측되면 상태 판정 실패로 **skip + warning 로그**.
+> ⑤ **미지 상태는 조용히 실패한다** — `map_status`가 `None`을 내면 `_sync_games_for_date`가 그 경기를 통째로 `continue` 한다. 상태 동기화도, 선발 라인업 적재도 일어나지 않고 warning 로그만 남는다. 실제로 `READY`가 미반영이던 동안 **경기 당일 낮~경기 직전 구간의 경기가 전부 스킵**되고 있었다(2026-08-12 발견). 새 `statusCode`를 관측하면 표에 추가할 것.
 > ④ 취소·예정 경기의 점수는 0-0 **껍데기**이므로 `games_sync` 적재 시 DB에는 `NULL`로 넣는다(점수는 진행중/완료일 때만 채움).
 
 일정 없음(`result.games == []`, 그날 경기 없음)은 위 표와 별개로 스케줄 자체가 비는 경우다.

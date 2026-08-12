@@ -165,11 +165,20 @@ def map_status(g: dict) -> str | None:
     "DRAW" 껍데기로 오므로(2026-07-08 NCHH 실측) 다른 필드로 판정하면 오답.
     진행 중 statusCode 는 "STARTED"(2026-08-04 실황 3경기 실측). "LIVE" 는
     초기 가정값인데 반례가 없어 호환으로 남겨 둔다.
+
+    미시작은 코드가 둘이고 **경기 당일에 갈린다**: 먼 날짜는 "BEFORE"(statusNum=0)
+    지만 당일 경기는 첫 투구 전까지 "READY"(statusNum=1, statusInfo="경기전")로
+    온다 — 2026-08-12 18:25 KST 에 19:00 시작 5경기 전수 실측. 둘 다 아직 안 한
+    경기이므로 SCHEDULED 로 접는다.
+
+    READY 를 빠뜨리면 **경기 당일 낮~경기 직전 구간의 경기가 통째로 스킵**된다
+    (상태 동기화도, preview 선발 라인업 적재도 일어나지 않는다). 하필 그 구간이
+    선발 공시가 뜨는 때라, 라인업 수집이 조용히 무력화된다.
     """
     if g.get("cancel"):
         return "CANCELED"
     sc = g.get("statusCode")
-    if sc == "BEFORE":
+    if sc in ("BEFORE", "READY"):
         return "SCHEDULED"
     if sc in ("STARTED", "LIVE"):
         return "IN_PROGRESS"

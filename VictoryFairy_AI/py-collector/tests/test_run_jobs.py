@@ -569,8 +569,10 @@ def _games_sync_schedule_games():
         {"gameId": "no_dt", "categoryId": "kbo", "statusCode": "LIVE", "cancel": False,
          "homeTeamCode": "OB", "awayTeamCode": "LG",
          "homeTeamScore": 1, "awayTeamScore": 0},  # gameDateTime 키 자체가 결측
-        {"gameId": "unknown", "categoryId": "kbo", "statusCode": "READY", "cancel": False,
-         "homeTeamCode": "OB", "awayTeamCode": "LG"},
+        # 실재하지 않는 코드여야 한다 — "READY" 는 당일 미시작 상태로 실재하며
+        # 이제 SCHEDULED 로 매핑된다(test_map_status_ready_is_scheduled 참고).
+        {"gameId": "unknown", "categoryId": "kbo", "statusCode": "NOT_A_REAL_STATUS",
+         "cancel": False, "homeTeamCode": "OB", "awayTeamCode": "LG"},
     ]
 
 
@@ -615,7 +617,7 @@ def test_job_games_sync_scores_live_or_done_only_and_skips_unknown(monkeypatch, 
 
     assert by_id["finished"]["home_team_id"] == 1 and by_id["finished"]["away_team_id"] == 2
 
-    assert "unknown status" in caplog.text and "READY" in caplog.text
+    assert "unknown status" in caplog.text and "NOT_A_REAL_STATUS" in caplog.text
 
 
 def test_job_games_sync_game_dt_falls_back_for_empty_string_datetime(monkeypatch, settings):
