@@ -51,6 +51,7 @@ class QuizControllerTest {
 
     private static final Long USER_ID = 1L;
     private static final LocalDate TODAY = LocalDate.of(2026, 8, 7);
+    private static final String GAME_ID = "20260807HHKT02026";
 
     @Autowired
     private MockMvc mockMvc;
@@ -81,11 +82,77 @@ class QuizControllerTest {
     }
 
     @Test
+    @DisplayName("[AC-INN-110-1,2,3] gameId 파라미터 없이 요청하면 400과 공통 ApiResponse 래퍼로 응답하고 "
+            + "서비스는 호출되지 않는다(필수 파라미터 누락을 기본값으로 흡수하지 않는다)")
+    void getTodayQuizzes_missingGameIdParam_returns400WithApiResponseWrapper() throws Exception {
+        mockMvc.perform(get("/quizzes/today").with(authenticatedAs(USER_ID)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").exists());
+
+        verifyNoInteractions(quizService);
+    }
+
+    @Test
+    @DisplayName("[AC-INN-97-1,97-2,97-3] 서비스가 QUIZ_NOT_SERVABLE을 던지면 403과 그 메시지를 반환한다")
+    void getTodayQuizzes_notServable_returns403() throws Exception {
+        given(quizService.getTodayQuizzes(USER_ID, GAME_ID, false))
+                .willThrow(new BusinessException(ErrorCode.QUIZ_NOT_SERVABLE));
+
+        mockMvc.perform(get("/quizzes/today").param("gameId", GAME_ID)
+                        .with(authenticatedAs(USER_ID)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value(ErrorCode.QUIZ_NOT_SERVABLE.getMessage()));
+    }
+
+    @Test
+    @DisplayName("[AC-INN-97-1,97-2,97-3] 서비스가 QUIZ_ALREADY_SERVED_IN_INNING을 던지면 409와 그 "
+            + "메시지를 반환한다")
+    void getTodayQuizzes_alreadyServedInInning_returns409() throws Exception {
+        given(quizService.getTodayQuizzes(USER_ID, GAME_ID, false))
+                .willThrow(new BusinessException(ErrorCode.QUIZ_ALREADY_SERVED_IN_INNING));
+
+        mockMvc.perform(get("/quizzes/today").param("gameId", GAME_ID)
+                        .with(authenticatedAs(USER_ID)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message")
+                        .value(ErrorCode.QUIZ_ALREADY_SERVED_IN_INNING.getMessage()));
+    }
+
+    @Test
+    @DisplayName("[AC-INN-105-1] gameId 값은 그대로 서비스에 문자열로 전달된다(naver_game_id, 내부 PK "
+            + "아님)")
+    void getTodayQuizzes_gameIdParam_passedToServiceAsIs() throws Exception {
+        given(quizService.getTodayQuizzes(USER_ID, GAME_ID, false)).willReturn(List.of());
+
+        mockMvc.perform(get("/quizzes/today").param("gameId", GAME_ID)
+                        .with(authenticatedAs(USER_ID)))
+                .andExpect(status().isOk());
+
+        verify(quizService).getTodayQuizzes(USER_ID, GAME_ID, false);
+    }
+
+    @Test
+    @DisplayName("[AC-INN-111-1] inning은 요청 파라미터로 받지 않는다 — 알 수 없는 쿼리 파라미터로 "
+            + "보내도 무시되고 200이다(서버가 읽어 채우는 값이라 입력 경로가 없다는 것의 방증)")
+    void getTodayQuizzes_strayInningParam_isIgnored() throws Exception {
+        given(quizService.getTodayQuizzes(USER_ID, GAME_ID, false)).willReturn(List.of());
+
+        mockMvc.perform(get("/quizzes/today").param("gameId", GAME_ID).param("inning", "5")
+                        .with(authenticatedAs(USER_ID)))
+                .andExpect(status().isOk());
+
+        verify(quizService).getTodayQuizzes(USER_ID, GAME_ID, false);
+    }
+
+    @Test
     @DisplayName("[AC-LIKE-31-1,2] 인증 사용자가 요청하면 200과 문제 목록을 반환하고, 응답 JSON 어디에도 "
             + "answer·liked·likeCount 키가 없으며 QuizLikeService는 전혀 호출되지 않는다"
             + "(정답 미노출 계약 + /today 좋아요 집계 비용 없음)")
     void getTodayQuizzes_authenticated_returns200WithoutAnswerKey() throws Exception {
-        given(quizService.getTodayQuizzes(USER_ID, false)).willReturn(List.of(
+        given(quizService.getTodayQuizzes(USER_ID, GAME_ID, false)).willReturn(List.of(
                 new QuizResponse(1L, "객관식", "2025 정규시즌 우승 구단은?", "MEDIUM", 30.0, true,
                         List.of(new QuizResponse.OptionResponse(0, "LG"),
                                 new QuizResponse.OptionResponse(1, "한화"),
@@ -95,7 +162,8 @@ class QuizControllerTest {
                         List.of(new QuizResponse.OptionResponse(0, "O"),
                                 new QuizResponse.OptionResponse(1, "X")))));
 
-        MvcResult result = mockMvc.perform(get("/quizzes/today").with(authenticatedAs(USER_ID)))
+        MvcResult result = mockMvc.perform(get("/quizzes/today").param("gameId", GAME_ID)
+                        .with(authenticatedAs(USER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.length()").value(2))
@@ -132,9 +200,10 @@ class QuizControllerTest {
     @Test
     @DisplayName("오늘 출제분이 없으면 200과 빈 배열을 반환한다(404·에러 아님)")
     void getTodayQuizzes_emptyDay_returns200WithEmptyArray() throws Exception {
-        given(quizService.getTodayQuizzes(USER_ID, false)).willReturn(List.of());
+        given(quizService.getTodayQuizzes(USER_ID, GAME_ID, false)).willReturn(List.of());
 
-        mockMvc.perform(get("/quizzes/today").with(authenticatedAs(USER_ID)))
+        mockMvc.perform(get("/quizzes/today").param("gameId", GAME_ID)
+                        .with(authenticatedAs(USER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data").isArray())
                 .andExpect(jsonPath("$.data.length()").value(0))
@@ -144,13 +213,14 @@ class QuizControllerTest {
     @Test
     @DisplayName("preferredOnly=true 쿼리 파라미터가 서비스까지 true로 바인딩된다(기본값은 false)")
     void getTodayQuizzes_preferredOnlyParam_bindsToService() throws Exception {
-        given(quizService.getTodayQuizzes(USER_ID, true)).willReturn(List.of());
+        given(quizService.getTodayQuizzes(USER_ID, GAME_ID, true)).willReturn(List.of());
 
-        mockMvc.perform(get("/quizzes/today").param("preferredOnly", "true")
+        mockMvc.perform(get("/quizzes/today").param("gameId", GAME_ID)
+                        .param("preferredOnly", "true")
                         .with(authenticatedAs(USER_ID)))
                 .andExpect(status().isOk());
 
-        verify(quizService).getTodayQuizzes(USER_ID, true);
+        verify(quizService).getTodayQuizzes(USER_ID, GAME_ID, true);
     }
 
     // ---------- GET /quizzes/{quizId} ----------

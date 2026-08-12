@@ -39,23 +39,38 @@ public interface QuizUserSubmitRepository
     boolean existsByUserAccount_IdAndQuiz_Id(Long userAccountId, Long quizId);
 
     /**
-     * 주어진 문제들에 대한 이 계정의 행 상태 — {@code GET /today}의 <b>제외 필터이자 INSERT 차집합의
-     * 재료</b>다(조회를 둘로 나누지 않는다).
+     * 주어진 문제들 중 이 계정에게 <b>이미 나간 것</b>(행이 있는 것)의 id — {@code GET /today}의
+     * 제외 필터다.
      *
-     * <p>⚠ <b>"행이 있으면 제외"로 되돌리지 말 것.</b> 행은 이제 출제 시점에 생기므로, 그렇게 하면
-     * 문제를 받는 순간 목록에서 사라져 <b>새로고침 한 번에 그날 세트를 통째로 못 풀게 된다.</b>
-     * 제외 기준은 {@link QuizUserSubmitStateView} 의 세 갈래다.
+     * <p><b>제외 기준은 "행이 있는가" 하나다.</b> 답했는지도, 시한(+8분)이 지났는지도 보지 않는다 —
+     * 한 번 받은 문제는 다시 실어 주지 않고(재조회 없음), 답하지 않았다면 그대로 미제출=오답으로
+     * 확정된다. 시한은 <b>서빙 판정에서 완전히 빠지고 제출 경로에만 남는다.</b>
      *
-     * <p>⚠ 보기 연관은 <b>명시적 {@code left join}</b> 이어야 한다. 암묵 경로({@code s.submitOption.id})는
-     * Hibernate 가 FK 컬럼으로 최적화해 주기를 기대하는 것이고, 그 기대가 어긋나 inner join 이 되면
-     * <b>미답 행이 결과에서 통째로 빠진다</b> — 그러면 시한 초과 행을 영영 못 걸러 그 문제가 계속
-     * 목록에 남고 제출은 계속 403 이 된다(조용히 틀리는 종류의 회귀라 조인 하나를 감수한다).
+     * <p>그래서 판정이 조회 시각에 의존하지 않고({@code created_at} 을 읽지 않는다),
+     * {@code uk_quiz_users_submit_account_quiz}(선행 컬럼 {@code user_account_id})만으로
+     * <b>커버링</b>이 된다 — 답·시각 컬럼을 읽던 종전 프로젝션은 행 접근이 필요했다.
      */
-    @Query("select s.quiz.id as quizId, so.id as submitOptionId, "
-            + "s.createdAt as createdAt from QuizUserSubmit s left join s.submitOption so "
+    @Query("select s.quiz.id from QuizUserSubmit s "
             + "where s.userAccount.id = :userAccountId and s.quiz.id in :quizIds")
-    List<QuizUserSubmitStateView> findSubmitStates(@Param("userAccountId") Long userAccountId,
+    List<Long> findServedQuizIds(@Param("userAccountId") Long userAccountId,
             @Param("quizIds") Collection<Long> quizIds);
+
+    /**
+     * "이 사용자가 그 경기의 그 이닝에 이미 세트를 받았는가" — <b>한 이닝에 한 세트</b> 제한의 유일한
+     * 판정이다(별도 테이블·컬럼 없이 행 존재로 판정한다).
+     *
+     * <p>답 여부는 보지 않는다 — 미답 행이든 답한 행이든 "그 이닝에 받았다"는 사실은 같고, 그 이닝에
+     * 받은 문제를 전부 풀어 버린 뒤에도 여전히 막힌다.
+     *
+     * <p>키에 경기가 들어 있어 <b>날짜 조건이 필요 없다</b> — 어제 9회 행은 {@code game_id} 가 달라
+     * 오늘 9회를 막지 않는다. 개정 이전에 쌓인 {@code game_id IS NULL} 행은 {@code NULL = ?} 가 참이
+     * 아니라 어떤 판정에도 걸리지 않는다(백필하지 않는다).
+     *
+     * <p>인덱스는 {@code idx_quiz_users_submit_account_game_inning}(엔티티 주석) — 세 컬럼이 전부
+     * 등치라 커버링 존재 검사로 끝난다.
+     */
+    boolean existsByUserAccount_IdAndGame_IdAndInning(Long userAccountId, Long gameId,
+            Integer inning);
 
     /**
      * 미답 행에 답과 채점 결과를 채운다 — <b>제출은 INSERT 가 아니라 이 조건부 UPDATE 다.</b>
