@@ -1,0 +1,358 @@
+/**
+ * MyPage(마이페이지 메인) 스타일.
+ * Figma: SWM / [My] 마이페이지 메인 (node 1186:9147), 기준 프레임 402 x 874.
+ *
+ * 위쪽 회색 머리 블록(프로필 + 성적)과 아래쪽 흰 목록 두 덩어리다.
+ * 세로 좌표는 흐름으로 옮겼다(상태 바 47px 제외): 머리 0~284 → 목록 284.
+ * 화면 높이 · 앱 폭(402px) · 하단 NavBar 자리는 AppLayout 이 잡아 준다.
+ */
+
+.my-page {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 24px;
+  background-color: var(--color-background-basic);
+}
+
+/* ------------------------------------------------------------------ *
+ * 머리 — 프로필 · 성적 (회색 바탕)
+ * ------------------------------------------------------------------ */
+.my-page__header {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 32px var(--layout-gutter) 20px;
+  background-color: var(--color-background-gray);
+}
+
+.my-page__identity {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  min-width: 0;
+}
+
+/* 사진 80px + 오른쪽 아래 걸친 수정 배지 */
+.my-page__avatar-box {
+  position: relative;
+  flex-shrink: 0;
+  width: 80px;
+  height: 80px;
+}
+
+.my-page__avatar {
+  width: 80px;
+  height: 80px;
+  border-radius: 50px;
+  object-fit: cover;
+}
+
+.my-page__avatar-edit {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 29px;
+  height: 30px;
+  padding: 0;
+  /* 흰 테두리가 사진과 배지를 떼어 놓는다 */
+  border: 3px solid var(--color-white);
+  border-radius: var(--radius-15);
+  background-color: var(--color-background-gray);
+}
+
+.my-page__avatar-edit-icon {
+  width: 20px;
+  height: 20px;
+  background-color: var(--color-label-neutral);
+  -webkit-mask: url('../assets/pen.svg') center / contain no-repeat;
+  mask: url('../assets/pen.svg') center / contain no-repeat;
+}
+
+.my-page__profile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.my-page__nickname {
+  margin: 0;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-title1);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.my-page__team {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  min-width: 0;
+  text-align: left;
+}
+
+.my-page__team-name {
+  color: var(--color-primary-400);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  white-space: nowrap;
+}
+
+.my-page__team-suffix,
+.my-page__team-empty {
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-body2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body2);
+  white-space: nowrap;
+}
+
+.my-page__team-arrow {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  /* 이름과 화살표 사이 2px — 이름 뒤 gap 4 를 상쇄해 맞춘다 */
+  margin-left: -2px;
+  background-color: var(--color-label-alternative);
+  -webkit-mask: url('../assets/arrow_r.svg') center / contain no-repeat;
+  mask: url('../assets/arrow_r.svg') center / contain no-repeat;
+}
+
+/* ------------------------------------------------------------------ *
+ * 성적 카드 — 평균 정답률 · 내 포인트
+ * ------------------------------------------------------------------ */
+.my-page__summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.my-page__stats {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 38px;
+  padding: 12px 56px;
+  border-radius: var(--radius-20);
+  background-color: var(--color-surface);
+}
+
+.my-page__stat {
+  display: flex;
+  flex: 0 1 100px;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.my-page__stat-label {
+  margin: 0;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-body4);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body4);
+  white-space: nowrap;
+}
+
+.my-page__stat-value {
+  margin: 0;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-title2);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title2);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.my-page__stat-divider {
+  flex-shrink: 0;
+  width: 1px;
+  height: 60px;
+  background-color: var(--color-line-light);
+}
+
+.my-page__point-history {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  padding: 0;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-label2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+.my-page__point-history-arrow {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  background-color: var(--color-label-alternative);
+  -webkit-mask: url('../assets/arrow_r.svg') center / contain no-repeat;
+  mask: url('../assets/arrow_r.svg') center / contain no-repeat;
+}
+
+/* ------------------------------------------------------------------ *
+ * 목록 — 설정 · 센터
+ * ------------------------------------------------------------------ */
+.my-page__menu {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.my-page__section {
+  display: flex;
+  flex-direction: column;
+}
+
+.my-page__section-title {
+  margin: 0;
+  padding: 8px var(--layout-gutter);
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-body4);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body4);
+}
+
+.my-page__rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 두 묶음을 가르는 4px 회색 띠 */
+.my-page__section-gap {
+  height: 4px;
+  background-color: var(--color-background-gray);
+}
+
+.my-page__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 16px var(--layout-gutter);
+  text-align: left;
+}
+
+.my-page__row--static {
+  cursor: default;
+}
+
+/*
+ * 아이콘 자리. 디자인에서도 아직 회색 사각형이라 그대로 둔다 —
+ * 임의로 채우면 진짜 아이콘이 왔을 때 무엇을 바꿔야 하는지 흐려진다.
+ */
+.my-page__row-icon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  background-color: #d9d9d9;
+}
+
+.my-page__row-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.my-page__row-arrow {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  background-color: var(--color-label-assistive);
+  -webkit-mask: url('../assets/arrow_r.svg') center / contain no-repeat;
+  mask: url('../assets/arrow_r.svg') center / contain no-repeat;
+}
+
+.my-page__row-value {
+  flex-shrink: 0;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-label2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+/* ------------------------------------------------------------------ *
+ * 로그아웃 · 회원 탈퇴
+ * 디자인에는 두 글자 버튼만 있지만, 탈퇴는 되돌릴 수 없어 확인 단계를 같은 자리에 둔다.
+ * ------------------------------------------------------------------ */
+.my-page__account {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  padding-inline: var(--layout-gutter);
+}
+
+.my-page__account-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.my-page__text-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0;
+  color: var(--color-label-assistive);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+.my-page__text-button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* 확인 단계에서만 나오는 실행 버튼 — 되돌릴 수 없는 쪽임을 색으로 알린다 */
+.my-page__text-button--danger {
+  color: var(--color-error-strong);
+}
+
+.my-page__account-divider {
+  width: 1px;
+  height: 16px;
+  background-color: var(--color-line-light);
+}
+
+.my-page__confirm {
+  margin: 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+  text-align: center;
+}
+
+.my-page__error {
+  margin: 8px var(--layout-gutter) 0;
+  color: var(--color-error-strong);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+  text-align: center;
+}
