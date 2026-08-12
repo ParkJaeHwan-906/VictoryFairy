@@ -14,6 +14,13 @@ export const ROUTES = {
   game: '/game',
   /** 데일리 퀴즈 풀이. 경기 상세 시트의 "퀴즈 풀러 가기"로 들어온다(NavBar 없는 전체 화면). */
   quiz: '/quiz',
+  /**
+   * 퀴즈 결과. 종료된 경기 상세 시트의 "퀴즈 결과 확인하기"로 들어온다.
+   *
+   * 넘기는 state 가 없다 — 퀴즈 결과는 경기로 좁혀지지 않고(`QuizPageState` 주석 참고)
+   * 화면에도 경기 이름이 나오지 않아, 들고 갈 문맥 자체가 없다.
+   */
+  quizResult: '/quiz-result',
   my: '/my',
 } as const;
 
