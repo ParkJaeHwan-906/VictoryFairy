@@ -10,9 +10,12 @@ spring:
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:dev}
   data:
-    # 실시간 fan-out pub/sub 용(prod 전용 — RedisPubSubPublisher/RealtimeRedisConfig).
-    # 운영 값은 k8s configmap app-config 가 주입한다. prod 이외 프로파일은 연결을 맺는 빈이
-    # 아예 등록되지 않으므로(=InMemoryPublisher 사용) 이 값이 쓰이지 않는다.
+    # ⚠ 전 프로파일 필수다. 두 용도가 이 연결을 함께 쓴다:
+    #   1) 퀴즈 제출 티켓(QuizSubmissionTicketStore) — 모든 프로파일. 없으면 /today 와 제출이 500 이다
+    #      (폴백을 두지 않는 것이 계약 — 파드가 여럿이면 인메모리 폴백은 자격 검사를 무작위로 깬다).
+    #   2) 실시간 fan-out pub/sub — prod 전용(RedisPubSubPublisher/RealtimeRedisConfig).
+    #      이쪽만 프로파일이 갈린다(기동 시 구독 연결을 여는 리스너 컨테이너라 별개 축).
+    # 운영 값은 k8s configmap app-config 가 주입한다. dev·로컬·CI 에도 실제 값이 주입돼야 한다.
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
@@ -82,3 +85,8 @@ quiz:
     # 전원 동일 데일리 세트 크기 — 편성 잡(QuizPublishService)이 이 수까지 미편성 풀에서 채운다.
     # 경기 문항(적재가 바로 날짜를 찍음)이 이미 이 수를 넘는 날은 그대로 두고 보충하지 않는다.
     daily-count: ${QUIZ_SERVE_DAILY_COUNT:10}
+    # GET /today 한 번에 내려줄 최대 문제 수(QuizService). 위 daily-count 와 별개 축이다 —
+    # 저건 '그날 세트를 몇 개로 편성하느냐'(편성), 이건 '한 번에 몇 개까지 보여주느냐'(서빙)다.
+    # 기본값끼리는 편성 10 < 상한 20 이라 상한이 발동하지 않는다(세트가 20 을 넘는 날에만 의미).
+    # ⚠ 여기서 잘려 나간 문제는 티켓을 못 받아 제출도 403 이다 — 낮출 때 그 영향을 함께 볼 것.
+    max-today-count: ${QUIZ_SERVE_MAX_TODAY_COUNT:20}

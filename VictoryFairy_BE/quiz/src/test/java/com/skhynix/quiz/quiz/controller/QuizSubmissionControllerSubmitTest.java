@@ -86,7 +86,9 @@ class QuizSubmissionControllerSubmitTest {
                 .andExpect(jsonPath("$.data.answer").value(0))
                 .andExpect(jsonPath("$.data.myOption").value(0))
                 .andExpect(jsonPath("$.data.earnedPoint").value(10))
-                .andExpect(jsonPath("$.data.totalPoint").value(110));
+                .andExpect(jsonPath("$.data.totalPoint").value(110))
+                // [AC-INN-25-1] 제출 응답 필드 집합은 이닝 기능 도입 후에도 바뀌지 않는다 — inning 키가 없다
+                .andExpect(jsonPath("$.data.inning").doesNotExist());
 
         verify(quizSubmitService).submit(USER_ID, QUIZ_ID, 0);
     }
@@ -130,5 +132,22 @@ class QuizSubmissionControllerSubmitTest {
                         .content(requestJson(0)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message").value(ErrorCode.QUIZ_ALREADY_SUBMITTED.getMessage()));
+    }
+
+    @Test
+    @DisplayName("[AC-INN-29,30-1,30-2] 서비스가 QUIZ_SUBMIT_NOT_ALLOWED를 던지면 403과 규약 메시지로 "
+            + "변환된다(success:false, data:null, message:<문구>)")
+    void submit_ticketNotFound_returns403() throws Exception {
+        given(quizSubmitService.submit(USER_ID, QUIZ_ID, 0))
+                .willThrow(new BusinessException(ErrorCode.QUIZ_SUBMIT_NOT_ALLOWED));
+
+        mockMvc.perform(post("/quizzes/{quizId}/submit", QUIZ_ID)
+                        .with(authenticatedAs(USER_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestJson(0)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.data").doesNotExist())
+                .andExpect(jsonPath("$.message").value(ErrorCode.QUIZ_SUBMIT_NOT_ALLOWED.getMessage()));
     }
 }

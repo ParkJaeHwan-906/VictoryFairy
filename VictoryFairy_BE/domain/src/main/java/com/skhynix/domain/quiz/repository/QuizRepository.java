@@ -28,8 +28,12 @@ public interface QuizRepository extends JpaRepository<Quiz, Long> {
      * 에서는 {@code LazyInitializationException}이 된다. 보기는 이 그래프로 못 싣는다
      * ({@code Quiz}에 {@code @OneToMany options}가 없음) — {@code QuizOptionRepository}의 IN 조회로
      * 묶는 2쿼리 방식이 정석이다.
+     *
+     * <p>{@code game} 축은 제출 티켓에 실을 이닝({@code games.current_inning})을 읽으려고 더했다 —
+     * 응답 필드는 아니지만 <b>같은 원칙(읽는 연관과 1:1)</b>이 적용된다. 빼면 문제마다 {@code games}
+     * 단건 조회가 붙어 N+1 이 된다.
      */
-    @EntityGraph(attributePaths = {"quizType", "team", "opponentTeam", "player"})
+    @EntityGraph(attributePaths = {"quizType", "team", "opponentTeam", "player", "game"})
     List<Quiz> findAllByQuizDateOrderByIdAsc(LocalDate quizDate);
 
     /** 그날 세트의 현재 크기 — 편성 잡이 부족분 계산에 쓴다. */

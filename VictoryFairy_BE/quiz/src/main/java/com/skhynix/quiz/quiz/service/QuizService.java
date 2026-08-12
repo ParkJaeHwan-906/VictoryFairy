@@ -11,16 +11,18 @@ import com.skhynix.domain.support.repository.UserSupportPlayerRepository;
 import com.skhynix.domain.support.repository.UserSupportTeamRepository;
 import com.skhynix.quiz.quiz.dto.QuizDetailResponse;
 import com.skhynix.quiz.quiz.dto.QuizResponse;
+import com.skhynix.quiz.quiz.store.QuizSubmissionTicketStore;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import lombok.RequiredArgsConstructor;
 
 /**
  * 퀴즈 조회. '오늘'은 KST 다({@code kstClock} — 파드 JVM 은 UTC 라 기본 클록이면 자정~09시에
@@ -39,7 +41,6 @@ import lombok.RequiredArgsConstructor;
  * ({@link #shuffleKey}). 전 사용자가 같은 순서(id ASC)로 보면 앞쪽 문제에만 제출이 몰린다.
  */
 @Service
-@RequiredArgsConstructor
 public class QuizService {
 
     private final QuizRepository quizRepository;
@@ -48,7 +49,29 @@ public class QuizService {
     private final UserSupportPlayerRepository userSupportPlayerRepository;
     private final QuizUserSubmitRepository quizUserSubmitRepository;
     private final QuizLikeService quizLikeService;
+    private final QuizSubmissionTicketStore ticketStore;
     private final Clock clock;
+    private final int maxTodayCount;
+
+    // 상한을 설정값으로 두는 이유: "우선 20 으로 하고 추후 조정" 이므로 조정에 배포가 필요하면
+    // 안 된다. 편성 수(quiz.serve.daily-count)와는 별개 축이라 키를 재사용하지 않는다 —
+    // 한 값에 묶으면 그날 세트 크기를 바꾸지 않고는 노출 개수를 못 바꾼다.
+    public QuizService(QuizRepository quizRepository, QuizOptionRepository quizOptionRepository,
+            UserSupportTeamRepository userSupportTeamRepository,
+            UserSupportPlayerRepository userSupportPlayerRepository,
+            QuizUserSubmitRepository quizUserSubmitRepository, QuizLikeService quizLikeService,
+            QuizSubmissionTicketStore ticketStore, Clock clock,
+            @Value("${quiz.serve.max-today-count:20}") int maxTodayCount) {
+        this.quizRepository = quizRepository;
+        this.quizOptionRepository = quizOptionRepository;
+        this.userSupportTeamRepository = userSupportTeamRepository;
+        this.userSupportPlayerRepository = userSupportPlayerRepository;
+        this.quizUserSubmitRepository = quizUserSubmitRepository;
+        this.quizLikeService = quizLikeService;
+        this.ticketStore = ticketStore;
+        this.clock = clock;
+        this.maxTodayCount = maxTodayCount;
+    }
 
     /**
      * 오늘(KST) 세트를 선호 먼저(그 안에서는 사용자별 랜덤) 정렬해 반환한다. 선호 = 내 응원팀이
@@ -63,6 +86,11 @@ public class QuizService {
      * <p>{@code preferredOnly=true}는 선호 문제만 남긴다. 단 <b>응원팀도 응원 선수도 없으면 필터
      * 기준 자체가 없으므로 전체를 반환</b>한다(no-op) — 빈 배열을 주면 위의 두 경우와 구분이
      * 안 되는데, 실제로는 취향을 아직 안 정했을 뿐이다.
+     *
+     * <p><b>응답에 실은 문제마다 제출 티켓을 발급한다</b>({@link QuizSubmissionTicketStore}) — 이
+     * 목록이 곧 "지금부터 8분 안에 낼 수 있는 문제"의 정의이고, 여기서 잘려 나간 문제는 제출도
+     * 403 이다. 발급이 실패하면 목록을 주지 않는다(예외 그대로 → 500): 티켓 없는 목록은 전부 403 이
+     * 되어 "받았는데 못 내는" 상태가 되므로 부분 성공을 만들 이유가 없다.
      */
     @Transactional(readOnly = true)
     public List<QuizResponse> getTodayQuizzes(Long userAccountId, boolean preferredOnly) {
@@ -102,15 +130,41 @@ public class QuizService {
             return List.of();
         }
 
-        List<Long> quizIds = ordered.stream().map(Quiz::getId).toList();
+        // 상한은 정렬·필터가 모두 끝난 목록을 앞에서 자르는 연산이다 — 그래야 "선호 먼저 + 사용자별
+        // 고정 랜덤"이 그대로 유지되고, 같은 사용자·같은 세트라면 매번 같은 문제가 잘려 나간다.
+        // 먼저 자르면 정렬 대상이 달라져 부분집합 안정성이 깨진다.
+        List<Quiz> served = ordered.size() > maxTodayCount
+                ? List.copyOf(ordered.subList(0, maxTodayCount))
+                : ordered;
+        ticketStore.issue(userAccountId, inningByQuizId(served));
+
+        List<Long> quizIds = served.stream().map(Quiz::getId).toList();
         Map<Long, List<QuizOption>> optionsByQuizId = quizOptionRepository
                 .findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(quizIds).stream()
                 .collect(Collectors.groupingBy(option -> option.getQuiz().getId()));
-        return ordered.stream()
+        return served.stream()
                 .map(quiz -> QuizResponse.of(quiz,
                         optionsByQuizId.getOrDefault(quiz.getId(), List.of()),
                         isPreferred(quiz, supportTeamId, supportPlayerIds)))
                 .toList();
+    }
+
+    /**
+     * 티켓에 실을 {@code 문제 → 이닝} 표. 이닝은 귀속 경기의 {@code games.current_inning} 이며,
+     * 경기가 없거나 그 경기의 이닝이 비어 있으면 {@code null}(=미상)이다 — <b>미상이어도 티켓은
+     * 발급된다</b>. 이닝 값 축과 제출 자격 축은 별개이고, 원천 미구현으로 지금은 사실상 전부 미상이다.
+     *
+     * <p>{@code game}은 목록 조회의 {@code @EntityGraph}가 함께 실어 오므로 여기서 LAZY 초기화가
+     * 일어나지 않는다(항목 수에 비례하는 쿼리 금지 + {@code open-in-view: false}). 값이 {@code null}
+     * 일 수 있어 {@code Collectors.toMap} 대신 {@link LinkedHashMap}에 담는다.
+     */
+    private Map<Long, Integer> inningByQuizId(List<Quiz> served) {
+        Map<Long, Integer> innings = new LinkedHashMap<>();
+        for (Quiz quiz : served) {
+            innings.put(quiz.getId(),
+                    quiz.getGame() == null ? null : quiz.getGame().getCurrentInning());
+        }
+        return innings;
     }
 
     /**
