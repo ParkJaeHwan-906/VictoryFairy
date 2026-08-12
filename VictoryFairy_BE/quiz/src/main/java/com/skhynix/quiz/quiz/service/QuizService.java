@@ -7,14 +7,16 @@ import com.skhynix.domain.quiz.entity.QuizOption;
 import com.skhynix.domain.quiz.repository.QuizOptionRepository;
 import com.skhynix.domain.quiz.repository.QuizRepository;
 import com.skhynix.domain.quiz.repository.QuizUserSubmitRepository;
+import com.skhynix.domain.quiz.repository.QuizUserSubmitStateView;
 import com.skhynix.domain.support.repository.UserSupportPlayerRepository;
 import com.skhynix.domain.support.repository.UserSupportTeamRepository;
 import com.skhynix.quiz.quiz.dto.QuizDetailResponse;
 import com.skhynix.quiz.quiz.dto.QuizResponse;
-import com.skhynix.quiz.quiz.store.QuizSubmissionTicketStore;
 import java.time.Clock;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -49,7 +51,6 @@ public class QuizService {
     private final UserSupportPlayerRepository userSupportPlayerRepository;
     private final QuizUserSubmitRepository quizUserSubmitRepository;
     private final QuizLikeService quizLikeService;
-    private final QuizSubmissionTicketStore ticketStore;
     private final Clock clock;
     private final int maxTodayCount;
 
@@ -60,15 +61,13 @@ public class QuizService {
             UserSupportTeamRepository userSupportTeamRepository,
             UserSupportPlayerRepository userSupportPlayerRepository,
             QuizUserSubmitRepository quizUserSubmitRepository, QuizLikeService quizLikeService,
-            QuizSubmissionTicketStore ticketStore, Clock clock,
-            @Value("${quiz.serve.max-today-count:20}") int maxTodayCount) {
+            Clock clock, @Value("${quiz.serve.max-today-count:20}") int maxTodayCount) {
         this.quizRepository = quizRepository;
         this.quizOptionRepository = quizOptionRepository;
         this.userSupportTeamRepository = userSupportTeamRepository;
         this.userSupportPlayerRepository = userSupportPlayerRepository;
         this.quizUserSubmitRepository = quizUserSubmitRepository;
         this.quizLikeService = quizLikeService;
-        this.ticketStore = ticketStore;
         this.clock = clock;
         this.maxTodayCount = maxTodayCount;
     }
@@ -78,31 +77,54 @@ public class QuizService {
      * 문제의 대상·상대 구단이거나, 문제의 대상 선수가 내 응원 선수인 것. 랜덤은 그룹 <b>안에서만</b>
      * 일어나므로 선호 문제가 비선호보다 뒤로 밀리는 일은 없다.
      *
-     * <p><b>이미 푼 문제는 노출하지 않는다(정책)</b> — 재제출은 어차피 409지만, 목록에 남겨두는
-     * 것 자체가 정책 위반이라 서버가 거른다. 선호 조회보다 먼저 거르는 이유: 다 푼 사용자는 응원
-     * 정보 조회 없이 빈 배열로 끝난다. 그래서 빈 배열은 "오늘 세트 없음"과 "오늘 다 품" 두 경우를
-     * 모두 뜻한다 — 구분이 필요하면 풀이 이력 API 가 담당한다.
+     * <p><b>제외 기준은 "행이 있는가"가 아니라 "답했거나 시한이 지났는가"다.</b> 행은 이제 이 메서드가
+     * 서빙하면서 만들므로(아래), 전자로 판정하면 <b>문제를 받는 순간 목록에서 사라져 새로고침·앱 복귀·
+     * 네트워크 재시도 한 번에 그날 세트를 통째로 못 풀게 된다.</b> 그래서 답한 문제만 감추고(푼 문제
+     * 비노출 정책 유지), 시한이 남은 미답 문제는 <b>계속 다시 실어 준다</b>. 시한을 넘긴 미답 문제는
+     * 제외되고 복구 경로가 없다(미제출로 확정 — 내지 않으면 틀린 것).
+     *
+     * <p>선호 조회보다 먼저 거르는 이유: 다 푼 사용자는 응원 정보 조회 없이 빈 배열로 끝난다. 그래서
+     * 빈 배열은 "오늘 세트 없음"과 "오늘 다 품" 두 경우를 모두 뜻한다 — 구분이 필요하면 풀이 이력
+     * API 가 담당한다.
      *
      * <p>{@code preferredOnly=true}는 선호 문제만 남긴다. 단 <b>응원팀도 응원 선수도 없으면 필터
      * 기준 자체가 없으므로 전체를 반환</b>한다(no-op) — 빈 배열을 주면 위의 두 경우와 구분이
      * 안 되는데, 실제로는 취향을 아직 안 정했을 뿐이다.
      *
-     * <p><b>응답에 실은 문제마다 제출 티켓을 발급한다</b>({@link QuizSubmissionTicketStore}) — 이
-     * 목록이 곧 "지금부터 8분 안에 낼 수 있는 문제"의 정의이고, 여기서 잘려 나간 문제는 제출도
-     * 403 이다. 발급이 실패하면 목록을 주지 않는다(예외 그대로 → 500): 티켓 없는 목록은 전부 403 이
-     * 되어 "받았는데 못 내는" 상태가 되므로 부분 성공을 만들 이유가 없다.
+     * <p><b>응답에 실은 문제마다 미답 행을 만든다 — 그래서 이 조회는 쓰기 트랜잭션이다</b>
+     * ({@code readOnly = true} 가 아니다). 그 행 하나가 세 역할을 겸한다: <b>존재는 제출 자격</b>
+     * ({@code /today}를 거쳐 받았다), <b>{@code created_at} + 8분은 시한</b>, <b>{@code inning}은 받은
+     * 시점의 이닝</b>. 앱이 강제 종료돼도 "받았고 안 냈다"는 사실이 이미 MySQL 에 있으므로 만료를
+     * 뒤늦게 알아낼 장치(스윕·만기 인덱스)가 필요 없다.
+     *
+     * <p>행 생성이 실패하면 목록도 주지 않는다(같은 트랜잭션 — 부분 성공 금지). 행 없는 목록은 전부
+     * 403 이 되어 "받았는데 못 내는" 상태가 되기 때문이다. 상한에 잘려 나간 문제에는 행을 만들지
+     * 않으므로 그 문제의 제출은 403 이다.
      */
-    @Transactional(readOnly = true)
+    @Transactional
     public List<QuizResponse> getTodayQuizzes(Long userAccountId, boolean preferredOnly) {
         List<Quiz> published = quizRepository.findAllByQuizDateOrderByIdAsc(LocalDate.now(clock));
         if (published.isEmpty()) {
             return List.of();
         }
 
-        Set<Long> submittedIds = Set.copyOf(quizUserSubmitRepository.findSubmittedQuizIds(
-                userAccountId, published.stream().map(Quiz::getId).toList()));
+        // ⚠ 시한 계산의 기준은 kstClock 이 아니다 — 비교 대상 created_at 이 JVM 기본 존으로 찍히기
+        //   때문이다(QuizSubmitWindow javadoc). 위 quiz_date 조회만 kstClock 을 쓴다.
+        LocalDateTime now = QuizSubmitWindow.now();
+        // 한 번의 조회로 두 가지를 얻는다: 제외 대상(답했거나 시한 초과)과, 이미 행이 있어 INSERT 가
+        // 필요 없는 문제. 차집합 재료를 위해 조회를 새로 늘리지 않는 것이 계약이다.
+        Set<Long> excludedIds = new HashSet<>();
+        Set<Long> rowExistingIds = new HashSet<>();
+        for (QuizUserSubmitStateView state : quizUserSubmitRepository.findSubmitStates(
+                userAccountId, published.stream().map(Quiz::getId).toList())) {
+            rowExistingIds.add(state.getQuizId());
+            if (state.getSubmitOptionId() != null
+                    || QuizSubmitWindow.isExpired(state.getCreatedAt(), now)) {
+                excludedIds.add(state.getQuizId());
+            }
+        }
         List<Quiz> quizzes = published.stream()
-                .filter(quiz -> !submittedIds.contains(quiz.getId()))
+                .filter(quiz -> !excludedIds.contains(quiz.getId()))
                 .toList();
         if (quizzes.isEmpty()) {
             return List.of();
@@ -136,7 +158,17 @@ public class QuizService {
         List<Quiz> served = ordered.size() > maxTodayCount
                 ? List.copyOf(ordered.subList(0, maxTodayCount))
                 : ordered;
-        ticketStore.issue(userAccountId, inningByQuizId(served));
+
+        // 선조회 결과의 차집합만 만든다 — 이미 행이 있는 문제는 어떤 필드도 건드리지 않는다.
+        // (created_at·inning 을 덮어쓰면 시한이 뒤로 밀려 재호출이 곧 연장 수단이 된다.)
+        // 그래서 같은 세트를 다시 받는 재호출은 쓰기 SQL 이 0 건이다.
+        List<Quiz> missing = served.stream()
+                .filter(quiz -> !rowExistingIds.contains(quiz.getId()))
+                .toList();
+        if (!missing.isEmpty()) {
+            quizUserSubmitRepository.insertUnansweredRows(userAccountId, inningByQuizId(missing),
+                    now);
+        }
 
         List<Long> quizIds = served.stream().map(Quiz::getId).toList();
         Map<Long, List<QuizOption>> optionsByQuizId = quizOptionRepository
@@ -150,13 +182,18 @@ public class QuizService {
     }
 
     /**
-     * 티켓에 실을 {@code 문제 → 이닝} 표. 이닝은 귀속 경기의 {@code games.current_inning} 이며,
-     * 경기가 없거나 그 경기의 이닝이 비어 있으면 {@code null}(=미상)이다 — <b>미상이어도 티켓은
-     * 발급된다</b>. 이닝 값 축과 제출 자격 축은 별개이고, 원천 미구현으로 지금은 사실상 전부 미상이다.
+     * 새로 만들 행에 넣을 {@code 문제 → 이닝} 표. 이닝은 귀속 경기의 {@code games.current_inning} 이며,
+     * 경기가 없거나 그 경기의 이닝이 비어 있으면 {@code null}(=미상)이다 — <b>미상이어도 행은
+     * 만든다</b>. 이닝 값 축과 제출 자격 축은 별개이고, 원천(py-collector) 미구현으로 지금은 사실상
+     * 전부 미상이다. 여기서 행을 건너뛰면 지금은 <b>모든 제출이 403</b>이 되어 서비스가 멈춘다.
      *
      * <p>{@code game}은 목록 조회의 {@code @EntityGraph}가 함께 실어 오므로 여기서 LAZY 초기화가
-     * 일어나지 않는다(항목 수에 비례하는 쿼리 금지 + {@code open-in-view: false}). 값이 {@code null}
-     * 일 수 있어 {@code Collectors.toMap} 대신 {@link LinkedHashMap}에 담는다.
+     * 일어나지 않는다(항목 수에 비례하는 쿼리 금지 + {@code open-in-view: false}). ⚠ <b>"지금 응답에
+     * 안 쓰니 빼자"로 {@code game} 축이나 이 스냅샷을 정리하지 말 것</b> — 후속 "한 이닝에 한 세트"
+     * 회차 제한이 이 두 가지를 그대로 전제한다(빼면 그쪽이 조회를 새로 늘려야 한다).
+     *
+     * <p>값이 {@code null} 일 수 있어 {@code Collectors.toMap} 대신 {@link LinkedHashMap}에 담는다
+     * (INSERT 순서도 서빙 순서 그대로 유지된다).
      */
     private Map<Long, Integer> inningByQuizId(List<Quiz> served) {
         Map<Long, Integer> innings = new LinkedHashMap<>();
@@ -171,11 +208,18 @@ public class QuizService {
      * 단건 상세. <b>미편성 풀({@code quizDate == null}) 문제는 미존재와 똑같이 404</b>다 — 편성 전
      * 문제의 존재가 새어 나가면 id 순회로 내일 이후 출제분을 미리 볼 수 있게 된다.
      *
-     * <p>내가 이미 제출한 문제면 내 선택·정오·정답을 함께 싣는다(복기 화면). 미제출이면 세 필드는
+     * <p>내가 이미 <b>답한</b> 문제면 내 선택·정오·정답을 함께 싣는다(복기 화면). 아니면 세 필드는
      * 응답 본문에서 <b>키 자체가 빠진다</b>({@link QuizDetailResponse} — 정답 유출 방지).
      *
-     * <p>좋아요({@code liked}·{@code likeCount})도 제출한 경우에만 싣는다 — 좋아요 자체가 푼 문제에만
-     * 허용되므로 미제출 상세에서는 조회조차 하지 않는다(키 부재와 쿼리 부재가 같은 분기에서 나온다).
+     * <p><b>{@code submitted}의 기준은 행의 존재가 아니라 답의 존재다.</b> 행은 받는 순간 생기므로
+     * 행 유무로 판정하면 아직 풀지도 않은 문제에 정답이 실린다(그리고 답이 없는 행에서
+     * {@code getSubmitOption()} 을 역참조해 NPE 로 500 이 난다). 대신 미답 행은 {@code expired} 로
+     * 구분한다 — FE 는 {@code (submitted, expired)} 조합으로 <b>진행 중(false,false) · 답함(true,*) ·
+     * 시한 초과(false,true)</b> 세 상태를 읽는다.
+     *
+     * <p>좋아요({@code liked}·{@code likeCount})는 <b>답한 경우에만</b> 싣는다 — 좋아요 자체는 이제 받은
+     * 문제에 전부 열려 있지만, 이 응답의 필드 계약은 이번 작업에서 넓히지 않는다(FE 계약 변경은
+     * {@code expired} 하나로 묶는다). 미답 상세에서는 조회조차 하지 않는다.
      */
     @Transactional(readOnly = true)
     public QuizDetailResponse getQuiz(Long userAccountId, Long quizId) {
@@ -183,10 +227,16 @@ public class QuizService {
                 .filter(found -> found.getQuizDate() != null)
                 .orElseThrow(() -> new BusinessException(ErrorCode.QUIZ_NOT_FOUND));
         List<QuizOption> options = quizOptionRepository.findAllByQuiz_IdOrderByOptionAsc(quizId);
+        LocalDateTime now = QuizSubmitWindow.now();
         return quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(userAccountId, quizId)
-                .map(submit -> QuizDetailResponse.submitted(quiz, options, submit,
-                        quizLikeService.likeOf(userAccountId, quizId)))
-                .orElseGet(() -> QuizDetailResponse.unsubmitted(quiz, options));
+                .map(submit -> submit.getSubmitOption() == null
+                        ? QuizDetailResponse.unsubmitted(quiz, options,
+                                QuizSubmitWindow.isExpired(submit.getCreatedAt(), now))
+                        : QuizDetailResponse.submitted(quiz, options, submit,
+                                quizLikeService.likeOf(userAccountId, quizId)))
+                // 행이 아예 없으면(받은 적 없음) 진행 중과 같은 모양이다 — "지금 풀 수 있는가"는
+                // 이 응답이 아니라 /today 목록이 답한다
+                .orElseGet(() -> QuizDetailResponse.unsubmitted(quiz, options, false));
     }
 
     /**
