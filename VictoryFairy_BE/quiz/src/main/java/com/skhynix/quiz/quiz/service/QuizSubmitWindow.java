@@ -17,10 +17,12 @@ import java.time.LocalDateTime;
  *
  * <p>⚠⚠ <b>기준 시각은 반드시 {@link #now()} 여야 한다 — 주입된 {@code kstClock} 을 쓰면 안 된다.</b>
  * 비교 대상인 {@code created_at} 은 Hibernate {@code @CreationTimestamp}(= JVM 기본 존의
- * {@code LocalDateTime.now()})가 찍은 값이다. 파드는 TZ 미설정(UTC)인데 KST 고정 클록으로 지금을 구하면
- * 9시간 앞선 값이 나와 <b>모든 행이 즉시 시한 초과</b>가 된다(로컬 JVM 은 KST 라 재현되지 않는다 —
- * {@code preserveInstants=false} 를 다시 넣지 말라는 datasource 주석과 같은 계열의 함정). {@code kstClock}
- * 은 "오늘이 며칠인가"({@code quiz_date})에만 쓴다.
+ * {@code LocalDateTime.now()})가 찍은 값이다. 시한 판정은 "같은 존으로 찍힌 두 값의 뺄셈"이어야
+ * 성립하므로, 이 비교에는 {@code created_at} 을 찍은 것과 같은 JVM 기본 존을 써야 한다.
+ * {@code kstClock} 은 코드에 KST 로 고정해 둔 별개의 존이다 — 파드의 {@code TZ} 설정(k8s Deployment
+ * env, dev_infra 소관)이 JVM 기본 존을 정하는데, 그 값이 빠지거나 다른 값으로 바뀌면 {@code kstClock}
+ * 과 {@code created_at} 의 존이 어긋나 <b>모든 행이 시한 오판</b>(초과 쪽이든 미초과 쪽이든)에
+ * 빠진다. {@code kstClock} 은 "오늘이 며칠인가"({@code quiz_date})에만 쓴다.
  */
 final class QuizSubmitWindow {
 
