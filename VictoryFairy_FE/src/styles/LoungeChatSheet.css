@@ -159,7 +159,8 @@
   border-radius: 50%;
 }
 
-.lounge-chat__pull[data-loading] .lounge-chat__pull-spinner {
+/* 당기기 시작부터 불러오기가 끝날 때까지 같은 속도로 돈다 */
+.lounge-chat__pull[data-spinning] .lounge-chat__pull-spinner {
   animation: lounge-chat-spin 0.7s linear infinite;
 }
 
@@ -543,7 +544,7 @@
    * 회전은 남긴다. 불러오는 중이라는 걸 알리는 유일한 신호라 멈추면 멈춘 그림이 된다.
    * 대신 한 바퀴를 느리게 돌려 시야에서 덜 튀게 한다.
    */
-  .lounge-chat__pull[data-loading] .lounge-chat__pull-spinner {
+  .lounge-chat__pull[data-spinning] .lounge-chat__pull-spinner {
     animation-duration: 1.8s;
   }
 

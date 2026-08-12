@@ -55,11 +55,11 @@ const LONG_PRESS_MS = 800;
 const PRESS_MOVE_TOLERANCE_PX = 10;
 
 /**
- * 맨 위에서 이만큼 당기면 지난 대화를 불러온다.
+ * 맨 위에서 이만큼 당긴 채로 손을 떼면 지난 대화를 불러온다.
  *
- * 손을 떼기를 기다리지 않고 이 선을 넘는 순간 바로 부른다. 대신 문턱을 얕게 잡으면
- * 목록을 위로 훑다가 튕긴 것만으로 불려 오므로, 한 번 더 의식해야 닿는 거리로 둔다.
- * 회전 표시가 놓이는 자리 높이이기도 해서 CSS 와 나눠 쓴다.
+ * 당기는 중에는 부르지 않는다 — 넘긴 뒤 마음이 바뀌면 도로 올려서 무를 수 있어야 한다.
+ * 문턱을 얕게 잡으면 목록을 위로 훑다가 튕긴 것만으로 불려 오므로, 한 번 더 의식해야
+ * 닿는 거리로 둔다. 회전 표시가 놓이는 자리 높이이기도 해서 CSS 와 나눠 쓴다.
  */
 const PULL_TRIGGER_PX = 60;
 
@@ -160,6 +160,14 @@ export default function LoungeChatSheet({ onClose }: LoungeChatSheetProps) {
   const pullStartYRef = useRef<number | null>(null);
   /** 지금 내려가 있는 거리(px). 손을 떼면 0 으로 돌아간다. */
   const [pullDistance, setPullDistance] = useState(0);
+  /**
+   * 같은 값을 ref 로도 들고 있는다 — 손을 뗄 때 불러올지 말지는 이쪽으로 판단한다.
+   *
+   * `pointermove` 는 React 가 급하지 않은 이벤트로 보아 state 반영을 미룰 수 있다.
+   * 문턱을 넘긴 직후 곧바로 떼면 state 는 아직 넘기 전 값이라, 그것으로 판단하면
+   * 분명히 끝까지 당겼는데도 그냥 튕겨 올라간다.
+   */
+  const pullDistanceRef = useRef(0);
 
   /* Esc 로 닫기 — 시트가 떠 있는 동안에만 듣는다. */
   useEffect(() => {
@@ -460,10 +468,26 @@ export default function LoungeChatSheet({ onClose }: LoungeChatSheetProps) {
    * 맨 위에서 당겨 지난 대화 부르기
    * ---------------------------------------------------------------- */
 
-  const endPull = useCallback(() => {
+  /** 당기기를 무른다. 손을 뗀 것이 아니라 취소된 경우(스크롤·중단)에 쓴다. */
+  const cancelPull = useCallback(() => {
     pullStartYRef.current = null;
+    pullDistanceRef.current = 0;
     setPullDistance(0);
   }, []);
+
+  /**
+   * 손을 뗐을 때. 문턱을 넘긴 채였다면 그때 부른다.
+   *
+   * 당기는 도중에 부르지 않는 이유 — 넘겨 놓고 마음이 바뀌면 도로 올려 무를 수 있어야
+   * 하고, 손가락이 아직 붙어 있는데 목록이 늘어나면 읽던 자리가 발밑에서 움직인다.
+   */
+  const handlePullEnd = useCallback(() => {
+    const shouldLoad =
+      pullStartYRef.current !== null && pullDistanceRef.current >= PULL_TRIGGER_PX;
+
+    cancelPull();
+    if (shouldLoad) void loadOlderMessages();
+  }, [cancelPull, loadOlderMessages]);
 
   /**
    * 당기기는 **맨 위에 닿아 있을 때만** 시작된다.
@@ -483,25 +507,15 @@ export default function LoungeChatSheet({ onClose }: LoungeChatSheetProps) {
     const list = listRef.current;
     // 당기는 도중 목록이 맨 위를 벗어났다면 당기기가 아니라 그냥 스크롤이다.
     if (!list || list.scrollTop > 0) {
-      endPull();
+      cancelPull();
       return;
     }
 
     const dragged = event.clientY - startY;
-    if (dragged <= 0) {
-      setPullDistance(0);
-      return;
-    }
+    // 위로 되올리면 0 까지 따라 줄어든다 — 넘겼던 문턱도 이렇게 무를 수 있다.
+    const pulled = dragged <= 0 ? 0 : Math.min(dragged * PULL_RESISTANCE, PULL_MAX_PX);
 
-    const pulled = Math.min(dragged * PULL_RESISTANCE, PULL_MAX_PX);
-
-    // 문턱을 넘는 순간 바로 부른다. 내려간 자리는 `isLoadingOlder` 가 이어받는다.
-    if (pulled >= PULL_TRIGGER_PX) {
-      endPull();
-      void loadOlderMessages();
-      return;
-    }
-
+    pullDistanceRef.current = pulled;
     setPullDistance(pulled);
   };
 
@@ -612,25 +626,18 @@ export default function LoungeChatSheet({ onClose }: LoungeChatSheetProps) {
           style={{ '--lounge-pull-trigger': `${PULL_TRIGGER_PX}px` } as React.CSSProperties}
         >
           {/*
-            당기는 동안·불러오는 동안 목록 뒤에서 드러나는 회전 표시.
-            내려간 거리에 맞춰 진해지고, 불러오기 시작하면 스스로 돈다.
+            목록 뒤에서 드러나는 회전 표시. 당기기 시작할 때부터 돌고,
+            손을 뗀 뒤 불러오는 동안에도 같은 속도로 계속 돈다.
+            내려간 거리에 따라 진해져 문턱(불투명)에 닿았는지 알려 준다.
           */}
           {isReady && hasOlder && (
             <div
               className="lounge-chat__pull"
-              data-loading={isLoadingOlder || undefined}
+              data-spinning={pullDistance > 0 || isLoadingOlder || undefined}
               aria-hidden="true"
               style={{ opacity: isLoadingOlder ? 1 : Math.min(pullDistance / PULL_TRIGGER_PX, 1) }}
             >
-              <span
-                className="lounge-chat__pull-spinner"
-                // 도는 것은 불러오는 동안뿐이다. 그 전에는 당긴 만큼만 돌아 진행을 알린다.
-                style={
-                  isLoadingOlder
-                    ? undefined
-                    : { transform: `rotate(${(pullDistance / PULL_TRIGGER_PX) * 360}deg)` }
-                }
-              />
+              <span className="lounge-chat__pull-spinner" />
             </div>
           )}
 
@@ -668,9 +675,10 @@ export default function LoungeChatSheet({ onClose }: LoungeChatSheetProps) {
             onScroll={handleScroll}
             onPointerDown={handlePullStart}
             onPointerMove={handlePullMove}
-            onPointerUp={endPull}
-            onPointerCancel={endPull}
-            onPointerLeave={endPull}
+            onPointerUp={handlePullEnd}
+            // 중단(전화 수신 등)·손가락이 목록 밖으로 나간 경우는 뗀 것이 아니라 무른 것이다.
+            onPointerCancel={cancelPull}
+            onPointerLeave={cancelPull}
           >
             {!isReady && (
               <li
