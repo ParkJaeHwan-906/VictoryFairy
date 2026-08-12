@@ -1,6 +1,6 @@
 # API 명세 — 도메인별 문서
 
-> 최종 업데이트: 2026-08-11 — quiz 좋아요 기능 신설(`POST /rt/quizzes/{quizId}/like` 신규, 4→5필드, 단건 상세·풀이 이력 응답에 `liked`·`likeCount` 필드 추가). (직전: 같은 날 game `GET /api/games` 응답에 `inning`/`inningHalf` 필드 반영(11→13필드, `games` 테이블에 진행 이닝 컬럼 신설, 현재는 py-collector 미구현으로 항상 `null`). (직전: 같은 날 `cancelReason` 필드 반영(10→11필드, 커밋 f01d08e #281). (직전: 2026-08-10 quiz `/today` 정렬 방식 변경(선호 그룹 안에서 id ASC → 사용자별 고정 랜덤, 응답 필드·상태코드 불변). (직전: 2026-08-08 quiz 도메인 확장(1→4) — 단건 상세·제출/채점·풀이 이력 추가, 선호 정렬·`preferredOnly` 필터 추가.))))
+> 최종 업데이트: 2026-08-12 — quiz `POST /{quizId}/submit`에 403 `QUIZ_SUBMIT_NOT_ALLOWED` 신설(제출 자격 티켓, TTL 8분) + `GET /today` 응답 상한 20건 신설(응답 필드 불변). (직전: 2026-08-11 quiz 좋아요 기능 신설(`POST /rt/quizzes/{quizId}/like` 신규, 4→5필드, 단건 상세·풀이 이력 응답에 `liked`·`likeCount` 필드 추가). (직전: 같은 날 game `GET /api/games` 응답에 `inning`/`inningHalf` 필드 반영(11→13필드, `games` 테이블에 진행 이닝 컬럼 신설, 현재는 py-collector 미구현으로 항상 `null`). (직전: 같은 날 `cancelReason` 필드 반영(10→11필드, 커밋 f01d08e #281). (직전: 2026-08-10 quiz `/today` 정렬 방식 변경(선호 그룹 안에서 id ASC → 사용자별 고정 랜덤, 응답 필드·상태코드 불변). (직전: 2026-08-08 quiz 도메인 확장(1→4) — 단건 상세·제출/채점·풀이 이력 추가, 선호 정렬·`preferredOnly` 필터 추가.)))))
 
 이 디렉터리는 **도메인 단위**로 나뉜다. 이전에는 Gradle 모듈 단위(`user.md`, `quiz.md`) 두 문서에 모든 엔드포인트가 들어 있었으나, 한 문서가 900줄을 넘고 서로 무관한 도메인(인증·구단·선수·경기·응원)이 뒤섞여 찾기 어려워졌다. **모듈은 배포 단위일 뿐 API 계약의 경계가 아니라는 판단**으로 문서 축을 도메인으로 바꿨다.
 
@@ -15,7 +15,7 @@
 | 경기 | [game.md](game.md) | user | `/api/games` | 2 | 불필요(GET 한정) | 2026-08-11 | [🔗](https://app.notion.com/p/3b278fa9b0f981938659cb3681750105) |
 | 응원 | [support.md](support.md) | user | `/api/support` | 3 | 필수 | 2026-08-06 | [🔗](https://app.notion.com/p/3b278fa9b0f981f5ae03ff5df8489a63) |
 | 채팅 | [chat.md](chat.md) | quiz | `/rt/chat` | 7 | 필수 | 2026-08-04 | [🔗](https://app.notion.com/p/3b278fa9b0f98165a655fd5cced543d5) |
-| 퀴즈 | [quiz.md](quiz.md) | quiz | `/rt/quizzes` | 5 | 필수 | 2026-08-11 | [🔗](https://app.notion.com/p/3b578fa9b0f981c4b09bd8752fb22711) |
+| 퀴즈 | [quiz.md](quiz.md) | quiz | `/rt/quizzes` | 5 | 필수 | 2026-08-12 | [🔗](https://app.notion.com/p/3b578fa9b0f981c4b09bd8752fb22711) |
 
 `최종 업데이트`는 **계약이 마지막으로 바뀐 날**이지 문서를 손댄 날이 아니다. `(추정)`은 도메인 분리 이전에 엔드포인트별 이력이 없어 해당 컨트롤러의 마지막 커밋 날짜로 역산했다는 뜻이다.
 
@@ -107,7 +107,7 @@ JWT HS256. `JwtTokenProvider`가 access(3h, 10800000ms)/refresh(14d, 1209600000m
 
 발생 경로는 둘로 나뉜다: `UNAUTHENTICATED`는 `RestAuthenticationEntryPoint`가 필터 단계(`DispatcherServlet` 바깥)에서 직접 직렬화하고, 나머지 3개는 컨트롤러가 던진 `BusinessException`을 `GlobalExceptionHandler`가 잡아 변환한다. 클라이언트 입장에서 이 구분이 중요한 이유: `UNAUTHENTICATED`는 "로그인하거나(토큰이 아예 없거나 계정이 사라짐) `/api/auth/refresh`로 access 토큰을 새로 받으라"는 신호이고, 나머지 셋은 각각 로그인 폼 재입력, refresh 자체의 재로그인 유도로 이어져야 한다는 뜻이다.
 
-**403은 인증 실패로는 발생하지 않는다.** `AccessDeniedHandler`는 의도적으로 미도입 — `JwtAuthenticationFilter`가 인증된 principal의 권한을 항상 `Collections.emptyList()`로 채워 authority 기반 403이 발생할 경로 자체가 없다. 이 API 전체의 403은 [chat](chat.md)의 `SELF_REPORT_NOT_ALLOWED`(자기 메시지 신고)·`CHATROOM_TEAM_MISMATCH`(2026-08-04 신규, 응원 구단이 다른 채팅방 접근)와 [quiz](quiz.md)의 `QUIZ_LIKE_NOT_ALLOWED`(2026-08-11 신규, 제출하지 않은 문제에 좋아요 요청 — 미존재·미편성 풀과 구분 불가) 셋뿐이며, 전부 인증이 아니라 도메인 규칙에서 나온다.
+**403은 인증 실패로는 발생하지 않는다.** `AccessDeniedHandler`는 의도적으로 미도입 — `JwtAuthenticationFilter`가 인증된 principal의 권한을 항상 `Collections.emptyList()`로 채워 authority 기반 403이 발생할 경로 자체가 없다. 이 API 전체의 403은 [chat](chat.md)의 `SELF_REPORT_NOT_ALLOWED`(자기 메시지 신고)·`CHATROOM_TEAM_MISMATCH`(2026-08-04 신규, 응원 구단이 다른 채팅방 접근)와 [quiz](quiz.md)의 `QUIZ_LIKE_NOT_ALLOWED`(2026-08-11 신규, 제출하지 않은 문제에 좋아요 요청 — 미존재·미편성 풀과 구분 불가)·`QUIZ_SUBMIT_NOT_ALLOWED`(2026-08-12 신규, 제출 자격 티켓 없음 — `/today` 미경유 또는 TTL 8분 경과, 구분 불가) 넷뿐이며, 전부 인증이 아니라 도메인 규칙에서 나온다.
 
 ---
 

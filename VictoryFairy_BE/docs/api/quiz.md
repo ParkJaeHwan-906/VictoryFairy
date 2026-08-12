@@ -3,7 +3,7 @@
 > **도메인** `quiz` — 오늘의 퀴즈 조회·개별 조회·제출(채점)·풀이 이력·좋아요.
 > **모듈** quiz (포트 8081) · **경로 접두사** `/rt/quizzes` · **엔드포인트** 5개
 > **컨트롤러** `quiz/src/main/java/com/skhynix/quiz/quiz/controller/QuizController.java`(조회·좋아요 토글), `QuizSubmissionController.java`(제출·이력) — `/rt`는 context-path가 붙인다
-> **최종 갱신** 2026-08-12 — 경로 변수/쿼리 파라미터/요청 본문 표기를 chat.md 형식으로 통일(계약 변경 없음, 직전: 2026-08-11 좋아요 기능 신설(`POST /{quizId}/like` 신규, 단건 상세·풀이 이력 응답에 `liked`·`likeCount` 필드 추가)).
+> **최종 갱신** 2026-08-12 — `POST /{quizId}/submit`에 403 `QUIZ_SUBMIT_NOT_ALLOWED` 신설(제출 자격 증명 도입, 실패 3종→4종) + `GET /today` 응답 상한 20건 신설(응답 필드는 불변). 계약 원본 `docs/requirements/quiz/quiz-inning-tracking.md`(승인됨 2026-08-12). (직전: 같은 날 경로 변수/쿼리 파라미터/요청 본문 표기를 chat.md 형식으로 통일(계약 변경 없음). 직전: 2026-08-11 좋아요 기능 신설(`POST /{quizId}/like` 신규, 단건 상세·풀이 이력 응답에 `liked`·`likeCount` 필드 추가)).
 > 공통 규약(응답 래퍼·인증·401 정책)은 [README.md](README.md)를 먼저 볼 것.
 
 ## 엔드포인트 목록
@@ -28,12 +28,14 @@
 
 **채점·적립은 서버 트랜잭션 안에서 원자적이다.** 정답이면 `quizzes.score`(배점)만큼 `users_account.point`에 적립한다(비관적 락으로 동시 적립 유실 방지). `users_bq.bq_score`는 레이팅 설계 확정 전이라 건드리지 않는다. 중복 제출은 409 — 동시 요청 race는 `uk_quiz_users_submit_account_quiz` UNIQUE가 최종 중재하고, 그 위반도 500이 아니라 409로 접는다.
 
+**`/today`로 받은 문제는 8분 안에 제출해야 한다(제출 자격 증명, 2026-08-12 신설).** `/today` 응답에 실린 문제마다 서버가 내부적으로 Redis 티켓(TTL 8분)을 발급하고, 제출 시점에 그 티켓이 없으면(=`/today`를 거치지 않았거나 8분이 지났으면) 403 `QUIZ_SUBMIT_NOT_ALLOWED`로 거절한다. **이 티켓·이닝 값은 어떤 응답 필드에도 노출되지 않는다** — 서버 내부 통계·자격 판정용이다. 자세한 판정 순서·복구 경로는 [POST 제출](#post-rtquizzesquizidsubmit) 절 참고.
+
 **좋아요는 "풀어본 사람의 평가"로 좁혀져 있다.** 신호로 이력 행을 쌓지 않고 `(계정, 문제)` 한 행의 플래그로만 관리한다(응원 `oppose` 토글·제출 UNIQUE와 같은 설계 계열). **제출 이력이 좋아요의 선행조건**이라 "존재하지 않는 문제"·"미편성 풀 문제"·"편성됐지만 안 푼 문제" 셋이 요청자 입장에서 같은 상태로 합쳐지고, 거절 응답도 하나(403 `QUIZ_LIKE_NOT_ALLOWED`)로 합쳐진다 — 404가 아닌 이유가 이것이다. 토글이라 멱등이 아니며, 동시 충돌은 500이 아니라 200 + 확정 상태로 흡수된다. `likeCount`는 취소된 행을 제외한 **현재 `liked = true`인 행 수**다.
 
 ---
 
 ## GET /rt/quizzes/today
-> 최종 변경: 2026-08-10 — 정렬 방식 변경(선호 그룹 안에서 id ASC → 사용자별 고정 랜덤). 요청·응답 필드·상태코드·에러코드는 불변
+> 최종 변경: 2026-08-12 — 응답 상한 20건 신설(`quiz.serve.max-today-count`) + 응답에 실린 문제마다 제출 자격 티켓(TTL 8분) 발급 시작. 응답 필드·상태코드·에러코드는 불변(직전: 2026-08-10 정렬 방식 변경(선호 그룹 안에서 id ASC → 사용자별 고정 랜덤). 요청·응답 필드·상태코드·에러코드는 불변)
 
 오늘(**KST**) 세트 중 **내가 아직 안 푼 문제만** 반환한다 — **이미 제출한 문제는 목록에서 제외된다(정책: 푼 문제 비노출)**. `QuizService.getTodayQuizzes(userAccountId, preferredOnly)` — "오늘"은 항상 서버가 KST 고정 클록으로 판정한다(파드 JVM은 UTC). 다른 날짜를 조회할 방법은 없다.
 
@@ -63,7 +65,11 @@
 
 **이 응답에는 `liked`·`likeCount`가 없다(2026-08-11 좋아요 기능 추가 후에도 불변).** 좋아요는 제출한 문제에만 허용되는데 `/today`는 이미 제출한 문제를 목록에서 빼고 내려주므로, 이 목록의 모든 항목이 애초에 좋아요 대상이 아니다 — 집계 쿼리를 붙여도 쓰이지 않아 아예 실행하지 않는다.
 
-**실패**: 401 UNAUTHENTICATED 뿐.
+**응답 개수 상한 20건(2026-08-12 신설).** 위 정렬(선호 우선 + 사용자별 고정 랜덤)이 끝난 목록을 앞에서 잘라 최대 `quiz.serve.max-today-count`(기본 20, env `QUIZ_SERVE_MAX_TODAY_COUNT`)건만 반환한다 — 편성 수(`quiz.serve.daily-count`, 기본 10)와는 별개 설정이며 응답 **필드 집합은 바뀌지 않는다**(20건 이하이면 상한이 아무것도 바꾸지 않는다, `hasMore` 같은 표식도 없다).
+
+**⚠ 이 응답에 실린 문제는 8분 안에 제출해야 한다.** 서버가 각 문제에 대해 내부적으로 제출 자격 티켓(TTL 8분, 응답에는 노출 안 됨)을 발급한다 — 8분을 넘기면 [제출](#post-rtquizzesquizidsubmit)이 403 `QUIZ_SUBMIT_NOT_ALLOWED`로 거절되고 그 문제는 미제출로 남아 다음 `/today` 응답에 다시 실린다. **만료 전에 `/today`를 다시 호출하면 그 문제의 시한이 8분으로 갱신된다** — 이것이 유일한 연장 수단이다(재발급 API·유예 시간 없음). 한 번에 20문제를 받아 오래 붙들면 뒷부분 문제가 대량 403이 될 수 있다 — 화면을 주기적으로 `/today`로 갱신하는 구조를 권장한다.
+
+**실패**: 401 UNAUTHENTICATED 뿐. (Redis 장애 시 티켓 발급이 실패하면 500 — `ApiResponse` 래퍼 없음, 확인 필요)
 
 ```bash
 curl http://localhost:8081/rt/quizzes/today?preferredOnly=true -H 'Authorization: Bearer eyJ...'
@@ -127,9 +133,13 @@ curl http://localhost:8081/rt/quizzes/23 -H 'Authorization: Bearer eyJ...'
 ---
 
 ## POST /rt/quizzes/{quizId}/submit
-> 최종 변경: 2026-08-08 — 신규
+> 최종 변경: 2026-08-12 — 403 `QUIZ_SUBMIT_NOT_ALLOWED` 신설(제출 자격 티켓 검사). 판정 순서 404→409→**403**→400으로 확장. 기존 404/409/400의 조건·문구는 불변. 요청·성공 응답 필드는 불변(직전: 2026-08-08 신규)
 
-제출·채점. `QuizSubmitService.submit(userAccountId, quizId, option)` — 검증(404→409→400) 후 채점, 정답이면 계정 행을 비관적 락으로 잠그고 `round(score)`만큼 적립, 제출 기록 저장까지 한 트랜잭션.
+제출·채점. `QuizSubmitService.submit(userAccountId, quizId, option)` — 검증(404→409→**403**→400, 순서 고정) 후 채점, 정답이면 계정 행을 비관적 락으로 잠그고 `round(score)`만큼 적립, 제출 기록 저장까지 한 트랜잭션.
+
+**⚠ 제출 자격 티켓(2026-08-12 신설, 응답에는 노출 안 됨).** `/today`가 응답에 실은 문제마다 서버 내부에 TTL 8분짜리 제출 자격을 발급해 둔다. 제출 시점에 그 자격이 없으면(=`/today`를 거치지 않고 바로 제출했거나, `/today`로 받은 뒤 8분이 지났으면) 403으로 거절한다 — **두 경우를 응답으로 구분하지 않는다(의도된 설계, 상태코드·본문 문자열 완전히 동일)**. 403을 받은 문제는 제출되지 않은 상태로 남아 다음 `/today` 응답에 다시 실려 나온다 — 다시 받아서 제출하면 된다(재발급 API·유예 시간 없음, 이것이 유일한 복구 경로).
+
+**판정 순서는 404 → 409 → 403 → 400으로 고정이다.** 특히 **이미 제출한 문제를 다시 제출하면 403이 아니라 409다** — 최초 제출 시 서버가 그 티켓을 삭제하므로 재제출 시점엔 티켓이 이미 없지만, 409(선제출) 검사가 403(자격)보다 앞서 있어 응답이 바뀌지 않는다. 클라이언트가 "아직 안 풀었는데 시한을 넘김"(403)과 "이미 풀었음"(409)을 다르게 처리해야 하므로 이 순서가 중요하다.
 
 **인증 필요** — `Authorization: Bearer <accessToken>`
 
@@ -156,15 +166,21 @@ curl http://localhost:8081/rt/quizzes/23 -H 'Authorization: Bearer eyJ...'
 | 상태 | ErrorCode | 조건 |
 |---|---|---|
 | 400 | (검증) | `option` 누락 — `data`에 필드 오류 맵 |
-| 400 | QUIZ_OPTION_NOT_FOUND | 그 문제에 없는 보기 번호 |
+| 400 | QUIZ_OPTION_NOT_FOUND | 그 문제에 없는 보기 번호(판정 순서상 403 다음) |
 | 401 | UNAUTHENTICATED | 무토큰 |
-| 404 | QUIZ_NOT_FOUND | 미존재·미편성 |
-| 409 | QUIZ_ALREADY_SUBMITTED | 이미 제출(동시 제출 race의 UNIQUE 위반 포함) |
+| 403 | **QUIZ_SUBMIT_NOT_ALLOWED**(신규) | 제출 자격 티켓 없음 — `/today` 미경유 또는 발급 후 8분 경과(둘 다 같은 응답, 판정 순서상 409 다음·400 이전) |
+| 404 | QUIZ_NOT_FOUND | 미존재·미편성(판정 순서상 가장 먼저) |
+| 409 | QUIZ_ALREADY_SUBMITTED | 이미 제출(동시 제출 race의 UNIQUE 위반 포함) — **재제출은 티켓이 없어도 403이 아니라 409**(판정 순서상 404 다음·403 이전) |
 
 ```bash
 curl -X POST http://localhost:8081/rt/quizzes/23/submit \
   -H 'Authorization: Bearer eyJ...' -H 'Content-Type: application/json' -d '{"option":0}'
 # {"success":true,"data":{"correct":true,"answer":0,"myOption":0,"earnedPoint":50,"totalPoint":50},"message":null}
+
+curl -X POST http://localhost:8081/rt/quizzes/23/submit \
+  -H 'Authorization: Bearer eyJ...' -H 'Content-Type: application/json' -d '{"option":0}'
+# /today 를 거치지 않았거나 발급된 티켓이 8분을 넘긴 경우
+# {"success":false,"data":null,"message":"오늘의 퀴즈로 받은 문제만 제한 시간 안에 제출할 수 있습니다."}
 ```
 
 ---
