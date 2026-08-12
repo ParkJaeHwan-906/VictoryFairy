@@ -130,15 +130,23 @@ GAME_UPSERT = (
 # updated_at=NOW(6) 이 있어 무변경 경로 자체가 안 생긴다. 즉 이건 **보장에 기대지 않기
 # 위한 명시**이지 관측된 사고의 수정이 아니다 — 버전·설정에 의존하는 동작에 PK 를
 # 맡기지 않으려는 것.
+# ⚠ 이닝 두 컬럼만 COALESCE 가 아니다 — 의도된 비대칭이다.
+# 점수·구장은 "한 번 알면 계속 참"이라 COALESCE 로 기존 값을 지킨다. 이닝은 반대로
+# **진행 중일 때만 참**인 값이라 경기가 끝나면 지워져야 한다(BE 계약: IN_PROGRESS 가
+# 아닌 상태는 항상 null). COALESCE 를 붙이면 종료된 경기에 마지막 이닝이 영원히
+# 남아 "9회말 진행 중"으로 보인다. 일관성 명목으로 COALESCE 를 더하지 말 것.
 GAME_SYNC_UPSERT = (
     "INSERT INTO games (naver_game_id, game_date, home_team_id, away_team_id, "
-    " stadium_id, home_score, away_score, game_status_id, created_at, updated_at) "
-    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(6), NOW(6)) "
+    " stadium_id, home_score, away_score, game_status_id, current_inning, inning_half, "
+    " created_at, updated_at) "
+    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(6), NOW(6)) "
     "ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id), game_date=VALUES(game_date), "
     "  stadium_id=COALESCE(VALUES(stadium_id), stadium_id), "
     "  home_score=COALESCE(VALUES(home_score), home_score), "
     "  away_score=COALESCE(VALUES(away_score), away_score), "
-    "  game_status_id=VALUES(game_status_id), updated_at=NOW(6)"
+    "  game_status_id=VALUES(game_status_id), "
+    "  current_inning=VALUES(current_inning), inning_half=VALUES(inning_half), "
+    "  updated_at=NOW(6)"
 )
 
 # 선발 라인업이 '완성'된 경기 판정. 완성 = 선발 타순 1~9 가 두 팀에 걸쳐 18행.
@@ -376,13 +384,19 @@ class DbSink:
         return pk
 
     def sync_game(self, *, naver_game_id, game_dt, home_team_id, away_team_id,
-                 home_score, away_score, status_id, stadium_id=None) -> int:
+                 home_score, away_score, status_id, stadium_id=None,
+                 current_inning=None, inning_half=None) -> int:
         """games_sync 잡 전용 upsert. GAME_SYNC_UPSERT 를 써서 점수·구장은
-        COALESCE로 기존 값을 지킨다(구장의 최종 진실은 records 잡)."""
+        COALESCE로 기존 값을 지킨다(구장의 최종 진실은 records 잡).
+
+        `current_inning`/`inning_half` 는 그와 달리 매번 덮어쓴다 — 진행 중이
+        아닌 경기는 None 을 받아 NULL 로 지워져야 한다(GAME_SYNC_UPSERT 주석 참고).
+        """
         with self._conn.cursor() as cur:
             cur.execute(GAME_SYNC_UPSERT, (
                 naver_game_id, game_dt, home_team_id, away_team_id,
                 stadium_id, home_score, away_score, status_id,
+                current_inning, inning_half,
             ))
             pk = cur.lastrowid
         self._conn.commit()

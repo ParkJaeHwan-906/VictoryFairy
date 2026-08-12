@@ -555,11 +555,13 @@ class _RecordingSyncDb:
         return self._stadium_ids.setdefault(name, 900 + len(self._stadium_ids))
 
     def sync_game(self, *, naver_game_id, game_dt, home_team_id, away_team_id,
-                  home_score, away_score, status_id, stadium_id=None):
+                  home_score, away_score, status_id, stadium_id=None,
+                  current_inning=None, inning_half=None):
         self.calls.append(dict(
             naver_game_id=naver_game_id, game_dt=game_dt, home_team_id=home_team_id,
             away_team_id=away_team_id, home_score=home_score, away_score=away_score,
-            status_id=status_id, stadium_id=stadium_id))
+            status_id=status_id, stadium_id=stadium_id,
+            current_inning=current_inning, inning_half=inning_half))
         return len(self.calls)  # 실제 sync_game 처럼 game PK 를 돌려준다
 
     def games_with_stadium(self, naver_game_ids):
@@ -581,23 +583,26 @@ class _RecordingSyncDb:
 
 def _games_sync_schedule_games():
     return [
+        # statusInfo 는 실측 그대로다 — **종료 경기도 마지막 이닝을 그대로 들고 있다**
+        # (2026-08-11 전 경기 "9회초"/"9회말"). 이닝을 상태로 거르지 않으면 여기서 샌다.
         {"gameId": "finished", "categoryId": "kbo", "statusCode": "RESULT", "cancel": False,
-         "homeTeamCode": "OB", "awayTeamCode": "LG",
+         "statusInfo": "9회말", "homeTeamCode": "OB", "awayTeamCode": "LG",
          "homeTeamScore": 7, "awayTeamScore": 3, "gameDateTime": "2026-07-10T18:30:00"},
         {"gameId": "draw", "categoryId": "kbo", "statusCode": "RESULT", "cancel": False,
-         "homeTeamCode": "OB", "awayTeamCode": "LG",
+         "statusInfo": "9회초", "homeTeamCode": "OB", "awayTeamCode": "LG",
          "homeTeamScore": 4, "awayTeamScore": 4, "gameDateTime": "2026-07-10T18:30:00"},
         {"gameId": "live", "categoryId": "kbo", "statusCode": "LIVE", "cancel": False,
-         "homeTeamCode": "OB", "awayTeamCode": "LG",
+         "statusInfo": "3회말", "homeTeamCode": "OB", "awayTeamCode": "LG",
          "homeTeamScore": 2, "awayTeamScore": 1, "gameDateTime": "2026-07-10T18:30:00"},
         {"gameId": "scheduled", "categoryId": "kbo", "statusCode": "BEFORE", "cancel": False,
-         "homeTeamCode": "OB", "awayTeamCode": "LG",
+         "statusInfo": "경기전", "homeTeamCode": "OB", "awayTeamCode": "LG",
          "homeTeamScore": 0, "awayTeamScore": 0, "gameDateTime": "2026-07-10T18:30:00"},
         {"gameId": "cancelled", "categoryId": "kbo", "statusCode": "BEFORE", "cancel": True,
-         "winner": "DRAW", "homeTeamCode": "OB", "awayTeamCode": "LG",
+         "statusInfo": "경기취소", "winner": "DRAW",
+         "homeTeamCode": "OB", "awayTeamCode": "LG",
          "homeTeamScore": 0, "awayTeamScore": 0, "gameDateTime": "2026-07-10T18:30:00"},
         {"gameId": "no_dt", "categoryId": "kbo", "statusCode": "LIVE", "cancel": False,
-         "homeTeamCode": "OB", "awayTeamCode": "LG",
+         "statusInfo": "1회초", "homeTeamCode": "OB", "awayTeamCode": "LG",
          "homeTeamScore": 1, "awayTeamScore": 0},  # gameDateTime 키 자체가 결측
         # 실재하지 않는 코드여야 한다 — "READY" 는 당일 미시작 상태로 실재하며
         # 이제 SCHEDULED 로 매핑된다(test_map_status_ready_is_scheduled 참고).
@@ -670,6 +675,91 @@ def test_job_games_sync_game_dt_falls_back_for_empty_string_datetime(monkeypatch
     run.job_games_sync(settings, db, "2026-07-11")
 
     assert db.calls[0]["game_dt"] == "2026-07-11 00:00:00"
+
+
+def test_job_games_sync_writes_inning_only_while_in_progress(monkeypatch, settings):
+    """이닝은 IN_PROGRESS 에서만 값이고 그 밖의 상태는 None 이어야 한다.
+
+    BE 계약이 그렇게 못박혀 있다(`GET /api/games` 의 inning/inningHalf 는
+    IN_PROGRESS 가 아니면 항상 null). 종료 경기의 statusInfo 가 마지막 이닝을
+    그대로 들고 있기 때문에(픽스처 finished="9회말"), 상태로 거르지 않으면
+    끝난 경기가 "9회말 진행 중"으로 남는다.
+    """
+    import contextlib
+    monkeypatch.setattr(run.fetch, "build_client", lambda settings: contextlib.nullcontext(object()))
+    monkeypatch.setattr(run.fetch, "fetch", lambda *a, **k: _FakeScheduleResp())
+    db = _RecordingSyncDb(team_ids={"OB": 1, "LG": 2})
+
+    run.job_games_sync(settings, db, "2026-07-10")
+
+    by_id = {c["naver_game_id"]: c for c in db.calls}
+    assert (by_id["live"]["current_inning"], by_id["live"]["inning_half"]) == (3, 1)
+    assert (by_id["no_dt"]["current_inning"], by_id["no_dt"]["inning_half"]) == (1, 0)
+    for gid in ("finished", "draw", "scheduled", "cancelled"):
+        assert by_id[gid]["current_inning"] is None, gid
+        assert by_id[gid]["inning_half"] is None, gid
+
+
+def test_job_games_sync_warns_when_live_inning_unparsable(monkeypatch, settings, caplog):
+    # 진행 중인데 이닝이 안 읽히는 경우(미지 포맷·CHECK 상한 초과)는 조용히 넘기지
+    # 않는다. 다만 이닝이 없다고 상태·점수 동기화까지 막지는 않는다.
+    import contextlib
+
+    class _OddInfoResp:
+        def json(self):
+            return {"result": {"games": [
+                {"gameId": "odd", "categoryId": "kbo", "statusCode": "STARTED",
+                 "cancel": False, "statusInfo": "12회초", "homeTeamCode": "OB",
+                 "awayTeamCode": "LG", "homeTeamScore": 5, "awayTeamScore": 4,
+                 "gameDateTime": "2026-07-10T18:30:00"},
+            ]}}
+
+    monkeypatch.setattr(run.fetch, "build_client", lambda settings: contextlib.nullcontext(object()))
+    monkeypatch.setattr(run.fetch, "fetch", lambda *a, **k: _OddInfoResp())
+    db = _RecordingSyncDb(team_ids={"OB": 1, "LG": 2})
+
+    with caplog.at_level("WARNING", logger="games_sync"):
+        synced = run.job_games_sync(settings, db, "2026-07-10")
+
+    assert synced == 1
+    assert db.calls[0]["current_inning"] is None
+    assert db.calls[0]["status_id"] == 2  # IN_PROGRESS 는 그대로 적재된다
+    assert (db.calls[0]["home_score"], db.calls[0]["away_score"]) == (5, 4)
+    assert "이닝 파싱 실패" in caplog.text and "12회초" in caplog.text
+
+
+def test_job_games_sync_isolates_one_failing_game_from_the_rest(monkeypatch, settings, caplog):
+    """한 경기의 적재 실패가 그날 나머지 경기를 막지 않아야 한다.
+
+    격리가 없으면 예외가 job_games_sync_range 의 **날짜 단위** 핸들러까지 올라가,
+    실패한 경기 뒤에 오는 경기가 통째로 안 들어간다. 대표 사례가 DB CHECK 위반
+    (ck_games_current_inning) 이다 — 상한은 우리 코드가 아니라 DB 가 강제하므로
+    파서 상한과 DB 상한이 어긋나는 배포 순서에서 실제로 터진다.
+    """
+    import contextlib
+
+    class _OneBadGameDb(_RecordingSyncDb):
+        def sync_game(self, **kw):
+            if kw["naver_game_id"] == "live":
+                raise RuntimeError(
+                    "(3819, \"Check constraint 'ck_games_current_inning' is violated.\")")
+            return super().sync_game(**kw)
+
+    monkeypatch.setattr(run.fetch, "build_client", lambda settings: contextlib.nullcontext(object()))
+    monkeypatch.setattr(run.fetch, "fetch", lambda *a, **k: _FakeScheduleResp())
+    db = _OneBadGameDb(team_ids={"OB": 1, "LG": 2})
+
+    # failed 집계는 잡 끝의 요약(info)에 실리므로 INFO 까지 잡는다.
+    with caplog.at_level("INFO", logger="games_sync"):
+        synced = run.job_games_sync(settings, db, "2026-07-10")
+
+    # "live" 만 빠지고 나머지는 전부 들어간다 ("unknown" 은 원래 skip).
+    assert synced == 5
+    assert {c["naver_game_id"] for c in db.calls} == {
+        "finished", "draw", "scheduled", "cancelled", "no_dt"}
+    assert "경기 동기화 실패 live" in caplog.text
+    assert "ck_games_current_inning" in caplog.text
+    assert "failed=1" in caplog.text
 
 
 class _FakeGameDetailResp:

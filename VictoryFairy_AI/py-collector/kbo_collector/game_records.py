@@ -4,6 +4,7 @@
       {base}/schedule/games/{gameId}/record  (경기 기록)
 경기 종료 후에도 영구 제공되므로 과거 시즌 백필에 사용한다.
 """
+import re
 from dataclasses import dataclass, field
 
 from .dimensions import TEAM_CODES
@@ -12,6 +13,21 @@ _UA = "Mozilla/5.0"
 
 _GAME_TYPE = {"0": "regular", "1": "preseason"}
 _FRACTIONS = (("⅓", 1), ("⅔", 2), ("1/3", 1), ("2/3", 2))
+
+# 11 = KBO 현행 규정의 이닝 한도(정규 9 + 연장 2). games.ck_games_current_inning
+# (1~11, prod 실측)과 같은 값이다 — 여기는 그 CHECK 를 비춘 것이고 **진짜 상한은 DB** 다.
+#
+# 2026 정규시즌 전수 스캔(3/22~8/11, 573경기)이 뒷받침한다: 11회 18경기, 12회 0경기.
+# 규정 한도와 같으므로 이 가드가 실제로 발동하면 그건 연장이 아니라 **파싱 이상**이다
+# (네이버 포맷 변경 등). 그래서 값을 버리고 warning 을 남긴다 — 조용히 저장돼 화면에
+# "0회초" 로 나가는 것보다 낫다는 게 BE 가 CHECK 를 건 이유이기도 하다.
+#
+# ⚠ 규정이 바뀌어 올려야 한다면 순서가 있다: ① BE 엔티티 @CheckConstraint → ② 관리자
+#   계정으로 prod·devdb 에 ALTER(DROP CHECK + ADD CHECK) → ③ 이 상수. ddl-auto=update 는
+#   기존 CHECK 를 바꾸지 않아 ② 를 건너뛸 수 없다. ③ 을 먼저 하면 DB 가 거부한다.
+INNING_MAX = 11
+_INNING_RE = re.compile(r"^(\d+)회(초|말)$")
+_INNING_HALF = {"초": 0, "말": 1}  # domain InningHalf ORDINAL (TOP=0, BOTTOM=1)
 
 
 @dataclass
@@ -186,6 +202,34 @@ def map_status(g: dict) -> str | None:
         draw = g.get("homeTeamScore") == g.get("awayTeamScore")
         return "DRAW" if draw else "FINISHED"
     return None
+
+
+def parse_inning(status_info: str | None) -> tuple[int | None, int | None]:
+    """schedule 의 statusInfo -> (이닝, 초/말). 이닝이 아니면 (None, None).
+
+    진행 중 statusInfo 는 `"2회말"` 한 가지 형태다 — 아웃카운트·주자 같은 접미사가
+    붙지 않는다(2026-08-12 19:00 시작 5경기 라이브 실측). 그 밖의 값은 전부
+    (None, None) 이다: 미시작 `"경기전"`, 취소 `"경기취소"`, 빈 문자열, 미지 포맷.
+
+    초/말은 domain 의 `InningHalf` ORDINAL 을 그대로 낸다 — TOP=0(초)/BOTTOM=1(말).
+    네이버 relay 의 `homeOrAway`("0"=원정 공격=초, "1"=홈 공격=말)와도 값이 같다.
+
+    **이닝 원천은 detail API 의 `currentInning` 이 아니라 이 statusInfo 다.**
+    detail 쪽은 경기 시작 20분 전(statusCode="READY")부터 이미 `"1회초"` 로 앞서
+    나간다(같은 날 실측) — 상태 게이팅이 없으면 미시작 경기에 1회를 박는다.
+
+    ⚠ INNING_MAX 를 넘는 이닝은 값이 아니라 None 을 준다. games 에 CHECK
+    `ck_games_current_inning`(1~11)이 걸려 있어(prod 실측) 12 를 그대로 넣으면 그
+    경기 한 건이 아니라 **잡이 죽는다**. 2026 정규시즌 전수 스캔(3/22~8/11)의
+    상한은 11 이었지만(11회 18경기·12회 0경기) 포스트시즌은 상한이 달라 방어한다.
+    """
+    m = _INNING_RE.match((status_info or "").strip())
+    if not m:
+        return (None, None)
+    inning = int(m.group(1))
+    if not 1 <= inning <= INNING_MAX:
+        return (None, None)
+    return (inning, _INNING_HALF[m.group(2)])
 
 
 def _decisions(record: dict) -> dict:

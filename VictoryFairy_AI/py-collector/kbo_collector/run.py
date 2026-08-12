@@ -572,7 +572,7 @@ def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=
     games = game_records.list_kbo_games(resp.json())
     # 구장은 한 번 채우면 변하지 않는다 — 아는 경기는 상세 API 를 다시 부르지 않는다.
     known_stadium = db.games_with_stadium([g.get("gameId") for g in games])
-    synced, skipped = 0, 0
+    synced, skipped, failed = 0, 0, 0
     pending: list[tuple[str, int]] = []
     for g in games:
         status = game_records.map_status(g)
@@ -580,31 +580,57 @@ def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=
             log.warning("unknown status %s: %s", g.get("gameId"), g.get("statusCode"))
             skipped += 1
             continue
-        live_or_done = status in ("IN_PROGRESS", "FINISHED", "DRAW")
-        dt = (g.get("gameDateTime") or "").replace("T", " ") or f"{date} 00:00:00"
-        stadium = (None if g.get("gameId") in known_stadium
-                   else _scheduled_game_stadium(settings, client, g, status, log))
-        game_pk = db.sync_game(
-            naver_game_id=g["gameId"], game_dt=dt,
-            home_team_id=team_ids[g["homeTeamCode"]],
-            away_team_id=team_ids[g["awayTeamCode"]],
-            home_score=g.get("homeTeamScore") if live_or_done else None,
-            away_score=g.get("awayTeamScore") if live_or_done else None,
-            status_id=db.status_id(status),
-            stadium_id=db.stadium_id(stadium))
-        synced += 1
-        if not live_window:
-            continue
-        if status in LINEUP_PENDING_STATUSES:
-            # 끝난 경기는 제외 — 확정 라인업은 records 잡이 박스스코어로 적재한다.
-            pending.append((g["gameId"], game_pk))
-        elif status == "CANCELED":
-            # 공시 뒤 취소된 경기의 preview 라인업을 걷어낸다(records 가 안 도는 경로).
-            purged = db.delete_lineups_if_unplayed(game_pk)
-            if purged:
-                log.info("%s 취소: 라인업 %d행 정리", g["gameId"], purged)
+        # 경기 하나의 실패가 그날 나머지 경기를 막지 않게 격리한다. 격리가 없으면
+        # 예외가 job_games_sync_range 의 **날짜 단위** 핸들러까지 올라가, 한 경기
+        # 때문에 그 날짜의 뒤쪽 경기가 통째로 안 들어간다. 이 잡은 1분마다 도는
+        # 멱등 upsert 라, 실패한 경기는 다음 폴링에서 자연히 회수된다.
+        #
+        # DB 제약 위반이 대표적이다 — games 의 CHECK(ck_games_current_inning 등)는
+        # 우리 코드가 아니라 DB 가 강제하므로, 파서 상한(INNING_MAX)과 DB 상한이
+        # 어긋나는 순간(예: DB CHECK 를 올리기 전에 수집기를 먼저 올린 배포)
+        # 여기로 떨어진다.
+        try:
+            live_or_done = status in ("IN_PROGRESS", "FINISHED", "DRAW")
+            dt = (g.get("gameDateTime") or "").replace("T", " ") or f"{date} 00:00:00"
+            stadium = (None if g.get("gameId") in known_stadium
+                       else _scheduled_game_stadium(settings, client, g, status, log))
+            # 이닝은 진행 중일 때만 채운다 — 그 밖의 상태는 None 이 그대로 나가 NULL 로
+            # 덮인다. statusInfo 는 경기가 끝나도 마지막 이닝("9회말")을 그대로 들고
+            # 있어서(강우콜드면 "6회말") 상태로 거르지 않으면 종료 경기까지 값이 박힌다.
+            inning, inning_half = (
+                game_records.parse_inning(g.get("statusInfo"))
+                if status == "IN_PROGRESS" else (None, None))
+            if status == "IN_PROGRESS" and inning is None:
+                # 진행 중인데 이닝이 안 읽힌 경우만 남긴다: 미지 포맷이거나 상한 초과다.
+                # 이닝이 없어도 상태·점수 동기화는 그대로 진행한다.
+                log.warning("이닝 파싱 실패 %s: statusInfo=%r",
+                            g.get("gameId"), g.get("statusInfo"))
+            game_pk = db.sync_game(
+                naver_game_id=g["gameId"], game_dt=dt,
+                home_team_id=team_ids[g["homeTeamCode"]],
+                away_team_id=team_ids[g["awayTeamCode"]],
+                home_score=g.get("homeTeamScore") if live_or_done else None,
+                away_score=g.get("awayTeamScore") if live_or_done else None,
+                status_id=db.status_id(status),
+                stadium_id=db.stadium_id(stadium),
+                current_inning=inning, inning_half=inning_half)
+            synced += 1
+            if not live_window:
+                continue
+            if status in LINEUP_PENDING_STATUSES:
+                # 끝난 경기는 제외 — 확정 라인업은 records 잡이 박스스코어로 적재한다.
+                pending.append((g["gameId"], game_pk))
+            elif status == "CANCELED":
+                # 공시 뒤 취소된 경기의 preview 라인업을 걷어낸다(records 가 안 도는 경로).
+                purged = db.delete_lineups_if_unplayed(game_pk)
+                if purged:
+                    log.info("%s 취소: 라인업 %d행 정리", g["gameId"], purged)
+        except Exception as exc:
+            failed += 1
+            log.warning("경기 동기화 실패 %s: %s", g.get("gameId"), exc)
     lineups = _land_preview_lineups(settings, db, client, pending, team_ids, log) if pending else 0
-    log.info("%s: synced=%d skipped=%d lineups=%d", date, synced, skipped, lineups)
+    log.info("%s: synced=%d skipped=%d failed=%d lineups=%d",
+             date, synced, skipped, failed, lineups)
     return synced
 
 
