@@ -216,7 +216,7 @@
 }
 
 /*
- * O/X 가 아닌 2지선다 — 방향만 알리는 중립 글리프.
+ * O/X 가 아닌 2지선다 — 순서만 가리키는 A · B 글리프.
  * O/X 와 같은 80px 원을 쓰되 색을 빼, 초록·빨강이 뜻하는 옳고 그름을 덧씌우지 않는다.
  */
 .quiz-card__glyph--left,
@@ -228,17 +228,11 @@
   border-radius: 50%;
 }
 
-.quiz-card__glyph-arrow {
-  width: 24px;
-  height: 24px;
-  background-color: var(--color-label-assistive);
-  -webkit-mask: url('../assets/arrow_l.svg') center / contain no-repeat;
-  mask: url('../assets/arrow_l.svg') center / contain no-repeat;
-}
-
-.quiz-card__glyph--right .quiz-card__glyph-arrow {
-  -webkit-mask-image: url('../assets/arrow_r.svg');
-  mask-image: url('../assets/arrow_r.svg');
+.quiz-card__glyph-letter {
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-display1);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
 }
 
 .quiz-card__choice[data-active] .quiz-card__glyph--left,
@@ -246,8 +240,8 @@
   border-color: var(--color-primary-300);
 }
 
-.quiz-card__choice[data-active] .quiz-card__glyph-arrow {
-  background-color: var(--color-primary-normal);
+.quiz-card__choice[data-active] .quiz-card__glyph-letter {
+  color: var(--color-primary-normal);
 }
 
 /*
