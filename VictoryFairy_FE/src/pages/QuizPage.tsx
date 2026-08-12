@@ -5,6 +5,7 @@ import {
   getTodayQuizzes,
   isQuizAlreadySubmitted,
   isQuizNotFound,
+  isQuizSubmitNotAllowed,
   submitQuiz,
 } from '../api';
 import type { DailyQuiz } from '../api';
@@ -26,6 +27,13 @@ import '../styles/QuizPage.css';
  *
  * **정오는 여기서 보여주지 않는다.** 제출 응답에 정답이 실려 오지만 채점 화면이
  * 따로 있으므로, 이 화면은 고르고 다음 문제로 넘기는 일만 한다.
+ *
+ * ── ⏱️ 세트 전체에 8분이 걸려 있다 ──────────────────────────────────
+ * `GET /quizzes/today` 는 응답에 실은 문제마다 미답 행을 만들고, 그 시각 + 8분이
+ * 제출 시한이다(docs/quiz.md). 이 화면은 세트를 **한 번에** 받으므로 **10문제의 시계가
+ * 동시에 돌기 시작한다** — 8분을 넘긴 뒤 고른 답은 403 으로 거절되고, 그 문제는 영영
+ * 다시 받을 수 없다. 지금은 넘어갈 때 안내만 하고 남은 시간을 보여주지는 않는다.
+ * 서버가 받은 시각을 응답에 주지 않아, 세려면 이 화면이 수신 시각을 스스로 찍어야 한다.
  *
  * ── 경기와 문제의 관계 ────────────────────────────────────────────────
  * **퀴즈 API 는 경기별로 문제를 주지 않는다.** `GET /quizzes/today` 는 그날의
@@ -95,6 +103,13 @@ export default function QuizPage() {
   const [index, setIndex] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  /**
+   * 답이 반영되지 못한 채 다음 문제로 넘어갔다는 안내.
+   *
+   * `submitError` 와 나눠 둔 이유 — 저쪽은 "이 카드에서 다시 해보라"는 뜻이지만
+   * 이쪽은 이미 넘어간 뒤라 되돌릴 것이 없다. 같은 상태로 묶으면 다시 시도할 수 있다고 읽힌다.
+   */
+  const [skipNotice, setSkipNotice] = useState<string | null>(null);
   /** 카드가 빠져나가는 방향. 제출이 실패하면 되돌려야 해서 화면이 들고 있다. */
   const [exit, setExit] = useState<QuizCardExit | null>(null);
   /** 이번에 실제로 제출한 문제 수. 완료 화면에만 쓴다(정오는 세지 않는다). */
@@ -132,6 +147,8 @@ export default function QuizPage() {
     setExit(direction);
     setIsSubmitting(true);
     setSubmitError(null);
+    // 앞 문제에서 남은 안내는 여기서 지운다 — 이번 문제 이야기로 오해되면 안 된다.
+    setSkipNotice(null);
 
     /*
      * 응답과 애니메이션 둘 다 끝나야 다음 문제로 넘어간다.
@@ -150,6 +167,24 @@ export default function QuizPage() {
          * 404 는 없거나 미편성된 문제라 여기서 더 보여줄 것이 없다. 둘 다 그냥 넘긴다.
          */
         if (isQuizAlreadySubmitted(error) || isQuizNotFound(error)) {
+          goNext();
+          return;
+        }
+
+        /*
+         * 403 — 제출 시한(문제를 받은 시각 + 8분)이 지났다.
+         *
+         * **다시 시도하면 되는 실패가 아니다.** 그 문제는 이후 어떤 `/today` 응답에도
+         * 다시 실리지 않고 제출도 영구히 403 이라 복구 경로가 없다(docs/quiz.md).
+         * 그래서 카드를 되돌리지 않고 넘기되, 답이 반영되지 않았다는 것은 알린다 —
+         * 조용히 넘기면 사용자는 자기 답이 저장된 줄 안다.
+         *
+         * 문구가 시간을 원인으로 단정하는 이유: 서버는 "받은 적 없음"과 "시한 초과"를
+         * 같은 403 으로 주지만, 이 화면의 문제는 전부 방금 `/today` 로 받은 것들이라
+         * 남는 원인이 시한뿐이다.
+         */
+        if (isQuizSubmitNotAllowed(error)) {
+          setSkipNotice('시간이 지나 이 문제는 넘어갔어요. 답은 반영되지 않았어요.');
           goNext();
           return;
         }
@@ -254,6 +289,13 @@ export default function QuizPage() {
               onSelect={handleSelect}
             />
           </div>
+        )}
+
+        {/* 넘어간 문제 안내. 되돌릴 수 없는 일이라 경고(alert)가 아니라 알림(status)이다. */}
+        {skipNotice !== null && (
+          <p className="quiz-page__status quiz-page__status--notice" role="status">
+            {skipNotice}
+          </p>
         )}
 
         {submitError !== null && (

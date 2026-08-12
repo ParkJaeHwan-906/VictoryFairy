@@ -10,6 +10,7 @@ import GamePage from './pages/GamePage';
 import PlayerSelectPage from './pages/PlayerSelectPage';
 import CompletePage from './pages/CompletePage';
 import QuizPage from './pages/QuizPage';
+import QuizResultPage from './pages/QuizResultPage';
 import ProtectedRoute from './components/ProtectedRoute';
 import { ROUTES } from './routes';
 
@@ -29,6 +30,8 @@ export default function App() {
       <Route element={<ProtectedRoute />}>
         {/* 퀴즈는 디자인에 NavBar 가 없어 레이아웃 밖 전체 화면이다 */}
         <Route path={ROUTES.quiz} element={<QuizPage />} />
+        {/* 퀴즈 결과도 NavBar 없는 전체 화면이라 풀이 화면과 같은 자리에 둔다 */}
+        <Route path={ROUTES.quizResult} element={<QuizResultPage />} />
         {/*
           하단 NavBar 가 붙는 화면들.
           레이아웃에 NavBar 를 한 번만 두어, 이 안에서 화면을 옮겨 다녀도
