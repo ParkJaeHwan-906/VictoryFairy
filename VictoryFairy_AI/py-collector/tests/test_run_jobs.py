@@ -520,9 +520,13 @@ def test_land_game_records_upserts_batting_and_pitching_after_lineups(monkeypatc
 
 class _RecordingSyncDb:
     """운영 스키마 DbSink 흉내: job_games_sync 배선(호출 인자) 검증용."""
-    def __init__(self, team_ids):
+    def __init__(self, team_ids, done=(), with_stadium=()):
         self.calls = []
+        self.lineup_calls = []
+        self.purged = []
         self.upsert_teams_calls = 0
+        self._done = set(done)
+        self._with_stadium = set(with_stadium)
         self._team_ids = team_ids
         self._status_ids = {"SCHEDULED": 1, "IN_PROGRESS": 2, "FINISHED": 3,
                             "DRAW": 4, "CANCELED": 5}
@@ -547,6 +551,16 @@ class _RecordingSyncDb:
             naver_game_id=naver_game_id, game_dt=game_dt, home_team_id=home_team_id,
             away_team_id=away_team_id, home_score=home_score, away_score=away_score,
             status_id=status_id, stadium_id=stadium_id))
+        return len(self.calls)  # 실제 sync_game 처럼 game PK 를 돌려준다
+
+    def lineup_done_games(self, game_pks):
+        return {pk for pk in game_pks if pk in self._done}
+
+    def resolve_players(self, refs, team_ids):
+        return {r.pcode: 900 + i for i, r in enumerate(refs)}
+
+    def upsert_lineups(self, game_pk, lineups, player_map, team_ids):
+        self.lineup_calls.append((game_pk, lineups))
 
 
 def _games_sync_schedule_games():
@@ -673,7 +687,8 @@ def test_job_games_sync_fetches_stadium_only_for_scheduled(monkeypatch, settings
 
     run.job_games_sync(settings, db, "2026-07-10")
 
-    detail_urls = [u for u in urls if "?" not in u]
+    # preview(라인업)도 쿼리스트링이 없으므로 구장 조회만 따로 센다.
+    detail_urls = [u for u in urls if "?" not in u and not u.endswith("/preview")]
     assert len(detail_urls) == 1 and detail_urls[0].endswith("/scheduled")
 
     by_id = {c["naver_game_id"]: c for c in db.calls}
@@ -982,3 +997,113 @@ def test_land_registrations_trade_failure_keeps_roster_success(monkeypatch, sett
                                     teams=["LG"], fetch_trades=boom)
     assert synced == ["LG"]  # 이동현황 실패는 잡 실패가 아니다
     assert not any(c[0] == "trades" for c in db.calls)
+
+
+# --------------------------------------------------------------------------- preview 라인업
+def _preview_payload(away_code="LG", home_code="OB"):
+    # 포지션 코드는 실제 preview 표기: 1=투수(선발), 나머지 9개가 타순 순서대로.
+    _BATTER_POSITIONS = ("8", "9", "7", "0", "5", "3", "2", "4", "6")
+
+    def team(prefix):
+        return {"fullLineUp": [
+            {"positionName": "선발투수", "playerName": f"{prefix}선발",
+             "playerCode": f"{prefix}0", "position": "1"},
+        ] + [
+            {"positionName": "타자", "playerName": f"{prefix}타{i}",
+             "playerCode": f"{prefix}{i}", "position": pos}
+            for i, pos in enumerate(_BATTER_POSITIONS, start=1)
+        ]}
+    return {"result": {"previewData": {
+        "gameInfo": {"aCode": away_code, "hCode": home_code},
+        "awayTeamLineUp": team("A"), "homeTeamLineUp": team("H"),
+    }}}
+
+
+class _PreviewResp:
+    def json(self):
+        return _preview_payload()
+
+
+def _lineup_fetch(seen_urls, fail_on=(), stadium="잠실"):
+    """스케줄 / 경기 상세(구장) / preview 세 갈래를 구분해 응답한다."""
+    def _fetch(client, url, **kwargs):
+        seen_urls.append(url)
+        if "?" in url:
+            return _FakeScheduleResp()
+        if url.endswith("/preview"):
+            if any(f"/{gid}/preview" in url for gid in fail_on):
+                raise RuntimeError("boom")
+            return _PreviewResp()
+        return _FakeGameDetailResp(stadium)
+    return _fetch
+
+
+def _previewed(urls):
+    return [u.rsplit("/games/", 1)[1].split("/")[0] for u in urls if u.endswith("/preview")]
+
+
+def test_job_games_sync_lands_preview_lineups_for_pending_games(monkeypatch, settings):
+    # SCHEDULED/IN_PROGRESS 만 preview 를 본다 — 끝난 경기의 확정 라인업은 records 몫.
+    import contextlib
+    urls = []
+    monkeypatch.setattr(run.fetch, "build_client", lambda settings: contextlib.nullcontext(object()))
+    monkeypatch.setattr(run.fetch, "fetch", _lineup_fetch(urls))
+    db = _RecordingSyncDb(team_ids={"OB": 1, "LG": 2})
+
+    run.job_games_sync(settings, db, "2026-07-10")
+
+    assert set(_previewed(urls)) == {"live", "scheduled", "no_dt"}
+    # 팀당 선발투수 1 + 타순 9 = 10행, 양 팀 20행
+    _, rows = db.lineup_calls[0]
+    assert len(rows) == 20
+    assert sorted(r.bat_order for r in rows if r.bat_order) == sorted(list(range(1, 10)) * 2)
+    assert [r.bat_order for r in rows if r.position == "투"] == [None, None]
+
+
+def test_job_games_sync_skips_preview_for_already_landed_games(monkeypatch, settings):
+    # 요구사항: 라인업이 이미 적재된 경기는 그 작업만 빼고 나머지는 마저 돈다.
+    # "빼는" 지점이 적재가 아니라 preview 호출 자체여야 1분 폴링에서도 싸다.
+    import contextlib
+    urls = []
+    monkeypatch.setattr(run.fetch, "build_client", lambda settings: contextlib.nullcontext(object()))
+    monkeypatch.setattr(run.fetch, "fetch", _lineup_fetch(urls))
+    # sync_game 호출 순서대로 PK 가 1..6 이므로 live=3, scheduled=4, no_dt=6.
+    db = _RecordingSyncDb(team_ids={"OB": 1, "LG": 2}, done={3, 4})
+
+    synced = run.job_games_sync(settings, db, "2026-07-10")
+
+    assert _previewed(urls) == ["no_dt"]
+    assert synced == 6  # 상태 동기화는 그대로 6건 완주
+    assert [pk for pk, _ in db.lineup_calls] == [6]
+
+
+def test_job_games_sync_lineup_failure_does_not_break_status_sync(monkeypatch, settings, caplog):
+    # 라인업이 통째로 터져도 상태 동기화 결과는 남아야 한다(단계 순서 + 경기 단위 격리).
+    import contextlib
+    urls = []
+    monkeypatch.setattr(run.fetch, "build_client", lambda settings: contextlib.nullcontext(object()))
+    monkeypatch.setattr(run.fetch, "fetch",
+                        _lineup_fetch(urls, fail_on=("live", "scheduled", "no_dt")))
+    db = _RecordingSyncDb(team_ids={"OB": 1, "LG": 2})
+
+    with caplog.at_level("WARNING", logger="games_sync"):
+        synced = run.job_games_sync(settings, db, "2026-07-10")
+
+    assert synced == 6 and db.lineup_calls == []
+    assert "preview lineup fail" in caplog.text
+    assert len(_previewed(urls)) == 3  # 한 경기 실패가 나머지 시도를 막지 않는다
+
+
+def test_job_games_sync_lookahead_range_does_not_fetch_previews(monkeypatch, settings):
+    # 선적재(morning/nightly)는 미래 경기까지 훑는다 — preview 에 라인업이 있을 리 없어
+    # 날짜 수만큼 헛호출이 되므로 라인업 단계는 당일 폴링에서만 돈다.
+    import contextlib
+    urls = []
+    monkeypatch.setattr(run.fetch, "build_client", lambda settings: contextlib.nullcontext(object()))
+    monkeypatch.setattr(run.fetch, "fetch", _lineup_fetch(urls))
+    db = _RecordingSyncDb(team_ids={"OB": 1, "LG": 2})
+
+    run.job_games_sync_range(settings, db, "2026-07-10", "2026-07-12", sleep=lambda s: None)
+
+    assert _previewed(urls) == []
+    assert db.lineup_calls == []

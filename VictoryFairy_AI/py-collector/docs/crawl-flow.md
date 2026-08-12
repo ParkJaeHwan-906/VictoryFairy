@@ -129,6 +129,11 @@ flowchart TD
 - `registrations`는 하루 1회 현재 로스터를 players 에 반영(이름·소속팀·등번호·포지션그룹)하고, 같은 명단을 `registrations` 테이블에 일별 스냅샷으로 남긴다(`(registration_date, player_id)` 자연키). 이어서 이동현황(Trade.aspx)으로 미등록 선수의 트레이드/개명/등번호 변경을 보조 반영한다 — playerId 없는 피드라 (이름, 팀) 유일 매칭일 때만. 투타·생년월일 등 나머지 상세는 저장하지 않음.
 - `records`는 종료 경기의 games + **game_lineups**(교체 포함 출전 명단, `is_starter=TRUE` 가 선발 라인업). 과거 시즌 백필 가능.
 - 선발 판정: 타자는 (팀, 타순)별 첫 등장 행, 투수는 gameInfo 의 선발 pcode(aPCode/hPCode).
+- **`game_lineups` 의 원천은 둘이다.** `records`(박스스코어)는 경기가 끝나야 생기므로 그것만으로는
+  경기 당일 내내 라인업이 비어 있다. 그래서 `games_sync` 가 경기 전 공시 시점에 네이버
+  **preview API**(`/schedule/games/{id}/preview`)로 선발 라인업을 먼저 적재하고, 익일 `records`
+  가 박스스코어로 덮어써 확정한다. 둘의 관계:
+  - preview → 선발만(타순 1~9 + 선발투수), `decision`·교체 선수 없음, `is_starter=TRUE`
 - 스케줄 조회는 날짜에 **대시 필수**(`fromDate=2026-03-28`).
 - 운영 실행: **VPC 안 Lambda** `kbo-collector-db`(`VictoryFairy_Infra/collector-lambda/lambda_db.tf`(dev_infra) — records 03:30 KST, registrations 11:00 KST). S3 잡 함수와 같은 이미지, DB 자격증명은 이 함수에만.
 

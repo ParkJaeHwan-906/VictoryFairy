@@ -121,15 +121,33 @@ GAME_UPSERT = (
 # stadium_id 의 최종 진실은 여전히 records 잡이다 — GAME_UPSERT 는 무조건 덮어쓰고
 # 여기선 NULL 일 때만 메운다. 경기 전에는 records 가 아직 안 돌아 구장이 비는데,
 # 일정을 미리 적재하는 잡(games_sync 의 +N일 윈도)이 그 구멍을 채우기 위한 것.
+#
+# id=LAST_INSERT_ID(id) 는 GAME_UPSERT 와 같은 관용구다(설명은 그쪽 주석). 여기서는
+# 뒤이은 선발 라인업 적재가 이 반환 PK 를 그대로 쓰기 때문에 붙였다.
+# 다만 "없으면 엉뚱한 PK 가 온다"는 아니다 — MySQL 8.0.46 실측상 갱신 경로(rowcount=2)
+# 에서는 관용구 없이도 서버가 OK 패킷에 기존 PK 를 실어 준다. 차이가 나는 건 완전
+# 무변경(rowcount=0) 뿐이고 그때 lastrowid 는 0 이다(남의 PK 가 아니다). 이 문장엔
+# updated_at=NOW(6) 이 있어 무변경 경로 자체가 안 생긴다. 즉 이건 **보장에 기대지 않기
+# 위한 명시**이지 관측된 사고의 수정이 아니다 — 버전·설정에 의존하는 동작에 PK 를
+# 맡기지 않으려는 것.
 GAME_SYNC_UPSERT = (
     "INSERT INTO games (naver_game_id, game_date, home_team_id, away_team_id, "
     " stadium_id, home_score, away_score, game_status_id, created_at, updated_at) "
     "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(6), NOW(6)) "
-    "ON DUPLICATE KEY UPDATE game_date=VALUES(game_date), "
+    "ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id), game_date=VALUES(game_date), "
     "  stadium_id=COALESCE(VALUES(stadium_id), stadium_id), "
     "  home_score=COALESCE(VALUES(home_score), home_score), "
     "  away_score=COALESCE(VALUES(away_score), away_score), "
     "  game_status_id=VALUES(game_status_id), updated_at=NOW(6)"
+)
+
+# 선발 라인업이 '완성'된 경기 판정. 완성 = 선발 타순 1~9 가 두 팀에 걸쳐 18행.
+# game 단위 COUNT>0 으로 보면 한 팀만 먼저 공시된 경기에서 나머지 한 팀이 영영
+# 안 들어온다(공시는 팀별로 따로 뜬다).
+LINEUP_DONE_GAMES = (
+    "SELECT game_id FROM game_lineups "
+    "WHERE game_id IN ({ph}) AND is_starter = 1 AND bat_order BETWEEN 1 AND 9 "
+    "GROUP BY game_id HAVING COUNT(DISTINCT team_id) = 2 AND COUNT(*) >= 18"
 )
 
 # 취소 사유는 KBO 공식 일정표에만 있어(네이버는 "경기취소"로 뭉뚱그린다) 네이버 자연키
@@ -362,6 +380,19 @@ class DbSink:
             changed = cur.rowcount
         self._conn.commit()
         return changed
+
+    def lineup_done_games(self, game_pks) -> set:
+        """선발 라인업 적재가 끝난 game PK 집합 (LINEUP_DONE_GAMES 판정).
+
+        games_sync 의 라인업 단계가 매 폴링마다 preview 를 다시 긁지 않게 하는
+        스킵 근거다. Lambda /tmp 나 프로세스 메모리가 아니라 DB 를 근거로 삼는
+        이유는 콜드스타트·동시 실행·재배포에도 판정이 유지돼야 하기 때문.
+        """
+        pks = [pk for pk in game_pks if pk]
+        if not pks:
+            return set()
+        ph = ",".join(["%s"] * len(pks))
+        return {row[0] for row in self.fetch_all(LINEUP_DONE_GAMES.format(ph=ph), pks)}
 
     def upsert_lineups(self, game_pk, lineups, player_map, team_ids) -> None:
         """LineupRow 목록 upsert. position(네이버 원문 표기) -> 정식 명칭으로

@@ -454,3 +454,21 @@ def test_sync_game_passes_none_scores_through_for_scheduled_or_cancelled():
         home_team_id=3, away_team_id=2, home_score=None, away_score=None, status_id=1)
     _, _, params = conn.log[0]
     assert params[4] is None and params[5] is None  # home_score, away_score
+
+
+# --------------------------------------------------------------------------- preview 라인업 정리
+def test_lineup_done_games_returns_pks_from_query():
+    conn = FakeConn(fetch_results=[[(11,), (13,)]])
+    assert DbSink(None, connection=conn).lineup_done_games([11, 12, 13]) == {11, 13}
+    kind, sql, params = conn.log[0]
+    # 완성 판정은 '두 팀 × 타순 9' — 한 팀만 공시된 경기를 완료로 보면 나머지 팀이
+    # 영영 안 들어온다.
+    assert "COUNT(DISTINCT team_id) = 2" in sql and "COUNT(*) >= 18" in sql
+    assert params == [11, 12, 13]
+
+
+def test_lineup_done_games_skips_query_when_no_pks():
+    conn = FakeConn()
+    assert DbSink(None, connection=conn).lineup_done_games([]) == set()
+    assert DbSink(None, connection=conn).lineup_done_games([None]) == set()
+    assert conn.log == []
