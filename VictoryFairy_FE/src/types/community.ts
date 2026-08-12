@@ -21,20 +21,8 @@ export interface RankingEntry {
   avatarUrl?: string;
 }
 
-/**
- * 라운지 채팅 말풍선 1건.
- *
- * `ChatMessage`(src/types/chat.ts, 구단 채팅 API)와 필드 이름을 맞춰 두었다.
- * 실제 연결 시엔 `isMine` 만 로그인 사용자 닉네임과 비교해 채우면 된다.
+/*
+ * 채팅 말풍선 타입은 여기 두지 않는다 — 라운지 채팅은 구단 채팅 API 에 연결돼 있어
+ * `ChatMessage`(src/types/chat.ts)를 그대로 그리고, "내 메시지" 여부는 화면에서
+ * 로그인 닉네임과 비교해 판단한다.
  */
-export interface LoungeChatMessage {
-  id: number;
-  senderNickname: string;
-  content: string;
-  /** LocalDateTime 문자열(타임존 오프셋 없음). 예: "2026-08-03T19:32:00" */
-  createdAt: string;
-  /** 내가 보낸 메시지인지. true 면 오른쪽 정렬 + 주황 말풍선. */
-  isMine: boolean;
-  /** 프로필 사진 URL. 없으면 자리표시 아바타를 그린다. */
-  avatarUrl?: string;
-}

@@ -34,7 +34,8 @@ function TeamColumn({ name }: { name: string }) {
  * 왼쪽이 원정, 오른쪽이 홈이다(디자인의 `NC VS LG` @잠실 기준).
  */
 export default function MatchCard({ game, onSelect }: MatchCardProps) {
-  const state = getGameStateDisplay(game.gameState);
+  // 취소 경기면 칩 문구가 취소 사유로 바뀐다.
+  const state = getGameStateDisplay(game);
 
   return (
     <li className="match-card">
@@ -45,7 +46,10 @@ export default function MatchCard({ game, onSelect }: MatchCardProps) {
             <span className="match-card__stadium">{game.stadium ?? '구장 미정'}</span>
             <span className="match-card__time">{formatGameTime(game.gameDate)}</span>
           </span>
-          <span className={`match-card__chip match-card__chip--${state.tone}`}>{state.label}</span>
+          {/* 긴 취소 사유는 칩에서 잘리므로 전체 문구를 title 로 남긴다 */}
+          <span className={`match-card__chip match-card__chip--${state.tone}`} title={state.label}>
+            {state.label}
+          </span>
         </span>
 
         <span className="match-card__teams">

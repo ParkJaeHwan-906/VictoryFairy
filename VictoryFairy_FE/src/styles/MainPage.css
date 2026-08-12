@@ -1,15 +1,215 @@
 /**
  * MainPage(홈 메인) 스타일.
- * Figma: SWM / [Home] 홈 메인 (node 443:4359), 기준 프레임 402 x 874.
  *
- * 본문은 아직 자리표시다. 높이와 하단 NavBar 자리는 AppLayout 이 잡아 준다.
+ * ⚠ 임시(MVP)다. 홈 디자인이 아직 없어 다른 화면에서 확정된 값만 다시 쓴다 —
+ * 라운지의 아이보리 헤더 카드(둥근 아래 모서리 20 + drop-shadow 2px Gray/200),
+ * 경기 화면의 안내문 스타일, 카드 반경 15 · 그림자 2.5px(MatchCard).
+ * 새 색·새 반경·새 폰트 크기는 만들지 않았고 전부 tokens.css 값이다.
+ *
+ * 높이 · 앱 폭(402px) · 하단 NavBar 자리는 AppLayout 이 잡아 준다.
  * 디자인 최상단의 iOS 상태 바(47px)는 단말 크롬이라 옮기지 않았다(CommunityPage 와 동일).
  */
 
 .main-page {
-  width: 100%;
-  max-width: var(--layout-app-width);
-  margin-inline: auto;
-  padding-inline: var(--layout-gutter);
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  padding-bottom: 24px;
   background-color: var(--color-background-basic);
+}
+
+/* ------------------------------------------------------------------ *
+ * Header — 아이보리 카드(인사말 + 응원 구단 + 점수 요약)
+ * 라운지 헤더와 같은 모양이라 두 탭을 오갈 때 화면이 튀지 않는다.
+ * ------------------------------------------------------------------ */
+.main-page__header {
+  display: flex;
+  flex-direction: column;
+  padding: 20px var(--layout-gutter) 24px;
+  border-radius: 0 0 var(--radius-20) var(--radius-20);
+  background-color: var(--color-background-ivory);
+  /* Figma(라운지 헤더): drop-shadow 0 0 2px Gray/200 */
+  filter: drop-shadow(0 0 2px var(--color-gray-200));
+}
+
+.main-page__greeting {
+  margin: 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+}
+
+.main-page__title {
+  margin: 8px 0 0;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-title1);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title1);
+}
+
+/* 응원 구단 배지 — 흰 알약. 미선택일 때는 같은 자리에 고르러 가는 링크가 온다. */
+.main-page__team {
+  display: flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 8px;
+  margin: 20px 0 0;
+  padding: 8px 14px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-surface);
+  color: var(--color-label-normal);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+}
+
+.main-page__team-logo {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+}
+
+.main-page__team--empty {
+  color: var(--color-primary-normal);
+}
+
+/* 포인트 · 승리요정 점수. 두 칸이 화면을 반씩 나눠 갖는다. */
+.main-page__stats {
+  display: flex;
+  gap: 12px;
+  margin: 20px 0 0;
+}
+
+.main-page__stat {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: var(--radius-15);
+  background-color: var(--color-surface);
+}
+
+.main-page__stat-label {
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-caption2);
+  line-height: var(--line-height-tight);
+}
+
+.main-page__stat-value {
+  margin: 0;
+  color: var(--color-primary-normal);
+  font-size: var(--font-size-title3);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title3);
+}
+
+/* ------------------------------------------------------------------ *
+ * Section — 오늘의 경기 · 내 응원 선수
+ * ------------------------------------------------------------------ */
+.main-page__section {
+  padding-inline: var(--layout-gutter);
+}
+
+.main-page__section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.main-page__section-title {
+  margin: 0;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-title3);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title3);
+  /* 구단명이 길어도 '전체 보기'를 밀어내지 않게 한다 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.main-page__more {
+  flex-shrink: 0;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-label2);
+  line-height: var(--line-height-tight);
+}
+
+/* 경기 카드 목록. 카드 자체 모양은 MatchCard.css 가 갖는다. */
+.main-page__game-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 응원 선수 — 이름 + (등번호 · 포지션) 한 줄 */
+.main-page__player-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.main-page__player {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: var(--radius-15);
+  background-color: var(--color-surface);
+  /* MatchCard 와 같은 그림자 값 */
+  filter: drop-shadow(0 0 2.5px var(--color-gray-200));
+}
+
+.main-page__player-name {
+  color: var(--color-label-normal);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+}
+
+.main-page__player-meta {
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-label2);
+  line-height: var(--line-height-tight);
+}
+
+/* 로딩 · 실패 · 비어 있음 안내. GamePage 의 `.game-page__status` 와 같은 값이다. */
+.main-page__status {
+  margin: 24px 0;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-body2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body2);
+  text-align: center;
+}
+
+.main-page__status--error {
+  color: var(--color-error-strong);
+}
+
+/* ------------------------------------------------------------------ *
+ * 반응형 — 402px 미만(소형 단말)에서 좌우 여백을 줄인다(다른 화면과 동일).
+ * ------------------------------------------------------------------ */
+@media (max-width: 359px) {
+  .main-page__header {
+    padding-inline: 16px;
+  }
+
+  .main-page__section {
+    padding-inline: 16px;
+  }
 }

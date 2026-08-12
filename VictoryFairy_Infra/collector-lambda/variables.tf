@@ -174,15 +174,54 @@ variable "registrations_schedule" {
 }
 
 variable "games_sync_morning_schedule" {
-  description = "당일 경기 상태 선반영(SCHEDULED). 기본 08:00 KST = 23:00 UTC."
+  description = "일정 선적재(오늘~+N일). 기본 08:00 KST = 23:00 UTC."
   type        = string
   default     = "cron(0 23 * * ? *)"
 }
 
-variable "games_sync_live_schedule" {
-  description = "경기 시간대 상태 폴링. 기본 17:00~23:50 KST 10분 간격 = 08:00~14:50 UTC."
+# 라이브 윈도(~23:59 KST)가 닫힌 직후. 순연·편성 변경은 대체로 그날 경기가 끝날
+# 무렵 확정되는데, 아침 룰만 있으면 그게 다음 날 08:00 까지 반영되지 않는다.
+variable "games_sync_nightly_schedule" {
+  description = "일정 선적재 2회차(오늘~+N일). 기본 00:30 KST = 15:30 UTC."
   type        = string
-  default     = "cron(0/10 8-14 * * ? *)"
+  default     = "cron(30 15 * * ? *)"
+}
+
+# 1분 간격인 이유: 이 룰이 상태뿐 아니라 **경기 전 선발 라인업**(네이버 preview)도
+# 따라간다. 공시는 경기 직전에 한 번 뜨고, 10분 주기면 화면에 뜨기까지 최대 10분이
+# 밀린다. 헛도는 비용은 스케줄 API 1회뿐이다 — 라인업이 다 들어온 경기는 py-collector
+# 가 DB 판정으로 preview 호출 자체를 건너뛰고, 구장도 이미 아는 경기는 다시 받지 않는다.
+variable "games_sync_live_schedule" {
+  description = "경기 시간대 상태·선발라인업 폴링(당일만). 기본 17:00~23:59 KST 1분 간격 = 08:00~14:59 UTC."
+  type        = string
+  default     = "cron(* 8-14 * * ? *)"
+}
+
+# 상한 14 는 handler.py 의 MAX_SYNC_DAYS 와 같은 값이다. 핸들러가 어차피 자르므로
+# 여기서 막지 않아도 사고는 안 나지만, plan 단계에서 걸리는 편이 낫다.
+variable "games_sync_lookahead_days" {
+  description = "일정 선적재 윈도(오늘~+N일). 라이브 폴링 룰은 이 값과 무관하게 당일만 훑는다."
+  type        = number
+  default     = 7
+
+  validation {
+    condition     = var.games_sync_lookahead_days >= 1 && var.games_sync_lookahead_days <= 14
+    error_message = "games_sync_lookahead_days 는 1~14 이어야 한다 (handler.py MAX_SYNC_DAYS 상한)."
+  }
+}
+
+# 켜기 전 선행 조건 둘은 lambda_db.tf 의 cancel_reasons 블록 주석 참고
+# (games.cancel_reason 컬럼 + 해당 잡을 아는 배포 이미지).
+variable "cancel_reasons_enabled" {
+  description = "KBO 취소 사유 잡의 EventBridge 룰 생성 여부. 선행 조건 둘을 확인한 뒤 true 로 올린다."
+  type        = bool
+  default     = false
+}
+
+variable "cancel_reasons_schedule" {
+  description = "KBO 일정표 취소 사유 반영. 기본 01:00 KST = 16:00 UTC (00:30 games_sync 가 경기 행을 만든 뒤)."
+  type        = string
+  default     = "cron(0 16 * * ? *)"
 }
 
 variable "export_game_result_schedule" {

@@ -12,6 +12,8 @@ export const ROUTES = {
   community: '/community',
   main: '/main',
   game: '/game',
+  /** 데일리 퀴즈 풀이. 경기 상세 시트의 "퀴즈 풀러 가기"로 들어온다(NavBar 없는 전체 화면). */
+  quiz: '/quiz',
   my: '/my',
 } as const;
 
@@ -27,4 +29,21 @@ export const ROUTES = {
 export interface PlayerSelectState {
   teamId: number;
   teamName: string;
+}
+
+/**
+ * 경기 상세 → 퀴즈 화면으로 넘길 값.
+ *
+ * 퀴즈 API 는 경기와 묶여 있지 않다 — `GET /quizzes/today` 는 그날의 세트를 줄 뿐
+ * `gameId` 로 좁히는 파라미터가 없다(docs/quiz.md). 그래서 이 값은 조회 조건이 아니라
+ * **상단 바에 "NC 다이노스 VS LG 트윈스"를 쓰기 위한 표시용 문맥**이다.
+ *
+ * 라우터 state 는 주소를 직접 치고 들어오면 비어 있다 — 받는 쪽은 없는 경우를 견뎌야 한다.
+ */
+export interface QuizPageState {
+  /** 어느 경기에서 들어왔는지. 지금은 표시에 쓰지 않지만 결과 화면이 생기면 필요하다. */
+  gameId: string;
+  /** 서버의 짧은 구단명(`Game.awayTeam`). 표시용 정식 명칭 변환은 화면에서 한다. */
+  awayTeam: string;
+  homeTeam: string;
 }

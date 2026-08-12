@@ -117,16 +117,85 @@ GAME_UPSERT = (
     "  updated_at=NOW(6)"
 )
 
-# games_sync 전용: 점수는 제공될 때만 갱신(COALESCE), stadium_id 는 records 잡
-# 소유라 건드리지 않는다(INSERT 시 NULL, UPDATE 목록에서 제외).
+# games_sync 전용: 점수·구장은 제공될 때만 갱신(COALESCE).
+# stadium_id 의 최종 진실은 여전히 records 잡이다 — GAME_UPSERT 는 무조건 덮어쓰고
+# 여기선 NULL 일 때만 메운다. 경기 전에는 records 가 아직 안 돌아 구장이 비는데,
+# 일정을 미리 적재하는 잡(games_sync 의 +N일 윈도)이 그 구멍을 채우기 위한 것.
+#
+# id=LAST_INSERT_ID(id) 는 GAME_UPSERT 와 같은 관용구다(설명은 그쪽 주석). 여기서는
+# 뒤이은 선발 라인업 적재가 이 반환 PK 를 그대로 쓰기 때문에 붙였다.
+# 다만 "없으면 엉뚱한 PK 가 온다"는 아니다 — MySQL 8.0.46 실측상 갱신 경로(rowcount=2)
+# 에서는 관용구 없이도 서버가 OK 패킷에 기존 PK 를 실어 준다. 차이가 나는 건 완전
+# 무변경(rowcount=0) 뿐이고 그때 lastrowid 는 0 이다(남의 PK 가 아니다). 이 문장엔
+# updated_at=NOW(6) 이 있어 무변경 경로 자체가 안 생긴다. 즉 이건 **보장에 기대지 않기
+# 위한 명시**이지 관측된 사고의 수정이 아니다 — 버전·설정에 의존하는 동작에 PK 를
+# 맡기지 않으려는 것.
+# ⚠ 이닝 두 컬럼만 COALESCE 가 아니다 — 의도된 비대칭이다.
+# 점수·구장은 "한 번 알면 계속 참"이라 COALESCE 로 기존 값을 지킨다. 이닝은 반대로
+# **진행 중일 때만 참**인 값이라 경기가 끝나면 지워져야 한다(BE 계약: IN_PROGRESS 가
+# 아닌 상태는 항상 null). COALESCE 를 붙이면 종료된 경기에 마지막 이닝이 영원히
+# 남아 "9회말 진행 중"으로 보인다. 일관성 명목으로 COALESCE 를 더하지 말 것.
 GAME_SYNC_UPSERT = (
     "INSERT INTO games (naver_game_id, game_date, home_team_id, away_team_id, "
-    " stadium_id, home_score, away_score, game_status_id, created_at, updated_at) "
-    "VALUES (%s, %s, %s, %s, NULL, %s, %s, %s, NOW(6), NOW(6)) "
-    "ON DUPLICATE KEY UPDATE game_date=VALUES(game_date), "
+    " stadium_id, home_score, away_score, game_status_id, current_inning, inning_half, "
+    " created_at, updated_at) "
+    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(6), NOW(6)) "
+    "ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id), game_date=VALUES(game_date), "
+    "  stadium_id=COALESCE(VALUES(stadium_id), stadium_id), "
     "  home_score=COALESCE(VALUES(home_score), home_score), "
     "  away_score=COALESCE(VALUES(away_score), away_score), "
-    "  game_status_id=VALUES(game_status_id), updated_at=NOW(6)"
+    "  game_status_id=VALUES(game_status_id), "
+    "  current_inning=VALUES(current_inning), inning_half=VALUES(inning_half), "
+    "  updated_at=NOW(6)"
+)
+
+# 선발 라인업이 '완성'된 경기 판정. 완성 = 선발 타순 1~9 가 두 팀에 걸쳐 18행.
+# game 단위 COUNT>0 으로 보면 한 팀만 먼저 공시된 경기에서 나머지 한 팀이 영영
+# 안 들어온다(공시는 팀별로 따로 뜬다).
+LINEUP_DONE_GAMES = (
+    "SELECT game_id FROM game_lineups "
+    "WHERE game_id IN ({ph}) AND is_starter = 1 AND bat_order BETWEEN 1 AND 9 "
+    "GROUP BY game_id HAVING COUNT(DISTINCT team_id) = 2 AND COUNT(*) >= 18"
+)
+
+# 구장을 이미 아는 경기. 구장은 스케줄 목록에 없어 경기마다 상세 API 를 한 번 더
+# 불러야 하는데, 한 번 채우면 변하지 않는다 — 폴링이 1분이면 같은 값을 하루 수백 번
+# 다시 받게 되므로 아는 경기는 건너뛴다.
+GAMES_WITH_STADIUM = (
+    "SELECT naver_game_id FROM games "
+    "WHERE naver_game_id IN ({ph}) AND stadium_id IS NOT NULL"
+)
+
+# preview(경기 전 공시)로 적재해 놓고 실제로는 출전하지 않은 선수를 걷어낸다.
+# records 잡이 박스스코어로 확정 적재한 뒤 부르며, 박스스코어에 없는 행이 곧 유령이다.
+LINEUP_DELETE_EXCEPT = (
+    "DELETE FROM game_lineups WHERE game_id = %s AND player_id NOT IN ({ph})"
+)
+
+# 취소된 경기의 preview 라인업 정리. 취소 경기는 RESULT 가 아니라 records 잡이
+# 영영 돌지 않으므로 위 정리 경로가 닿지 않는다 — 놔두면 유령이 영구히 남는다.
+# batter_records 가 없을 때만 지우는 이유: 서스펜디드처럼 '경기는 치렀는데 나중에
+# 취소로 표시'되는 경우 records 가 적재한 확정 라인업까지 날리면 안 된다.
+LINEUP_DELETE_UNPLAYED = (
+    "DELETE FROM game_lineups WHERE game_id = %s "
+    "AND NOT EXISTS (SELECT 1 FROM batter_records b WHERE b.game_id = %s)"
+)
+
+# 취소 사유는 KBO 공식 일정표에만 있어(네이버는 "경기취소"로 뭉뚱그린다) 네이버 자연키
+# naver_game_id 로 행을 못 집는다 — 취소 경기엔 KBO 쪽 gameId 자체가 비어 있다. 그래서
+# (날짜, 대진) 으로 UPDATE 한다. games.game_date 는 시각을 포함하는 DATETIME 이라
+# 등치 비교가 늘 0건이므로 반개구간으로 잡는다(domain 규약).
+#
+# 마지막 조건(사유가 실제로 다를 때만)이 이 잡을 멱등하게 만든다. 없으면 값이 같아도
+# updated_at=NOW(6) 때문에 행이 매번 "변경"되어 두 가지가 어긋난다:
+#   1. 매일 같은 행을 다시 쓴다 — 바뀐 게 없는데 updated_at 만 흔들린다.
+#   2. 반환하는 rowcount 가 "새로 채운 행"이 아니라 "매칭된 행"이 된다. 그래서 재실행
+#      해도 같은 수가 찍혀 "매일 30건씩 갱신되네?"로 읽힌다(2026-08-10 실측).
+CANCEL_REASON_UPDATE = (
+    "UPDATE games SET cancel_reason=%s, updated_at=NOW(6) "
+    "WHERE game_date >= %s AND game_date < DATE_ADD(%s, INTERVAL 1 DAY) "
+    "  AND home_team_id=%s AND away_team_id=%s "
+    "  AND (cancel_reason IS NULL OR cancel_reason <> %s)"
 )
 
 LINEUP_UPSERT = (
@@ -315,17 +384,94 @@ class DbSink:
         return pk
 
     def sync_game(self, *, naver_game_id, game_dt, home_team_id, away_team_id,
-                 home_score, away_score, status_id) -> int:
-        """games_sync 잡 전용 upsert. GAME_SYNC_UPSERT 를 써서 stadium_id 는
-        건드리지 않고(records 잡 소유), 점수는 COALESCE로 기존 값을 지킨다."""
+                 home_score, away_score, status_id, stadium_id=None,
+                 current_inning=None, inning_half=None) -> int:
+        """games_sync 잡 전용 upsert. GAME_SYNC_UPSERT 를 써서 점수·구장은
+        COALESCE로 기존 값을 지킨다(구장의 최종 진실은 records 잡).
+
+        `current_inning`/`inning_half` 는 그와 달리 매번 덮어쓴다 — 진행 중이
+        아닌 경기는 None 을 받아 NULL 로 지워져야 한다(GAME_SYNC_UPSERT 주석 참고).
+        """
         with self._conn.cursor() as cur:
             cur.execute(GAME_SYNC_UPSERT, (
                 naver_game_id, game_dt, home_team_id, away_team_id,
-                home_score, away_score, status_id,
+                stadium_id, home_score, away_score, status_id,
+                current_inning, inning_half,
             ))
             pk = cur.lastrowid
         self._conn.commit()
         return pk
+
+    def set_cancel_reason(self, *, date, home_team_id, away_team_id, reason) -> int:
+        """(날짜, 대진) 의 games 행에 취소 사유를 기록하고 **실제로 바뀐** 행 수를 반환.
+
+        0 이 정상인 경우가 둘이고, 둘의 의미가 다르다:
+          - 이미 같은 사유가 적혀 있다 (매일 재실행 — 정상, 아무것도 안 쓴다)
+          - 매칭될 행이 없다 (games_sync 가 그 날짜를 아직 안 적재했거나 games 에
+            없는 경기). 사유는 경기 행이 있어야 붙으므로 이쪽은 순서 문제다.
+        둘을 구분해야 하면 호출자가 별도 조회로 확인한다 — 이 반환값만으로는 못 나눈다.
+        """
+        with self._conn.cursor() as cur:
+            cur.execute(CANCEL_REASON_UPDATE,
+                        (reason, date, date, home_team_id, away_team_id, reason))
+            changed = cur.rowcount
+        self._conn.commit()
+        return changed
+
+    def lineup_done_games(self, game_pks) -> set:
+        """선발 라인업 적재가 끝난 game PK 집합 (LINEUP_DONE_GAMES 판정).
+
+        games_sync 의 라인업 단계가 매 폴링마다 preview 를 다시 긁지 않게 하는
+        스킵 근거다. Lambda /tmp 나 프로세스 메모리가 아니라 DB 를 근거로 삼는
+        이유는 콜드스타트·동시 실행·재배포에도 판정이 유지돼야 하기 때문.
+        """
+        pks = [pk for pk in game_pks if pk]
+        if not pks:
+            return set()
+        ph = ",".join(["%s"] * len(pks))
+        return {row[0] for row in self.fetch_all(LINEUP_DONE_GAMES.format(ph=ph), pks)}
+
+    def games_with_stadium(self, naver_game_ids) -> set:
+        """구장이 이미 채워진 naver_game_id 집합 (GAMES_WITH_STADIUM 판정)."""
+        ids = [gid for gid in naver_game_ids if gid]
+        if not ids:
+            return set()
+        ph = ",".join(["%s"] * len(ids))
+        return {row[0] for row in self.fetch_all(GAMES_WITH_STADIUM.format(ph=ph), ids)}
+
+    def delete_lineups_except(self, game_pk, player_ids) -> int:
+        """박스스코어에 없는 라인업 행 삭제 -> 지운 행 수.
+
+        preview 로 미리 적재한 선발이 경기 직전 교체되면 그 선수는 박스스코어에
+        없는 채로 is_starter=1 인 유령으로 남는다. records 잡이 확정 적재한 뒤
+        불러 걷어낸다.
+
+        player_ids 가 비면 아무것도 하지 않는다. 빈 목록으로 만든 NOT IN () 은
+        MySQL 이 문법 오류로 거부하므로(실측) 통째 삭제가 나지는 않지만, 그 예외가
+        records 잡의 그 경기 처리를 통째로 실패시킨다 — 파싱이 빈 결과를 내는 것과
+        적재를 실패시키는 것은 다른 문제다.
+        """
+        ids = [pk for pk in set(player_ids or ()) if pk]
+        if not ids:
+            return 0
+        ph = ",".join(["%s"] * len(ids))
+        with self._conn.cursor() as cur:
+            cur.execute(LINEUP_DELETE_EXCEPT.format(ph=ph), [game_pk, *ids])
+            deleted = cur.rowcount
+        self._conn.commit()
+        return deleted
+
+    def delete_lineups_if_unplayed(self, game_pk) -> int:
+        """치르지 않은 경기(박스스코어 없음)의 라인업 삭제 -> 지운 행 수.
+
+        취소 경기 전용. 우천 취소는 라인업 공시 뒤에 나는 일이 잦은데, 취소 경기엔
+        records 잡이 영영 돌지 않아 delete_lineups_except 가 닿지 않는다.
+        """
+        with self._conn.cursor() as cur:
+            cur.execute(LINEUP_DELETE_UNPLAYED, (game_pk, game_pk))
+            deleted = cur.rowcount
+        self._conn.commit()
+        return deleted
 
     def upsert_lineups(self, game_pk, lineups, player_map, team_ids) -> None:
         """LineupRow 목록 upsert. position(네이버 원문 표기) -> 정식 명칭으로

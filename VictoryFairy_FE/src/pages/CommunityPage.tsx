@@ -33,8 +33,9 @@ function RankingRow({ entry, isMine = false }: { entry: RankingEntry; isMine?: b
 
 /**
  * CommunityPage — 라운지 메인(승리요정 랭킹).
- * Figma: SWM / [Lounge] 라운지 메인 (node 724:20029), 기준 프레임 402 x 874
+ * Figma: SWM / [Lounge] 라운지 메인 (수정) (node 1090:8107), 기준 프레임 402 x 874
  *
+ * 상위 3명은 주황 그라데이션 카드 위에 왕관과 함께 서고, 4위 아래로는 목록이 이어진다.
  * 오른쪽 아래 채팅 버튼을 누르면 라운지 채팅 바텀시트가 올라온다.
  * 랭킹·채팅 모두 아직 더미 데이터를 그린다(API 연결 예정).
  */
@@ -59,18 +60,19 @@ export default function CommunityPage() {
                 className={`community-page__podium-item community-page__podium-item--rank${entry.rank}`}
                 key={entry.id}
               >
+                {/* 순위를 알리는 것은 왕관 크기뿐이라 자리 표시가 아니라 뜻이 있는 그림이다 */}
+                <span className="community-page__podium-crown" aria-hidden="true" />
                 <div className="community-page__podium-profile">
-                  <div className="community-page__podium-label">
-                    <p className="community-page__podium-point">{entry.point}p</p>
-                    <p className="community-page__podium-name">{entry.nickname}</p>
-                  </div>
                   <img
                     className="community-page__podium-avatar"
                     src={entry.avatarUrl ?? profilePlaceholder}
                     alt=""
                   />
+                  <div className="community-page__podium-label">
+                    <p className="community-page__podium-point">{entry.point}p</p>
+                    <p className="community-page__podium-name">{entry.nickname}</p>
+                  </div>
                 </div>
-                <div className="community-page__podium-bar" aria-hidden="true" />
               </div>
             );
           })}

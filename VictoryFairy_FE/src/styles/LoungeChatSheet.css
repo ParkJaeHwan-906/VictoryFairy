@@ -95,8 +95,22 @@
 
 /* ------------------------------------------------------------------ *
  * Messages — 말풍선 목록(스크롤 영역)
+ *
+ * 목록을 감싸는 이유는 맨 위에서 당길 때다. 목록은 `transform` 으로 내려가고
+ * 그 뒤에서 회전 표시가 드러나는데, 내려간 만큼 아래로 삐져나오므로 여기서 자른다.
  * ------------------------------------------------------------------ */
+.lounge-chat__list {
+  position: relative;
+  display: flex;
+  flex: 1 0 0;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .lounge-chat__messages {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex: 1 0 0;
   flex-direction: column;
@@ -108,6 +122,52 @@
   list-style: none;
   overflow-y: auto;
   overscroll-behavior: contain;
+  /* 제자리로 돌아갈 때만 부드럽게. 끄는 중에는 손가락을 그대로 따라와야 한다. */
+  transition: transform 0.2s ease-out;
+  /* 회전 표시를 덮어 가린다 — 당겨서 내려가야만 드러난다 */
+  background-color: var(--color-surface);
+}
+
+.lounge-chat__messages[data-pulling] {
+  transition: none;
+}
+
+/* ------------------------------------------------------------------ *
+ * Pull to load — 맨 위에서 당겨 지난 대화 부르기
+ * 자리 높이는 당기는 문턱과 같다(컴포넌트가 `--lounge-pull-trigger` 로 내려준다).
+ * ------------------------------------------------------------------ */
+.lounge-chat__pull {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--lounge-pull-trigger, 60px);
+  /* 목록 뒤에 깔린 표시라 손가락을 가로채면 안 된다 */
+  pointer-events: none;
+}
+
+.lounge-chat__pull-spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--color-line-light);
+  /* 한 조각만 색이 달라야 도는 것이 보인다 */
+  border-top-color: var(--color-primary-normal);
+  border-radius: 50%;
+}
+
+/* 당기기 시작부터 불러오기가 끝날 때까지 같은 속도로 돈다 */
+.lounge-chat__pull[data-spinning] .lounge-chat__pull-spinner {
+  animation: lounge-chat-spin 0.7s linear infinite;
+}
+
+@keyframes lounge-chat-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .lounge-chat__message {
@@ -184,6 +244,90 @@
 }
 
 /* ------------------------------------------------------------------ *
+ * 안내 문구 — 로딩 · 실패 · 빈 목록. 말풍선 대신 목록 가운데에 한 줄로 놓는다.
+ * ------------------------------------------------------------------ */
+.lounge-chat__notice {
+  margin: auto 0;
+  padding-inline: var(--layout-gutter);
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-body2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body2);
+  text-align: center;
+}
+
+.lounge-chat__notice--error {
+  color: var(--color-primary-normal);
+}
+
+/* 실시간 연결이 끊겼을 때 목록 위에 붙는 띠. */
+.lounge-chat__live-notice {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 6px var(--layout-gutter);
+  background-color: var(--color-gray-100);
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+  text-align: center;
+}
+
+/*
+ * 지난 대화 불러오기 — 당기기를 못 쓰는 사용자를 위한 같은 동작의 버튼.
+ * 평소에는 숨어 있다가 키보드 포커스가 닿으면 목록 위에 떠서 나타난다.
+ */
+.lounge-chat__more {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  z-index: 2;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  transform: translateX(-50%);
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.lounge-chat__more:focus-visible {
+  width: auto;
+  height: auto;
+  padding: 4px 12px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-background-gray);
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  clip-path: none;
+}
+
+/* 보조기기에만 알리는 진행 안내(핸들 설명과 같은 방식). */
+.lounge-chat__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* 전송 실패 안내 — 입력창 바로 위. */
+.lounge-chat__send-error {
+  flex-shrink: 0;
+  margin: 0 var(--layout-gutter) 8px;
+  color: var(--color-primary-normal);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+/* ------------------------------------------------------------------ *
  * Composer — 하단 입력창
  * 디자인 기준 입력창 아래 여백 46px(=694 - 600 - 48).
  * ------------------------------------------------------------------ */
@@ -256,6 +400,12 @@
   content: '';
 }
 
+/* 방을 못 불러왔거나 전송 중이면 보낼 수 없다. */
+.lounge-chat__send:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
 /* `send.svg` 의 fill 이 검정이라 mask 로 오려내고 색만 입힌다. */
 .lounge-chat__send-icon {
   width: 24px;
@@ -263,6 +413,101 @@
   background-color: var(--color-primary-normal);
   -webkit-mask: url('../assets/send.svg') no-repeat center / contain;
   mask: url('../assets/send.svg') no-repeat center / contain;
+}
+
+/* ------------------------------------------------------------------ *
+ * 길게 눌러 신고하기
+ * ------------------------------------------------------------------ */
+
+/*
+ * 남의 말풍선은 버튼이다. 생김새는 `.lounge-chat__bubble` 그대로 두고
+ * 버튼의 기본 장식(테두리·글꼴·가운데 정렬)만 걷어낸다.
+ */
+.lounge-chat__bubble--pressable {
+  appearance: none;
+  border: 0;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  /*
+   * 세로 스크롤은 브라우저에 넘기고 가로 제스처만 우리가 받는다. 이걸 빼면
+   * 말풍선 위에서 시작한 손가락으로 목록을 넘길 수 없다.
+   */
+  touch-action: pan-y;
+  /*
+   * 길게 누르면 모바일 브라우저가 글자를 선택하거나 복사 메뉴를 띄운다.
+   * 신고 메뉴와 겹치므로 막는다 — 대신 이 말풍선의 글자는 복사할 수 없다.
+   */
+  user-select: none;
+  -webkit-touch-callout: none;
+  /*
+   * 커질 때도 돌아올 때도 같은 곡선을 탄다. 끝으로 갈수록 느려지는 곡선이라
+   * 손을 떼면 툭 끊기지 않고 제자리로 미끄러진다.
+   */
+  transition: transform 220ms cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+/*
+ * 누르고 있는 동안 살짝 커진다 — "지금 눌리고 있다"를 알리는 유일한 신호다.
+ * 왼쪽 기준으로 키워 말풍선이 아바타 쪽으로 밀려들지 않게 한다.
+ */
+.lounge-chat__bubble--pressing {
+  transform: scale(1.06);
+  transform-origin: left center;
+}
+
+/* 신고 · 취소 아이콘 — 말풍선 옆에 나란히 붙는 작은 원형 버튼. */
+.lounge-chat__report-icon {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-40);
+  background-color: var(--color-background-gray);
+  cursor: pointer;
+  /* 길게 누르기가 끝나는 순간 튀어나오지 않게 짧게 떠오른다. */
+  animation: lounge-chat-icon-in 160ms cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+.lounge-chat__report-icon:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+@keyframes lounge-chat-icon-in {
+  from {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+}
+
+.lounge-chat__report-icon-glyph {
+  width: 16px;
+  height: 16px;
+  background-color: var(--color-error-strong);
+  -webkit-mask: url('../assets/report.svg') no-repeat center / contain;
+  mask: url('../assets/report.svg') no-repeat center / contain;
+}
+
+/* 취소는 같은 크기·모양에 색만 뺀다 — 신고 쪽이 더 눈에 띄어야 한다. */
+.lounge-chat__cancel-icon-glyph {
+  width: 14px;
+  height: 14px;
+  background-color: var(--color-label-alternative);
+  -webkit-mask: url('../assets/x.svg') no-repeat center / contain;
+  mask: url('../assets/x.svg') no-repeat center / contain;
+}
+
+.lounge-chat__report-error {
+  margin: 6px 0 0;
+  color: var(--color-error-strong);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
 }
 
 /* ------------------------------------------------------------------ *
@@ -280,6 +525,34 @@
 
 @media (prefers-reduced-motion: reduce) {
   .lounge-chat__sheet {
+    animation: none;
+  }
+
+  /*
+   * 확대는 남긴다. 누르고 있다는 걸 알리는 유일한 신호라 없애면 기능이 사라진다.
+   * 움직임에 예민한 사용자를 위해 커지는 정도만 줄이고 전환은 끈다.
+   */
+  .lounge-chat__bubble--pressable {
+    transition: none;
+  }
+
+  .lounge-chat__messages {
+    transition: none;
+  }
+
+  /*
+   * 회전은 남긴다. 불러오는 중이라는 걸 알리는 유일한 신호라 멈추면 멈춘 그림이 된다.
+   * 대신 한 바퀴를 느리게 돌려 시야에서 덜 튀게 한다.
+   */
+  .lounge-chat__pull[data-spinning] .lounge-chat__pull-spinner {
+    animation-duration: 1.8s;
+  }
+
+  .lounge-chat__bubble--pressing {
+    transform: scale(1.02);
+  }
+
+  .lounge-chat__report-icon {
     animation: none;
   }
 }

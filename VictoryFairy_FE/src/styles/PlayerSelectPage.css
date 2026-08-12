@@ -199,6 +199,14 @@
   text-overflow: ellipsis;
 }
 
+/*
+ * 아이콘과 같은 20px 상자다 — 여백이 없다.
+ *
+ * padding 을 0 으로 못박는 이유: 전역 리셋(global.css)은 button 의 border·background 만
+ * 지우고 padding 은 브라우저 기본값(Chrome 1px 6px)을 남긴다. box-sizing: border-box 라
+ * 그 기본값이 20px 상자의 안쪽을 8px 로 깎고, 그러면 아래 아이콘이 flex 아이템으로 눌려
+ * mask 가 contain 으로 축소돼 디자인(12px 글리프)보다 작게 그려진다.
+ */
 .player-select-page__remove {
   display: flex;
   flex-shrink: 0;
@@ -206,10 +214,13 @@
   justify-content: center;
   width: 20px;
   height: 20px;
+  padding: 0;
   cursor: pointer;
 }
 
+/* Icons 20px 상자 안에 12px 글리프 — x.svg 의 여백이 그 비율을 이미 갖고 있다 */
 .player-select-page__remove-icon {
+  flex-shrink: 0;
   width: 20px;
   height: 20px;
   background-color: var(--color-label-assistive);

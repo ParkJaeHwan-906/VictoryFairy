@@ -57,6 +57,17 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+          # ⚠ 파드 시간대. 미설정이면 JVM 이 UTC 로 돌고, @CreationTimestamp 계열이 찍는
+          #   LocalDateTime 컬럼(전 테이블 52개)이 UTC 벽시계로 저장된다 — 응답에 오프셋이 없어
+          #   FE 가 로컬로 읽으면 9시간 과거로 보인다(채팅 시간 오표시의 원인).
+          #   envFrom(app-config) 이 아니라 여기 두는 이유: app-config 는 클러스터에서 수기로
+          #   관리돼 git 에 실물이 없다 — 시간대는 코드로 고정돼야 재현된다.
+          #   베이스 이미지 eclipse-temurin:21-jre 에 tzdata 가 있어 이 값이 실제로 먹는다(실측).
+          #   ⚠ 롤링 중에는 UTC 파드와 KST 파드가 공존한다 — 그 사이 쓰인 행은 존이 섞이므로
+          #   데이터 백필과 같은 점검 창에서 함께 전환해야 한다.
+          env:
+            - name: TZ
+              value: "Asia/Seoul"
           envFrom:
             - configMapRef:
                 name: app-config

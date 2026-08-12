@@ -78,6 +78,15 @@ spec:
           ports:
             - name: http
               containerPort: 8081
+          # ⚠ 파드 시간대. user-app 과 반드시 같은 값이어야 한다(같은 DB 에 같은 컬럼을 쓴다).
+          #   미설정이면 JVM 이 UTC 로 돌아 LocalDateTime 컬럼이 UTC 벽시계로 저장된다.
+          #   quiz 는 여기에 하나가 더 걸린다 — 제출 시한(8분)이 `created_at` 과 앱의 현재 시각을
+          #   같은 존으로 비교해 성립한다(QuizSubmitWindow). 두 파드의 TZ 가 어긋나면 한쪽이 만든
+          #   행을 다른 쪽이 9시간 과거로 읽어 제출이 즉시 403 이 된다.
+          #   quiz_date 판정용 kstClock 과는 별개 축이다(그건 코드에 KST 로 고정돼 있다).
+          env:
+            - name: TZ
+              value: "Asia/Seoul"
           envFrom:
             - configMapRef:
                 name: app-config

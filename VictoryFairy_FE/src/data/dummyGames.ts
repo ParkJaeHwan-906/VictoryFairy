@@ -39,6 +39,8 @@ function makeGame(
   home: DummyTeam,
   gameState: string,
   scores: [number, number] | null = null,
+  /** `CANCELED` 경기에만 넣는다 — 다른 상태는 실제 API 에서도 항상 `null` 이다. */
+  cancelReason: string | null = null,
 ): Game {
   return {
     gameId: `${date.replaceAll('-', '')}DUMMY${index}`,
@@ -51,6 +53,7 @@ function makeGame(
     homeTeamScore: scores?.[1] ?? null,
     gameDate: `${date}T18:30:00`,
     gameState,
+    cancelReason,
   };
 }
 
@@ -58,10 +61,10 @@ function makeGame(
 function buildGameList(date: string): Game[] {
   const today = getTodayInSeoul();
 
-  // 과거 — 끝났거나 취소된 경기만
+  // 과거 — 끝났거나 취소된 경기만. 1번은 취소 사유가 칩에 실리는 경우다.
   if (date < today) {
     return [
-      makeGame(1, date, '잠실', TEAMS.NC, TEAMS.LG, 'CANCELED'),
+      makeGame(1, date, '잠실', TEAMS.NC, TEAMS.LG, 'CANCELED', null, '폭염취소'),
       makeGame(2, date, '사직', TEAMS.SSG, TEAMS.롯데, 'FINISHED', [3, 7]),
       makeGame(3, date, '광주', TEAMS.한화, TEAMS.KIA, 'FINISHED', [5, 8]),
       makeGame(4, date, '수원', TEAMS.두산, TEAMS.KT, 'DRAW', [4, 4]),
@@ -79,7 +82,11 @@ function buildGameList(date: string): Game[] {
     ];
   }
 
-  // 오늘 — 진행중·예정·종료·취소를 한 번에
+  /*
+   * 오늘 — 진행중·예정·종료·취소를 한 번에.
+   * 4번은 사유 없는 취소(`cancelReason: null`)라 기본 문구 fallback 을 여기서 확인한다 —
+   * 과거 날짜의 1번(사유 있음)과 같이 보면 두 갈래가 다 보인다.
+   */
   return [
     makeGame(1, date, '잠실', TEAMS.NC, TEAMS.LG, 'IN_PROGRESS', [2, 1]),
     makeGame(2, date, '사직', TEAMS.SSG, TEAMS.롯데, 'SCHEDULED'),
