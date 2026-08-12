@@ -11,14 +11,18 @@ import type { DailyQuiz } from '../api';
 import QuizCard, { type QuizCardExit } from '../components/QuizCard';
 import { getTeamDisplay } from '../data/kboTeams';
 import { ROUTES, type QuizPageState } from '../routes';
+import { formatKoreanDate, getTodayInSeoul } from '../utils/date';
 import '../styles/QuizPage.css';
 
 /**
  * QuizPage — 오늘의 퀴즈 풀이.
- * Figma: SWM / [Game] 퀴즈 메인 (시안) (node 929:8097)
+ * Figma: SWM / [Game] 퀴즈 메인(OorX) (node 744:22436)
  *
  * 경기 상세 시트의 "퀴즈 풀러 가기"로 들어온다. NavBar 는 디자인에 없어
  * `AppLayout` 밖 라우트다(온보딩 화면들과 같은 구성).
+ *
+ * 화면이 가진 것은 상단 바와 카드 더미뿐이다 — 날짜·맞대결·문항 번호가 모두
+ * 카드 안으로 들어가 있어, 화면은 어느 문제를 보여줄지만 정한다.
  *
  * **정오는 여기서 보여주지 않는다.** 제출 응답에 정답이 실려 오지만 채점 화면이
  * 따로 있으므로, 이 화면은 고르고 다음 문제로 넘기는 일만 한다.
@@ -34,7 +38,9 @@ import '../styles/QuizPage.css';
  * 백엔드에 `gameId` 필터가 생겨야 한다.
  * ──────────────────────────────────────────────────────────────────────
  *
- * 하단의 실시간 정답 선택율 바(929:8114·8115 와 O/X 퍼센트)는 이번 범위에서 제외했다.
+ * 디자인 아래쪽의 실시간 선택율(O 65% / X 35% 와 게이지, 744:22706~22748)은 넣지 않았다 —
+ * **보기별 선택 비율을 주는 API 가 없다**(docs/quiz.md). 제출 응답이 주는 것은 내 정오와
+ * 정답 번호뿐이고 `accuracy` 도 내 누적 정답률이라 다른 값이다. 숫자를 지어내지 않는다.
  */
 
 /**
@@ -44,8 +50,8 @@ import '../styles/QuizPage.css';
  */
 const CARD_EXIT_MS = 280;
 
-/** 카드로 보여줄 뒷장 수. 디자인은 4장이고, 남은 문제가 적으면 그만큼 줄인다. */
-const MAX_DECK_LAYERS = 4;
+/** 카드로 보여줄 뒷장 수. 디자인은 2장이고, 남은 문제가 적으면 그만큼 줄인다. */
+const MAX_DECK_LAYERS = 2;
 
 /**
  * 앞 화면(경기 상세)이 넘긴 경기 문맥을 읽는다.
@@ -163,9 +169,16 @@ export default function QuizPage() {
     setIndex((current) => current + 1);
   };
 
-  const title = context
+  /*
+   * 맞대결은 상단 바가 아니라 카드 머리말에 쓴다 — 상단 바 제목은 디자인이 "경기 퀴즈"로
+   * 고정이다. 문맥 없이 들어오면(주소 직접 입력) 카드에서 그 줄만 빠진다.
+   */
+  const matchLabel = context
     ? `${teamLabel(context.awayTeam)} VS ${teamLabel(context.homeTeam)}`
-    : '오늘의 퀴즈';
+    : null;
+
+  /* 오늘의 세트라 카드 날짜는 곧 오늘이다 — 서버가 판정하는 "오늘"과 같은 서울 기준. */
+  const dateLabel = formatKoreanDate(getTodayInSeoul());
 
   const quiz = quizzes?.[index] ?? null;
   const isDone = quizzes !== null && index >= quizzes.length;
@@ -192,17 +205,10 @@ export default function QuizPage() {
         >
           <span className="quiz-page__back-icon" aria-hidden="true" />
         </button>
-        {/* 디자인은 "… 1회"처럼 회차까지 쓰지만, `GET /games` 응답에 이닝이 없어 뺐다. */}
-        <h1 className="quiz-page__topbar-title">{title}</h1>
+        <h1 className="quiz-page__topbar-title">경기 퀴즈</h1>
         {/* 디자인상 opacity 0 인 빈 버튼 — 타이틀을 가운데 두기 위한 자리 */}
         <span className="quiz-page__topbar-spacer" aria-hidden="true" />
       </header>
-
-      <p className="quiz-page__heading">
-        퀴즈와 경기의 흐름을 바탕으로
-        <br />
-        정답을 맞춰보세요!
-      </p>
 
       <div className="quiz-page__body">
         {quizzes === null && loadError === null && (
@@ -240,6 +246,9 @@ export default function QuizPage() {
               key={quiz.id}
               quiz={quiz}
               order={index + 1}
+              total={quizzes?.length ?? 0}
+              dateLabel={dateLabel}
+              matchLabel={matchLabel}
               isSubmitting={isSubmitting}
               exit={exit}
               onSelect={handleSelect}
