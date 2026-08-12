@@ -100,16 +100,19 @@ function GlyphX() {
 }
 
 /**
- * O/X 가 아닌 2지선다의 글리프.
+ * O/X 가 아닌 2지선다의 글리프 — 왼쪽이 A, 오른쪽이 B.
  *
  * 같은 자리에 O/X 를 놓으면 초록 O 가 "맞다", 빨간 X 가 "틀리다"로 읽힌다 —
  * 보기가 `안타`·`아웃` 처럼 옳고 그름과 무관할 때는 없는 뜻을 덧씌우게 된다.
- * 그래서 색을 빼고 미는 방향만 남긴다.
+ * A·B 는 순서만 가리키는 이름이라 그런 뜻이 붙지 않는다.
+ *
+ * **글자는 보기 이름 위에 얹는 표지일 뿐 문제 본문에는 넣지 않는다** —
+ * 서버가 주는 `question`·`options[].text` 는 그대로 둔다.
  */
 function GlyphSide({ side }: { side: SwipeSide }) {
   return (
     <span className={`quiz-card__glyph quiz-card__glyph--${side}`} aria-hidden="true">
-      <span className="quiz-card__glyph-arrow" />
+      <span className="quiz-card__glyph-letter">{side === 'left' ? 'A' : 'B'}</span>
     </span>
   );
 }
