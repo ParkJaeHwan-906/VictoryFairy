@@ -150,6 +150,21 @@ LINEUP_DONE_GAMES = (
     "GROUP BY game_id HAVING COUNT(DISTINCT team_id) = 2 AND COUNT(*) >= 18"
 )
 
+# preview(경기 전 공시)로 적재해 놓고 실제로는 출전하지 않은 선수를 걷어낸다.
+# records 잡이 박스스코어로 확정 적재한 뒤 부르며, 박스스코어에 없는 행이 곧 유령이다.
+LINEUP_DELETE_EXCEPT = (
+    "DELETE FROM game_lineups WHERE game_id = %s AND player_id NOT IN ({ph})"
+)
+
+# 취소된 경기의 preview 라인업 정리. 취소 경기는 RESULT 가 아니라 records 잡이
+# 영영 돌지 않으므로 위 정리 경로가 닿지 않는다 — 놔두면 유령이 영구히 남는다.
+# batter_records 가 없을 때만 지우는 이유: 서스펜디드처럼 '경기는 치렀는데 나중에
+# 취소로 표시'되는 경우 records 가 적재한 확정 라인업까지 날리면 안 된다.
+LINEUP_DELETE_UNPLAYED = (
+    "DELETE FROM game_lineups WHERE game_id = %s "
+    "AND NOT EXISTS (SELECT 1 FROM batter_records b WHERE b.game_id = %s)"
+)
+
 # 취소 사유는 KBO 공식 일정표에만 있어(네이버는 "경기취소"로 뭉뚱그린다) 네이버 자연키
 # naver_game_id 로 행을 못 집는다 — 취소 경기엔 KBO 쪽 gameId 자체가 비어 있다. 그래서
 # (날짜, 대진) 으로 UPDATE 한다. games.game_date 는 시각을 포함하는 DATETIME 이라
@@ -393,6 +408,40 @@ class DbSink:
             return set()
         ph = ",".join(["%s"] * len(pks))
         return {row[0] for row in self.fetch_all(LINEUP_DONE_GAMES.format(ph=ph), pks)}
+
+    def delete_lineups_except(self, game_pk, player_ids) -> int:
+        """박스스코어에 없는 라인업 행 삭제 -> 지운 행 수.
+
+        preview 로 미리 적재한 선발이 경기 직전 교체되면 그 선수는 박스스코어에
+        없는 채로 is_starter=1 인 유령으로 남는다. records 잡이 확정 적재한 뒤
+        불러 걷어낸다.
+
+        player_ids 가 비면 아무것도 하지 않는다. 빈 목록으로 만든 NOT IN () 은
+        MySQL 이 문법 오류로 거부하므로(실측) 통째 삭제가 나지는 않지만, 그 예외가
+        records 잡의 그 경기 처리를 통째로 실패시킨다 — 파싱이 빈 결과를 내는 것과
+        적재를 실패시키는 것은 다른 문제다.
+        """
+        ids = [pk for pk in set(player_ids or ()) if pk]
+        if not ids:
+            return 0
+        ph = ",".join(["%s"] * len(ids))
+        with self._conn.cursor() as cur:
+            cur.execute(LINEUP_DELETE_EXCEPT.format(ph=ph), [game_pk, *ids])
+            deleted = cur.rowcount
+        self._conn.commit()
+        return deleted
+
+    def delete_lineups_if_unplayed(self, game_pk) -> int:
+        """치르지 않은 경기(박스스코어 없음)의 라인업 삭제 -> 지운 행 수.
+
+        취소 경기 전용. 우천 취소는 라인업 공시 뒤에 나는 일이 잦은데, 취소 경기엔
+        records 잡이 영영 돌지 않아 delete_lineups_except 가 닿지 않는다.
+        """
+        with self._conn.cursor() as cur:
+            cur.execute(LINEUP_DELETE_UNPLAYED, (game_pk, game_pk))
+            deleted = cur.rowcount
+        self._conn.commit()
+        return deleted
 
     def upsert_lineups(self, game_pk, lineups, player_map, team_ids) -> None:
         """LineupRow 목록 upsert. position(네이버 원문 표기) -> 정식 명칭으로

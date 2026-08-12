@@ -134,6 +134,10 @@ flowchart TD
   **preview API**(`/schedule/games/{id}/preview`)로 선발 라인업을 먼저 적재하고, 익일 `records`
   가 박스스코어로 덮어써 확정한다. 둘의 관계:
   - preview → 선발만(타순 1~9 + 선발투수), `decision`·교체 선수 없음, `is_starter=TRUE`
+  - records → 교체 포함 전체 + `decision`. 적재 직후 **박스스코어에 없는 preview 잔재를 삭제**
+    한다(경기 직전 라인업 변경으로 생기는 유령 행).
+  - 취소 경기는 `records` 가 영영 돌지 않으므로 `games_sync` 가 취소를 감지할 때 정리한다
+    (단, `batter_records` 가 있으면 실제로 치른 경기이므로 건드리지 않는다).
 - 스케줄 조회는 날짜에 **대시 필수**(`fromDate=2026-03-28`).
 - 운영 실행: **VPC 안 Lambda** `kbo-collector-db`(`VictoryFairy_Infra/collector-lambda/lambda_db.tf`(dev_infra) — records 03:30 KST, registrations 11:00 KST). S3 잡 함수와 같은 이미지, DB 자격증명은 이 함수에만.
 

@@ -458,6 +458,10 @@ class _RecordingRecordsDb:
     def upsert_lineups(self, game_pk, lineups, player_map, team_ids):
         self.calls.append(("lineups", game_pk, player_map))
 
+    def delete_lineups_except(self, game_pk, player_ids):
+        self.calls.append(("purge-ghosts", game_pk, sorted(player_ids)))
+        return 0
+
     def upsert_batting(self, game_pk, rows, player_map):
         self.calls.append(("batting", game_pk, rows, player_map))
 
@@ -511,7 +515,12 @@ def test_land_game_records_upserts_batting_and_pitching_after_lineups(monkeypatc
     loaded, failed = run.land_game_records("2026-07-10", settings=settings, db=db, client=object())
 
     assert loaded == ["g1"] and failed == []
-    assert [c[0] for c in db.calls] == ["game", "lineups", "batting", "pitching"]
+    # 유령 정리는 확정 라인업 적재 '직후' 여야 한다 — 그 전에 돌면 지울 기준이 없고,
+    # batting/pitching 뒤로 밀면 그 사이 조회가 유령을 본다.
+    assert [c[0] for c in db.calls] == [
+        "game", "lineups", "purge-ghosts", "batting", "pitching"]
+    _, _, kept = next(c for c in db.calls if c[0] == "purge-ghosts")
+    assert kept == sorted(player_map.values())
     _, game_pk, rows, pm = next(c for c in db.calls if c[0] == "batting")
     assert game_pk == 501 and rows == fixed_game.batting and pm == player_map
     _, game_pk2, rows2, pm2 = next(c for c in db.calls if c[0] == "pitching")
@@ -561,6 +570,10 @@ class _RecordingSyncDb:
 
     def upsert_lineups(self, game_pk, lineups, player_map, team_ids):
         self.lineup_calls.append((game_pk, lineups))
+
+    def delete_lineups_if_unplayed(self, game_pk):
+        self.purged.append(game_pk)
+        return 0
 
 
 def _games_sync_schedule_games():
@@ -1092,6 +1105,21 @@ def test_job_games_sync_lineup_failure_does_not_break_status_sync(monkeypatch, s
     assert synced == 6 and db.lineup_calls == []
     assert "preview lineup fail" in caplog.text
     assert len(_previewed(urls)) == 3  # 한 경기 실패가 나머지 시도를 막지 않는다
+
+
+def test_job_games_sync_purges_lineups_of_cancelled_games(monkeypatch, settings):
+    # 공시 뒤 우천 취소되면 records 가 영영 안 돌아 유령이 영구히 남는다 -> 여기서 정리.
+    import contextlib
+    urls = []
+    monkeypatch.setattr(run.fetch, "build_client", lambda settings: contextlib.nullcontext(object()))
+    monkeypatch.setattr(run.fetch, "fetch", _lineup_fetch(urls))
+    db = _RecordingSyncDb(team_ids={"OB": 1, "LG": 2})
+
+    run.job_games_sync(settings, db, "2026-07-10")
+
+    # "cancelled" 는 sync_game 5번째 호출 -> PK 5
+    assert db.purged == [5]
+    assert "cancelled" not in _previewed(urls)  # 취소 경기는 preview 도 안 본다
 
 
 def test_job_games_sync_lookahead_range_does_not_fetch_previews(monkeypatch, settings):

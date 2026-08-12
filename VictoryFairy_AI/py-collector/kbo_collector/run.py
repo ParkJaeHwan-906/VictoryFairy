@@ -491,8 +491,14 @@ def land_game_records(date, *, settings, db, client, team_ids=None) -> tuple[lis
                 game, team_ids=team_ids,
                 stadium_id=db.stadium_id(game.stadium),
                 status_id=db.status_id(status))
-            db.upsert_lineups(game_pk, game_records.build_lineups(game),
-                              player_map, team_ids)
+            lineups = game_records.build_lineups(game)
+            db.upsert_lineups(game_pk, lineups, player_map, team_ids)
+            # 경기 전 preview 로 깔아둔 선발이 직전 교체됐으면 박스스코어에 없는
+            # 유령 행으로 남는다 — 확정 적재 직후 그 차집합을 걷어낸다.
+            ghosts = db.delete_lineups_except(
+                game_pk, [player_map[r.pcode] for r in lineups if r.pcode in player_map])
+            if ghosts:
+                log.info("%s: 유령 라인업 %d행 정리", gid, ghosts)
             db.upsert_batting(game_pk, game.batting, player_map)
             db.upsert_pitching(game_pk, game.pitching, player_map)
             loaded.append(gid)
@@ -589,6 +595,11 @@ def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=
         if status in LINEUP_PENDING_STATUSES:
             # 끝난 경기는 제외 — 확정 라인업은 records 잡이 박스스코어로 적재한다.
             pending.append((g["gameId"], game_pk))
+        elif status == "CANCELED":
+            # 공시 뒤 취소된 경기의 preview 라인업을 걷어낸다(records 가 안 도는 경로).
+            purged = db.delete_lineups_if_unplayed(game_pk)
+            if purged:
+                log.info("%s 취소: 라인업 %d행 정리", g["gameId"], purged)
     lineups = _land_preview_lineups(settings, db, client, pending, team_ids, log) if pending else 0
     log.info("%s: synced=%d skipped=%d lineups=%d", date, synced, skipped, lineups)
     return synced
