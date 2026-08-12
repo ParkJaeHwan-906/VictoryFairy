@@ -179,7 +179,7 @@ variable "games_sync_morning_schedule" {
   default     = "cron(0 23 * * ? *)"
 }
 
-# 라이브 윈도(~23:50 KST)가 닫힌 직후. 순연·편성 변경은 대체로 그날 경기가 끝날
+# 라이브 윈도(~23:59 KST)가 닫힌 직후. 순연·편성 변경은 대체로 그날 경기가 끝날
 # 무렵 확정되는데, 아침 룰만 있으면 그게 다음 날 08:00 까지 반영되지 않는다.
 variable "games_sync_nightly_schedule" {
   description = "일정 선적재 2회차(오늘~+N일). 기본 00:30 KST = 15:30 UTC."
@@ -187,10 +187,14 @@ variable "games_sync_nightly_schedule" {
   default     = "cron(30 15 * * ? *)"
 }
 
+# 1분 간격인 이유: 이 룰이 상태뿐 아니라 **경기 전 선발 라인업**(네이버 preview)도
+# 따라간다. 공시는 경기 직전에 한 번 뜨고, 10분 주기면 화면에 뜨기까지 최대 10분이
+# 밀린다. 헛도는 비용은 스케줄 API 1회뿐이다 — 라인업이 다 들어온 경기는 py-collector
+# 가 DB 판정으로 preview 호출 자체를 건너뛰고, 구장도 이미 아는 경기는 다시 받지 않는다.
 variable "games_sync_live_schedule" {
-  description = "경기 시간대 상태 폴링(당일만). 기본 17:00~23:50 KST 10분 간격 = 08:00~14:50 UTC."
+  description = "경기 시간대 상태·선발라인업 폴링(당일만). 기본 17:00~23:59 KST 1분 간격 = 08:00~14:59 UTC."
   type        = string
-  default     = "cron(0/10 8-14 * * ? *)"
+  default     = "cron(* 8-14 * * ? *)"
 }
 
 # 상한 14 는 handler.py 의 MAX_SYNC_DAYS 와 같은 값이다. 핸들러가 어차피 자르므로
