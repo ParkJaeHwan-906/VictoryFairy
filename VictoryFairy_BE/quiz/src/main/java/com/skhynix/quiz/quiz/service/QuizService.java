@@ -27,8 +27,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 퀴즈 조회. '오늘'은 KST 다({@code kstClock} — 파드 JVM 은 UTC 라 기본 클록이면 자정~09시에
- * 하루가 어긋난다).
+ * 퀴즈 조회. '오늘'은 KST 다({@code kstClock} — 파드 기본 존은 k8s Deployment env 의 {@code TZ}
+ * 설정에 달려 있어, 그걸 그대로 쓰는 기본 클록으로는 자정~09시 어긋남을 코드로 보장할 수 없다).
  *
  * <p>보기는 {@code quiz_id IN (...)} 한 방으로 받아 메모리에서 묶는 <b>2쿼리 방식</b>이다 —
  * 문제마다 단건 조회하면 N+1 이고, {@code Quiz}에 {@code @OneToMany options}가 없어
@@ -108,8 +108,8 @@ public class QuizService {
             return List.of();
         }
 
-        // ⚠ 시한 계산의 기준은 kstClock 이 아니다 — 비교 대상 created_at 이 JVM 기본 존으로 찍히기
-        //   때문이다(QuizSubmitWindow javadoc). 위 quiz_date 조회만 kstClock 을 쓴다.
+        // ⚠ 시한 계산의 기준은 kstClock 이 아니다 — 비교 대상 created_at 이 JVM 기본 존으로 찍히므로
+        //   시한 판정도 같은 존을 써야 한다(QuizSubmitWindow javadoc). 위 quiz_date 조회만 kstClock 을 쓴다.
         LocalDateTime now = QuizSubmitWindow.now();
         // 한 번의 조회로 두 가지를 얻는다: 제외 대상(답했거나 시한 초과)과, 이미 행이 있어 INSERT 가
         // 필요 없는 문제. 차집합 재료를 위해 조회를 새로 늘리지 않는 것이 계약이다.
