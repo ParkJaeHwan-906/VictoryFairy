@@ -10,7 +10,7 @@
 - `jwt.JwtAuthenticationFilter` — Bearer 파싱 후 `UserAccountRepository.findActiveIdByUid(uid)`(`:domain`)로 uid→id 해석, principal은 `Long id`. 생성자 `(JwtTokenProvider, UserAccountRepository)`
 - `jwt.JwtProperties` — `jwt.secret` 등 설정 바인딩
 - `jwt.JwtVerificationConfig` — 검증만 필요한 소비 앱이 `@Import`할 최소 설정(`JwtTokenProvider` 빈만 등록, 발급 로직인 `AuthService`는 안 따라옴)
-- `error.GlobalExceptionHandler` (`@RestControllerAdvice`) — `BusinessException`→`ApiResponse.fail`, `MethodArgumentNotValidException`→400 + 필드별 메시지 맵
+- `error.GlobalExceptionHandler` (`@RestControllerAdvice`) — `BusinessException`→`ApiResponse.fail`, `MethodArgumentNotValidException`→400 + 필드별 메시지 맵, `MissingServletRequestParameterException`(신설)→400 + `ApiResponse.fail`(data null, 메시지에 누락된 파라미터명 포함) — 이 핸들러가 없으면 필수 `@RequestParam` 누락 시 스프링 기본 에러 본문이 그대로 나가 공통 응답 규약을 벗어난다. user·quiz 양쪽의 모든 필수 `@RequestParam` 경로(예: quiz `GET /today`의 `gameId`)에 영향
 - `error.RestAuthenticationEntryPoint` — 미인증 401 + `ApiResponse` JSON 직접 직렬화. `ExceptionTranslationFilter` 단계(`DispatcherServlet` 밖)에서 호출돼 `GlobalExceptionHandler`(컨트롤러 단계)가 못 잡는 경로라 별도로 존재
 
 ## 엔드포인트
