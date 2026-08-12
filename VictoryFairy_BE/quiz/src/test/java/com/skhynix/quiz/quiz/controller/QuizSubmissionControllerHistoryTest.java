@@ -94,6 +94,8 @@ class QuizSubmissionControllerHistoryTest {
                 .andExpect(jsonPath("$.data.submissions.content[0].earnedPoint").value(0))
                 .andExpect(jsonPath("$.data.submissions.content[0].liked").value(true))
                 .andExpect(jsonPath("$.data.submissions.content[0].likeCount").value(5))
+                // [AC-INN-25-2] 이력 응답도 이닝 기능과 무관 — 항목에 inning 키가 없다
+                .andExpect(jsonPath("$.data.submissions.content[0].inning").doesNotExist())
                 .andExpect(jsonPath("$.data.submissions.size").value(20))
                 .andExpect(jsonPath("$.data.submissions.hasNext").value(false));
 

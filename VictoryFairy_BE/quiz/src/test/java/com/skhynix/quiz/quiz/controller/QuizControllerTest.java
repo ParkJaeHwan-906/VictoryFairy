@@ -117,6 +117,9 @@ class QuizControllerTest {
                 .andExpect(jsonPath("$.data[0].likeCount").doesNotExist())
                 .andExpect(jsonPath("$.data[1].liked").doesNotExist())
                 .andExpect(jsonPath("$.data[1].likeCount").doesNotExist())
+                // [AC-INN-15-1] /today 응답 필드 집합은 이닝 기능 도입 후에도 바뀌지 않는다 — inning 키가 없다
+                .andExpect(jsonPath("$.data[0].inning").doesNotExist())
+                .andExpect(jsonPath("$.data[1].inning").doesNotExist())
                 .andReturn();
 
         // "answer" 라는 문자열 자체가 응답 본문 어디에도 없어야 한다(isAnswer·answerRate 류까지 차단)
@@ -171,6 +174,8 @@ class QuizControllerTest {
                 .andExpect(jsonPath("$.data.answer").doesNotExist())
                 .andExpect(jsonPath("$.data.liked").doesNotExist())
                 .andExpect(jsonPath("$.data.likeCount").doesNotExist())
+                // [AC-INN-25-2] 상세 응답도 이닝 기능과 무관 — inning 키가 없다
+                .andExpect(jsonPath("$.data.inning").doesNotExist())
                 .andReturn();
 
         String body = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
@@ -189,7 +194,9 @@ class QuizControllerTest {
                 .andExpect(jsonPath("$.data.correct").value(false))
                 .andExpect(jsonPath("$.data.answer").value(0))
                 .andExpect(jsonPath("$.data.liked").value(true))
-                .andExpect(jsonPath("$.data.likeCount").value(5));
+                .andExpect(jsonPath("$.data.likeCount").value(5))
+                // [AC-INN-25-2] 제출한 문제 상세도 마찬가지로 inning 키가 없다
+                .andExpect(jsonPath("$.data.inning").doesNotExist());
     }
 
     @Test
