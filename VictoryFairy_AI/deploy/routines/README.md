@@ -116,8 +116,11 @@ pyyaml`로 최소 의존성(PyYAML)만 준비한다.
   aws s3 ls "s3://$BUCKET/wiki/_meta/builder-runs/" | tail -5
   ```
 - **퀴즈 생성기 적재 확인**: 오늘자 `quiz-candidates/{date}/`에 파일이
-  쌓였는지 확인한다(파이프라인 목표는 일일 10문항 — 며칠 연속 0건이면 조사
-  필요). **`quiz-candidates/{date}`의 `{date}`는 출제일(KST) 기준**이다
+  쌓였는지 확인한다(목표 물량은 `question-gen/config/scoring.yaml`의 `volume`이
+  정본 — 여기에 숫자를 적지 않는다. 5경기 있는 날 기준 대략 `perGame×5 + common`
+  이고, 며칠 연속 0건이면 조사 필요). 경기 없는 날(월요일·전 경기 취소)은 공통
+  문항만 나오므로 총량이 크게 줄어드는 것이 정상이다.
+  **`quiz-candidates/{date}`의 `{date}`는 출제일(KST) 기준**이다
   (`question-gen/ROUTINE.md`가 `TZ=Asia/Seoul date +%Y-%m-%d`로 파티션을 정한다)
   — 조회 날짜도 UTC가 아니라 KST로 잡아야 오늘자 파티션을 정확히 가리킨다.
   ```bash
