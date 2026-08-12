@@ -3,7 +3,7 @@
 > **도메인** `game` — 날짜별 KBO 경기 일정·스코어, 경기별 선발 라인업.
 > **모듈** user (포트 8080) · **경로 접두사** `/api/games` · **엔드포인트** 2개
 > **컨트롤러** `user/src/main/java/com/skhynix/user/game/controller/GameController.java`(`@RequestMapping("/games")`) · `GameLineupController.java`(`@RequestMapping("/games/lineup")`)
-> **최종 갱신** 2026-08-11 — `GET /api/games` 응답에 `inning`/`inningHalf` 필드 추가(11→13필드, `games` 테이블에 `current_inning`/`inning_half` 컬럼 신설). 같은 날 devdb 실측으로 현재는 항상 `null`임을 확인(아래 참고). (직전: 같은 날 `cancelReason` 필드 반영(10→11필드, 커밋 f01d08e #281). 같은 날 운영 DB 실측으로 py-collector 쓰기가 이미 동작 중임을 확인해 서술 정정, `cancelReason` 미채움 시 클라이언트 fallback(`"경기취소"`) 권장 규칙 추가(아래 참고).)
+> **최종 갱신** 2026-08-13 — `GET /api/games/lineup`의 `gameId` 파라미터 누락 400 서술 정정: `web-support`의 `GlobalExceptionHandler`에 `MissingServletRequestParameterException` 핸들러가 추가돼(공유 컴포넌트, user·quiz 공통) **이제 이 400도 `ApiResponse` 래퍼를 탄다**(종전엔 래퍼 아님으로 서술). 엔드포인트 자체·다른 400(타입 변환 실패 등)은 불변. (직전: 2026-08-11 `GET /api/games` 응답에 `inning`/`inningHalf` 필드 추가(11→13필드, `games` 테이블에 `current_inning`/`inning_half` 컬럼 신설). 같은 날 devdb 실측으로 현재는 항상 `null`임을 확인(아래 참고). (직전: 같은 날 `cancelReason` 필드 반영(10→11필드, 커밋 f01d08e #281). 같은 날 운영 DB 실측으로 py-collector 쓰기가 이미 동작 중임을 확인해 서술 정정, `cancelReason` 미채움 시 클라이언트 fallback(`"경기취소"`) 권장 규칙 추가(아래 참고).))
 > 공통 규약(응답 래퍼·401 정책)은 [README.md](README.md)를 먼저 볼 것.
 
 ## 엔드포인트 목록
@@ -145,7 +145,7 @@ curl -i -X GET "http://localhost:8080/api/games?date=20260801"
 ---
 
 ## GET /api/games/lineup
-> 최종 변경: 2026-08-04 — 신규 추가 + `positionName` 매핑 표에 실측 58종 복수 포지션 원문(2글자) 절 추가
+> 최종 변경: 2026-08-13 — `gameId` 파라미터 누락 400의 응답 형태 정정(래퍼 없음 → `ApiResponse` 래퍼, 아래 "실패" 참고). 엔드포인트·다른 400은 불변. (직전: 2026-08-04 신규 추가 + `positionName` 매핑 표에 실측 58종 복수 포지션 원문(2글자) 절 추가)
 
 경기별 선발 라인업 조회(홈·원정 두 팀이 한 응답에 함께 나온다). `GameLineupController` → `GameLineupService.getLineup(String)` → `GameRepository.findByNaverGameId` + `GameLineupRepository.findStarterPitchers`/`findStarterBatters`.
 
@@ -234,7 +234,7 @@ curl -i -X GET "http://localhost:8080/api/games?date=20260801"
 | 상태 | ErrorCode | 조건 |
 |---|---|---|
 | 404 | `GAME_NOT_FOUND`(`"존재하지 않는 경기입니다."`) | `gameId`와 일치하는 `naver_game_id`가 없을 때. **`?gameId=`처럼 값이 빈 경우도 이 404다**(빈 문자열이 그냥 일치하는 경기가 없는 것으로 자연히 흡수될 뿐, 별도 400 분기가 없다) |
-| 400 | (래퍼 없음) | `gameId` 쿼리 파라미터 **자체가 없을 때**(`?gameId=` 아니라 `gameId=` 키조차 없음)만 해당. `@RequestParam String gameId`가 필수인데 Spring이 바인딩 단계에서 `MissingServletRequestParameterException`을 던져 `GlobalExceptionHandler`를 타지 않는다 — **이 400만 `ApiResponse` 래퍼가 아니다**(`GET /api/games`의 `date` 형식 오류·`GET /api/players`의 `teamId` 형식 오류와 같은 성격의 예외) |
+| 400 | (공통 래퍼, `ErrorCode` 아님) | `gameId` 쿼리 파라미터 **자체가 없을 때**(`?gameId=` 아니라 `gameId=` 키조차 없음)만 해당. `@RequestParam String gameId`가 필수라 Spring이 바인딩 단계에서 `MissingServletRequestParameterException`을 던지며, **2026-08-13부터 `web-support`의 `GlobalExceptionHandler`가 이를 처리하는 `@ExceptionHandler`를 갖는다**(공유 컴포넌트, user·quiz 공통) — `{ "success": false, "data": null, "message": "필수 요청 파라미터가 누락되었습니다: gameId" }`을 400으로 반환한다. **`BusinessException`이 아니라서 `ErrorCode`는 없지만, 래퍼는 씌워진다** — `GET /api/games`의 `date` 형식 오류·`GET /api/players`의 `teamId` 형식 오류(둘 다 타입 변환 실패, 여전히 래퍼 아님)와는 다른 경로다 |
 | 401 | UNAUTHENTICATED | `GET` 이외의 메서드로 이 경로 요청(`permitAll`이 GET으로만 좁혀져 있음) |
 
 **예시**(홈·원정 두 팀, 각 팀 투수 1명·타자 9명 예시. 나머지는 `...`로 생략):
@@ -279,9 +279,12 @@ curl -i -X GET "http://localhost:8080/api/games/lineup?gameId=존재하지않는
 {"success":false,"data":null,"message":"존재하지 않는 경기입니다."}
 ```
 
-`gameId` 파라미터 누락 예시(400, `ApiResponse` 래퍼 아님):
+`gameId` 파라미터 누락 예시(400, 실측: 러닝 user 앱, 공통 `ApiResponse` 래퍼):
 ```bash
 curl -i -X GET "http://localhost:8080/api/games/lineup"
+```
+```json
+{"success":false,"data":null,"message":"필수 요청 파라미터가 누락되었습니다: gameId"}
 ```
 
 ---
