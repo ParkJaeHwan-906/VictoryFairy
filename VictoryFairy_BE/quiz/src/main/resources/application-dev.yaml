@@ -29,9 +29,14 @@ spring:
 # ⚠ 그래서 빈 DB 에 quiz 만 띄우면 테이블은 있어도 채팅방이 0행이다. 채팅방 목록이 비어 있으면
 #   설정을 의심하기 전에 user-app 을 한 번 띄울 것.
 
-# dev 도 Redis 를 쓴다 — 퀴즈 제출 티켓(QuizSubmissionTicketStore)은 프로파일로 갈리지 않는다.
-# (fan-out 만 여전히 prod 전용 InMemoryPublisher/RedisPubSubPublisher 로 갈린다.)
-# 그래서 종전의 `management.health.redis.enabled: false` 를 걷어냈다: "dev 는 Redis 를 안 쓰니
-# 인디케이터가 DOWN 으로 보이면 오해"라는 근거가 사라졌고, 이제 Redis 가 없으면 /today 와 제출이
-# 실제로 500 이라 헬스가 DOWN 을 알려주는 편이 맞다.
-# (readiness 그룹은 이 인디케이터를 보지 않으므로 ALB 헬스체크와는 여전히 무관하다.)
+# dev 는 Redis 를 쓰지 않는다(fan-out 은 InMemoryPublisher). spring-boot-starter-data-redis 가
+# 클래스패스에 있다는 이유만으로 액추에이터가 redis 인디케이터를 켜서, 로컬에 Redis 가 없으면
+# /actuator/health 가 DOWN 으로 보인다 → 오해를 막기 위해 dev 에서만 끈다.
+# (readiness 그룹은 원래 이 인디케이터를 보지 않으므로 ALB 헬스체크와는 무관하다.)
+# ⚠ 한때 제출 티켓 때문에 이 설정을 걷어냈었다("dev 도 Redis 가 필요하니 DOWN 이 맞는 신호"). 그
+#   근거는 제출 자격이 Redis 키에서 DB 행으로 옮겨가며 사라졌으므로 되돌렸다 — 지금 dev 에서 Redis
+#   DOWN 은 퀴즈 조회·제출과 아무 상관이 없다.
+management:
+  health:
+    redis:
+      enabled: false

@@ -71,7 +71,7 @@ class QuizSubmissionControllerHistoryTest {
     void getSubmissions_returns200WithSummaryAndPage() throws Exception {
         QuizSubmissionItemResponse item = new QuizSubmissionItemResponse(
                 10L, "문제 지문", "객관식", "EASY", LocalDate.of(2026, 8, 8),
-                1, "오답 보기", false, 0, "정답 보기", 0L,
+                1, "오답 보기", false, false, 0, "정답 보기", 0L,
                 LocalDateTime.of(2026, 8, 8, 9, 30), true, 5L);
         given(quizSubmitService.getHistory(USER_ID, 0)).willReturn(historyOf(List.of(item), 4L, 2L, 0.5));
 
@@ -89,6 +89,7 @@ class QuizSubmissionControllerHistoryTest {
                 .andExpect(jsonPath("$.data.submissions.content[0].myOption").value(1))
                 .andExpect(jsonPath("$.data.submissions.content[0].myOptionText").value("오답 보기"))
                 .andExpect(jsonPath("$.data.submissions.content[0].correct").value(false))
+                .andExpect(jsonPath("$.data.submissions.content[0].expired").value(false))
                 .andExpect(jsonPath("$.data.submissions.content[0].answer").value(0))
                 .andExpect(jsonPath("$.data.submissions.content[0].answerText").value("정답 보기"))
                 .andExpect(jsonPath("$.data.submissions.content[0].earnedPoint").value(0))
@@ -100,6 +101,30 @@ class QuizSubmissionControllerHistoryTest {
                 .andExpect(jsonPath("$.data.submissions.hasNext").value(false));
 
         verify(quizSubmitService).getHistory(USER_ID, 0);
+    }
+
+    @Test
+    @DisplayName("[AC-INN-78-3,78-4,78-5] 답 없는(미답) 항목도 목록에 실린다 — myOption·myOptionText는 "
+            + "null, correct는 false, earnedPoint는 0, expired는 서비스가 계산해 넘긴 값 그대로다")
+    void getSubmissions_unansweredItem_returnsNullMyOptionAndExpiredFlag() throws Exception {
+        QuizSubmissionItemResponse unanswered = new QuizSubmissionItemResponse(
+                30L, "아직 안 푼 문제", "객관식", "EASY", LocalDate.of(2026, 8, 12),
+                null, null, false, true, 0, "정답 보기", 0L,
+                LocalDateTime.of(2026, 8, 12, 9, 0), false, 0L);
+        given(quizSubmitService.getHistory(USER_ID, 0))
+                .willReturn(historyOf(List.of(unanswered), 1L, 0L, 0.0));
+
+        mockMvc.perform(get("/quizzes/submissions")
+                        .with(authenticatedAs(USER_ID)))
+                .andExpect(status().isOk())
+                // QuizSubmissionItemResponse는 NON_NULL이 아니라 null 필드도 키는 남고 값만 null이다
+                .andExpect(jsonPath("$.data.submissions.content[0].myOption")
+                        .value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.data.submissions.content[0].myOptionText")
+                        .value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.data.submissions.content[0].correct").value(false))
+                .andExpect(jsonPath("$.data.submissions.content[0].expired").value(true))
+                .andExpect(jsonPath("$.data.submissions.content[0].earnedPoint").value(0));
     }
 
     @Test

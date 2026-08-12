@@ -168,6 +168,7 @@ class QuizControllerTest {
                 .andExpect(jsonPath("$.data.type").value("객관식"))
                 .andExpect(jsonPath("$.data.quizDate").value(TODAY.toString()))
                 .andExpect(jsonPath("$.data.submitted").value(false))
+                .andExpect(jsonPath("$.data.expired").value(false))
                 .andExpect(jsonPath("$.data.options.length()").value(2))
                 .andExpect(jsonPath("$.data.myOption").doesNotExist())
                 .andExpect(jsonPath("$.data.correct").doesNotExist())
@@ -190,6 +191,7 @@ class QuizControllerTest {
         mockMvc.perform(get("/quizzes/1").with(authenticatedAs(USER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.submitted").value(true))
+                .andExpect(jsonPath("$.data.expired").value(false))
                 .andExpect(jsonPath("$.data.myOption").value(1))
                 .andExpect(jsonPath("$.data.correct").value(false))
                 .andExpect(jsonPath("$.data.answer").value(0))
@@ -197,6 +199,22 @@ class QuizControllerTest {
                 .andExpect(jsonPath("$.data.likeCount").value(5))
                 // [AC-INN-25-2] 제출한 문제 상세도 마찬가지로 inning 키가 없다
                 .andExpect(jsonPath("$.data.inning").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("[AC-INN-79-3] 미답이고 시한이 지난 문제 상세는 submitted=false·expired=true다"
+            + "(제출하면 403이 되는 상태 — FE가 (submitted,expired) 조합으로 읽는 세 상태 중 하나)")
+    void getQuiz_unansweredAndExpired_returns200WithExpiredTrue() throws Exception {
+        given(quizService.getQuiz(USER_ID, 1L))
+                .willReturn(QuizDetailResponseFixture.unsubmittedExpired());
+
+        mockMvc.perform(get("/quizzes/1").with(authenticatedAs(USER_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.submitted").value(false))
+                .andExpect(jsonPath("$.data.expired").value(true))
+                .andExpect(jsonPath("$.data.myOption").doesNotExist())
+                .andExpect(jsonPath("$.data.correct").doesNotExist())
+                .andExpect(jsonPath("$.data.answer").doesNotExist());
     }
 
     @Test
@@ -228,12 +246,17 @@ class QuizControllerTest {
 
         static QuizDetailResponse unsubmitted() {
             return new QuizDetailResponse(1L, "객관식", "2025 정규시즌 우승 구단은?", "MEDIUM",
-                    30.0, TODAY, OPTIONS, false, null, null, null, null, null);
+                    30.0, TODAY, OPTIONS, false, false, null, null, null, null, null);
+        }
+
+        static QuizDetailResponse unsubmittedExpired() {
+            return new QuizDetailResponse(1L, "객관식", "2025 정규시즌 우승 구단은?", "MEDIUM",
+                    30.0, TODAY, OPTIONS, false, true, null, null, null, null, null);
         }
 
         static QuizDetailResponse submitted() {
             return new QuizDetailResponse(1L, "객관식", "2025 정규시즌 우승 구단은?", "MEDIUM",
-                    30.0, TODAY, OPTIONS, true, 1, false, 0, true, 5L);
+                    30.0, TODAY, OPTIONS, true, false, 1, false, 0, true, 5L);
         }
     }
 }

@@ -1,17 +1,13 @@
 package com.skhynix.quiz.quiz.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
-import static org.mockito.BDDMockito.willThrow;
-import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -31,16 +27,12 @@ import com.skhynix.quiz.quiz.dto.QuizLikeResponse;
 import com.skhynix.quiz.quiz.dto.QuizSubmissionHistoryResponse;
 import com.skhynix.quiz.quiz.dto.QuizSubmissionItemResponse;
 import com.skhynix.quiz.quiz.dto.QuizSubmitResponse;
-import com.skhynix.quiz.quiz.store.QuizSubmissionTicketStore;
-import com.skhynix.quiz.quiz.store.QuizSubmissionTicketStore.Ticket;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.IntStream;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -49,27 +41,24 @@ import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.test.util.ReflectionTestUtils;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * {@link QuizSubmitService} 단위 테스트 — 협력 객체 전부 Mockito 목, DB·Spring 컨텍스트 없음.
  *
- * <p>따라서 UNIQUE 제약의 실제 중재(동시 INSERT 중 한쪽 실패)와 {@code findWithLockById}의 실제
- * 행 잠금은 여기서 검증되지 않는다 — "서비스가 락 조회를 골랐고, 제약 위반을 409로 접는다"는 계약만
- * 고정한다. JPQL fetch join 의 실동작도 마찬가지로 리포지토리 목 뒤에 있다.
+ * <p>따라서 UNIQUE 제약의 실제 중재(동시 INSERT 중 한쪽 실패), {@code findWithLockById}의 실제
+ * 행 잠금, <b>그리고 조건부 UPDATE({@code fillAnswer})의 WHERE 절이 실제 DB에서 시한 초과 행을
+ * 걸러내는지는 여기서 검증되지 않는다</b> — 서비스가 그 조건에 어떤 파라미터를 넘기는지, 그리고
+ * 서비스 자체의 사전 검사가 만료 행을 403으로 먼저 막는지까지만 이 계층의 책임이다. 실제 DB
+ * 라운드트립은 저장소 전체에 H2/Testcontainers/구동 중인 MySQL이 없어 보류 상태다(domain 모듈
+ * 컨텍스트 참고).
  *
- * <p><b>티켓 삭제는 커밋 후({@code afterCommit}) 콜백으로 등록된다</b>(실제 트랜잭션 매니저 없음).
- * {@code TransactionSynchronizationManager.registerSynchronization}은 동기화가 활성화돼 있지 않으면
- * {@code IllegalStateException}을 던지므로, 성공 경로 테스트가 이 지점에 도달하려면
- * {@code initSynchronization()}이 선행돼야 한다({@link #activateTransactionSynchronization()}). 커밋
- * 시점을 직접 검증하려는 테스트는 등록된 동기화를 수동으로 {@code afterCommit()}해 콜백을 트리거한다.
+ * <p>제출 자격의 근거는 이제 Redis 티켓이 아니라 <b>{@code quiz_users_submit} 행 자체</b>다 —
+ * {@code /today}가 미리 만들어 둔 행을 조건부 UPDATE로 채우는 구조라, 이 서비스 자체는 Redis에
+ * 의존하지 않는다({@code QuizSubmissionTicketStore}는 이 브랜치에서 폐기됐다).
  */
 @ExtendWith(MockitoExtension.class)
 class QuizSubmitServiceTest {
@@ -92,31 +81,8 @@ class QuizSubmitServiceTest {
     @Mock
     private QuizLikeService quizLikeService;
 
-    @Mock
-    private QuizSubmissionTicketStore ticketStore;
-
     @InjectMocks
     private QuizSubmitService quizSubmitService;
-
-    @BeforeEach
-    void activateTransactionSynchronization() {
-        TransactionSynchronizationManager.initSynchronization();
-    }
-
-    @AfterEach
-    void deactivateTransactionSynchronization() {
-        TransactionSynchronizationManager.clearSynchronization();
-    }
-
-    /** 커밋 후 삭제 콜백에 등록된 동기화를 모두 강제 실행한다(실제 트랜잭션 매니저가 없어 수동 트리거). */
-    private static void triggerAfterCommit() {
-        TransactionSynchronizationManager.getSynchronizations()
-                .forEach(TransactionSynchronization::afterCommit);
-    }
-
-    private static Ticket ticket(Integer inning) {
-        return new QuizSubmissionTicketStore.Ticket(inning);
-    }
 
     private Quiz quiz(Long id, Integer answer, Double score, LocalDate quizDate) {
         Quiz quiz = Quiz.builder()
@@ -148,31 +114,53 @@ class QuizSubmitServiceTest {
         return account;
     }
 
+    /** {@code /today}가 서빙 시점에 만들어 둔 행 — 미답(진행 중 또는 시한 초과) 상태로 준비한다. */
+    private QuizUserSubmit unansweredRow(Quiz quiz, LocalDateTime createdAt) {
+        QuizUserSubmit submit = QuizUserSubmit.builder().quiz(quiz).isAnswer(false).build();
+        ReflectionTestUtils.setField(submit, "createdAt", createdAt);
+        ReflectionTestUtils.setField(submit, "updatedAt", createdAt);
+        return submit;
+    }
+
+    /** 이미 답이 채워진 행(재제출 시나리오·이미 답한 문제에 잘못된 보기 번호를 보내는 시나리오용). */
+    private QuizUserSubmit answeredRow(Quiz quiz, QuizOption submitOption, boolean isAnswer,
+            LocalDateTime createdAt) {
+        QuizUserSubmit submit = QuizUserSubmit.builder()
+                .quiz(quiz).submitOption(submitOption).isAnswer(isAnswer).build();
+        ReflectionTestUtils.setField(submit, "createdAt", createdAt);
+        return submit;
+    }
+
     private QuizUserSubmit submitOf(UserAccount account, Quiz quiz, QuizOption option,
-            boolean isAnswer, LocalDateTime submittedAt) {
+            boolean isAnswer, LocalDateTime createdAt, LocalDateTime updatedAt) {
         QuizUserSubmit submit = QuizUserSubmit.builder()
                 .userAccount(account)
                 .quiz(quiz)
                 .submitOption(option)
                 .isAnswer(isAnswer)
                 .build();
-        ReflectionTestUtils.setField(submit, "createdAt", submittedAt);
+        ReflectionTestUtils.setField(submit, "createdAt", createdAt);
+        ReflectionTestUtils.setField(submit, "updatedAt", updatedAt);
         return submit;
     }
 
+    // ---------- 제출 성공 ----------
+
     @Test
-    @DisplayName("정답을 제출하면 배점을 계정에 적립하고 isAnswer=true 기록을 저장한다")
-    void submit_correctAnswer_addsPointAndSavesCorrectRecord() {
+    @DisplayName("정답을 제출하면 배점을 계정에 적립하고, 조건부 UPDATE(fillAnswer)를 정답으로 호출한다")
+    void submit_correctAnswer_addsPointAndCallsFillAnswerWithCorrectTrue() {
         Quiz quiz = publishedQuiz(0, 10.0);
         QuizOption option = option(quiz, 0, "정답 보기");
         UserAccount account = account(5L);
+        QuizUserSubmit served = unansweredRow(quiz, QuizSubmitWindow.now().minusMinutes(1));
         given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(quiz));
-        given(quizUserSubmitRepository.existsByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
-                .willReturn(false);
-        given(ticketStore.find(USER_ID, QUIZ_ID)).willReturn(Optional.of(ticket(6)));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
+                .willReturn(Optional.of(served));
         given(quizOptionRepository.findFirstByQuiz_IdAndOptionOrderByIdAsc(QUIZ_ID, 0))
                 .willReturn(Optional.of(option));
         given(userAccountRepository.findWithLockById(USER_ID)).willReturn(Optional.of(account));
+        given(quizUserSubmitRepository.fillAnswer(anyLong(), anyLong(), any(), anyBoolean(),
+                any(), any())).willReturn(1);
 
         QuizSubmitResponse response = quizSubmitService.submit(USER_ID, QUIZ_ID, 0);
 
@@ -183,28 +171,26 @@ class QuizSubmitServiceTest {
         assertThat(response.totalPoint()).isEqualTo(15L);
         assertThat(account.getPoint()).isEqualTo(15L);
 
-        ArgumentCaptor<QuizUserSubmit> captor = ArgumentCaptor.forClass(QuizUserSubmit.class);
-        verify(quizUserSubmitRepository).save(captor.capture());
-        QuizUserSubmit saved = captor.getValue();
-        assertThat(saved.getUserAccount()).isSameAs(account);
-        assertThat(saved.getQuiz()).isSameAs(quiz);
-        assertThat(saved.getSubmitOption()).isSameAs(option);
-        assertThat(saved.isAnswer()).isTrue();
+        verify(quizUserSubmitRepository).fillAnswer(org.mockito.ArgumentMatchers.eq(USER_ID),
+                org.mockito.ArgumentMatchers.eq(QUIZ_ID), org.mockito.ArgumentMatchers.eq(option),
+                org.mockito.ArgumentMatchers.eq(true), any(), any());
     }
 
     @Test
-    @DisplayName("오답을 제출하면 적립 없이 isAnswer=false 기록만 저장한다")
-    void submit_wrongAnswer_earnsNothing() {
+    @DisplayName("오답을 제출하면 적립 없이 fillAnswer를 correct=false로 호출한다")
+    void submit_wrongAnswer_earnsNothingAndCallsFillAnswerWithCorrectFalse() {
         Quiz quiz = publishedQuiz(0, 10.0);
         QuizOption option = option(quiz, 1, "오답 보기");
         UserAccount account = account(5L);
+        QuizUserSubmit served = unansweredRow(quiz, QuizSubmitWindow.now().minusMinutes(1));
         given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(quiz));
-        given(quizUserSubmitRepository.existsByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
-                .willReturn(false);
-        given(ticketStore.find(USER_ID, QUIZ_ID)).willReturn(Optional.of(ticket(6)));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
+                .willReturn(Optional.of(served));
         given(quizOptionRepository.findFirstByQuiz_IdAndOptionOrderByIdAsc(QUIZ_ID, 1))
                 .willReturn(Optional.of(option));
         given(userAccountRepository.findWithLockById(USER_ID)).willReturn(Optional.of(account));
+        given(quizUserSubmitRepository.fillAnswer(anyLong(), anyLong(), any(), anyBoolean(),
+                any(), any())).willReturn(1);
 
         QuizSubmitResponse response = quizSubmitService.submit(USER_ID, QUIZ_ID, 1);
 
@@ -213,9 +199,11 @@ class QuizSubmitServiceTest {
         assertThat(response.totalPoint()).isEqualTo(5L);
         assertThat(account.getPoint()).isEqualTo(5L);
 
-        ArgumentCaptor<QuizUserSubmit> captor = ArgumentCaptor.forClass(QuizUserSubmit.class);
-        verify(quizUserSubmitRepository).save(captor.capture());
-        assertThat(captor.getValue().isAnswer()).isFalse();
+        ArgumentCaptor<Boolean> correctCaptor = ArgumentCaptor.forClass(Boolean.class);
+        verify(quizUserSubmitRepository).fillAnswer(org.mockito.ArgumentMatchers.eq(USER_ID),
+                org.mockito.ArgumentMatchers.eq(QUIZ_ID), org.mockito.ArgumentMatchers.eq(option),
+                correctCaptor.capture(), any(), any());
+        assertThat(correctCaptor.getValue()).isFalse();
     }
 
     @Test
@@ -224,13 +212,15 @@ class QuizSubmitServiceTest {
         Quiz quiz = publishedQuiz(0, null);
         QuizOption option = option(quiz, 0, "정답 보기");
         UserAccount account = account(5L);
+        QuizUserSubmit served = unansweredRow(quiz, QuizSubmitWindow.now().minusMinutes(1));
         given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(quiz));
-        given(quizUserSubmitRepository.existsByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
-                .willReturn(false);
-        given(ticketStore.find(USER_ID, QUIZ_ID)).willReturn(Optional.of(ticket(6)));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
+                .willReturn(Optional.of(served));
         given(quizOptionRepository.findFirstByQuiz_IdAndOptionOrderByIdAsc(QUIZ_ID, 0))
                 .willReturn(Optional.of(option));
         given(userAccountRepository.findWithLockById(USER_ID)).willReturn(Optional.of(account));
+        given(quizUserSubmitRepository.fillAnswer(anyLong(), anyLong(), any(), anyBoolean(),
+                any(), any())).willReturn(1);
 
         QuizSubmitResponse response = quizSubmitService.submit(USER_ID, QUIZ_ID, 0);
 
@@ -238,6 +228,38 @@ class QuizSubmitServiceTest {
         assertThat(response.earnedPoint()).isZero();
         assertThat(response.totalPoint()).isEqualTo(5L);
         assertThat(account.getPoint()).isEqualTo(5L);
+    }
+
+    @Test
+    @DisplayName("[AC-INN-67-1] 조건부 UPDATE에는 지금 시각과 '지금-8분'(시한 하한)이 정확히 함께 "
+            + "전달된다 — 시한 조건이 실제로 SQL 파라미터에 실린다는 배선을 고정한다")
+    void submit_success_passesEightMinuteWindowBoundToFillAnswer() {
+        Quiz quiz = publishedQuiz(0, 10.0);
+        QuizOption option = option(quiz, 0, "정답 보기");
+        QuizUserSubmit served = unansweredRow(quiz, QuizSubmitWindow.now().minusMinutes(1));
+        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(quiz));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
+                .willReturn(Optional.of(served));
+        given(quizOptionRepository.findFirstByQuiz_IdAndOptionOrderByIdAsc(QUIZ_ID, 0))
+                .willReturn(Optional.of(option));
+        given(userAccountRepository.findWithLockById(USER_ID)).willReturn(Optional.of(account(0L)));
+        given(quizUserSubmitRepository.fillAnswer(anyLong(), anyLong(), any(), anyBoolean(),
+                any(), any())).willReturn(1);
+
+        LocalDateTime beforeCall = QuizSubmitWindow.now();
+        quizSubmitService.submit(USER_ID, QUIZ_ID, 0);
+        LocalDateTime afterCall = QuizSubmitWindow.now();
+
+        ArgumentCaptor<LocalDateTime> earliestCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
+        ArgumentCaptor<LocalDateTime> nowCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(quizUserSubmitRepository).fillAnswer(org.mockito.ArgumentMatchers.eq(USER_ID),
+                org.mockito.ArgumentMatchers.eq(QUIZ_ID), org.mockito.ArgumentMatchers.eq(option),
+                org.mockito.ArgumentMatchers.eq(true), earliestCaptor.capture(), nowCaptor.capture());
+
+        LocalDateTime now = nowCaptor.getValue();
+        assertThat(now).isBetween(beforeCall, afterCall);
+        // earliestValidCreatedAt == now - 8분 이어야 한다(허용 오차 없이 정확히 그 계산이어야 함)
+        assertThat(earliestCaptor.getValue()).isEqualTo(now.minusMinutes(8));
     }
 
     @Test
@@ -250,9 +272,10 @@ class QuizSubmitServiceTest {
                 .isInstanceOfSatisfying(BusinessException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.QUIZ_NOT_FOUND));
 
-        verify(quizUserSubmitRepository, never()).save(any());
-        // [AC-INN-33-1] 404 판정은 티켓 유무와 무관하다 — 존재하지 않는 문제는 티켓 조회 자체가 없다
-        verify(ticketStore, never()).find(anyLong(), anyLong());
+        verify(quizUserSubmitRepository, never()).fillAnswer(anyLong(), anyLong(), any(),
+                anyBoolean(), any(), any());
+        // [AC-INN-72-1] 404 판정은 행 유무와 무관하다 — 존재하지 않는 문제는 행 조회 자체가 없다
+        verify(quizUserSubmitRepository, never()).findByUserAccount_IdAndQuiz_Id(anyLong(), anyLong());
     }
 
     @Test
@@ -264,18 +287,91 @@ class QuizSubmitServiceTest {
                 .isInstanceOfSatisfying(BusinessException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.QUIZ_NOT_FOUND));
 
-        verify(quizUserSubmitRepository, never()).save(any());
-        verify(ticketStore, never()).find(anyLong(), anyLong());
+        verify(quizUserSubmitRepository, never()).fillAnswer(anyLong(), anyLong(), any(),
+                anyBoolean(), any(), any());
+    }
+
+    // ---------- 자격 검사(QUIZ-INN-68·71) ----------
+
+    @Test
+    @DisplayName("[AC-INN-68-1,68-2,68-3,68-4,68-5,31-1] 행 자체가 없으면(/today 미경유 또는 상한 절삭) "
+            + "403 QUIZ_SUBMIT_NOT_ALLOWED다 — 보기 조회·계정 락·조건부 UPDATE 어느 것도 일어나지 않는다"
+            + "(아무 흔적도 남기지 않는다)")
+    void submit_noRow_throwsSubmitNotAllowedWithNoTrace() {
+        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(publishedQuiz(0, 10.0)));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
+                .willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> quizSubmitService.submit(USER_ID, QUIZ_ID, 0))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.QUIZ_SUBMIT_NOT_ALLOWED));
+
+        verify(quizOptionRepository, never()).findFirstByQuiz_IdAndOptionOrderByIdAsc(anyLong(), anyInt());
+        verify(userAccountRepository, never()).findWithLockById(anyLong());
+        verify(quizUserSubmitRepository, never()).fillAnswer(anyLong(), anyLong(), any(),
+                anyBoolean(), any(), any());
     }
 
     @Test
-    @DisplayName("[AC-INN-33-3] 티켓은 있으나 그 문제에 실재하지 않는 보기 번호는 400 QUIZ_OPTION_NOT_FOUND다"
-            + "(403이 400보다 앞이라 도달)")
-    void submit_missingOption_throwsQuizOptionNotFound() {
-        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(publishedQuiz(0, 10.0)));
-        given(quizUserSubmitRepository.existsByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
-                .willReturn(false);
-        given(ticketStore.find(USER_ID, QUIZ_ID)).willReturn(Optional.of(ticket(6)));
+    @DisplayName("[AC-INN-71-1,71-2,71-3,71-4] 행은 있으나 미답이고 시한(8분)이 지났으면 403 "
+            + "QUIZ_SUBMIT_NOT_ALLOWED이고, 조건부 UPDATE(fillAnswer) 자체가 호출되지 않는다 — 그 행이 "
+            + "실제로 바뀌지 않는다는 것을 '갱신 시도조차 하지 않음'으로 고정한다(새 ErrorCode 없이 "
+            + "기존 403과 상태코드·본문이 동일하다)")
+    void submit_expiredUnansweredRow_throwsSubmitNotAllowedWithoutAttemptingUpdate() {
+        Quiz quiz = publishedQuiz(0, 10.0);
+        // 정확히 8분보다 더 지난(9분 전) 미답 행 — 경계를 넉넉히 벗어나 흔들리지 않게 한다
+        QuizUserSubmit expired = unansweredRow(quiz, QuizSubmitWindow.now().minusMinutes(9));
+        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(quiz));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
+                .willReturn(Optional.of(expired));
+
+        assertThatThrownBy(() -> quizSubmitService.submit(USER_ID, QUIZ_ID, 0))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.QUIZ_SUBMIT_NOT_ALLOWED));
+
+        // 시한 초과는 보기 조회보다도 먼저 걸러진다 — 어떤 갱신 시도도 이 요청에서 나가지 않는다
+        verify(quizOptionRepository, never()).findFirstByQuiz_IdAndOptionOrderByIdAsc(anyLong(), anyInt());
+        verify(userAccountRepository, never()).findWithLockById(anyLong());
+        verify(quizUserSubmitRepository, never()).fillAnswer(anyLong(), anyLong(), any(),
+                anyBoolean(), any(), any());
+    }
+
+    @Test
+    @DisplayName("[AC-INN-71-4] 답한 행은 아무리 오래돼도(시한을 훌쩍 넘겨도) 403이 아니다 — 재제출은 "
+            + "409로만 판정된다(답한 행에는 시한 초과 검사 자체가 적용되지 않는다)")
+    void submit_answeredRowLongAfterWindow_isNotTreatedAs403() {
+        Quiz quiz = publishedQuiz(0, 10.0);
+        QuizOption alreadyChosen = option(quiz, 0, "정답 보기");
+        QuizUserSubmit answered = answeredRow(quiz, alreadyChosen, true,
+                QuizSubmitWindow.now().minusDays(1));
+        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(quiz));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
+                .willReturn(Optional.of(answered));
+        given(quizOptionRepository.findFirstByQuiz_IdAndOptionOrderByIdAsc(QUIZ_ID, 0))
+                .willReturn(Optional.of(alreadyChosen));
+        given(userAccountRepository.findWithLockById(USER_ID)).willReturn(Optional.of(account(0L)));
+        given(quizUserSubmitRepository.fillAnswer(anyLong(), anyLong(), any(), anyBoolean(),
+                any(), any())).willReturn(0); // 이미 답이 채워진 행이라 영향 행 0
+
+        assertThatThrownBy(() -> quizSubmitService.submit(USER_ID, QUIZ_ID, 0))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.QUIZ_ALREADY_SUBMITTED));
+    }
+
+    // ---------- 검증 순서·중복 제출(QUIZ-INN-70·72) ----------
+
+    @Test
+    @DisplayName("[AC-INN-72-5] 이미 답한 문제에 없는 보기 번호를 보내면 409가 아니라 400 "
+            + "QUIZ_OPTION_NOT_FOUND다(종전 409에서 바뀐 관측 가능한 계약 변화) — 계정 락·조건부 "
+            + "UPDATE는 일어나지 않는다")
+    void submit_answeredRowWithInvalidOptionNumber_throws400NotConflict() {
+        Quiz quiz = publishedQuiz(0, 10.0);
+        QuizOption alreadyChosen = option(quiz, 0, "정답 보기");
+        QuizUserSubmit answered = answeredRow(quiz, alreadyChosen, true,
+                QuizSubmitWindow.now().minusMinutes(5));
+        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(quiz));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
+                .willReturn(Optional.of(answered));
         given(quizOptionRepository.findFirstByQuiz_IdAndOptionOrderByIdAsc(QUIZ_ID, 9))
                 .willReturn(Optional.empty());
 
@@ -284,232 +380,110 @@ class QuizSubmitServiceTest {
                         e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.QUIZ_OPTION_NOT_FOUND));
 
         verify(userAccountRepository, never()).findWithLockById(anyLong());
-        verify(quizUserSubmitRepository, never()).save(any());
-        // [AC-INN-22-1] 400 실패는 티켓을 태우지 않는다 — 오타 한 번으로 문제를 못 풀게 되면 안 된다
-        verify(ticketStore, never()).delete(anyLong(), anyLong());
+        verify(quizUserSubmitRepository, never()).fillAnswer(anyLong(), anyLong(), any(),
+                anyBoolean(), any(), any());
     }
 
     @Test
-    @DisplayName("[AC-INN-33-2] 이미 제출한 문제는 여전히 409 QUIZ_ALREADY_SUBMITTED다 — 최초 제출이 "
-            + "티켓을 지워 재제출 시점엔 티켓이 없지만, 409 검사가 403보다 앞이라 응답이 바뀌지 않는다"
-            + "(검증 순서 회귀의 핵심 AC)")
-    void submit_alreadySubmitted_throwsConflict() {
-        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(publishedQuiz(0, 10.0)));
-        given(quizUserSubmitRepository.existsByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
-                .willReturn(true);
-
-        assertThatThrownBy(() -> quizSubmitService.submit(USER_ID, QUIZ_ID, 0))
-                .isInstanceOfSatisfying(BusinessException.class,
-                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.QUIZ_ALREADY_SUBMITTED));
-
-        verify(quizOptionRepository, never()).findFirstByQuiz_IdAndOptionOrderByIdAsc(anyLong(), anyInt());
-        verify(quizUserSubmitRepository, never()).save(any());
-        // 409 검사가 403(티켓) 검사보다 앞선다 — 순서가 바뀌면 이 호출이 발생해 403으로 새어 나간다
-        verify(ticketStore, never()).find(anyLong(), anyLong());
-        verify(ticketStore, never()).delete(anyLong(), anyLong());
-    }
-
-    @Test
-    @DisplayName("[AC-INN-39-1] 삭제 실패로 티켓이 남아 있어도 이미 제출한 문제 재제출은 여전히 409다 "
-            + "— 티켓은 제출의 필요조건일 뿐 충분조건이 아니며 409 검사가 먼저 접는다")
-    void submit_alreadySubmittedWithLeftoverTicket_stillReturnsConflict() {
-        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(publishedQuiz(0, 10.0)));
-        given(quizUserSubmitRepository.existsByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
-                .willReturn(true);
-        // 티켓이 남아 있다고 스텁해도(leniently) 409 검사가 앞서 있어 이 스텁까지 도달하지 않는다
-        lenient().when(ticketStore.find(USER_ID, QUIZ_ID)).thenReturn(Optional.of(ticket(6)));
-
-        assertThatThrownBy(() -> quizSubmitService.submit(USER_ID, QUIZ_ID, 0))
-                .isInstanceOfSatisfying(BusinessException.class,
-                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.QUIZ_ALREADY_SUBMITTED));
-
-        verify(ticketStore, never()).find(anyLong(), anyLong());
-    }
-
-    @Test
-    @DisplayName("동시 제출 race로 UNIQUE 위반이 나면 500이 아니라 409 QUIZ_ALREADY_SUBMITTED로 접는다")
-    void submit_uniqueViolationOnSave_mapsToConflict() {
+    @DisplayName("[AC-INN-33-old,72-3] 미답 행에 없는 보기 번호를 보내면(첫 제출 실패) 400 "
+            + "QUIZ_OPTION_NOT_FOUND다 — 계정 락은 일어나지 않는다")
+    void submit_unansweredRowWithInvalidOptionNumber_throws400() {
         Quiz quiz = publishedQuiz(0, 10.0);
+        QuizUserSubmit served = unansweredRow(quiz, QuizSubmitWindow.now().minusMinutes(1));
         given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(quiz));
-        given(quizUserSubmitRepository.existsByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
-                .willReturn(false);
-        given(ticketStore.find(USER_ID, QUIZ_ID)).willReturn(Optional.of(ticket(6)));
-        given(quizOptionRepository.findFirstByQuiz_IdAndOptionOrderByIdAsc(QUIZ_ID, 0))
-                .willReturn(Optional.of(option(quiz, 0, "정답 보기")));
-        given(userAccountRepository.findWithLockById(USER_ID))
-                .willReturn(Optional.of(account(0L)));
-        willThrow(new DataIntegrityViolationException("uk_quiz_users_submit_account_quiz"))
-                .given(quizUserSubmitRepository).save(any(QuizUserSubmit.class));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
+                .willReturn(Optional.of(served));
+        given(quizOptionRepository.findFirstByQuiz_IdAndOptionOrderByIdAsc(QUIZ_ID, 9))
+                .willReturn(Optional.empty());
 
-        assertThatThrownBy(() -> quizSubmitService.submit(USER_ID, QUIZ_ID, 0))
+        assertThatThrownBy(() -> quizSubmitService.submit(USER_ID, QUIZ_ID, 9))
                 .isInstanceOfSatisfying(BusinessException.class,
-                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.QUIZ_ALREADY_SUBMITTED));
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.QUIZ_OPTION_NOT_FOUND));
 
-        // [AC-INN-22-2] 409(UNIQUE race)도 티켓을 지우지 않는다 — 실패는 티켓을 소모하지 않는 것이 계약
-        verify(ticketStore, never()).delete(anyLong(), anyLong());
+        verify(userAccountRepository, never()).findWithLockById(anyLong());
+        verify(quizUserSubmitRepository, never()).fillAnswer(anyLong(), anyLong(), any(),
+                anyBoolean(), any(), any());
     }
 
-    // ---------- 제출 자격 증명(티켓) — QUIZ-INN-18~40 ----------
-
     @Test
-    @DisplayName("[AC-INN-18-1,18-2] 티켓의 이닝 값을 그대로 제출 기록의 inning에 저장한다")
-    void submit_withTicket_savesTicketInningOnRecord() {
+    @DisplayName("[AC-INN-73-1] 400으로 실패한 뒤 곧바로 올바른 보기로 재시도하면(같은 행, 시한 내) "
+            + "성공한다 — 오타 한 번이 기회를 태우지 않는다")
+    void submit_afterInvalidOptionFailure_retryWithCorrectOptionSucceeds() {
         Quiz quiz = publishedQuiz(0, 10.0);
-        QuizOption option = option(quiz, 0, "정답 보기");
+        QuizOption correctOption = option(quiz, 0, "정답 보기");
+        QuizUserSubmit served = unansweredRow(quiz, QuizSubmitWindow.now().minusMinutes(1));
         given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(quiz));
-        given(quizUserSubmitRepository.existsByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
-                .willReturn(false);
-        given(ticketStore.find(USER_ID, QUIZ_ID)).willReturn(Optional.of(ticket(6)));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
+                .willReturn(Optional.of(served));
+        given(quizOptionRepository.findFirstByQuiz_IdAndOptionOrderByIdAsc(QUIZ_ID, 9))
+                .willReturn(Optional.empty());
         given(quizOptionRepository.findFirstByQuiz_IdAndOptionOrderByIdAsc(QUIZ_ID, 0))
-                .willReturn(Optional.of(option));
+                .willReturn(Optional.of(correctOption));
         given(userAccountRepository.findWithLockById(USER_ID)).willReturn(Optional.of(account(0L)));
+        given(quizUserSubmitRepository.fillAnswer(anyLong(), anyLong(), any(), anyBoolean(),
+                any(), any())).willReturn(1);
 
-        quizSubmitService.submit(USER_ID, QUIZ_ID, 0);
-
-        ArgumentCaptor<QuizUserSubmit> captor = ArgumentCaptor.forClass(QuizUserSubmit.class);
-        verify(quizUserSubmitRepository).save(captor.capture());
-        assertThat(captor.getValue().getInning()).isEqualTo(6);
-    }
-
-    @Test
-    @DisplayName("[AC-INN-18-4,40-3] 이닝 미상 티켓(inning=null)으로 제출해도 200이고 기록의 inning은 "
-            + "NULL이다 — 이닝 확보 실패가 제출을 막지 않는다")
-    void submit_withUnknownInningTicket_returns200AndSavesNullInning() {
-        Quiz quiz = publishedQuiz(0, 10.0);
-        QuizOption option = option(quiz, 0, "정답 보기");
-        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(quiz));
-        given(quizUserSubmitRepository.existsByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
-                .willReturn(false);
-        given(ticketStore.find(USER_ID, QUIZ_ID)).willReturn(Optional.of(ticket(null)));
-        given(quizOptionRepository.findFirstByQuiz_IdAndOptionOrderByIdAsc(QUIZ_ID, 0))
-                .willReturn(Optional.of(option));
-        given(userAccountRepository.findWithLockById(USER_ID)).willReturn(Optional.of(account(0L)));
-
-        QuizSubmitResponse response = quizSubmitService.submit(USER_ID, QUIZ_ID, 0);
-
-        assertThat(response.correct()).isTrue();
-        ArgumentCaptor<QuizUserSubmit> captor = ArgumentCaptor.forClass(QuizUserSubmit.class);
-        verify(quizUserSubmitRepository).save(captor.capture());
-        assertThat(captor.getValue().getInning()).isNull();
-    }
-
-    @Test
-    @DisplayName("[AC-INN-29-1,29-2,29-3,30-1] 티켓이 없으면(/today 미경유 또는 시한 8분 경과) "
-            + "403 QUIZ_SUBMIT_NOT_ALLOWED다 — 두 경우가 같은 응답으로 구분 불가능하다")
-    void submit_noTicket_throwsSubmitNotAllowed() {
-        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(publishedQuiz(0, 10.0)));
-        given(quizUserSubmitRepository.existsByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
-                .willReturn(false);
-        given(ticketStore.find(USER_ID, QUIZ_ID)).willReturn(Optional.empty());
-
-        assertThatThrownBy(() -> quizSubmitService.submit(USER_ID, QUIZ_ID, 0))
-                .isInstanceOfSatisfying(BusinessException.class,
-                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.QUIZ_SUBMIT_NOT_ALLOWED));
-    }
-
-    @Test
-    @DisplayName("[AC-INN-31-1,31-2,31-3,31-4,33-4] 403으로 거절된 제출은 아무 흔적도 남기지 않는다 — "
-            + "제출 저장·계정 락·보기 조회·Redis 쓰기가 전부 일어나지 않는다")
-    void submit_noTicket_leavesNoTraceOnRejection() {
-        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(publishedQuiz(0, 10.0)));
-        given(quizUserSubmitRepository.existsByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
-                .willReturn(false);
-        given(ticketStore.find(USER_ID, QUIZ_ID)).willReturn(Optional.empty());
-
-        assertThatThrownBy(() -> quizSubmitService.submit(USER_ID, QUIZ_ID, 0))
+        assertThatThrownBy(() -> quizSubmitService.submit(USER_ID, QUIZ_ID, 9))
                 .isInstanceOf(BusinessException.class);
+        QuizSubmitResponse retried = quizSubmitService.submit(USER_ID, QUIZ_ID, 0);
 
-        verify(quizUserSubmitRepository, never()).save(any());
-        verify(userAccountRepository, never()).findWithLockById(anyLong());
-        verify(quizOptionRepository, never()).findFirstByQuiz_IdAndOptionOrderByIdAsc(anyLong(), anyInt());
-        verify(ticketStore, never()).delete(anyLong(), anyLong());
-        verify(ticketStore, never()).issue(anyLong(), any());
+        assertThat(retried.correct()).isTrue();
+        verify(quizUserSubmitRepository, times(1)).fillAnswer(anyLong(), anyLong(), any(),
+                anyBoolean(), any(), any());
     }
 
     @Test
-    @DisplayName("[AC-INN-37-1,37-2,37-3] 제출 중 티켓 조회가 실패하면(Redis 장애) 예외가 그대로 "
-            + "전파되고(403이 아니다) 제출 행도 생기지 않는다 — 장애와 자격 미달은 다른 사실이다")
-    void submit_ticketLookupFails_propagatesInsteadOf403() {
-        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(publishedQuiz(0, 10.0)));
-        given(quizUserSubmitRepository.existsByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
-                .willReturn(false);
-        given(ticketStore.find(USER_ID, QUIZ_ID))
-                .willThrow(new RedisConnectionFailureException("redis down"));
+    @DisplayName("[AC-INN-70-1,70-3,70-4] 조건부 UPDATE의 영향 행 수가 0이면(동시 제출 race 포함) 409 "
+            + "QUIZ_ALREADY_SUBMITTED다 — 적립은 이미 이루어졌더라도(실제로는 트랜잭션 롤백으로 함께 "
+            + "되돌아간다) 응답은 실패다")
+    void submit_fillAnswerReturnsZero_throwsConflict() {
+        Quiz quiz = publishedQuiz(0, 10.0);
+        QuizOption option = option(quiz, 0, "정답 보기");
+        QuizUserSubmit served = unansweredRow(quiz, QuizSubmitWindow.now().minusMinutes(1));
+        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(quiz));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
+                .willReturn(Optional.of(served));
+        given(quizOptionRepository.findFirstByQuiz_IdAndOptionOrderByIdAsc(QUIZ_ID, 0))
+                .willReturn(Optional.of(option));
+        given(userAccountRepository.findWithLockById(USER_ID)).willReturn(Optional.of(account(0L)));
+        given(quizUserSubmitRepository.fillAnswer(anyLong(), anyLong(), any(), anyBoolean(),
+                any(), any())).willReturn(0);
 
         assertThatThrownBy(() -> quizSubmitService.submit(USER_ID, QUIZ_ID, 0))
-                .isInstanceOf(RedisConnectionFailureException.class)
-                .isNotInstanceOf(BusinessException.class);
-
-        verify(quizUserSubmitRepository, never()).save(any());
-        verify(userAccountRepository, never()).findWithLockById(anyLong());
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.QUIZ_ALREADY_SUBMITTED));
     }
 
     @Test
-    @DisplayName("[AC-INN-26-3] 티켓 조회는 계정 행 락보다 먼저 끝난다 — 락 구간에 Redis 접근이 없다")
-    void submit_checksTicketBeforeAccountLock() {
+    @DisplayName("[AC-INN-72-2,72-4] 성공 경로의 협력 객체 호출 순서는 행 조회(403 검사) → 보기 조회"
+            + "(400 검사) → 계정 락·적립 → 조건부 UPDATE(409 판정) 순이다 — 404→403→400→(락·적립)→409 "
+            + "검증 순서가 실제 호출 순서로도 지켜진다")
+    void submit_success_callsCollaboratorsInGateOrder() {
         Quiz quiz = publishedQuiz(0, 10.0);
         QuizOption option = option(quiz, 0, "정답 보기");
+        QuizUserSubmit served = unansweredRow(quiz, QuizSubmitWindow.now().minusMinutes(1));
         given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(quiz));
-        given(quizUserSubmitRepository.existsByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
-                .willReturn(false);
-        given(ticketStore.find(USER_ID, QUIZ_ID)).willReturn(Optional.of(ticket(6)));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
+                .willReturn(Optional.of(served));
         given(quizOptionRepository.findFirstByQuiz_IdAndOptionOrderByIdAsc(QUIZ_ID, 0))
                 .willReturn(Optional.of(option));
         given(userAccountRepository.findWithLockById(USER_ID)).willReturn(Optional.of(account(0L)));
+        given(quizUserSubmitRepository.fillAnswer(anyLong(), anyLong(), any(), anyBoolean(),
+                any(), any())).willReturn(1);
 
         quizSubmitService.submit(USER_ID, QUIZ_ID, 0);
 
-        InOrder inOrder = inOrder(ticketStore, userAccountRepository);
-        inOrder.verify(ticketStore).find(USER_ID, QUIZ_ID);
+        InOrder inOrder = org.mockito.Mockito.inOrder(quizUserSubmitRepository,
+                quizOptionRepository, userAccountRepository);
+        inOrder.verify(quizUserSubmitRepository).findByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID);
+        inOrder.verify(quizOptionRepository)
+                .findFirstByQuiz_IdAndOptionOrderByIdAsc(QUIZ_ID, 0);
         inOrder.verify(userAccountRepository).findWithLockById(USER_ID);
+        inOrder.verify(quizUserSubmitRepository).fillAnswer(anyLong(), anyLong(), any(),
+                anyBoolean(), any(), any());
     }
 
-    @Test
-    @DisplayName("[AC-INN-21-1,21-2,21-3] 제출 성공 시 티켓 삭제는 커밋 이후에만 일어나고, 그 문제의 "
-            + "티켓 정확히 하나만 지운다")
-    void submit_success_deletesTicketOnlyAfterCommit() {
-        Quiz quiz = publishedQuiz(0, 10.0);
-        QuizOption option = option(quiz, 0, "정답 보기");
-        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(quiz));
-        given(quizUserSubmitRepository.existsByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
-                .willReturn(false);
-        given(ticketStore.find(USER_ID, QUIZ_ID)).willReturn(Optional.of(ticket(6)));
-        given(quizOptionRepository.findFirstByQuiz_IdAndOptionOrderByIdAsc(QUIZ_ID, 0))
-                .willReturn(Optional.of(option));
-        given(userAccountRepository.findWithLockById(USER_ID)).willReturn(Optional.of(account(0L)));
-
-        quizSubmitService.submit(USER_ID, QUIZ_ID, 0);
-
-        // 커밋 전(=submit() 호출 직후)에는 아직 지워지지 않았다 — afterCommit 콜백을 아직 트리거하지 않았다
-        verify(ticketStore, never()).delete(anyLong(), anyLong());
-
-        triggerAfterCommit();
-
-        verify(ticketStore, times(1)).delete(USER_ID, QUIZ_ID);
-    }
-
-    @Test
-    @DisplayName("[AC-INN-23-1,23-2,23-3] 커밋 후 티켓 삭제가 실패해도 예외를 삼킨다 — 응답은 이미 "
-            + "정상 반환된 뒤라 TTL 만료에 정리를 맡긴다")
-    void submit_ticketDeleteFailsAfterCommit_swallowsException() {
-        Quiz quiz = publishedQuiz(0, 10.0);
-        QuizOption option = option(quiz, 0, "정답 보기");
-        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(quiz));
-        given(quizUserSubmitRepository.existsByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
-                .willReturn(false);
-        given(ticketStore.find(USER_ID, QUIZ_ID)).willReturn(Optional.of(ticket(6)));
-        given(quizOptionRepository.findFirstByQuiz_IdAndOptionOrderByIdAsc(QUIZ_ID, 0))
-                .willReturn(Optional.of(option));
-        given(userAccountRepository.findWithLockById(USER_ID)).willReturn(Optional.of(account(0L)));
-        willThrow(new RedisConnectionFailureException("redis down"))
-                .given(ticketStore).delete(USER_ID, QUIZ_ID);
-
-        QuizSubmitResponse response = quizSubmitService.submit(USER_ID, QUIZ_ID, 0);
-
-        // 응답은 이미 정상 반환됐다(삭제는 별도의 커밋 후 콜백이라 응답 자체엔 영향이 없다)
-        assertThat(response.correct()).isTrue();
-        assertThatCode(QuizSubmitServiceTest::triggerAfterCommit).doesNotThrowAnyException();
-    }
+    // ---------- 풀이 이력 ----------
 
     @Test
     @DisplayName("이력은 페이지 항목(정답 텍스트 포함)과 전체 제출 기준 요약을 함께 만든다")
@@ -518,9 +492,9 @@ class QuizSubmitServiceTest {
         Quiz quiz1 = quiz(10L, 0, 10.0, LocalDate.of(2026, 8, 7));
         Quiz quiz2 = quiz(20L, 1, 5.0, LocalDate.of(2026, 8, 8));
         QuizUserSubmit wrong = submitOf(account, quiz1, option(quiz1, 1, "오답 보기"), false,
-                LocalDateTime.of(2026, 8, 7, 21, 0));
+                LocalDateTime.of(2026, 8, 7, 20, 55), LocalDateTime.of(2026, 8, 7, 21, 0));
         QuizUserSubmit correct = submitOf(account, quiz2, option(quiz2, 1, "X"), true,
-                LocalDateTime.of(2026, 8, 8, 9, 30));
+                LocalDateTime.of(2026, 8, 8, 9, 22), LocalDateTime.of(2026, 8, 8, 9, 30));
         given(quizUserSubmitRepository.findHistoryByUserAccountId(USER_ID, PageRequest.of(0, 20)))
                 .willReturn(new PageImpl<>(List.of(correct, wrong), PageRequest.of(0, 20), 2));
         given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(List.of(20L, 10L)))
@@ -552,9 +526,11 @@ class QuizSubmitServiceTest {
         assertThat(first.myOption()).isEqualTo(1);
         assertThat(first.myOptionText()).isEqualTo("X");
         assertThat(first.correct()).isTrue();
+        assertThat(first.expired()).isFalse();
         assertThat(first.answer()).isEqualTo(1);
         assertThat(first.answerText()).isEqualTo("X");
         assertThat(first.earnedPoint()).isEqualTo(5L);
+        // [회귀] submittedAt은 받은 시각(createdAt=9:22)이 아니라 답을 낸 시각(updatedAt=9:30)이다
         assertThat(first.submittedAt()).isEqualTo(LocalDateTime.of(2026, 8, 8, 9, 30));
         assertThat(first.liked()).isTrue();
         assertThat(first.likeCount()).isEqualTo(7L);
@@ -565,9 +541,51 @@ class QuizSubmitServiceTest {
         assertThat(second.myOptionText()).isEqualTo("오답 보기");
         assertThat(second.answerText()).isEqualTo("정답 보기");
         assertThat(second.earnedPoint()).isZero();
+        assertThat(second.submittedAt()).isEqualTo(LocalDateTime.of(2026, 8, 7, 21, 0));
         // AC-LIKE-36: liked=true 행만 세므로, 켜진 적 없는(또는 group by 에서 빠진) 문제는 0으로 흡수된다
         assertThat(second.liked()).isFalse();
         assertThat(second.likeCount()).isZero();
+    }
+
+    @Test
+    @DisplayName("[AC-INN-78-3,78-4,78-5] 답 없는 행도 이력 항목으로 실린다 — myOption·myOptionText는 "
+            + "null, correct는 false, earnedPoint는 0이고, 시한이 남았으면 expired=false·지났으면 "
+            + "expired=true다(감출 수 없다: total이 이 행까지 센다)")
+    void getHistory_includesUnansweredSubmission_withNullMyOptionAndComputedExpired() {
+        UserAccount account = account(0L);
+        Quiz inProgressQuiz = quiz(30L, 0, 10.0, LocalDate.of(2026, 8, 12));
+        Quiz expiredQuiz = quiz(40L, 0, 10.0, LocalDate.of(2026, 8, 12));
+        LocalDateTime now = QuizSubmitWindow.now();
+        QuizUserSubmit inProgress = submitOf(account, inProgressQuiz, null, false,
+                now.minusMinutes(1), now.minusMinutes(1));
+        QuizUserSubmit expired = submitOf(account, expiredQuiz, null, false,
+                now.minusMinutes(9), now.minusMinutes(9));
+        given(quizUserSubmitRepository.findHistoryByUserAccountId(USER_ID, PageRequest.of(0, 20)))
+                .willReturn(new PageImpl<>(List.of(inProgress, expired), PageRequest.of(0, 20), 2));
+        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(List.of(30L, 40L)))
+                .willReturn(List.of());
+        given(quizUserSubmitRepository.countByUserAccount_Id(USER_ID)).willReturn(2L);
+        given(quizUserSubmitRepository.countByUserAccount_IdAndIsAnswerTrue(USER_ID)).willReturn(0L);
+        given(quizLikeService.likesOf(USER_ID, List.of(30L, 40L))).willReturn(Map.of());
+
+        QuizSubmissionHistoryResponse response = quizSubmitService.getHistory(USER_ID, 0);
+
+        assertThat(response.submissions().content()).hasSize(2);
+        QuizSubmissionItemResponse inProgressItem = response.submissions().content().get(0);
+        assertThat(inProgressItem.quizId()).isEqualTo(30L);
+        assertThat(inProgressItem.myOption()).isNull();
+        assertThat(inProgressItem.myOptionText()).isNull();
+        assertThat(inProgressItem.correct()).isFalse();
+        assertThat(inProgressItem.earnedPoint()).isZero();
+        assertThat(inProgressItem.expired()).isFalse();
+        // 답 없는 항목은 낸 시각이 없다 — 받은 시각(createdAt)이 그대로 submittedAt에 실린다
+        assertThat(inProgressItem.submittedAt()).isEqualTo(now.minusMinutes(1));
+
+        QuizSubmissionItemResponse expiredItem = response.submissions().content().get(1);
+        assertThat(expiredItem.quizId()).isEqualTo(40L);
+        assertThat(expiredItem.myOption()).isNull();
+        assertThat(expiredItem.correct()).isFalse();
+        assertThat(expiredItem.expired()).isTrue();
     }
 
     @Test
@@ -579,7 +597,7 @@ class QuizSubmitServiceTest {
                 .mapToObj(i -> {
                     Quiz quiz = quiz((long) i, 0, 10.0, LocalDate.of(2026, 8, 8));
                     return submitOf(account, quiz, option(quiz, 0, "정답 보기"), true,
-                            LocalDateTime.of(2026, 8, 8, 9, 0));
+                            LocalDateTime.of(2026, 8, 8, 9, 0), LocalDateTime.of(2026, 8, 8, 9, 0));
                 })
                 .toList();
         given(quizUserSubmitRepository.findHistoryByUserAccountId(USER_ID, PageRequest.of(0, 20)))
@@ -588,11 +606,12 @@ class QuizSubmitServiceTest {
                 .willReturn(List.of());
         given(quizUserSubmitRepository.countByUserAccount_Id(USER_ID)).willReturn(20L);
         given(quizUserSubmitRepository.countByUserAccount_IdAndIsAnswerTrue(USER_ID)).willReturn(20L);
-        given(quizLikeService.likesOf(eq(USER_ID), any())).willReturn(Map.of());
+        given(quizLikeService.likesOf(org.mockito.ArgumentMatchers.eq(USER_ID), any()))
+                .willReturn(Map.of());
 
         quizSubmitService.getHistory(USER_ID, 0);
 
-        verify(quizLikeService, times(1)).likesOf(eq(USER_ID), any());
+        verify(quizLikeService, times(1)).likesOf(org.mockito.ArgumentMatchers.eq(USER_ID), any());
     }
 
     @Test
@@ -602,22 +621,25 @@ class QuizSubmitServiceTest {
         UserAccount account = account(0L);
         Quiz quiz = quiz(1L, 0, 10.0, LocalDate.of(2026, 8, 8));
         QuizUserSubmit submit = submitOf(account, quiz, option(quiz, 0, "정답 보기"), true,
-                LocalDateTime.of(2026, 8, 8, 9, 0));
+                LocalDateTime.of(2026, 8, 8, 9, 0), LocalDateTime.of(2026, 8, 8, 9, 0));
         given(quizUserSubmitRepository.findHistoryByUserAccountId(USER_ID, PageRequest.of(0, 20)))
                 .willReturn(new PageImpl<>(List.of(submit), PageRequest.of(0, 20), 1));
         given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(any()))
                 .willReturn(List.of());
         given(quizUserSubmitRepository.countByUserAccount_Id(USER_ID)).willReturn(1L);
         given(quizUserSubmitRepository.countByUserAccount_IdAndIsAnswerTrue(USER_ID)).willReturn(1L);
-        given(quizLikeService.likesOf(eq(USER_ID), any())).willReturn(Map.of());
+        given(quizLikeService.likesOf(org.mockito.ArgumentMatchers.eq(USER_ID), any()))
+                .willReturn(Map.of());
 
         quizSubmitService.getHistory(USER_ID, 0);
 
-        verify(quizLikeService, times(1)).likesOf(eq(USER_ID), any());
+        verify(quizLikeService, times(1)).likesOf(org.mockito.ArgumentMatchers.eq(USER_ID), any());
     }
 
     @Test
-    @DisplayName("제출 이력이 0건이면 정답률은 NaN이 아니라 0.0이고 보기 조회를 하지 않는다")
+    @DisplayName("[AC-INN-77-1,77-2,77-3] 제출 이력이 0건이면 정답률은 NaN이 아니라 0.0이고 보기 조회를 "
+            + "하지 않는다 — 요약 두 카운트(total/correctCount)는 서비스가 재계산하지 않고 리포지토리 "
+            + "값을 그대로 옮긴다(미답 행을 분모에서 빼는 보정이 없다는 것을 통과값 그대로 확인)")
     void getHistory_empty_accuracyZeroWithoutOptionLookup() {
         given(quizUserSubmitRepository.findHistoryByUserAccountId(USER_ID, PageRequest.of(0, 20)))
                 .willReturn(Page.empty(PageRequest.of(0, 20)));
@@ -632,5 +654,24 @@ class QuizSubmitServiceTest {
         assertThat(response.submissions().content()).isEmpty();
 
         verify(quizOptionRepository, never()).findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(anyCollection());
+    }
+
+    @Test
+    @DisplayName("[AC-INN-77-1] 미답 행이 섞여 있어도 total·correctCount는 리포지토리가 돌려준 값 "
+            + "그대로다(분모에 미답 행이 포함된 값을 그대로 신뢰 — 서비스가 답한 행만 골라 다시 세지 "
+            + "않는다)")
+    void getHistory_totalIncludesUnansweredRows_passthroughFromRepository() {
+        // total(10) > correctCount(4)로, 그 차이(6)에는 오답과 미답이 섞여 있어도 서비스는
+        // 이 둘을 구분해 재계산하지 않는다 — 리포지토리 카운트를 그대로 옮긴다
+        given(quizUserSubmitRepository.findHistoryByUserAccountId(USER_ID, PageRequest.of(0, 20)))
+                .willReturn(Page.empty(PageRequest.of(0, 20)));
+        given(quizUserSubmitRepository.countByUserAccount_Id(USER_ID)).willReturn(10L);
+        given(quizUserSubmitRepository.countByUserAccount_IdAndIsAnswerTrue(USER_ID)).willReturn(4L);
+
+        QuizSubmissionHistoryResponse response = quizSubmitService.getHistory(USER_ID, 0);
+
+        assertThat(response.summary().total()).isEqualTo(10L);
+        assertThat(response.summary().correctCount()).isEqualTo(4L);
+        assertThat(response.summary().accuracy()).isEqualTo(0.4);
     }
 }

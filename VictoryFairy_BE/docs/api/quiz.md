@@ -3,17 +3,17 @@
 > **도메인** `quiz` — 오늘의 퀴즈 조회·개별 조회·제출(채점)·풀이 이력·좋아요.
 > **모듈** quiz (포트 8081) · **경로 접두사** `/rt/quizzes` · **엔드포인트** 5개
 > **컨트롤러** `quiz/src/main/java/com/skhynix/quiz/quiz/controller/QuizController.java`(조회·좋아요 토글), `QuizSubmissionController.java`(제출·이력) — `/rt`는 context-path가 붙인다
-> **최종 갱신** 2026-08-12 — `POST /{quizId}/submit`에 403 `QUIZ_SUBMIT_NOT_ALLOWED` 신설(제출 자격 증명 도입, 실패 3종→4종) + `GET /today` 응답 상한 20건 신설(응답 필드는 불변). 계약 원본 `docs/requirements/quiz/quiz-inning-tracking.md`(승인됨 2026-08-12). (직전: 같은 날 경로 변수/쿼리 파라미터/요청 본문 표기를 chat.md 형식으로 통일(계약 변경 없음). 직전: 2026-08-11 좋아요 기능 신설(`POST /{quizId}/like` 신규, 단건 상세·풀이 이력 응답에 `liked`·`likeCount` 필드 추가)).
+> **최종 갱신** 2026-08-12 — 제출 자격 증명의 근거가 **Redis 티켓(`QuizSubmissionTicketStore`)에서 `quiz_users_submit`의 "미답 행"으로 전면 교체됨**(같은 날 안에서 설계가 한 번 더 갈렸다 — Redis 티켓안은 구현 단계에서 폐기). `GET /today`가 이제 서빙과 동시에 미답 행을 만드는 **쓰기 트랜잭션**이고, **재호출로도 시한이 연장되지 않으며 시한(8분)을 넘긴 미답 문제는 이후 어떤 `/today` 응답에도 다시 실리지 않는다**(행동 변화 — 옛 Redis 티켓 방식은 재호출마다 시한이 8분으로 갱신됐고, 시한을 넘겨도 다음 `/today`에 새 시한으로 다시 실렸다). `GET /{quizId}`·`GET /submissions`에 `expired`(boolean) 필드 신설, `submitted`의 의미가 "받았는가"→**"답했는가"**로 재정의, `myOption`/`myOptionText`가 nullable로 완화(답 없는 항목 포함), `submittedAt`이 `updated_at`(답을 낸 시각) 기준으로 재정의, 이력 요약이 미답 문제를 오답으로 집계(제품 결정). `POST /{quizId}/submit`은 판정 순서가 404→409→403→400에서 **404→403→400→409로 바뀌어, 이미 답한 문제에 없는 보기 번호를 보내면 종전 409였던 응답이 이제 400**이다(관측 가능한 계약 변화). **메서드·경로·요청 본문·성공 응답 필드는 전부 불변.** 계약 원본 `docs/requirements/quiz/quiz-inning-tracking.md`(승인됨 2026-08-12, 3~4차 개정 — Redis 폐기 결정 포함). (직전: 같은 날 최초 설계는 `POST /{quizId}/submit`에 403 `QUIZ_SUBMIT_NOT_ALLOWED`를 Redis 제출 자격 티켓(TTL 8분) 기반으로 신설하는 안이었으나, 위와 같이 DB 행 기반으로 대체됐다). (직전: 2026-08-11 좋아요 기능 신설(`POST /{quizId}/like` 신규, 단건 상세·풀이 이력 응답에 `liked`·`likeCount` 필드 추가)).
 > 공통 규약(응답 래퍼·인증·401 정책)은 [README.md](README.md)를 먼저 볼 것.
 
 ## 엔드포인트 목록
 
 | 메서드 | 경로 | 성공 | 용도 |
 |---|---|---|---|
-| GET | [/rt/quizzes/today](#get-rtquizzestoday) | 200 | 오늘(KST) 세트 목록 — 선호 문제 우선 정렬, `preferredOnly` 필터 |
-| GET | [/rt/quizzes/{quizId}](#get-rtquizzesquizid) | 200 | 단건 상세 — 제출 전엔 정답 비노출, 제출 후엔 복기 정보 + 좋아요 상태 포함 |
+| GET | [/rt/quizzes/today](#get-rtquizzestoday) | 200 | 오늘(KST) 세트 목록 — 선호 문제 우선 정렬, `preferredOnly` 필터. 서빙과 동시에 미답 행 생성(쓰기 트랜잭션) |
+| GET | [/rt/quizzes/{quizId}](#get-rtquizzesquizid) | 200 | 단건 상세 — 답하기 전엔 정답 비노출, 답한 후엔 복기 정보 + 좋아요 상태 포함. `(submitted, expired)`로 진행 중/답함/시한 초과 구분 |
 | POST | [/rt/quizzes/{quizId}/submit](#post-rtquizzesquizidsubmit) | 200 | 제출·서버 채점 — 정답이면 포인트 적립 |
-| GET | [/rt/quizzes/submissions](#get-rtquizzessubmissions) | 200 | 내 풀이 이력(페이지) + 전체 요약(정답률), 각 항목 좋아요 상태 포함 |
+| GET | [/rt/quizzes/submissions](#get-rtquizzessubmissions) | 200 | 내 풀이 이력(페이지, 답 없는 항목 포함) + 전체 요약(정답률), 각 항목 좋아요 상태 포함 |
 | POST | [/rt/quizzes/{quizId}/like](#post-rtquizzesquizidlike) | 200 | 좋아요 토글 — 내가 제출한 문제에만 허용 |
 
 ## 이 도메인의 특이사항
@@ -24,20 +24,22 @@
 
 **선호(응원 구단·선수)는 세트 구성이 아니라 노출 방식에 반영된다.** `/today`는 내 응원 구단(문제의 대상·상대 구단 일치) 또는 응원 선수(대상 선수 일치) 문제를 앞에 배치하고 `preferred` 플래그로 표시한다. `preferredOnly=true`는 그것만 남긴다(응원 정보가 하나도 없으면 no-op으로 전체 반환). 세트 자체는 전원 동일하므로 필터를 써도 레이팅 공정성이 깨지지 않는다.
 
-**정답(answer)은 제출 전엔 어떤 응답에도 없다 — 제출 후에만 공개된다.** 조회 응답(`/today`, 미제출 상세)에는 `answer` 키 자체가 없다(클라이언트 개발자 도구 노출 방지, 테스트로 고정). 제출 응답과 제출 후 상세·이력에는 정답이 실린다(복기 화면 전제).
+**정답(answer)은 답하기 전엔 어떤 응답에도 없다 — 답한 후에만 공개된다.** 조회 응답(`/today`, 미답 상세)에는 `answer` 키 자체가 없다(클라이언트 개발자 도구 노출 방지, 테스트로 고정). 제출 응답과 답한 후 상세·이력에는 정답이 실린다(복기 화면 전제).
 
-**채점·적립은 서버 트랜잭션 안에서 원자적이다.** 정답이면 `quizzes.score`(배점)만큼 `users_account.point`에 적립한다(비관적 락으로 동시 적립 유실 방지). `users_bq.bq_score`는 레이팅 설계 확정 전이라 건드리지 않는다. 중복 제출은 409 — 동시 요청 race는 `uk_quiz_users_submit_account_quiz` UNIQUE가 최종 중재하고, 그 위반도 500이 아니라 409로 접는다.
+**채점·적립은 서버 트랜잭션 안에서 원자적이다.** 정답이면 `quizzes.score`(배점)만큼 `users_account.point`에 적립한다(비관적 락으로 동시 적립 유실 방지). `users_bq.bq_score`는 레이팅 설계 확정 전이라 건드리지 않는다. **중복 제출(409)의 판정 방식이 2026-08-12부터 바뀌었다** — 예전엔 선제 `existsBy` 검사(친절한 409) + `uk_quiz_users_submit_account_quiz` UNIQUE(동시 요청 race의 최종 중재)로 이중이었으나, 이제는 미답 행을 채우는 **조건부 UPDATE 한 방의 영향 행 수(0=중복)**가 유일한 판정 근거다. 이 때문에 409 검사가 검증 순서의 **맨 뒤**로 밀렸다(자세한 내용은 [POST 제출](#post-rtquizzesquizidsubmit) 절 참고).
 
-**`/today`로 받은 문제는 8분 안에 제출해야 한다(제출 자격 증명, 2026-08-12 신설).** `/today` 응답에 실린 문제마다 서버가 내부적으로 Redis 티켓(TTL 8분)을 발급하고, 제출 시점에 그 티켓이 없으면(=`/today`를 거치지 않았거나 8분이 지났으면) 403 `QUIZ_SUBMIT_NOT_ALLOWED`로 거절한다. **이 티켓·이닝 값은 어떤 응답 필드에도 노출되지 않는다** — 서버 내부 통계·자격 판정용이다. 자세한 판정 순서·복구 경로는 [POST 제출](#post-rtquizzesquizidsubmit) 절 참고.
+**`/today`로 받은 문제는 8분(시한) 안에만 답할 수 있고, 연장 수단이 없다(2026-08-12 — DB 행 기반으로 전면 교체).** `/today`가 응답에 실은 문제마다 그 즉시 `quiz_users_submit`에 **미답 행**(`submit_option_id IS NULL`)을 만든다(같은 트랜잭션 — 실패하면 목록도 안 준다). 그 행의 **존재가 제출 자격**이고 **`created_at`(받은 시각) + 8분이 시한**이다. **`/today`를 다시 호출해도 이미 있는 행은 어떤 필드도 바뀌지 않는다 — 시한이 갱신되지 않는다.** 시한이 남은 미답 문제는 몇 번을 다시 호출해도 계속 응답에 실린다(새로고침 한 번에 세트를 통째로 못 풀게 되는 사고 방지). **시한을 넘긴 미답 문제는 그 뒤로 어떤 `/today` 응답에도 다시 실리지 않고 제출도 영구히 403이다 — 복구 경로가 없다.** 이 티켓·이닝 값은 어떤 응답 필드에도 노출되지 않는다(서버 내부 통계·자격 판정용). 이 변화로 **퀴즈 조회·제출 경로가 Redis 장애와 무관해졌다**(폐기된 Redis 티켓 방식은 Redis 장애 시 500이었다). 자세한 판정 순서·복구 경로는 [GET /today](#get-rtquizzestoday)·[POST 제출](#post-rtquizzesquizidsubmit) 절 참고.
 
-**좋아요는 "풀어본 사람의 평가"로 좁혀져 있다.** 신호로 이력 행을 쌓지 않고 `(계정, 문제)` 한 행의 플래그로만 관리한다(응원 `oppose` 토글·제출 UNIQUE와 같은 설계 계열). **제출 이력이 좋아요의 선행조건**이라 "존재하지 않는 문제"·"미편성 풀 문제"·"편성됐지만 안 푼 문제" 셋이 요청자 입장에서 같은 상태로 합쳐지고, 거절 응답도 하나(403 `QUIZ_LIKE_NOT_ALLOWED`)로 합쳐진다 — 404가 아닌 이유가 이것이다. 토글이라 멱등이 아니며, 동시 충돌은 500이 아니라 200 + 확정 상태로 흡수된다. `likeCount`는 취소된 행을 제외한 **현재 `liked = true`인 행 수**다.
+**좋아요는 "풀어본 사람의 평가"로 좁혀져 있다.** 신호로 이력 행을 쌓지 않고 `(계정, 문제)` 한 행의 플래그로만 관리한다(응원 `oppose` 토글·제출 UNIQUE와 같은 설계 계열). **제출 이력이 좋아요의 선행조건**이라 "존재하지 않는 문제"·"미편성 풀 문제"·"편성됐지만 안 푼 문제" 셋이 요청자 입장에서 같은 상태로 합쳐지고, 거절 응답도 하나(403 `QUIZ_LIKE_NOT_ALLOWED`)로 합쳐진다 — 404가 아닌 이유가 이것이다. 토글이라 멱등이 아니며, 동시 충돌은 500이 아니라 200 + 확정 상태로 흡수된다. `likeCount`는 취소된 행을 제외한 **현재 `liked = true`인 행 수**다. (이 절은 2026-08-12 시점에 코드 변경이 없다.)
 
 ---
 
 ## GET /rt/quizzes/today
-> 최종 변경: 2026-08-12 — 응답 상한 20건 신설(`quiz.serve.max-today-count`) + 응답에 실린 문제마다 제출 자격 티켓(TTL 8분) 발급 시작. 응답 필드·상태코드·에러코드는 불변(직전: 2026-08-10 정렬 방식 변경(선호 그룹 안에서 id ASC → 사용자별 고정 랜덤). 요청·응답 필드·상태코드·에러코드는 불변)
+> 최종 변경: 2026-08-12 — 제출 자격의 근거가 Redis 티켓에서 `quiz_users_submit`의 미답 행(이 엔드포인트가 직접 INSERT)으로 바뀌었다. **행동 변화**: 한 번 받은 문제는 답하거나 시한(8분)이 지날 때까지만 이후 응답에 다시 실린다 — 시한을 넘기면 그 문제는 이후 어떤 `/today` 응답에도 실리지 않고 제출도 영구히 막힌다(예전 Redis 티켓 방식은 재호출마다 시한이 갱신돼 만료 후에도 새 시한으로 다시 실렸다). **응답 필드·정렬·상태코드·에러코드는 불변.** (직전: 같은 날 응답 상한 20건 신설(`quiz.serve.max-today-count`) — 상한 자체는 유지. 직전: 2026-08-10 정렬 방식 변경(선호 그룹 안에서 id ASC → 사용자별 고정 랜덤))
 
-오늘(**KST**) 세트 중 **내가 아직 안 푼 문제만** 반환한다 — **이미 제출한 문제는 목록에서 제외된다(정책: 푼 문제 비노출)**. `QuizService.getTodayQuizzes(userAccountId, preferredOnly)` — "오늘"은 항상 서버가 KST 고정 클록으로 판정한다(파드 JVM은 UTC). 다른 날짜를 조회할 방법은 없다.
+오늘(**KST**) 세트 중 **내가 아직 안 낸 문제만** 반환한다 — **이미 답한 문제와, 답하지 않은 채 시한(8분)이 지난 문제는 목록에서 제외된다**(푼 문제 비노출 정책 + 시한 초과 문제 영구 제외). `QuizService.getTodayQuizzes(userAccountId, preferredOnly)` — "오늘"은 항상 서버가 KST 고정 클록으로 판정한다(파드 JVM은 UTC). 다른 날짜를 조회할 방법은 없다.
+
+**⚠ 이 엔드포인트는 더 이상 읽기 전용이 아니다(2026-08-12).** 응답에 실을 문제마다 `quiz_users_submit`에 답이 빈 행(`submit_option_id IS NULL`)을 함께 만든다 — 선조회 후 차집합만 한 문장으로 INSERT하며, **이미 행이 있는 문제는 어떤 필드도 건드리지 않는다**(같은 세트를 다시 받는 재호출은 쓰기 SQL이 0건). 그 행 하나가 세 역할을 겸한다: **존재 = 제출 자격**, **`created_at`(받은 시각) + 8분 = 시한**, **`inning` = 받은 시점의 경기 이닝**(원천 미구현으로 현재는 사실상 항상 NULL, 응답에는 노출 안 됨). 행 생성이 실패하면 목록도 주지 않는다(같은 트랜잭션, 부분 성공 없음).
 
 **인증 필요** — `Authorization: Bearer <accessToken>`
 
@@ -49,7 +51,7 @@
 
 **응답 200 OK** `ApiResponse<List<QuizResponse>>` — 페이징 없음.
 
-**정렬 규칙**: **선호(preferred) 문제가 항상 비선호보다 먼저 온다.** 랜덤은 각 그룹(선호/비선호) **안에서만** 일어난다 — 선호 문제가 비선호보다 뒤로 밀리는 일은 없다. 그룹 내부 순서는 **사용자별로 고정된 랜덤**이다(계정 id와 퀴즈 id로 결정되는 해시 기반 — 같은 사용자는 몇 번을 호출해도 항상 같은 순서를 받고, 새로고침해도 재배치되지 않는다. 계정이 다르면 순서도 다르다). 해시 충돌(드묾) 시에만 `id` 오름차순으로 보정한다. 문제를 풀어 목록에서 빠져도 남은 문제들의 상대 순서는 보존된다. **클라이언트는 서버가 준 순서를 그대로 표시할 것** — 별도 정렬을 하면 이 의도가 사라진다.
+**정렬 규칙**: **선호(preferred) 문제가 항상 비선호보다 먼저 온다.** 랜덤은 각 그룹(선호/비선호) **안에서만** 일어난다 — 선호 문제가 비선호보다 뒤로 밀리는 일은 없다. 그룹 내부 순서는 **사용자별로 고정된 랜덤**이다(계정 id와 퀴즈 id로 결정되는 해시 기반 — 같은 사용자는 몇 번을 호출해도 항상 같은 순서를 받고, 새로고침해도 재배치되지 않는다. 계정이 다르면 순서도 다르다). 해시 충돌(드묾) 시에만 `id` 오름차순으로 보정한다. 문제를 풀어(또는 시한 초과로) 목록에서 빠져도 남은 문제들의 상대 순서는 보존된다. **클라이언트는 서버가 준 순서를 그대로 표시할 것** — 별도 정렬을 하면 이 의도가 사라진다.
 
 | 필드 | 타입 | 설명 |
 |---|---|---|
@@ -61,15 +63,15 @@
 | data[].preferred | boolean | 내 응원 구단·선수 매칭 여부(정렬 근거 그대로) |
 | data[].options | array | 보기 배열, `no` 오름차순. `no`(0-기반, **제출 시 보낼 번호**, O/X는 0=`"O"` 1=`"X"`) · `text` |
 
-**정답·근거·대상 FK는 응답에 없다.** 빈 배열은 "오늘 세트 없음"과 "오늘 세트를 다 품" **둘 다**를 뜻한다(에러 아님) — 구분이나 진행률("10문제 중 7개 완료")이 필요하면 [풀이 이력](#get-rtquizzessubmissions)을 병용한다.
+**정답·근거·대상 FK·이닝은 응답에 없다.** 빈 배열은 "오늘 세트 없음"·"오늘 세트를 다 답함"·"남은 미답 문제가 전부 시한 초과됨" **세 경우 모두**를 뜻한다(에러 아님) — 구분이나 진행률("10문제 중 7개 완료")이 필요하면 [풀이 이력](#get-rtquizzessubmissions)을 병용한다.
 
-**이 응답에는 `liked`·`likeCount`가 없다(2026-08-11 좋아요 기능 추가 후에도 불변).** 좋아요는 제출한 문제에만 허용되는데 `/today`는 이미 제출한 문제를 목록에서 빼고 내려주므로, 이 목록의 모든 항목이 애초에 좋아요 대상이 아니다 — 집계 쿼리를 붙여도 쓰이지 않아 아예 실행하지 않는다.
+**이 응답에는 `liked`·`likeCount`가 없다(2026-08-11 좋아요 기능 추가 후에도 불변).** 좋아요는 답한 문제에만 허용되는데 `/today`는 답한 문제를 목록에서 빼고 내려주므로, 이 목록의 모든 항목이 애초에 좋아요 대상이 아니다 — 집계 쿼리를 붙여도 쓰이지 않아 아예 실행하지 않는다.
 
-**응답 개수 상한 20건(2026-08-12 신설).** 위 정렬(선호 우선 + 사용자별 고정 랜덤)이 끝난 목록을 앞에서 잘라 최대 `quiz.serve.max-today-count`(기본 20, env `QUIZ_SERVE_MAX_TODAY_COUNT`)건만 반환한다 — 편성 수(`quiz.serve.daily-count`, 기본 10)와는 별개 설정이며 응답 **필드 집합은 바뀌지 않는다**(20건 이하이면 상한이 아무것도 바꾸지 않는다, `hasMore` 같은 표식도 없다).
+**응답 개수 상한 20건.** 위 정렬(선호 우선 + 사용자별 고정 랜덤)이 끝난 목록을 앞에서 잘라 최대 `quiz.serve.max-today-count`(기본 20, env `QUIZ_SERVE_MAX_TODAY_COUNT`)건만 반환한다 — 편성 수(`quiz.serve.daily-count`, 기본 10)와는 별개 설정이며 응답 **필드 집합은 바뀌지 않는다**(20건 이하이면 상한이 아무것도 바꾸지 않는다, `hasMore` 같은 표식도 없다). **상한에 잘려 나간 문제에는 미답 행이 생기지 않는다** — 못 받은 문제이므로 그 문제의 제출은 403이다.
 
-**⚠ 이 응답에 실린 문제는 8분 안에 제출해야 한다.** 서버가 각 문제에 대해 내부적으로 제출 자격 티켓(TTL 8분, 응답에는 노출 안 됨)을 발급한다 — 8분을 넘기면 [제출](#post-rtquizzesquizidsubmit)이 403 `QUIZ_SUBMIT_NOT_ALLOWED`로 거절되고 그 문제는 미제출로 남아 다음 `/today` 응답에 다시 실린다. **만료 전에 `/today`를 다시 호출하면 그 문제의 시한이 8분으로 갱신된다** — 이것이 유일한 연장 수단이다(재발급 API·유예 시간 없음). 한 번에 20문제를 받아 오래 붙들면 뒷부분 문제가 대량 403이 될 수 있다 — 화면을 주기적으로 `/today`로 갱신하는 구조를 권장한다.
+**⚠ 이 응답에 실린 문제는 8분 안에 답해야 하고, 그 시한은 연장되지 않는다(2026-08-12부터 DB 행 기반 — 행동 변화).** 시한은 그 문제를 **처음 받은 시각**(행의 `created_at`) 기준으로 고정된다. **`/today`를 다시 호출해도 이미 있는 행의 시한은 갱신되지 않는다** — 연장 수단이 아예 없다(예전 Redis 티켓 방식은 재호출마다 TTL을 8분으로 되돌렸으나 지금은 그렇지 않다). 시한이 남아 있는 한 답하지 않은 문제는 계속 응답에 다시 실린다. **시한을 넘기면 그 문제는 그 뒤로 어떤 `/today` 응답에도 다시 실리지 않고, [제출](#post-rtquizzesquizidsubmit)도 영구히 403 `QUIZ_SUBMIT_NOT_ALLOWED`가 된다 — 복구 경로가 없다**(재발급 API·유예 시간 없음. 예전에는 시한을 넘겨도 다음 `/today`에 새 시한으로 다시 실렸으나 이제는 그렇지 않다). 한 번에 최대 20문제를 받아 오래 붙들면 뒷부분 문제부터 순차적으로 시한을 넘겨 영구히 잃을 수 있다 — 화면을 주기적으로 `/today`로 갱신하는 구조를 권장한다.
 
-**실패**: 401 UNAUTHENTICATED 뿐. (Redis 장애 시 티켓 발급이 실패하면 500 — `ApiResponse` 래퍼 없음, 확인 필요)
+**실패**: 401 UNAUTHENTICATED 뿐. 이 경로는 Redis를 쓰지 않는다(2026-08-12부터 — 폐기된 Redis 티켓 방식은 Redis 장애 시 500이었다). DB 장애 시 500(`ApiResponse` 래퍼 없음, 확인 필요).
 
 ```bash
 curl http://localhost:8081/rt/quizzes/today?preferredOnly=true -H 'Authorization: Bearer eyJ...'
@@ -78,7 +80,7 @@ curl http://localhost:8081/rt/quizzes/today?preferredOnly=true -H 'Authorization
 ---
 
 ## GET /rt/quizzes/{quizId}
-> 최종 변경: 2026-08-11 — 제출한 문제일 때 `liked`·`likeCount` 필드 추가(미제출이면 두 키 모두 부재). 상태코드·에러코드 변화 없음
+> 최종 변경: 2026-08-12 — `expired`(boolean) 필드 신설. **`submitted`의 의미가 "받았는가"에서 "답했는가"로 재정의됨**(행이 이제 받는 순간 생기므로 행 존재만으로는 제출을 뜻하지 않는다). FE는 `(submitted, expired)` 조합으로 세 상태를 구분한다: 진행 중 `(false,false)` · 답함 `(true,*)` · 시한 초과 `(false,true)`. `myOption`·`correct`·`answer`·`liked`·`likeCount`는 여전히 **답한 경우에만** 존재(의미는 "제출한 경우"와 동일). 상태코드·에러코드 변화 없음. (직전: 2026-08-11 제출한 문제일 때 `liked`·`likeCount` 필드 추가)
 
 단건 상세. `QuizService.getQuiz(userAccountId, quizId)`.
 
@@ -94,14 +96,23 @@ curl http://localhost:8081/rt/quizzes/today?preferredOnly=true -H 'Authorization
 
 | 필드 | 타입 | 설명 |
 |---|---|---|
-| data.submitted | boolean | 내가 이미 제출했는가 |
-| data.myOption | int | **제출한 경우에만 존재.** 내가 낸 보기 번호 |
-| data.correct | boolean | **제출한 경우에만 존재.** 정오 |
-| data.answer | int | **제출한 경우에만 존재.** 정답 보기 번호 |
-| data.liked | boolean | **제출한 경우에만 존재.** 내 현재 좋아요 상태 |
-| data.likeCount | long | **제출한 경우에만 존재.** 그 문제에 대해 `liked = true`인 행 수(취소한 좋아요는 세지 않음) |
+| data.submitted | boolean | **내가 답을 냈는가**(행을 받았는지가 아니다). 답 없는 행(진행 중이거나 시한 초과)은 false, 받은 적 없는 문제도 false |
+| data.expired | boolean(신규 2026-08-12) | 받아 놓고 **시한(받은 시각+8분)을 넘겼는데 아직 안 냈는가**. 답한 문제는 항상 false, 받은 적 없는 문제도 false(둘의 구분은 이 응답의 몫이 아니라 [/today](#get-rtquizzestoday) 목록의 몫) — 저장된 플래그가 아니라 **조회 시각 기준 계산**이라 같은 문제가 8분 전후로 다르게 나올 수 있다 |
+| data.myOption | int | **답한 경우에만 존재.** 내가 낸 보기 번호 |
+| data.correct | boolean | **답한 경우에만 존재.** 정오 |
+| data.answer | int | **답한 경우에만 존재.** 정답 보기 번호 |
+| data.liked | boolean | **답한 경우에만 존재.** 내 현재 좋아요 상태 |
+| data.likeCount | long | **답한 경우에만 존재.** 그 문제에 대해 `liked = true`인 행 수(취소한 좋아요는 세지 않음) |
 
-미제출이면 위 다섯 키는 **본문에서 키 자체가 빠진다**(`@JsonInclude(NON_NULL)` — 정답 유출 방지, 테스트로 고정). 좋아요 자체가 제출한 문제에만 허용되므로 미제출 시엔 좋아요 관련 조회조차 하지 않는다(키 부재와 쿼리 부재가 같은 분기).
+미답이면(진행 중이든 시한 초과든, 받은 적이 없든) 위 다섯 키는 **본문에서 키 자체가 빠진다**(`@JsonInclude(NON_NULL)` — 정답 유출 방지, 테스트로 고정). 좋아요 자체가 답한 문제에만 허용되므로 미답 시엔 좋아요 관련 조회조차 하지 않는다(키 부재와 쿼리 부재가 같은 분기).
+
+**`(submitted, expired)` 조합이 곧 화면 상태다**:
+
+| submitted | expired | 뜻 |
+|---|---|---|
+| false | false | 진행 중(지금 답할 수 있음) 또는 애초에 받은 적 없는 문제(둘의 구분은 이 응답의 몫이 아니다) |
+| true | 항상 false | 답함(복기 가능) |
+| false | true | 시한 초과(더 이상 제출 불가 — `/today`에도 다시 안 실린다) |
 
 **실패**
 
@@ -110,36 +121,46 @@ curl http://localhost:8081/rt/quizzes/today?preferredOnly=true -H 'Authorization
 | 401 | UNAUTHENTICATED | 무토큰 |
 | 404 | QUIZ_NOT_FOUND | 미존재 **또는 미편성 풀 문제**(구분 불가가 의도 — 존재 은닉) |
 
-**예시 — 미제출**
+**예시 — 미제출(진행 중)**
 
 ```bash
 curl http://localhost:8081/rt/quizzes/23 -H 'Authorization: Bearer eyJ...'
 # {"success":true,"data":{"id":23,"type":"O/X","question":"...","difficulty":"EASY","point":50.0,
 #   "quizDate":"2026-08-10","options":[{"no":0,"text":"O"},{"no":1,"text":"X"}],
-#   "submitted":false},"message":null}
+#   "submitted":false,"expired":false},"message":null}
 # (myOption·correct·answer·liked·likeCount 키 자체가 없음)
 ```
 
-**예시 — 제출함**
+**예시 — 시한 초과(2026-08-12 신설 상태)**
+
+```bash
+curl http://localhost:8081/rt/quizzes/24 -H 'Authorization: Bearer eyJ...'
+# {"success":true,"data":{"id":24,"type":"O/X","question":"...","difficulty":"EASY","point":50.0,
+#   "quizDate":"2026-08-12","options":[{"no":0,"text":"O"},{"no":1,"text":"X"}],
+#   "submitted":false,"expired":true},"message":null}
+# (myOption·correct·answer·liked·likeCount 키 자체가 없음 — 이 문제는 /today 에도 다시 안 실리고 제출도 403)
+```
+
+**예시 — 답함**
 
 ```bash
 curl http://localhost:8081/rt/quizzes/23 -H 'Authorization: Bearer eyJ...'
 # {"success":true,"data":{"id":23,"type":"O/X","question":"...","difficulty":"EASY","point":50.0,
 #   "quizDate":"2026-08-10","options":[{"no":0,"text":"O"},{"no":1,"text":"X"}],
-#   "submitted":true,"myOption":0,"correct":true,"answer":0,
+#   "submitted":true,"expired":false,"myOption":0,"correct":true,"answer":0,
 #   "liked":false,"likeCount":5},"message":null}
 ```
 
 ---
 
 ## POST /rt/quizzes/{quizId}/submit
-> 최종 변경: 2026-08-12 — 403 `QUIZ_SUBMIT_NOT_ALLOWED` 신설(제출 자격 티켓 검사). 판정 순서 404→409→**403**→400으로 확장. 기존 404/409/400의 조건·문구는 불변. 요청·성공 응답 필드는 불변(직전: 2026-08-08 신규)
+> 최종 변경: 2026-08-12 — 내부 구현이 "신규 행 INSERT"에서 "미답 행의 조건부 UPDATE"로 전환됨(제출 자격의 근거가 Redis 티켓 → `quiz_users_submit` DB 행). **판정 순서가 404→409→403→400에서 404→403→400→409로 바뀌었다** — 중복 판정이 선검사가 아니라 조건부 UPDATE의 영향 행 수(0=중복)로만 나오기 때문. **⚠ 관측 가능한 계약 변화: 이미 답한 문제에 없는 보기 번호를 보내면 종전 409였는데 이제 400이다.** 403(`QUIZ_SUBMIT_NOT_ALLOWED`)의 판정 근거도 Redis 키 존재에서 DB 행 존재+시한으로 바뀌었으나 조건·문구는 그대로다. **메서드·경로·요청 본문·성공 응답 필드는 전부 불변.**
 
-제출·채점. `QuizSubmitService.submit(userAccountId, quizId, option)` — 검증(404→409→**403**→400, 순서 고정) 후 채점, 정답이면 계정 행을 비관적 락으로 잠그고 `round(score)`만큼 적립, 제출 기록 저장까지 한 트랜잭션.
+제출·채점. `QuizSubmitService.submit(userAccountId, quizId, option)` — 검증(404→403→400→계정 락·적립→409, 순서 고정) 후 채점, **이미 있는 미답 행의 답을 조건부 UPDATE로 채운다**(제출은 새 행을 만드는 일이 아니다 — 행은 `/today`가 서빙 시점에 미리 만들어 둔다).
 
-**⚠ 제출 자격 티켓(2026-08-12 신설, 응답에는 노출 안 됨).** `/today`가 응답에 실은 문제마다 서버 내부에 TTL 8분짜리 제출 자격을 발급해 둔다. 제출 시점에 그 자격이 없으면(=`/today`를 거치지 않고 바로 제출했거나, `/today`로 받은 뒤 8분이 지났으면) 403으로 거절한다 — **두 경우를 응답으로 구분하지 않는다(의도된 설계, 상태코드·본문 문자열 완전히 동일)**. 403을 받은 문제는 제출되지 않은 상태로 남아 다음 `/today` 응답에 다시 실려 나온다 — 다시 받아서 제출하면 된다(재발급 API·유예 시간 없음, 이것이 유일한 복구 경로).
+**⚠ 제출 자격은 DB 행이다(2026-08-12부터, Redis 폐기 — 응답에는 노출 안 됨).** `/today`가 응답에 실은 문제마다 미리 만들어 둔 미답 행이 있어야 하고, 그 행의 시한(받은 시각 + 8분)이 남아 있어야 한다. **둘 중 하나라도 아니면 403이다** — 행 자체가 없음(`/today` 미경유 또는 상한 절삭)과, 행은 있으나 시한 초과(제출하지 않은 채 8분 경과) **두 경우를 응답으로 구분하지 않는다**(상태코드·본문 문자열 완전히 동일, 의도된 설계). 403을 받은 문제는 제출되지 않은 상태로 남는다 — `/today` 미경유·상한 절삭으로 인한 403은 흔적이 없어 다음 `/today`에서 상한 안에 들면 다시 받을 수 있지만, **시한 초과로 인한 403은 그 문제가 이후 어떤 `/today` 응답에도 다시 실리지 않아 사실상 복구 불가능하다**(재발급 API·유예 시간 없음, [/today](#get-rtquizzestoday) 절 참고).
 
-**판정 순서는 404 → 409 → 403 → 400으로 고정이다.** 특히 **이미 제출한 문제를 다시 제출하면 403이 아니라 409다** — 최초 제출 시 서버가 그 티켓을 삭제하므로 재제출 시점엔 티켓이 이미 없지만, 409(선제출) 검사가 403(자격)보다 앞서 있어 응답이 바뀌지 않는다. 클라이언트가 "아직 안 풀었는데 시한을 넘김"(403)과 "이미 풀었음"(409)을 다르게 처리해야 하므로 이 순서가 중요하다.
+**판정 순서는 404 → 403 → 400 → (계정 락·적립) → 409로 고정이다(2026-08-12 변경 — 종전 404→409→403→400).** 중복 제출 판정이 선검사(`existsBy`)가 아니라 조건부 UPDATE(`submit_option_id IS NULL AND created_at`이 시한 안)의 **영향 행 수**로만 나오게 되면서 409 검사가 검증 순서의 맨 뒤로 밀렸다. **⚠ 관측 가능한 계약 변화**: 이미 답한 문제(그 행의 `submit_option_id`가 이미 채워짐)에 **존재하지 않는 보기 번호**를 보내면 종전에는 409(선검사가 먼저 잡음)였으나 **이제는 400**이다 — 보기 조회가 조건부 UPDATE보다 먼저 실행되고, 없는 보기 번호는 UPDATE 시도 자체 없이 400으로 끝난다. 반대로 **답한 문제에 실재하는 보기 번호로 재제출하면 여전히 409**다(조건부 UPDATE 영향 행 0).
 
 **인증 필요** — `Authorization: Bearer <accessToken>`
 
@@ -166,11 +187,11 @@ curl http://localhost:8081/rt/quizzes/23 -H 'Authorization: Bearer eyJ...'
 | 상태 | ErrorCode | 조건 |
 |---|---|---|
 | 400 | (검증) | `option` 누락 — `data`에 필드 오류 맵 |
-| 400 | QUIZ_OPTION_NOT_FOUND | 그 문제에 없는 보기 번호(판정 순서상 403 다음) |
+| 400 | QUIZ_OPTION_NOT_FOUND | 존재하지 않는 보기 번호(판정 순서상 403 다음·409 이전. **⚠ 2026-08-12부터: 이미 답한 문제에 없는 보기 번호를 보낸 경우도 이 400이다** — 종전엔 409였다) |
 | 401 | UNAUTHENTICATED | 무토큰 |
-| 403 | **QUIZ_SUBMIT_NOT_ALLOWED**(신규) | 제출 자격 티켓 없음 — `/today` 미경유 또는 발급 후 8분 경과(둘 다 같은 응답, 판정 순서상 409 다음·400 이전) |
+| 403 | QUIZ_SUBMIT_NOT_ALLOWED | 그 문제를 `/today`로 받은 적이 없거나(행 없음), 받았지만 제한 시간(8분)이 지남(행은 있으나 만료) — **두 경우 응답 동일**(판정 순서상 404 다음·400 이전, 2026-08-12부터 409보다 앞) |
 | 404 | QUIZ_NOT_FOUND | 미존재·미편성(판정 순서상 가장 먼저) |
-| 409 | QUIZ_ALREADY_SUBMITTED | 이미 제출(동시 제출 race의 UNIQUE 위반 포함) — **재제출은 티켓이 없어도 403이 아니라 409**(판정 순서상 404 다음·403 이전) |
+| 409 | QUIZ_ALREADY_SUBMITTED | 이미 답한 문제 재제출(동시 제출 race 포함) — **판정 순서상 가장 마지막**(계정 락·적립 이후, 2026-08-12부터. 종전엔 가장 먼저였다) |
 
 ```bash
 curl -X POST http://localhost:8081/rt/quizzes/23/submit \
@@ -179,16 +200,21 @@ curl -X POST http://localhost:8081/rt/quizzes/23/submit \
 
 curl -X POST http://localhost:8081/rt/quizzes/23/submit \
   -H 'Authorization: Bearer eyJ...' -H 'Content-Type: application/json' -d '{"option":0}'
-# /today 를 거치지 않았거나 발급된 티켓이 8분을 넘긴 경우
+# /today 를 거치지 않았거나, 거쳤지만 받은 지 8분이 지난 경우
 # {"success":false,"data":null,"message":"오늘의 퀴즈로 받은 문제만 제한 시간 안에 제출할 수 있습니다."}
+
+curl -X POST http://localhost:8081/rt/quizzes/23/submit \
+  -H 'Authorization: Bearer eyJ...' -H 'Content-Type: application/json' -d '{"option":99}'
+# 23번을 이미 답했고, 99번은 그 문제에 없는 보기 번호인 경우 (2026-08-12부터: 종전 409 → 이제 400)
+# {"success":false,"data":null,"message":"존재하지 않는 보기 번호입니다."}
 ```
 
 ---
 
 ## GET /rt/quizzes/submissions
-> 최종 변경: 2026-08-11 — 각 이력 항목에 `liked`·`likeCount` 필드 추가(항상 포함, 키 부재 케이스 없음). 상태코드·에러코드 변화 없음
+> 최종 변경: 2026-08-12 — `expired`(boolean) 필드 신설. **`myOption`·`myOptionText`가 nullable로 완화**됨(답 없는 항목 포함). **답 없는 항목(진행 중이거나 시한 초과)도 이제 목록에 실린다**(내부적으로 inner join → left join 전환) — 요약 `total`과 항목 수가 일치. **`submittedAt`의 의미가 바뀌었다**: 이제 그 행의 `updated_at`(답을 낸 시각) 기준이며(종전엔 `created_at`, 즉 받은 시각이었다), 답 없는 항목은 받은 시각(`created_at`)이 그대로 실린다. **정렬 축은 종전대로 `id DESC`로 불변.** 요약 통계는 답하지 않은 문제도 분모에 포함하고 오답으로 취급한다(제품 결정 — `/today` 직후 정확도가 낮게 나왔다가 풀수록 올라가는 것이 의도된 동작). (직전: 2026-08-11 각 이력 항목에 `liked`·`likeCount` 필드 추가)
 
-내 풀이 이력 + 전체 요약. `QuizSubmitService.getHistory(userAccountId, page)` — 최신 제출 먼저, 페이지 크기 서버 고정 20(채팅 이력과 같은 규약).
+내 풀이 이력(**답한 문제뿐 아니라 받은 문제 전체**) + 전체 요약. `QuizSubmitService.getHistory(userAccountId, page)` — `id` 내림차순(최신 받은 순), 페이지 크기 서버 고정 20(채팅 이력과 같은 규약).
 
 **인증 필요.**
 
@@ -202,28 +228,36 @@ curl -X POST http://localhost:8081/rt/quizzes/23/submit \
 
 | 필드 | 타입 | 설명 |
 |---|---|---|
-| data.summary.total | long | 전체 제출 수(페이지 아님) |
+| data.summary.total | long | 전체 **받은** 문제 수(페이지 아님) — **답하지 않은 문제도 포함**(2026-08-12 — 행이 서빙 시점에 생기므로) |
 | data.summary.correctCount | long | 전체 정답 수 |
-| data.summary.accuracy | double | 정답률(0.0~1.0). 제출 0건이면 0.0 |
+| data.summary.accuracy | double | 정답률(0.0~1.0). **답하지 않은 문제는 분모에 포함되고 오답으로 취급된다**(제품 결정, 2026-08-12 — "내지 않으면 틀린 것"). `/today`로 문제를 받은 직후 정확도가 낮게 떨어졌다가 풀수록 올라가는 것이 **의도된 동작**이다. 제출 0건이면 0.0 |
 | data.submissions | object | [chat](chat.md)과 동일한 `PageResponse` — content·page·size·totalElements·totalPages·hasNext |
-| ...content[] | | quizId · question · type · difficulty · quizDate · myOption · myOptionText · correct · answer · answerText · earnedPoint · submittedAt · **liked** · **likeCount** |
+| ...content[] | | quizId · question · type · difficulty · quizDate · **myOption(nullable)** · **myOptionText(nullable)** · correct · **expired(신규)** · answer · answerText · earnedPoint · **submittedAt(의미 변경)** · liked · likeCount |
 
-정답 번호·텍스트가 실리는 것은 의도다(제출한 문제의 복기 화면). **`liked`·`likeCount`는 이력 항목 전부에 항상 포함된다**(키 부재 케이스 없음) — 이력 항목은 정의상 전부 제출한 문제라 좋아요가 불가능한 항목이 섞이지 않는다(`/{quizId}` 상세와 달리 `NON_NULL` 처리가 필요 없어 원시 타입). 좋아요 상태 조립은 페이지 항목 수와 무관하게 고정 쿼리 2건(집계 1 + 내 좋아요 1)으로 끝난다(N+1 금지). **실패**: 401뿐 — 이력 0건도 200이다.
+정답 번호·텍스트가 실리는 것은 의도다(제출한 문제의 복기 화면). **이제 이 목록에는 아직 답하지 않은 문제(진행 중이거나 시한 초과)도 함께 실린다** — 감출 수 없는 이유는 요약이다: `total`이 그 행을 세는데 목록에서 빼면 총건수와 항목 수가 어긋난다. **답 없는 항목**은 `myOption`·`myOptionText`가 `null`, `correct`는 `false`, `earnedPoint`는 `0`(오답과 같은 표시)이며, `expired`로 "진행 중"과 "시한 초과"를 구분한다(**답한 항목은 `expired`가 항상 `false`**).
+
+**`submittedAt`은 이제 답을 낸 시각(그 행의 `updated_at`)이다(2026-08-12 재정의) — 종전엔 받은 시각(`created_at`)이었다.** 행이 출제 시점에 생기게 되면서 `created_at`은 "받은 시각"이 됐고, 그대로 실으면 이 필드가 최대 8분 어긋난다. **답 없는 항목은 낸 시각 자체가 없으므로 받은 시각이 그대로 남는다**(출제 시 `created_at`·`updated_at`을 같은 시각으로 찍는다). **정렬 축은 종전대로 `id` 내림차순이며 이번 변경으로 바뀌지 않는다.**
+
+**`liked`·`likeCount`는 이력 항목 전부에 항상 포함된다**(키 부재 케이스 없음, 원시 타입) — 다만 **"이력 항목은 정의상 전부 제출한 문제"라던 종전 근거는 더 이상 참이 아니다**(답 없는 항목이 섞이기 때문). 좋아요 상태 조립은 여전히 페이지 항목 수와 무관하게 고정 쿼리 2건(집계 1 + 내 좋아요 1)으로 끝난다(N+1 금지). **실패**: 401뿐 — 이력 0건도 200이다.
 
 ```bash
 curl "http://localhost:8081/rt/quizzes/submissions?page=0" -H 'Authorization: Bearer eyJ...'
-# {"success":true,"data":{"summary":{"total":12,"correctCount":9,"accuracy":0.75},
-#   "submissions":{"content":[{"quizId":23,"question":"...","type":"O/X","difficulty":"EASY",
-#     "quizDate":"2026-08-10","myOption":0,"myOptionText":"O","correct":true,"answer":0,
-#     "answerText":"O","earnedPoint":50,"submittedAt":"2026-08-10T09:12:03",
-#     "liked":true,"likeCount":5}, "..."],
-#     "page":0,"size":20,"totalElements":12,"totalPages":1,"hasNext":false}},"message":null}
+# {"success":true,"data":{"summary":{"total":13,"correctCount":9,"accuracy":0.6923076923076923},
+#   "submissions":{"content":[
+#     {"quizId":30,"question":"...","type":"O/X","difficulty":"EASY","quizDate":"2026-08-12",
+#      "myOption":null,"myOptionText":null,"correct":false,"expired":false,"answer":0,
+#      "answerText":"O","earnedPoint":0,"submittedAt":"2026-08-12T10:03:11","liked":false,"likeCount":0},
+#     {"quizId":23,"question":"...","type":"O/X","difficulty":"EASY","quizDate":"2026-08-10",
+#      "myOption":0,"myOptionText":"O","correct":true,"expired":false,"answer":0,"answerText":"O",
+#      "earnedPoint":50,"submittedAt":"2026-08-10T09:12:03","liked":true,"likeCount":5}],
+#     "page":0,"size":20,"totalElements":13,"totalPages":1,"hasNext":false}},"message":null}
+# (첫 항목은 아직 답하지 않은 채 진행 중인 문제 — myOption/myOptionText 가 null, submittedAt 은 받은 시각)
 ```
 
 ---
 
 ## POST /rt/quizzes/{quizId}/like
-> 최종 변경: 2026-08-11 — 신규
+> 최종 변경: 2026-08-11 — 신규(2026-08-12 시점 코드 변경 없음)
 
 좋아요 토글. `QuizLikeService.toggle(userAccountId, quizId)` → `QuizLikeToggler.toggleOnce`. **내가 제출한 문제에만 허용**된다 — 대상 계정은 오직 토큰(`@AuthenticationPrincipal Long userAccountId`)에서만 해석하며 요청 본문·경로·쿼리 어디에도 계정 식별자를 받는 자리가 없다.
 
