@@ -19,7 +19,9 @@ public interface QuizUserSubmitRepositoryCustom {
      * @param servedAt 행의 {@code created_at}/{@code updated_at} 에 넣을 시각 = 시한(+8분)의 기준점.
      *     ⚠ <b>호출부가 {@code LocalDateTime.now()}(JVM 기본 존)로 넘겨야 한다</b> — {@code @CreationTimestamp}
      *     가 쓰는 기준과 같아야 이 컬럼으로 하는 시한 계산이 기존 행과 뒤섞여도 일관된다. KST 고정 클록
-     *     ({@code kstClock})으로 넘기면 UTC 로 도는 파드에서 9시간 어긋나 <b>모든 행이 즉시 시한 초과</b>가 된다
+     *     ({@code kstClock})은 파드의 JVM 기본 존 설정(k8s Deployment env 의 {@code TZ})과 별개로 코드에
+     *     고정돼 있어, 그 둘이 어긋나면(설정 누락 등) 넘긴 시각이 {@code created_at} 과 어긋나
+     *     <b>모든 행이 시한 오판</b>에 빠진다(QuizSubmitWindow javadoc 참고)
      * @return 실제로 만들어진 행 수(이미 있던 문제는 세지 않는다)
      */
     int insertUnansweredRows(long userAccountId, Map<Long, Integer> inningByQuizId,

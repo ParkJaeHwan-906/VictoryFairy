@@ -26,10 +26,11 @@ public class QuizIngestConfig {
     }
 
     /**
-     * KST 고정 클록. "오늘의 퀴즈"와 적재 대상 날짜의 '오늘'은 전부 KST 다 — 파드 JVM 은 TZ 미설정
-     * (UTC)이라 {@code LocalDate.now()} 기본값을 쓰면 자정~09시 사이에 하루가 어긋난다
-     * (game_date 9시간 밀림 사고와 같은 계열, application-prod.yaml 주석 참고). 테스트는 이 빈을
-     * {@code Clock.fixed}로 갈아끼운다.
+     * KST 고정 클록. "오늘의 퀴즈"와 적재 대상 날짜의 '오늘'은 전부 KST 다 — 파드의 JVM 기본 존은
+     * k8s Deployment env 의 {@code TZ}(dev_infra 소관)에 달려 있어 앱 코드만으로는 보장되지 않는다.
+     * 그 값이 빠지면 {@code LocalDate.now()} 기본값이 자정~09시 사이에 하루 어긋난다(과거
+     * game_date 9시간 밀림 사고와 같은 계열, application-prod.yaml 주석 참고) — 이 빈은 그 의존을
+     * 끊는 방어선이다. 테스트는 이 빈을 {@code Clock.fixed}로 갈아끼운다.
      */
     @Bean
     public Clock kstClock() {

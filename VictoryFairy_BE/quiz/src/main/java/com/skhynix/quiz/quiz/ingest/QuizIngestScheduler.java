@@ -38,7 +38,8 @@ public class QuizIngestScheduler {
     private final QuizCandidateReader reader;
     private final QuizIngestService ingestService;
     private final QuizPublishService publishService;
-    // KST 고정 클록(QuizConfig) — 파드 JVM 은 UTC 라 LocalDate.now() 기본값이면 자정~09시에 하루 어긋난다
+    // KST 고정 클록(QuizConfig) — 파드 기본 존은 k8s Deployment env 의 TZ 에 달려 있어, LocalDate.now()
+    // 기본값에 기대면 그 설정 하나로 자정~09시 하루 어긋남이 재발할 수 있다
     private final Clock clock;
 
     @Scheduled(cron = "${quiz.ingest.cron:0 30 10 * * *}", zone = "Asia/Seoul")
