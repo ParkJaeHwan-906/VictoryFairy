@@ -205,6 +205,35 @@ def test_map_status_result_non_draw_is_finished():
     assert gr.map_status(g) == "FINISHED"
 
 
+# --------------------------------------------------------------------------- 이닝
+def test_parse_inning_reads_live_status_info():
+    # 진행 중 statusInfo 실측 포맷(2026-08-12 19:00 시작 5경기). 접미사가 붙지 않는다.
+    assert gr.parse_inning("1회초") == (1, 0)
+    assert gr.parse_inning("3회말") == (3, 1)
+    # 연장. 2026 정규시즌 전수 스캔 상한이 11회였다(11회 18경기).
+    assert gr.parse_inning("11회말") == (11, 1)
+
+
+def test_parse_inning_half_matches_domain_ordinal():
+    # domain InningHalf 는 ORDINAL 저장이다 — TOP=0(초)/BOTTOM=1(말). 이 값이
+    # 뒤집히면 초/말이 통째로 반대로 적재되는데 타입은 멀쩡해서 안 걸린다.
+    assert gr.parse_inning("5회초")[1] == 0
+    assert gr.parse_inning("5회말")[1] == 1
+
+
+def test_parse_inning_non_inning_text_is_none():
+    for text in ("경기전", "경기취소", "", None, "9회", "회말", "우천중단", "9회초 2아웃"):
+        assert gr.parse_inning(text) == (None, None), text
+
+
+def test_parse_inning_beyond_check_constraint_is_none():
+    # games 에 CHECK ck_games_current_inning(1~11) 이 걸려 있다(prod 실측). 12 를
+    # 그대로 넘기면 INSERT 가 거부돼 그 경기가 아니라 잡이 죽는다 — 값을 버린다.
+    assert gr.parse_inning("12회초") == (None, None)
+    assert gr.parse_inning("15회말") == (None, None)
+    assert gr.parse_inning("0회초") == (None, None)
+
+
 # --------------------------------------------------------------------------- preview 라인업
 # 2026-08-11 HHOB(한화:두산) 실측 응답에서 라인업 부분만 추린 것. 이 배열 순서가
 # record 박스스코어의 batOrder 와 전수 일치함을 확인하고 파서의 근거로 삼았다.

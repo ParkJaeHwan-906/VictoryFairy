@@ -371,9 +371,21 @@ def test_game_sync_upsert_sql_binds_stadium_and_coalesces_scores():
     from kbo_collector.db import GAME_SYNC_UPSERT
     # 경기 전에는 records 잡이 아직 안 돌아 구장이 비므로, 일정 선적재가 채울 수
     # 있도록 stadium_id 도 바인딩 파라미터로 받는다(예전엔 NULL 리터럴이었다).
-    assert "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(6), NOW(6))" in GAME_SYNC_UPSERT
+    assert "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(6), NOW(6))" in GAME_SYNC_UPSERT
     assert "home_score=COALESCE(VALUES(home_score), home_score)" in GAME_SYNC_UPSERT
     assert "away_score=COALESCE(VALUES(away_score), away_score)" in GAME_SYNC_UPSERT
+
+
+def test_game_sync_upsert_overwrites_inning_instead_of_coalescing():
+    from kbo_collector.db import GAME_SYNC_UPSERT
+    # 이닝만 COALESCE 가 아니다. 점수·구장은 "한 번 알면 계속 참"이지만 이닝은
+    # 진행 중일 때만 참이라 경기가 끝나면 지워져야 한다(BE 계약: IN_PROGRESS 가
+    # 아니면 항상 null). COALESCE 를 붙이면 종료 경기에 마지막 이닝이 영원히 남는다.
+    update_clause = GAME_SYNC_UPSERT.split("ON DUPLICATE KEY UPDATE", 1)[1]
+    assert "current_inning=VALUES(current_inning)" in update_clause
+    assert "inning_half=VALUES(inning_half)" in update_clause
+    assert "COALESCE(VALUES(current_inning)" not in update_clause
+    assert "COALESCE(VALUES(inning_half)" not in update_clause
 
 
 def test_game_sync_upsert_never_nulls_out_a_stadium_records_already_landed():
@@ -394,7 +406,9 @@ def test_sync_game_upserts_and_commits():
     kind, sql, params = conn.log[0]
     assert kind == "execute" and sql == GAME_SYNC_UPSERT
     # stadium_id 미지정 -> None (INSERT 시 NULL, UPDATE 시 COALESCE 로 기존 값 유지)
-    assert params == ("20260708LGSS02026", "2026-07-08 18:30:00", 3, 2, None, 5, 3, 7)
+    # 이닝 미지정 -> None (진행 중이 아닌 경기는 NULL 로 덮인다)
+    assert params == ("20260708LGSS02026", "2026-07-08 18:30:00", 3, 2, None, 5, 3, 7,
+                      None, None)
     assert pk == 101
     assert conn.commits == 1
 
@@ -453,7 +467,17 @@ def test_sync_game_passes_none_scores_through_for_scheduled_or_cancelled():
         naver_game_id="g1", game_dt="2026-07-08 00:00:00",
         home_team_id=3, away_team_id=2, home_score=None, away_score=None, status_id=1)
     _, _, params = conn.log[0]
-    assert params[4] is None and params[5] is None  # home_score, away_score
+    assert params[5] is None and params[6] is None  # home_score, away_score
+
+
+def test_sync_game_binds_inning_pair():
+    conn = FakeConn()
+    DbSink(None, connection=conn).sync_game(
+        naver_game_id="20260812SSHT02026", game_dt="2026-08-12 19:00:00",
+        home_team_id=1, away_team_id=9, home_score=1, away_score=2, status_id=2,
+        current_inning=1, inning_half=1)
+    _, _, params = conn.log[0]
+    assert (params[8], params[9]) == (1, 1)  # current_inning, inning_half
 
 
 # --------------------------------------------------------------------------- preview 라인업 정리
