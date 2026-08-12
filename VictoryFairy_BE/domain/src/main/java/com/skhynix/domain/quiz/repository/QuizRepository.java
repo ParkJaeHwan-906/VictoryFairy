@@ -29,9 +29,10 @@ public interface QuizRepository extends JpaRepository<Quiz, Long> {
      * ({@code Quiz}에 {@code @OneToMany options}가 없음) — {@code QuizOptionRepository}의 IN 조회로
      * 묶는 2쿼리 방식이 정석이다.
      *
-     * <p>{@code game} 축은 제출 티켓에 실을 이닝({@code games.current_inning})을 읽으려고 더했다 —
+     * <p>{@code game} 축은 <b>미답 행에 찍을 이닝</b>({@code games.current_inning})을 읽으려고 더했다 —
      * 응답 필드는 아니지만 <b>같은 원칙(읽는 연관과 1:1)</b>이 적용된다. 빼면 문제마다 {@code games}
-     * 단건 조회가 붙어 N+1 이 된다.
+     * 단건 조회가 붙어 N+1 이 된다. ⚠ <b>"응답에 안 나가니 빼자"로 정리하지 말 것</b> — 후속 "한 이닝에
+     * 한 세트" 회차 제한이 이 연관을 그대로 전제한다.
      */
     @EntityGraph(attributePaths = {"quizType", "team", "opponentTeam", "player", "game"})
     List<Quiz> findAllByQuizDateOrderByIdAsc(LocalDate quizDate);
