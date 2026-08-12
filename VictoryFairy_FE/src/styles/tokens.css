@@ -21,6 +21,8 @@
 
   /* Color — Ivory (라운지 헤더 카드 배경) */
   --color-ivory-50: #fffdfb;
+  /* Figma Style: Light Ivory/Light — 주황 위에 얹는 왕관·보조 글자. 흰색보다 한 톤 낮다. */
+  --color-ivory-100: #fff1e6;
 
   /* Color — Primary (orange-red) */
   --color-primary-50: #fff3ee;

@@ -55,6 +55,21 @@ const LONG_PRESS_MS = 800;
 const PRESS_MOVE_TOLERANCE_PX = 10;
 
 /**
+ * 맨 위에서 이만큼 당기면 지난 대화를 불러온다.
+ *
+ * 손을 떼기를 기다리지 않고 이 선을 넘는 순간 바로 부른다. 대신 문턱을 얕게 잡으면
+ * 목록을 위로 훑다가 튕긴 것만으로 불려 오므로, 한 번 더 의식해야 닿는 거리로 둔다.
+ * 회전 표시가 놓이는 자리 높이이기도 해서 CSS 와 나눠 쓴다.
+ */
+const PULL_TRIGGER_PX = 60;
+
+/** 문턱을 넘겨 더 끌어도 여기서 멈춘다 — 목록이 한없이 딸려 내려가지 않게. */
+const PULL_MAX_PX = 90;
+
+/** 손가락이 움직인 거리 중 목록이 따라오는 비율. 1 이면 고무줄처럼 버티는 느낌이 없다. */
+const PULL_RESISTANCE = 0.5;
+
+/**
  * 이미 그린 메시지에 새로 받은 것을 합친다. 같은 `id` 는 덮어쓴다.
  *
  * 히스토리(최신순)·SSE·전송 응답이 뒤섞여 들어오고 SSE 재연결 시 겹쳐서 오므로
@@ -133,6 +148,18 @@ export default function LoungeChatSheet({ onClose }: LoungeChatSheetProps) {
   const listRef = useRef<HTMLOListElement>(null);
   /** 사용자가 맨 아래를 보고 있는지. 위로 올려 지난 대화를 읽는 중이면 끌어내리지 않는다. */
   const stickToBottomRef = useRef(true);
+
+  /**
+   * 맨 위에서 아래로 당겨 지난 대화 부르기.
+   *
+   * 목록이 내려가는 것은 `transform` 이라 스크롤 높이가 변하지 않는다 — 자리 표시를
+   * 실제 요소로 끼워 넣으면 `loadOlderMessages` 가 읽던 자리를 되돌리는 계산이
+   * 그 높이만큼 어긋난다.
+   */
+  /** 당기기가 시작된 y 좌표. `null` 이면 당기는 중이 아니다. */
+  const pullStartYRef = useRef<number | null>(null);
+  /** 지금 내려가 있는 거리(px). 손을 떼면 0 으로 돌아간다. */
+  const [pullDistance, setPullDistance] = useState(0);
 
   /* Esc 로 닫기 — 시트가 떠 있는 동안에만 듣는다. */
   useEffect(() => {
@@ -423,11 +450,81 @@ export default function LoungeChatSheet({ onClose }: LoungeChatSheetProps) {
         if (current) current.scrollTop += current.scrollHeight - heightBefore;
       });
     } catch {
-      /* 버튼이 남아 있으니 다시 누르면 된다 */
+      /* 다시 당기면 된다 — 실패했다고 알릴 만큼 중요한 조작은 아니다 */
     } finally {
       setIsLoadingOlder(false);
     }
   }, [room, hasOlder, isLoadingOlder, oldestPage]);
+
+  /* ---------------------------------------------------------------- *
+   * 맨 위에서 당겨 지난 대화 부르기
+   * ---------------------------------------------------------------- */
+
+  const endPull = useCallback(() => {
+    pullStartYRef.current = null;
+    setPullDistance(0);
+  }, []);
+
+  /**
+   * 당기기는 **맨 위에 닿아 있을 때만** 시작된다.
+   * 여기서 걸러 두면 아래를 읽다가 아래로 훑는 동작은 당기기로 오해되지 않는다.
+   */
+  const handlePullStart = (event: ReactPointerEvent<HTMLOListElement>) => {
+    const list = listRef.current;
+    if (!list || !hasOlder || isLoadingOlder || list.scrollTop > 0) return;
+
+    pullStartYRef.current = event.clientY;
+  };
+
+  const handlePullMove = (event: ReactPointerEvent<HTMLOListElement>) => {
+    const startY = pullStartYRef.current;
+    if (startY === null) return;
+
+    const list = listRef.current;
+    // 당기는 도중 목록이 맨 위를 벗어났다면 당기기가 아니라 그냥 스크롤이다.
+    if (!list || list.scrollTop > 0) {
+      endPull();
+      return;
+    }
+
+    const dragged = event.clientY - startY;
+    if (dragged <= 0) {
+      setPullDistance(0);
+      return;
+    }
+
+    const pulled = Math.min(dragged * PULL_RESISTANCE, PULL_MAX_PX);
+
+    // 문턱을 넘는 순간 바로 부른다. 내려간 자리는 `isLoadingOlder` 가 이어받는다.
+    if (pulled >= PULL_TRIGGER_PX) {
+      endPull();
+      void loadOlderMessages();
+      return;
+    }
+
+    setPullDistance(pulled);
+  };
+
+  /*
+   * 브라우저가 이 제스처를 스크롤로 가져가면 `pointercancel` 이 와서 당기기가 끊긴다.
+   * 맨 위에서 아래로 당기는 동안에만 기본 동작을 막아 우리 쪽에 붙잡아 둔다.
+   * (React 의 onTouchMove 는 passive 라 preventDefault 가 듣지 않아 직접 단다.)
+   */
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+
+    const handleTouchMove = (event: TouchEvent) => {
+      const startY = pullStartYRef.current;
+      if (startY === null || list.scrollTop > 0) return;
+
+      const touch = event.touches[0];
+      if (touch && touch.clientY > startY) event.preventDefault();
+    };
+
+    list.addEventListener('touchmove', handleTouchMove, { passive: false });
+    return () => list.removeEventListener('touchmove', handleTouchMove);
+  }, []);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -509,113 +606,171 @@ export default function LoungeChatSheet({ onClose }: LoungeChatSheetProps) {
           </p>
         )}
 
-        <ol className="lounge-chat__messages" ref={listRef} onScroll={handleScroll}>
-          {!isReady && (
-            <li
-              className={`lounge-chat__notice${status === 'error' ? ' lounge-chat__notice--error' : ''}`}
-            >
-              {notice}
-            </li>
-          )}
-
+        <div
+          className="lounge-chat__list"
+          // 당기는 문턱을 CSS 와 나눠 쓴다 — 회전 표시가 놓이는 자리 높이와 같은 값이다.
+          style={{ '--lounge-pull-trigger': `${PULL_TRIGGER_PX}px` } as React.CSSProperties}
+        >
+          {/*
+            당기는 동안·불러오는 동안 목록 뒤에서 드러나는 회전 표시.
+            내려간 거리에 맞춰 진해지고, 불러오기 시작하면 스스로 돈다.
+          */}
           {isReady && hasOlder && (
-            <li className="lounge-chat__more">
-              <button type="button" onClick={() => void loadOlderMessages()} disabled={isLoadingOlder}>
-                {isLoadingOlder ? '불러오는 중…' : '이전 메시지 보기'}
-              </button>
-            </li>
+            <div
+              className="lounge-chat__pull"
+              data-loading={isLoadingOlder || undefined}
+              aria-hidden="true"
+              style={{ opacity: isLoadingOlder ? 1 : Math.min(pullDistance / PULL_TRIGGER_PX, 1) }}
+            >
+              <span
+                className="lounge-chat__pull-spinner"
+                // 도는 것은 불러오는 동안뿐이다. 그 전에는 당긴 만큼만 돌아 진행을 알린다.
+                style={
+                  isLoadingOlder
+                    ? undefined
+                    : { transform: `rotate(${(pullDistance / PULL_TRIGGER_PX) * 360}deg)` }
+                }
+              />
+            </div>
           )}
 
-          {isReady && messages.length === 0 && (
-            <li className="lounge-chat__notice">아직 메시지가 없어요. 먼저 인사해보세요!</li>
+          {/*
+            당기기에는 대응하는 키 입력이 없다 — 키보드·보조기기에서도 지난 대화에 닿도록
+            같은 동작의 버튼을 남기되, 포커스가 왔을 때만 목록 위에 나타나게 한다.
+          */}
+          {isReady && hasOlder && (
+            <button
+              className="lounge-chat__more"
+              type="button"
+              onClick={() => void loadOlderMessages()}
+              disabled={isLoadingOlder}
+            >
+              지난 대화 불러오기
+            </button>
           )}
 
-          {isReady &&
-            messages.map((message) =>
-              // 닉네임은 중복될 수 없으므로 내 메시지 판별 기준으로 쓸 수 있다.
-              message.senderNickname === myNickname ? (
-                <li className="lounge-chat__message lounge-chat__message--mine" key={message.id}>
-                  <time className="lounge-chat__time" dateTime={message.createdAt}>
-                    {formatSentAt(message.createdAt)}
-                  </time>
-                  <p className="lounge-chat__bubble lounge-chat__bubble--mine">{message.content}</p>
-                </li>
-              ) : (
-                <li className="lounge-chat__message" key={message.id}>
-                  {/* 채팅 응답에는 발신자 프로필 사진이 없다(닉네임만 노출된다). */}
-                  <img className="lounge-chat__avatar" src={profilePlaceholder} alt="" />
-                  <div className="lounge-chat__body">
-                    <p className="lounge-chat__sender">{message.senderNickname}</p>
-                    <div className="lounge-chat__bubble-row">
-                      {/*
-                        길게 누르면 신고 아이콘이 나온다. 버튼으로 둔 건 키보드·스크린리더
-                        에서도 닿게 하기 위해서다 — 길게 누르기에는 대응하는 키 입력이 없다.
-                      */}
-                      <button
-                        className={`lounge-chat__bubble lounge-chat__bubble--pressable${
-                          pressingId === message.id ? ' lounge-chat__bubble--pressing' : ''
-                        }`}
-                        type="button"
-                        aria-haspopup="true"
-                        aria-expanded={reportTargetId === message.id}
-                        aria-label={`${message.senderNickname}님의 메시지. 길게 눌러 신고할 수 있어요`}
-                        onPointerDown={(event) => startPress(message.id, event)}
-                        onPointerMove={handlePressMove}
-                        onPointerUp={cancelPress}
-                        onPointerCancel={cancelPress}
-                        onPointerLeave={cancelPress}
-                        // 길게 누르면 모바일 브라우저가 자체 메뉴를 띄운다. 그건 우리 메뉴와 겹친다.
-                        onContextMenu={(event) => event.preventDefault()}
-                        onClick={(event) => {
-                          // detail 0 은 키보드(Enter·Space)로 눌렀다는 뜻이다. 손가락 탭은 1 이상이라
-                          // 짧게 스친 것만으로 메뉴가 열리지 않는다.
-                          if (event.detail === 0) setReportTargetId(message.id);
-                        }}
-                      >
-                        {message.content}
-                      </button>
-                      <time className="lounge-chat__time" dateTime={message.createdAt}>
-                        {formatSentAt(message.createdAt)}
-                      </time>
+          {/* 당기기·버튼 어느 쪽으로 불렀든 진행 상황은 소리로도 알린다. */}
+          <p className="lounge-chat__sr-only" role="status">
+            {isLoadingOlder ? '지난 대화를 불러오는 중이에요' : ''}
+          </p>
 
-                      {/*
-                        신고와 취소를 나란히 둔다. 누르면 확인 없이 바로 나가므로
-                        취소를 같은 자리에 붙여, 잘못 열었을 때 손을 옮기지 않고 닫게 한다.
-                      */}
-                      {reportTargetId === message.id && (
-                        <>
-                          <button
-                            className="lounge-chat__report-icon"
-                            type="button"
-                            aria-label="이 메시지 신고하기"
-                            onClick={() => void handleReport(message.id)}
-                            disabled={isReporting}
-                          >
-                            <span className="lounge-chat__report-icon-glyph" aria-hidden="true" />
-                          </button>
-                          <button
-                            className="lounge-chat__report-icon lounge-chat__report-icon--cancel"
-                            type="button"
-                            aria-label="신고 취소"
-                            onClick={closeReport}
-                            disabled={isReporting}
-                          >
-                            <span className="lounge-chat__cancel-icon-glyph" aria-hidden="true" />
-                          </button>
-                        </>
+          <ol
+            className="lounge-chat__messages"
+            ref={listRef}
+            data-pulling={pullDistance > 0 || undefined}
+            style={{
+              transform: isLoadingOlder
+                ? `translateY(${PULL_TRIGGER_PX}px)`
+                : pullDistance > 0
+                  ? `translateY(${pullDistance}px)`
+                  : undefined,
+            }}
+            onScroll={handleScroll}
+            onPointerDown={handlePullStart}
+            onPointerMove={handlePullMove}
+            onPointerUp={endPull}
+            onPointerCancel={endPull}
+            onPointerLeave={endPull}
+          >
+            {!isReady && (
+              <li
+                className={`lounge-chat__notice${status === 'error' ? ' lounge-chat__notice--error' : ''}`}
+              >
+                {notice}
+              </li>
+            )}
+
+            {isReady && messages.length === 0 && (
+              <li className="lounge-chat__notice">아직 메시지가 없어요. 먼저 인사해보세요!</li>
+            )}
+
+            {isReady &&
+              messages.map((message) =>
+                // 닉네임은 중복될 수 없으므로 내 메시지 판별 기준으로 쓸 수 있다.
+                message.senderNickname === myNickname ? (
+                  <li className="lounge-chat__message lounge-chat__message--mine" key={message.id}>
+                    <time className="lounge-chat__time" dateTime={message.createdAt}>
+                      {formatSentAt(message.createdAt)}
+                    </time>
+                    <p className="lounge-chat__bubble lounge-chat__bubble--mine">{message.content}</p>
+                  </li>
+                ) : (
+                  <li className="lounge-chat__message" key={message.id}>
+                    {/* 채팅 응답에는 발신자 프로필 사진이 없다(닉네임만 노출된다). */}
+                    <img className="lounge-chat__avatar" src={profilePlaceholder} alt="" />
+                    <div className="lounge-chat__body">
+                      <p className="lounge-chat__sender">{message.senderNickname}</p>
+                      <div className="lounge-chat__bubble-row">
+                        {/*
+                          길게 누르면 신고 아이콘이 나온다. 버튼으로 둔 건 키보드·스크린리더
+                          에서도 닿게 하기 위해서다 — 길게 누르기에는 대응하는 키 입력이 없다.
+                        */}
+                        <button
+                          className={`lounge-chat__bubble lounge-chat__bubble--pressable${
+                            pressingId === message.id ? ' lounge-chat__bubble--pressing' : ''
+                          }`}
+                          type="button"
+                          aria-haspopup="true"
+                          aria-expanded={reportTargetId === message.id}
+                          aria-label={`${message.senderNickname}님의 메시지. 길게 눌러 신고할 수 있어요`}
+                          onPointerDown={(event) => startPress(message.id, event)}
+                          onPointerMove={handlePressMove}
+                          onPointerUp={cancelPress}
+                          onPointerCancel={cancelPress}
+                          onPointerLeave={cancelPress}
+                          // 길게 누르면 모바일 브라우저가 자체 메뉴를 띄운다. 그건 우리 메뉴와 겹친다.
+                          onContextMenu={(event) => event.preventDefault()}
+                          onClick={(event) => {
+                            // detail 0 은 키보드(Enter·Space)로 눌렀다는 뜻이다. 손가락 탭은 1 이상이라
+                            // 짧게 스친 것만으로 메뉴가 열리지 않는다.
+                            if (event.detail === 0) setReportTargetId(message.id);
+                          }}
+                        >
+                          {message.content}
+                        </button>
+                        <time className="lounge-chat__time" dateTime={message.createdAt}>
+                          {formatSentAt(message.createdAt)}
+                        </time>
+
+                        {/*
+                          신고와 취소를 나란히 둔다. 누르면 확인 없이 바로 나가므로
+                          취소를 같은 자리에 붙여, 잘못 열었을 때 손을 옮기지 않고 닫게 한다.
+                        */}
+                        {reportTargetId === message.id && (
+                          <>
+                            <button
+                              className="lounge-chat__report-icon"
+                              type="button"
+                              aria-label="이 메시지 신고하기"
+                              onClick={() => void handleReport(message.id)}
+                              disabled={isReporting}
+                            >
+                              <span className="lounge-chat__report-icon-glyph" aria-hidden="true" />
+                            </button>
+                            <button
+                              className="lounge-chat__report-icon lounge-chat__report-icon--cancel"
+                              type="button"
+                              aria-label="신고 취소"
+                              onClick={closeReport}
+                              disabled={isReporting}
+                            >
+                              <span className="lounge-chat__cancel-icon-glyph" aria-hidden="true" />
+                            </button>
+                          </>
+                        )}
+                      </div>
+
+                      {reportError && reportTargetId === message.id && (
+                        <p className="lounge-chat__report-error" role="alert">
+                          {reportError}
+                        </p>
                       )}
                     </div>
-
-                    {reportError && reportTargetId === message.id && (
-                      <p className="lounge-chat__report-error" role="alert">
-                        {reportError}
-                      </p>
-                    )}
-                  </div>
-                </li>
-              ),
-            )}
-        </ol>
+                  </li>
+                ),
+              )}
+          </ol>
+        </div>
 
         {sendError && (
           <p className="lounge-chat__send-error" role="alert">
