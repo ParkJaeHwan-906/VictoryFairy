@@ -94,20 +94,32 @@
 
 ### 진행 이닝 판정
 
-`games.current_inning`/`inning_half`의 원천은 **schedule API의 `statusInfo`** 다(`game_records.parse_inning`). 진행 중에는 `"3회말"` 한 가지 형태로만 오고 아웃카운트·주자 같은 접미사가 붙지 않는다 — 2026-08-12 19:00 시작 5경기를 15초 간격으로 관측한 실측이다.
+`games.current_inning`/`inning_half`/`last_innning`의 원천은 **schedule API의 `statusInfo`** 하나다(`game_records.parse_inning`). 진행 중에는 `"3회말"` 한 가지 형태로만 오고 아웃카운트·주자 같은 접미사가 붙지 않는다 — 2026-08-12 19:00 시작 5경기를 15초 간격으로 관측한 실측이다.
 
-| `statusInfo` | `current_inning` | `inning_half` |
-|---|---|---|
-| `"1회초"` | 1 | 0 (`TOP`) |
-| `"3회말"` | 3 | 1 (`BOTTOM`) |
-| `"경기전"` · `"경기취소"` · `""` · 미지 포맷 | `NULL` | `NULL` |
-| `"12회초"` 이상 | `NULL` (+ warning) | `NULL` |
+**같은 값이 정반대 정책의 두 곳으로 갈라져 들어간다.**
+
+| 컬럼 | 언제 채우나 | upsert 정책 | 뜻 |
+|---|---|---|---|
+| `current_inning` · `inning_half` | `IN_PROGRESS`일 때만 | `VALUES()` 덮어쓰기 | **지금** 몇 회인가 |
+| `last_innning` | 상태 무관(파싱되면 언제나) | `COALESCE` 보존 | 몇 회에 **끝났나** |
+
+| `statusInfo` | `current_inning` | `inning_half` | `last_innning` |
+|---|---|---|---|
+| `"1회초"` (IN_PROGRESS) | 1 | 0 (`TOP`) | 1 |
+| `"3회말"` (IN_PROGRESS) | 3 | 1 (`BOTTOM`) | 3 |
+| `"9회말"` (FINISHED) | `NULL` | `NULL` | 9 |
+| `"경기전"` · `"경기취소"` · `""` · 미지 포맷 | `NULL` | `NULL` | 기존 값 유지 |
+| `"12회초"` 이상 | `NULL` (+ warning) | `NULL` | 기존 값 유지 |
+
+> ⚠ **`last_innning`의 `n` 세 개는 오타가 아니라 실제 DB 컬럼명이다**(2026-08-13 prod 실측). 우리가 지은 이름이 아니라 고칠 수 없다. DB가 `last_inning`으로 바뀌면 `db.py`·`run.py`·테스트의 같은 이름을 함께 치환할 것.
+
+종료 경기의 `statusInfo`가 마지막 이닝을 그대로 들고 있다는 성질(아래 함정 ①)이 여기서는 **버그가 아니라 정답의 출처**가 된다. 덕분에 라이브 구간을 통째로 놓친 경기(수집기 중단 등)도 나중 동기화 한 번으로 `last_innning`이 회수된다.
 
 `inning_half`는 domain `InningHalf`의 **ORDINAL**(`TOP=0`/`BOTTOM=1`)이다. 네이버 relay의 `homeOrAway`(`"0"`=원정 공격=초, `"1"`=홈 공격=말)와도 값이 같다.
 
 > ⚠️ **이닝 함정 4가지**
 > ① **`IN_PROGRESS`가 아니면 무조건 `NULL`이다**(BE 계약: `GET /api/games`의 `inning`/`inningHalf`는 진행 중에만 값). `statusInfo`는 **경기가 끝나도 마지막 이닝을 그대로 들고 있어서**(2026-08-11 전 경기 `"9회초"`/`"9회말"`, 강우콜드는 `"6회말"`) 상태로 거르지 않으면 종료 경기에 이닝이 박힌다.
-> ② **`GAME_SYNC_UPSERT`에서 이닝만 `COALESCE`가 아니다.** 점수·구장과 정책이 반대다 — 종료 시 `NULL`로 덮여야 하므로 `VALUES()` 직접 대입. 일관성 명목으로 `COALESCE`를 더하면 ①이 깨진다.
+> ② **`GAME_SYNC_UPSERT`에서 이닝 세 컬럼의 정책이 서로 다르다.** `current_inning`/`inning_half`는 점수·구장과 반대로 `COALESCE` 없이 `VALUES()` 직접 대입이고(종료 시 `NULL`로 덮여야 하므로 — 붙이면 ①이 깨진다), `last_innning`은 다시 반대로 `COALESCE`다(종료 후에도 남아야 하므로 — 빼면 다음 폴링에 지워진다). **셋 다 다른 이유로 지금 모양이니 일관성 명목으로 어느 한쪽에 맞추지 말 것.**
 > ③ **detail API(`/schedule/games/{gameId}`)의 `currentInning`을 원천으로 쓰지 말 것.** 경기 시작 **20분 전**(`statusCode="READY"`)부터 이미 `"1회초"`로 앞서 나간다(2026-08-12 18:41 실측). 같은 시각 `statusInfo`는 정확히 `"경기전"`이었다. 더 이른 `BEFORE` 구간에서는 `currentInning`이 빈 문자열 `""`이다.
 > ④ **`INNING_MAX`(11)를 넘으면 값을 버리고 warning을 남긴다.** 11은 KBO 현행 규정의 이닝 한도(정규 9 + 연장 2)이고, `games`의 CHECK `ck_games_current_inning`(1~11)과 같은 값이다 — **진짜 상한은 우리 코드가 아니라 DB**이며 prod에 실제로 걸려 있다(실측). 2026 정규시즌 전수 스캔(3/22~8/11)도 11회 18경기·12회 0경기로 일치한다.
 >
