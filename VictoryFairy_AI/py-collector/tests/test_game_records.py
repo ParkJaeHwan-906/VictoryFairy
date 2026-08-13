@@ -234,6 +234,22 @@ def test_parse_inning_beyond_check_constraint_is_none():
     assert gr.parse_inning("0회초") == (None, None)
 
 
+def test_parse_inning_without_max_reads_beyond_the_check_constraint():
+    """`max_inning=None` 은 상한을 끈다 — last_innning 전용 경로.
+
+    그 컬럼에는 CHECK 가 없어 막을 이유가 없고, 막으면 12회 경기에서 파싱이 None 이
+    되어 upsert 의 COALESCE 가 직전의 11 을 남긴다. 즉 "12회에 끝난 경기"가
+    last_innning=11 로 **틀리게** 기록된다. NULL(모름)보다 나쁘다.
+    """
+    assert gr.parse_inning("12회초", max_inning=None) == (12, 0)
+    assert gr.parse_inning("15회말", max_inning=None) == (15, 1)
+    # 상한을 꺼도 이닝이 아닌 값과 0 이하는 여전히 None 이다.
+    assert gr.parse_inning("0회초", max_inning=None) == (None, None)
+    assert gr.parse_inning("경기취소", max_inning=None) == (None, None)
+    # 기본값은 그대로 INNING_MAX — 호출부가 명시하지 않으면 CHECK 를 지킨다.
+    assert gr.parse_inning("12회초") == (None, None)
+
+
 # --------------------------------------------------------------------------- preview 라인업
 # 2026-08-11 HHOB(한화:두산) 실측 응답에서 라인업 부분만 추린 것. 이 배열 순서가
 # record 박스스코어의 batOrder 와 전수 일치함을 확인하고 파서의 근거로 삼았다.
