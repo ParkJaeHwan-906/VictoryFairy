@@ -23,6 +23,10 @@ import '../styles/QuizResultPage.css';
  * 열거되는 것은 **결산이 끝난 이닝뿐**이다 — 진행 중 경기면 현재 이닝이 빠지고,
  * 문제를 못 받은 이닝도 `0/0` 행으로 남는다(빈 행은 열 것이 없어 누를 수 없다).
  *
+ * ── 머리말이 성적에 따라 갈린다 ──────────────────────────────────────
+ * 맨 위 축하 문구는 고정이 아니라 **경기 전체 정답률**이 고른다(90/70/40 경계,
+ * `HEADING_TIERS` 참고). 요약을 받아야 정해지므로 불러오는 동안에는 띄우지 않는다.
+ *
  * ── 숫자의 출처 ────────────────────────────────────────────────────
  *   획득 포인트 → `summary.earnedPoint` (신규 — 페이지를 이어 받아 합칠 필요가 없어졌다)
  *   정답률·맞힌 수 → `summary.accuracy` · `summary.correctCount` / `summary.total`
@@ -33,6 +37,37 @@ import '../styles/QuizResultPage.css';
 
 /** 게이지 칸 수. 디자인 고정값이라 정답률을 이 눈금으로 반올림해 채운다. */
 const GAUGE_SEGMENTS = 10;
+
+/**
+ * 정답률이 가장 낮은 구간의 머리말. 아래 표에서 걸리는 구간이 없을 때의 값이기도 하다.
+ * 줄바꿈 위치는 디자인이 정한 것이라 문구에 그대로 넣고 `white-space: pre-line` 으로 살린다.
+ */
+const LOWEST_HEADING = '다음 경기에서는\n더 좋은 결과를 기대할게요!';
+
+/**
+ * 정답률 구간별 머리말.
+ *
+ * 위에서부터 훑어 **처음 걸리는 구간**을 쓰므로 `minPercent` 내림차순이어야 한다
+ * (구간의 위쪽 끝을 따로 적지 않아도 되는 대신, 순서가 곧 계약이다).
+ * 40% 미만은 `LOWEST_HEADING` 이 받는다.
+ */
+const HEADING_TIERS = [
+  { minPercent: 90, message: '오늘 경기,\n완벽하게 읽어냈어요!' },
+  { minPercent: 70, message: '오늘 경기 감각이\n정말 좋았어요!' },
+  { minPercent: 40, message: '좋은 출발이에요!\n다음 경기에서 더 높이 올라가 볼까요?' },
+] as const;
+
+/**
+ * 정답률(%)에 맞는 머리말을 고른다.
+ *
+ * 기준은 게이지·전광판과 같은 **반올림한 정수 퍼센트**다 — 89.6% 를 두고 화면이 `90%`
+ * 라고 써 놓고 머리말만 한 단계 낮게 나가면 서로 어긋나 보인다.
+ */
+function toHeading(accuracyPercent: number): string {
+  return (
+    HEADING_TIERS.find(({ minPercent }) => accuracyPercent >= minPercent)?.message ?? LOWEST_HEADING
+  );
+}
 
 /** 문맥 없이 들어와 조회를 걸 수 없을 때의 안내. */
 const NO_CONTEXT_MESSAGE = '경기 정보가 없어 결과를 불러올 수 없어요. 경기 목록에서 다시 들어와 주세요.';
@@ -141,7 +176,13 @@ export default function QuizResultPage() {
         <span className="quiz-result-page__topbar-spacer" aria-hidden="true" />
       </header>
 
-      <p className="quiz-result-page__heading">오늘 경기 감각이 정말 좋았어요!</p>
+      {/*
+        머리말이 정답률에 따라 갈리므로 요약을 받은 뒤에야 쓸 수 있다 —
+        불러오는 중에 미리 띄우면 0% 문구("다음 경기에서는…")가 잠깐 스쳐 지나간다.
+      */}
+      {summary !== null && (
+        <p className="quiz-result-page__heading">{toHeading(accuracyPercent)}</p>
+      )}
 
       {loadError !== null && (
         <p className="quiz-result-page__status quiz-result-page__status--error" role="alert">
