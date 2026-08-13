@@ -35,7 +35,6 @@ import org.springframework.test.web.servlet.MockMvc;
 
 /**
  * {@code /support/**}(외부 노출 경로 {@code /api/support/**}) 3개 엔드포인트를 검증한다.
- * 요구사항: {@code docs/requirements/user/support-selection.md}(USER-SP-1 ~ 29).
  *
  * <p>슬라이스 구성은 {@code UserAccountControllerTest} 와 같은 패턴이다 — 실제 {@link SecurityConfig}(따라서
  * 실제 {@code JwtAuthenticationFilter})를 태우고 {@link JwtTokenProvider}·{@link UserAccountRepository} 를

@@ -36,8 +36,6 @@ DB_PASSWORD=...
 SPRING_PROFILES_ACTIVE=dev
 ```
 
-`application.yaml` 파일은 Git 추적 대상에서 제외되어 있습니다.
-
 각 실행 모듈은 다음 위치의 설정 파일을 사용합니다.
 
 ```text
@@ -70,98 +68,9 @@ SPRING_PROFILES_ACTIVE=prod
 
 `application-dev.yaml`에서 DB 접속 정보와 JPA 개발 설정을 사용합니다.
 
-주요 설정:
-
-```yaml
-spring:
-  datasource:
-    url: jdbc:mysql://${DB_HOST}:${DB_PORT}/${DB_NAME}?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
-    username: ${DB_USERNAME}
-    password: ${DB_PASSWORD}
-    driver-class-name: com.mysql.cj.jdbc.Driver
-
-  jpa:
-    hibernate:
-      ddl-auto: update
-    show-sql: true
-    properties:
-      hibernate:
-        format_sql: true
-```
-
 ### prod 프로필
 
 `application-prod.yaml`에서 운영용 JPA 설정을 사용합니다.
-
-주요 설정:
-
-```yaml
-spring:
-  jpa:
-    hibernate:
-      ddl-auto: none
-    show-sql: false
-    properties:
-      hibernate:
-        format_sql: false
-    open-in-view: false
-```
-
-## ddl-auto 운영 전략 (중요)
-
-`user`, `quiz` 두 애플리케이션은 **같은 DB를 공유**하며, 각각 `@EntityScan("com.skhynix")` 설정으로 **동일한 엔티티 전체를 스캔**합니다. 따라서 두 앱은 모두 같은 테이블 집합을 인식합니다.
-
-이 구조에서 `ddl-auto` 값을 어떻게 주느냐가 데이터 보존에 직접적인 영향을 줍니다.
-
-### 두 앱 모두 `create`로 두면 안 되는 이유
-
-`ddl-auto: create`는 **앱이 기동될 때마다 기존 테이블을 DROP하고 다시 생성**합니다.
-
-같은 DB를 공유하는 두 앱이 모두 `create`이면:
-
-- 앱을 시작/재시작할 때마다 서로의 테이블과 데이터가 통째로 삭제됩니다.
-- 예: `user`로 데이터를 넣은 뒤 `quiz`를 띄우면, `quiz` 기동 시 전체 테이블이 drop & recreate 되어 데이터가 사라집니다.
-- 기동 순서에 따라 결과가 달라지는 race가 발생합니다.
-
-> 현재 dev 설정은 두 앱 모두 `ddl-auto: create`이므로 주의가 필요합니다.
-
-### 권장 방식
-
-**옵션 A — 한 앱만 스키마 생성 담당 (단순, 권장)**
-
-한 앱만 `create`로 두고 나머지 하나는 `validate`로 설정합니다. "스키마 소유자"를 한 곳으로 명확히 고정하는 방식입니다.
-
-```yaml
-# 스키마 담당 앱 1개만
-jpa:
-  hibernate:
-    ddl-auto: create   # 최초 테이블 생성용
-
-# 나머지 1개 앱
-jpa:
-  hibernate:
-    ddl-auto: validate # 엔티티-테이블 매핑만 검증, 스키마 변경 안 함
-```
-
-**옵션 B — 최초 1회만 `create`, 이후 전부 `update`**
-
-최초 1회만 한 앱을 `create`로 띄워 테이블을 만든 뒤, 두 앱 모두 `update`로 변경합니다. `update`는 없는 테이블/컬럼만 추가하고 기존 것을 drop하지 않으므로 데이터가 보존됩니다.
-
-```yaml
-jpa:
-  hibernate:
-    ddl-auto: update
-```
-
-### prod 프로필
-
-운영 환경에서는 두 앱 모두 스키마를 자동 변경하지 않습니다. `application-prod.yaml`은 `ddl-auto: none`으로 설정되어 있습니다.
-
-| 환경 | 권장 ddl-auto |
-| --- | --- |
-| dev (최초 생성) | 한 앱만 `create`, 나머지 `validate` |
-| dev (운영 중) | 두 앱 모두 `update` |
-| prod | 두 앱 모두 `none` (현재 설정) |
 
 ## Gradle 빌드
 
@@ -251,14 +160,6 @@ IDE 빌드가 실패하면 Gradle Reload를 먼저 수행합니다.
 ```bash
 docker compose up -d --build
 ```
-
-실행되는 컨테이너:
-
-| 컨테이너 | 서비스 | 포트 |
-| --- | --- | --- |
-| `victoryfairy-mysql` | `mysql` | `3306` |
-| `victoryfairy-user` | `user` | `8080` |
-| `victoryfairy-quiz` | `quiz` | `8081` |
 
 상태 확인:
 
@@ -353,17 +254,4 @@ Docker Compose 실행 시 애플리케이션 컨테이너는 DB host로 `mysql`�
 
 ```yaml
 DB_HOST: mysql
-```
-
-## Git 관리 규칙
-
-다음 파일은 로컬 설정 파일이므로 Git에 포함하지 않습니다.
-
-```text
-user/src/main/resources/application.yaml
-user/src/main/resources/application-*.yaml
-quiz/src/main/resources/application.yaml
-quiz/src/main/resources/application-*.yaml
-.env
-.env.*
 ```

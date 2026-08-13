@@ -7,8 +7,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface ChatroomRepository extends JpaRepository<Chatroom, Long> {
 
-    List<Chatroom> findAllByDeletedAtIsNull();
-
     // 채팅방은 구단 단위 폐쇄 공간 — 목록 조회는 요청자의 응원 구단 방만 본다
     List<Chatroom> findAllByTeam_IdAndDeletedAtIsNull(Long teamId);
 

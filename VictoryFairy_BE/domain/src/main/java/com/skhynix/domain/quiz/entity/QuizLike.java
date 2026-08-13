@@ -104,9 +104,7 @@ public class QuizLike {
     }
 
     /**
-     * 좋아요를 뒤집는다(켜짐→꺼짐, 꺼짐→켜짐).
-     *
-     * <p>전이를 {@code @Setter}가 아니라 이 메서드로 두는 이유는 호출부가 "다음 값"을 계산하지 않게
+     * 전이를 {@code @Setter}가 아니라 이 메서드로 두는 이유는 호출부가 "다음 값"을 계산하지 않게
      * 하기 위해서다 — 켜기/끄기 판단이 서비스로 새면 같은 판단이 토글 경로마다 복제되고, 그중 하나가
      * 어긋나면 버튼이 한 번에 안 먹는 형태로만 드러난다.
      *
@@ -117,7 +115,6 @@ public class QuizLike {
         this.liked = !this.liked;
     }
 
-    // 위 toggle()과 짝이 되는 조회 접근자. 응답에 실리는 "확정된 상태"가 이 값이다.
     public boolean isLiked() {
         return liked;
     }
