@@ -16,8 +16,6 @@
 - [ ] **EKS Secret `app-secret`** 에 `MAIL_USERNAME`(API Key)/`MAIL_PASSWORD`(Secret Key) 채우기 (6단계)
 - [ ] `kubectl rollout restart deploy/user-app` 로 파드 재기동 → 실발송 확인 (7단계)
 
-> 참고: **도메인을 EC2에 연결(A 레코드)하는 것과 이메일 발송은 무관**하다. 메일 발송은 DNS에 TXT 레코드(SPF/DKIM)만 있으면 되고, 실제 발송은 Mailjet이 대신 한다.
-
 ## 1. 언제 실제로 메일이 나가는가
 
 발송 구현은 프로파일로 갈린다.
