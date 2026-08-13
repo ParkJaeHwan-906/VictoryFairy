@@ -235,11 +235,11 @@ def test_parse_inning_beyond_check_constraint_is_none():
 
 
 def test_parse_inning_without_max_reads_beyond_the_check_constraint():
-    """`max_inning=None` 은 상한을 끈다 — last_innning 전용 경로.
+    """`max_inning=None` 은 상한을 끈다 — last_inning 전용 경로.
 
     그 컬럼에는 CHECK 가 없어 막을 이유가 없고, 막으면 12회 경기에서 파싱이 None 이
     되어 upsert 의 COALESCE 가 직전의 11 을 남긴다. 즉 "12회에 끝난 경기"가
-    last_innning=11 로 **틀리게** 기록된다. NULL(모름)보다 나쁘다.
+    last_inning=11 로 **틀리게** 기록된다. NULL(모름)보다 나쁘다.
     """
     assert gr.parse_inning("12회초", max_inning=None) == (12, 0)
     assert gr.parse_inning("15회말", max_inning=None) == (15, 1)
