@@ -1,7 +1,5 @@
 # GitHub Actions OIDC 배포 롤 — "머지 = 배포" 파이프라인의 AWS 로그인.
 #
-# - image-ci     : dev_ai 머지 → 이미지 빌드 → ECR 푸시 → Lambda 코드 갱신
-#                  (.github/workflows/collector-image.yml, dev_ai 브랜치)
 # - terraform-ci : dev_infra 머지 → 이 스택 plan/apply
 #                  (.github/workflows/collector-terraform.yml, dev_infra 브랜치)
 #
