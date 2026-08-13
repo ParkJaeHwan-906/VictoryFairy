@@ -1,0 +1,48 @@
+# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+*.pem
+
+# local env files
+.env*.local
+.env
+# 저장소 루트 .gitignore가 `.env.*`를 통째로 무시한다. 설정 예시는 공유해야 하므로 되살린다.
+!.env.example
+
+# typescript
+*.tsbuildinfo
+
+# Claude Code 로컬 설정 (저장소는 .claude/agents·skills 만 공유한다)
+.claude/settings.json
+.claude/settings.local.json
+
+# generated native folders
+/ios
+/android
