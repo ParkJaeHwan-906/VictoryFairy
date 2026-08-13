@@ -31,7 +31,20 @@ TIMEOUT = int(os.environ.get("HTTP_TIMEOUT_SECONDS", "10"))
 # {"user": "/api/actuator/health/readiness", "quiz": "/rt/actuator/health/readiness"}
 API_TARGETS = json.loads(os.environ.get("API_TARGETS", "{}"))
 
-ASSET_RE = re.compile(r"assets/index-[A-Za-z0-9]+\.js")
+# 진입 스크립트 추출 — 파일명 '형식' 을 가정하지 않는다.
+#
+# ⚠ 종전에는 `assets/index-<해시>.js` 를 직접 긁었다. Vite 의 해시가 base64url 알파벳이라
+#   '-'·'_' 가 끼면 매칭이 실패했고, 그 배포 동안 멀쩡한 FE 가 계속 실패로 찍혀 알람이
+#   정상 릴리스를 되돌렸다(2026-08-11 #317 → 워크플로만 고치고 여기를 빠뜨려 08-14 재발).
+#   해시 알파벳을 넓히는 것만으로는 부족하다 — 해시 길이·자산 경로·진입 청크 이름은 Vite
+#   설정과 버전에 따라 언제든 바뀌고, 그때 같은 자리에서 같은 방식으로 또 깨진다.
+#   그래서 '이름이 무엇인가' 가 아니라 'HTML 이 무엇을 불러오는가' 를 본다.
+#
+# 이 덕분에 '찾지 못함' 이 비로소 진짜 장애 신호가 된다: type="module" 스크립트가 없다는 것은
+# 형식을 못 읽었다는 뜻이 아니라 SPA 가 부팅할 수 없다는 뜻이다.
+SCRIPT_RE = re.compile(r"<script\b([^>]*)>", re.IGNORECASE)
+SRC_RE = re.compile(r"""\bsrc=["']([^"']+)["']""", re.IGNORECASE)
+TYPE_MODULE_RE = re.compile(r"""\btype=["']module["']""", re.IGNORECASE)
 
 cloudwatch = boto3.client("cloudwatch")
 
@@ -51,6 +64,22 @@ def _get(path):
         return 0, "", (time.monotonic() - started) * 1000
 
 
+def entry_bundle(html):
+    """index.html 이 부르는 진입 스크립트 경로. 없으면 None.
+
+    속성 순서(type/src)·따옴표 종류·상대경로를 가리지 않는다 — 번들러가 어떻게 내보내든
+    '모듈 스크립트의 src' 라는 사실만 붙잡는다.
+    """
+    for attrs in SCRIPT_RE.findall(html):
+        if not TYPE_MODULE_RE.search(attrs):
+            continue
+        m = SRC_RE.search(attrs)
+        if m:
+            path = m.group(1)
+            return path if path.startswith("/") else "/" + path
+    return None
+
+
 def check_fe():
     """FE 가 실제로 동작하는지. (정상여부, 사유, 소요ms)."""
     status, body, ms = _get("/")
@@ -59,12 +88,11 @@ def check_fe():
 
     # 진입점이 가리키는 번들을 실제로 받아본다. 이 확인이 핵심이다 —
     # index.html 만 200 이면 자산이 사라져도 통과해버려 점검이 무의미해진다.
-    m = ASSET_RE.search(body)
-    if not m:
-        return False, "index.html 에서 진입 번들 참조를 찾지 못했다", ms
+    asset = entry_bundle(body)
+    if asset is None:
+        return False, "index.html 에 모듈 스크립트가 없다 — SPA 가 부팅하지 못한다", ms
 
-    asset = m.group(0)
-    status, _, _ = _get(f"/{asset}")
+    status, _, _ = _get(asset)
     if status != 200:
         return False, f"진입 번들 {asset} 이 {status}", ms
 
