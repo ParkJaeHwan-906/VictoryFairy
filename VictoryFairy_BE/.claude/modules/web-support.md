@@ -24,7 +24,7 @@
 ## 주의 / 컨벤션
 - **data-jpa를 implementation으로 직접 선언한 이유**: `JwtAuthenticationFilter`가 `UserAccountRepository`(JpaRepository 하위) 타입을 컴파일 시 필요로 하는데, `domain`이 data-jpa를 `implementation`으로만 노출해 전이되지 않기 때문. `domain`의 스타터 노출 방식이 바뀌면 이 선언도 재점검할 것.
 - **소비 앱은 필요한 설정을 `@Import`로 직접 배선해야 한다** — 자동 스캔에 기대지 말 것. `user`는 `com.skhynix` 전역 스캔이라 `@Import({JwtVerificationConfig.class, GlobalExceptionHandler.class})`(`UserApplication`)로, `quiz`는 `com.skhynix.quiz`로 좁게 스캔이라 `SecurityConfig`에서 동일하게 `@Import`한다. 둘 다 이 두 빈만 등록하고 `securityFilterChain` 자체(라우트 규칙)는 앱마다 직접 작성 — SecurityConfig는 web-support로 옮기지 않고 각 앱에 그대로 둔 의도적 결정(permitAll 규칙이 앱마다 다름).
-- `JwtVerificationConfig`의 Javadoc은 "검증만 필요한 모듈은 이 설정만 import"라고 적혀 있지만, 실제로는 uid→id 해석에 `UserAccountRepository`(`:domain`+JPA)까지 필요하다 — 소비 앱이 이미 `:domain`+JPA를 갖추고 있어야 조립된다.
+- `JwtVerificationConfig`는 `JwtTokenProvider` 빈만 등록하는 최소 설정이지만, 실제로는 uid→id 해석에 `UserAccountRepository`(`:domain`+JPA)까지 필요하다 — 소비 앱이 이미 `:domain`+JPA를 갖추고 있어야 조립된다.
 - `JwtAuthenticationFilter`/`RestAuthenticationEntryPoint` 생성자가 바뀌면 두 앱의 `SecurityConfig`(각각 `new`로 직접 생성)를 함께 고쳐야 한다 — 인터페이스가 아니라 구체 클래스를 직접 조립하는 커플링.
 - Jackson 3 (Boot 4.1) 사용 중: `ObjectMapper`/`JsonNode`는 `tools.jackson.databind.*`. `com.fasterxml.jackson.databind.*`를 import하면 컴파일 깨짐 — 클래스패스의 `com.fasterxml` 2.x는 `jjwt-jackson`이 runtimeOnly로 끌고 온 것뿐이라 컴파일에 안 잡혀 더 헷갈림.
 - 테스트: `web-support/src/test` 3개 클래스(`JwtTokenProviderTest` 8 · `JwtAuthenticationFilterTest` 5 · `RestAuthenticationEntryPointTest` 2, 총 15개), `user`에서 로직 무변경으로 이동. `RestAuthenticationEntryPointTest`는 스프링 컨텍스트 없이 직렬화만 단위 검증.

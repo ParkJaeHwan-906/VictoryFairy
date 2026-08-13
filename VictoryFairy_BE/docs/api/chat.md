@@ -21,7 +21,7 @@
 
 ## 이 도메인의 특이사항
 
-**7개 전부 인증 필수.** quiz의 `SecurityConfig`는 `/`, `/error`, `GET /health`만 permitAll이고 그 외 `anyRequest().authenticated()`다. user 모듈처럼 GET 한정으로 열린 공개 경로가 없다. 신규 `DELETE .../subscribe`도 이 규칙 그대로 걸린다 — `SecurityConfig` 수정 없이 기존 `anyRequest().authenticated()`에 자연히 포함된다.
+**7개 전부 인증 필수.** quiz의 `SecurityConfig`는 `/`, `/error`, `GET /actuator/health/**`만 permitAll이고 그 외 `anyRequest().authenticated()`다(과거 기록, 정정됨 — 이전 버전 문서는 `GET /health`로 적었으나 그 경로엔 핸들러가 없어 항상 404였다; 이 permitAll 범위 자체는 바뀐 적 없고 표기만 틀려 있었다). user 모듈처럼 GET 한정으로 열린 공개 경로가 없다. 신규 `DELETE .../subscribe`도 이 규칙 그대로 걸린다 — `SecurityConfig` 수정 없이 기존 `anyRequest().authenticated()`에 자연히 포함된다.
 
 **응답 래퍼는 7개 모두 `ApiResponse<T>`이나 SSE 구독(GET)만 예외**로 `SseEmitter`를 반환한다(이벤트 스트림이라 JSON 래핑 대상이 아님).
 
