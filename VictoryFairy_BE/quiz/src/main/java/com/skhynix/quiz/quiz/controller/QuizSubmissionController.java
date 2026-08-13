@@ -9,6 +9,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -45,11 +46,31 @@ public class QuizSubmissionController {
                 quizSubmitService.submit(userAccountId, quizId, request.option())));
     }
 
-    /** 내 풀이 이력(최신 제출부터, 서버 고정 20건 페이징) + 전체 정답률 요약. */
+    /**
+     * <b>지목한 경기 한 건</b>의 이닝별 풀이 결산 — 이닝 배열 + 이닝별 요약 + 경기 전체 요약.
+     *
+     * <p><b>{@code gameId} 는 필수이고 페이징은 없다.</b> 값의 축은 {@code /today} 와 같은
+     * {@code games.naver_game_id} 문자열이다(내부 PK 가 아니다 — {@code GameResponse.gameId} 로 이미
+     * 노출된 그 값이라 FE 가 경기 식별자를 두 종류 들고 있지 않아도 된다). 조회 단위가 경기 하나라
+     * 이닝 축을 통째로 그리는 화면이고, 그래서 페이지로 잘라 줄 수 없다.
+     *
+     * <p>미존재 경기는 404 {@code GAME_NOT_FOUND}, 아직 시작하지 않은 경기는 403
+     * {@code GAME_NOT_STARTED} 다. <b>취소·종료 경기는 200</b> 이다 — 노게임이면 진행된 이닝의 기록이
+     * 실제로 남아 있어 접으면 사용자가 자기 기록을 잃는다.
+     */
     @GetMapping("/submissions")
     public ResponseEntity<ApiResponse<QuizSubmissionHistoryResponse>> getSubmissions(
-            @RequestParam(defaultValue = "0") int page,
-            @AuthenticationPrincipal Long userAccountId) {
-        return ResponseEntity.ok(ApiResponse.ok(quizSubmitService.getHistory(userAccountId, page)));
+            @RequestParam String gameId,
+            @AuthenticationPrincipal Long userAccountId)
+            throws MissingServletRequestParameterException {
+        // 빈 문자열은 누락과 같은 400 으로 접는다. 그대로 흘려보내면 "존재하지 않는 경기"(404)로
+        // 잘못 안내되고, 값을 정하지도 않은 요청에 조회가 한 번 나간다.
+        // ⚠ 새 ErrorCode 를 만들지 않는 것은 의도다 — 이 400 의 계약은 이미 스프링의 필수 파라미터
+        //   누락 응답(GlobalExceptionHandler)이 정의하고 있고, 사용자가 볼 사건은 둘이 같다.
+        if (gameId.isBlank()) {
+            throw new MissingServletRequestParameterException("gameId", "String");
+        }
+        return ResponseEntity.ok(
+                ApiResponse.ok(quizSubmitService.getHistory(userAccountId, gameId)));
     }
 }

@@ -15,7 +15,7 @@
 | 경기 | [game.md](game.md) | user | `/api/games` | 2 | 불필요(GET 한정) | 2026-08-13 | [🔗](https://app.notion.com/p/3b278fa9b0f981938659cb3681750105) |
 | 응원 | [support.md](support.md) | user | `/api/support` | 3 | 필수 | 2026-08-06 | [🔗](https://app.notion.com/p/3b278fa9b0f981f5ae03ff5df8489a63) |
 | 채팅 | [chat.md](chat.md) | quiz | `/rt/chat` | 7 | 필수 | 2026-08-04 | [🔗](https://app.notion.com/p/3b278fa9b0f98165a655fd5cced543d5) |
-| 퀴즈 | [quiz.md](quiz.md) | quiz | `/rt/quizzes` | 5 | 필수 | 2026-08-12(5차) | [🔗](https://app.notion.com/p/3b578fa9b0f981c4b09bd8752fb22711) |
+| 퀴즈 | [quiz.md](quiz.md) | quiz | `/rt/quizzes` | 5 | 필수 | 2026-08-13 | [🔗](https://app.notion.com/p/3b578fa9b0f981c4b09bd8752fb22711) |
 
 `최종 업데이트`는 **계약이 마지막으로 바뀐 날**이지 문서를 손댄 날이 아니다. `(추정)`은 도메인 분리 이전에 엔드포인트별 이력이 없어 해당 컨트롤러의 마지막 커밋 날짜로 역산했다는 뜻이다.
 
@@ -109,7 +109,7 @@ JWT HS256. `JwtTokenProvider`가 access(3h, 10800000ms)/refresh(14d, 1209600000m
 
 발생 경로는 둘로 나뉜다: `UNAUTHENTICATED`는 `RestAuthenticationEntryPoint`가 필터 단계(`DispatcherServlet` 바깥)에서 직접 직렬화하고, 나머지 3개는 컨트롤러가 던진 `BusinessException`을 `GlobalExceptionHandler`가 잡아 변환한다. 클라이언트 입장에서 이 구분이 중요한 이유: `UNAUTHENTICATED`는 "로그인하거나(토큰이 아예 없거나 계정이 사라짐) `/api/auth/refresh`로 access 토큰을 새로 받으라"는 신호이고, 나머지 셋은 각각 로그인 폼 재입력, refresh 자체의 재로그인 유도로 이어져야 한다는 뜻이다.
 
-**403은 인증 실패로는 발생하지 않는다.** `AccessDeniedHandler`는 의도적으로 미도입 — `JwtAuthenticationFilter`가 인증된 principal의 권한을 항상 `Collections.emptyList()`로 채워 authority 기반 403이 발생할 경로 자체가 없다. 이 API 전체의 403은 [chat](chat.md)의 `SELF_REPORT_NOT_ALLOWED`(자기 메시지 신고)·`CHATROOM_TEAM_MISMATCH`(2026-08-04 신규, 응원 구단이 다른 채팅방 접근)와 [quiz](quiz.md)의 `QUIZ_LIKE_NOT_ALLOWED`(2026-08-11 신규, 제출하지 않은 문제에 좋아요 요청 — 미존재·미편성 풀과 구분 불가)·`QUIZ_SUBMIT_NOT_ALLOWED`(2026-08-12 신규, 제출 자격 없음 — `/today`로 받은 적 없거나(DB 미답 행 부재) 받았지만 8분 시한 경과, 구분 불가. 판정 근거는 같은 날 안에서 Redis 티켓에서 `quiz_users_submit` DB 행으로 바뀌었다) 넷뿐이며, 전부 인증이 아니라 도메인 규칙에서 나온다.
+**403은 인증 실패로는 발생하지 않는다.** `AccessDeniedHandler`는 의도적으로 미도입 — `JwtAuthenticationFilter`가 인증된 principal의 권한을 항상 `Collections.emptyList()`로 채워 authority 기반 403이 발생할 경로 자체가 없다. 이 API 전체의 403은 [chat](chat.md)의 `SELF_REPORT_NOT_ALLOWED`(자기 메시지 신고)·`CHATROOM_TEAM_MISMATCH`(2026-08-04 신규, 응원 구단이 다른 채팅방 접근)와 [quiz](quiz.md)의 `QUIZ_LIKE_NOT_ALLOWED`(2026-08-11 신규, 제출하지 않은 문제에 좋아요 요청 — 미존재·미편성 풀과 구분 불가)·`QUIZ_SUBMIT_NOT_ALLOWED`(2026-08-12 신규, 제출 자격 없음 — `/today`로 받은 적 없거나(DB 미답 행 부재) 받았지만 8분 시한 경과, 구분 불가. 판정 근거는 같은 날 안에서 Redis 티켓에서 `quiz_users_submit` DB 행으로 바뀌었다)·`QUIZ_NOT_SERVABLE`(2026-08-12 신규, 지목한 경기가 문제를 줄 수 있는 상태가 아님 — 사유 비공개)·`GAME_NOT_STARTED`(2026-08-13 신규, 아직 시작하지 않은 경기의 결산 조회) 여섯뿐이며, 전부 인증이 아니라 도메인 규칙에서 나온다.
 
 ---
 
