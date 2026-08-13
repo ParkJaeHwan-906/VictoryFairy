@@ -135,19 +135,15 @@ GAME_UPSERT = (
 #   current_inning / inning_half — **진행 중일 때만 참**인 값이라 경기가 끝나면 지워져야
 #     한다(BE 계약: IN_PROGRESS 가 아닌 상태는 항상 null). 그래서 COALESCE 없이 매번
 #     덮어쓴다. COALESCE 를 붙이면 종료된 경기가 "9회말 진행 중"으로 남는다.
-#   last_innning — 반대로 **경기가 끝난 뒤에도 남아야** 하는 값이다(몇 회에 끝난
+#   last_inning — 반대로 **경기가 끝난 뒤에도 남아야** 하는 값이다(몇 회에 끝난
 #     경기인지). 점수·구장과 같은 "한 번 알면 계속 참" 이라 COALESCE 로 지킨다.
 #
 # 즉 같은 statusInfo 에서 나온 한 값이 정반대 정책의 두 컬럼으로 갈라져 들어간다.
 # 일관성 명목으로 어느 한쪽에 맞추지 말 것 — 셋 다 다른 이유로 지금 모양이다.
-#
-# ⚠ 컬럼명 `last_innning` 의 n 세 개는 오타가 아니라 **실제 DB 컬럼명**이다(2026-08-13
-#   기준 prod 실측). 우리가 지어낸 이름이 아니므로 마음대로 고칠 수 없다. DB 쪽이
-#   `last_inning` 으로 바뀌면 이 파일과 run.py·테스트의 같은 이름을 함께 치환할 것.
 GAME_SYNC_UPSERT = (
     "INSERT INTO games (naver_game_id, game_date, home_team_id, away_team_id, "
     " stadium_id, home_score, away_score, game_status_id, current_inning, inning_half, "
-    " last_innning, created_at, updated_at) "
+    " last_inning, created_at, updated_at) "
     "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(6), NOW(6)) "
     "ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id), game_date=VALUES(game_date), "
     "  stadium_id=COALESCE(VALUES(stadium_id), stadium_id), "
@@ -155,7 +151,7 @@ GAME_SYNC_UPSERT = (
     "  away_score=COALESCE(VALUES(away_score), away_score), "
     "  game_status_id=VALUES(game_status_id), "
     "  current_inning=VALUES(current_inning), inning_half=VALUES(inning_half), "
-    "  last_innning=COALESCE(VALUES(last_innning), last_innning), "
+    "  last_inning=COALESCE(VALUES(last_inning), last_inning), "
     "  updated_at=NOW(6)"
 )
 
@@ -395,12 +391,12 @@ class DbSink:
 
     def sync_game(self, *, naver_game_id, game_dt, home_team_id, away_team_id,
                  home_score, away_score, status_id, stadium_id=None,
-                 current_inning=None, inning_half=None, last_innning=None) -> int:
+                 current_inning=None, inning_half=None, last_inning=None) -> int:
         """games_sync 잡 전용 upsert. GAME_SYNC_UPSERT 를 써서 점수·구장은
         COALESCE로 기존 값을 지킨다(구장의 최종 진실은 records 잡).
 
         `current_inning`/`inning_half` 는 그와 달리 매번 덮어쓴다 — 진행 중이
-        아닌 경기는 None 을 받아 NULL 로 지워져야 한다. `last_innning` 은 다시
+        아닌 경기는 None 을 받아 NULL 로 지워져야 한다. `last_inning` 은 다시
         반대로 COALESCE 다 — 경기가 끝난 뒤에도 남아야 하는 값이라 None 이 와도
         기존 값을 덮지 않는다 (GAME_SYNC_UPSERT 주석 참고).
         """
@@ -408,7 +404,7 @@ class DbSink:
             cur.execute(GAME_SYNC_UPSERT, (
                 naver_game_id, game_dt, home_team_id, away_team_id,
                 stadium_id, home_score, away_score, status_id,
-                current_inning, inning_half, last_innning,
+                current_inning, inning_half, last_inning,
             ))
             pk = cur.lastrowid
         self._conn.commit()
