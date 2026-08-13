@@ -70,7 +70,7 @@ JWT HS256. `JwtTokenProvider`가 access(3h, 10800000ms)/refresh(14d, 1209600000m
 |---|---|
 | `/api/auth/**` | 메서드 무관 전체 `permitAll` |
 | `GET /api/teams`·`/players`·`/games`·`/games/lineup` | **GET만** `permitAll` |
-| quiz의 `/`, `/error`, `GET /health` | 문서화 대상 아님 |
+| user·quiz 양쪽의 `/`, `/error`, `GET /actuator/health/**` | 문서화 대상 아님(ALB 타깃 헬스체크용). (과거 기록, 정정됨) 이전 버전 문서는 이 행을 `GET /health`로 적었으나 그 경로엔 핸들러가 없어 항상 404였다 — 실제 매처는 두 앱 `SecurityConfig` 모두 `GET /actuator/health/**`이며, 이 permitAll 자체는 새로 바뀐 게 아니라 표기만 틀려 있었다 |
 
 그 외 전부 `anyRequest().authenticated()`다. **GET 한정 `permitAll` 경로에 비-GET으로 요청하면 405가 아니라 401이다**(컨트롤러에 도달하지 못하고 인증 단계에서 걸림).
 

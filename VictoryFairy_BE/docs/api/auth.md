@@ -318,7 +318,7 @@ curl -i -X POST http://localhost:8080/api/auth/email/verify \
 ```json
 true
 ```
-참고: `AuthService.signup()`은 생성된 `userAccountId`(Long)를 반환하지만 컨트롤러는 이를 쓰지 않고 항상 `true`만 응답한다. `SignupResponse` DTO(`userAccountId` 필드)는 `AuthController`에 import만 되어 있고 실제로 응답에 쓰이지 않는다(미사용 DTO).
+참고: `AuthService.signup()`은 생성된 `userAccountId`(Long)를 반환하지만 컨트롤러는 이를 받지 않고(`authService.signup(request);`, 반환값 미저장) 항상 `true`만 응답한다. 이 값을 실어 나르던 미사용 DTO `SignupResponse`(`userAccountId` 필드)는 2026-08-13 삭제됐다(#388, 저장소 전체 참조 0건 확인 후 제거) — 애초에 응답에 쓰인 적이 없어 이 삭제로 엔드포인트 계약은 바뀌지 않는다.
 
 **닉네임 정책** (`com.skhynix.user.auth.policy.NicknamePolicy` — 단일 출처, 위 `POST /api/auth/nickname/validate` 절의 정책 단계와 완전히 동일한 규칙·메시지를 공유. **변경 이력: 과거 `@Size(max=100)`만으로 느슨했던 제약이 아래 정책으로 강화됨**)
 
@@ -507,7 +507,7 @@ curl -i -X POST http://localhost:8080/api/auth/logout \
 
 ## 확인 필요 / 코드 미확인
 
-- `SignupResponse` DTO(`userAccountId` 필드)는 코드상 정의되어 있으나 `AuthController.signup()`에서 실제로 사용되지 않는 죽은 코드로 확인됨(import만 존재). `AuthService.signup()`이 반환하는 `userAccountId`도 컨트롤러가 버리고 항상 `true`만 응답한다.
+- (과거 기록, 정정됨) 이전 버전 문서는 `SignupResponse` DTO(`userAccountId` 필드)가 "코드상 정의되어 있으나 미사용"이라고 적었다 — 2026-08-13(#388) `chore(be)` 정리로 그 클래스 파일 자체가 삭제됐다(저장소 전체 참조 0건 확인 후 제거). `AuthService.signup()`이 반환하는 `userAccountId`는 여전히 컨트롤러가 받지 않고 버리며, 응답은 여전히 `ResponseEntity<Boolean>`(항상 `true`)이라 엔드포인트 계약 자체는 이 삭제와 무관하게 불변이다.
 - 가입 성공 응답이 `Boolean`뿐이라 클라이언트는 방금 만든 계정의 식별자를 얻을 수 없다. 이후 `login`으로 토큰을 받아야 하며, 그 토큰의 `sub`(uid)도 응답 body에는 드러나지 않는다([README.md](README.md)의 인증 방식 절 참고).
 - (과거 기록, 정정됨) 이전 버전 문서에는 미인증 응답이 "401이 아니라 403"이라고 적혀 있었다 — `formLogin`/`httpBasic`을 disable하면 커스텀 엔트리포인트가 없는 한 Spring Security 기본값(`Http403ForbiddenEntryPoint`)으로 떨어지기 때문에 나온 실측이었다. 이후 `RestAuthenticationEntryPoint`가 도입되며 401로 고정됐다. 과거 그 문서 기준 코드를 그대로 쓰고 있는 클라이언트가 있다면 401/403 처리 로직을 다시 확인할 것.
 
