@@ -12,8 +12,7 @@ EXCEPTIONS: list[str] = load_exceptions()
 
 
 def _normalize_words(words: Iterable[str]) -> list[str]:
-    """단어 목록을 preprocess()로 정규화하고 빈 문자열을 걸러낸다.
-
+    """
     입력 문장이 preprocess()로 정규화된 뒤 매칭되므로,
     비교 기준인 단어도 동일하게 정규화해야 매칭 기준이 일치한다.
     """
@@ -22,8 +21,7 @@ def _normalize_words(words: Iterable[str]) -> list[str]:
 
 
 def _compile_pattern(words: Iterable[str]) -> Pattern[str]:
-    """단어 목록으로 정규식 패턴을 컴파일한다.
-
+    """
     목록이 비어 있으면 '아무것도 매칭하지 않는' 패턴을 반환한다.
     (공백/특수문자 제거는 preprocess() 단계가 담당하므로 패턴 자체는 단순하다.)
     """
@@ -45,8 +43,7 @@ _SYLLABLE_ONLY = re.compile(r"^[가-힣]+$")
 
 
 def _compile_syllable_pattern(words: Iterable[str]) -> Pattern[str]:
-    """완성형 음절 욕설만으로 패턴을 컴파일한다(초성·자모·로마자 제외).
-
+    """
     '키보드' 뷰 전용: 영단어를 자판 복원하면 낱자 초성(ㅁㅊ, ㅗ 등)이 남아
     초성 욕설과 대량 오탐을 낸다. 키보드 뷰는 '시발' 같은 완성 음절만 매칭한다.
     """

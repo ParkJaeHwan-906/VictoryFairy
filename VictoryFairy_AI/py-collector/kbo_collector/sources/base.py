@@ -26,7 +26,6 @@ REGISTRY: dict = {}
 
 
 def register(cls):
-    """Source 클래스를 인스턴스화해 REGISTRY에 등록하는 데코레이터."""
     for attr in ("source_id", "doc_types", "collect"):
         if not hasattr(cls, attr):
             raise ValueError(f"source class {cls.__name__} missing '{attr}'"

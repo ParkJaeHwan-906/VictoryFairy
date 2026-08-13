@@ -28,9 +28,7 @@ DRY_RUN_MESSAGE = "DRY_RUN(호출 없음)"  # BRK-LLM-16b
 
 
 class JudgeItem(BaseModel):
-    """판정 대상 단위 하나(BRK-LLM-1).
-
-    한 배치에 본문 1 + 댓글 N 이 섞여 들어오므로 `unit_kind` 는 배치 인자가 아니라
+    """한 배치에 본문 1 + 댓글 N 이 섞여 들어오므로 `unit_kind` 는 배치 인자가 아니라
     항목별 인자다(PIPE-2SB-14).
     """
 
@@ -42,8 +40,6 @@ class JudgeItem(BaseModel):
 
 
 class JudgeResult(BaseModel):
-    """단위 하나의 판정 결과(BRK-LLM-1/1b/15b/18)."""
-
     # `model_id` 는 pydantic 의 보호 네임스페이스(`model_`)와 이름이 겹쳐 경고가 난다.
     # 필드명은 BRK-LLM-18 의 `modelId` 에 맞춘 것이라 바꾸지 않고 보호 네임스페이스를 해제한다.
     model_config = ConfigDict(protected_namespaces=())
@@ -69,9 +65,7 @@ class JudgeResult(BaseModel):
 
 
 class BatchUsage(BaseModel):
-    """한 배치 호출에서 소비한 토큰 집계.
-
-    러너가 단가를 곱해 `bedrock_spend_usd` 에 누적하고(PIPE-2SB-61) 캐시 적중
+    """러너가 단가를 곱해 `bedrock_spend_usd` 에 누적하고(PIPE-2SB-61) 캐시 적중
     토큰 수를 요약 로그로 남긴다(PIPE-2SB-44). ⚠️ 재시도한 호출의 토큰도 모두
     더한다 — 실패한 호출도 과금되기 때문이다.
     """
@@ -84,9 +78,7 @@ class BatchUsage(BaseModel):
 
 
 class BatchJudgement(BaseModel):
-    """배치 판정 결과 묶음.
-
-    `judge()` 의 계약(BRK-LLM-1)은 결과 목록만이지만, 러너는 비용 누적을 위해
+    """`judge()` 의 계약(BRK-LLM-1)은 결과 목록만이지만, 러너는 비용 누적을 위해
     호출 단위 `usage` 가 필요하다(PIPE-2SB-61). 계약을 바꾸지 않으려고 결과 목록을
     반환하는 `judge()` 와 usage 를 함께 주는 `judge_batch()` 를 나눠 뒀다.
     """

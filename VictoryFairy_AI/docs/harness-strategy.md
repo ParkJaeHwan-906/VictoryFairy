@@ -212,7 +212,7 @@ EARS 패턴 6개(유비쿼터스 / 이벤트 `WHEN` / 상태 `WHILE` / 선택 `W
     - BE의 `nginx-proxy`·`github-actions` 는 **만들지 않았다** — AI엔 nginx가 없고 `deploy.yml` 은 BE만 다룬다. **없는 일을 위한 에이전트는 하네스가 막으려는 비대함 자체**다.
     - `spring-dev` 는 `fastapi-dev` + `pipeline-dev` 로 **쪼갰다** — pipeline은 FastAPI가 아니라 파일 I/O 배치라 한 에이전트로 묶으면 이름과 지침이 안 맞는다.
   - **구조는 기존 것을 유지했다** — 모듈 문서는 `docs/modules/`, Hook은 jq 방식 그대로. "같은 전략"은 에이전트 분할이지 파일 배치가 아니다.
-  - 미해결: **AI를 배포하는 CI가 없다**(BE만 있음). 도입하면 `github-actions` 에이전트를 그때 만든다.
+  - 당시 미해결이던 "AI를 배포하는 CI가 없다"는 **해소됐다** — `deploy-ai.yml`(pipeline 이미지 → 두 Lambda)과 `deploy-collector.yml`(kbo-collector 이미지)이 생겼다. 전용 `github-actions` 에이전트는 아직 만들지 않았다.
 - **2026-07-16 — 구현 전 요구사항 단계 신설** (`requirements-writer` + `/requirements`). 하네스에 **시점 축**이 추가됐다. BE(`VitoryFairy_BE`)에 먼저 적용한 뒤 이 프로젝트에 맞춰 옮겼다.
   - 배경: 하네스가 "어떻게 만들고 어떻게 측정하나"는 촘촘한데 **"무엇을 만들 것인가"를 확정하는 지점이 없었다.** 특히 이 프로젝트는 사전과 매칭 전략이 얽혀 있어, 나중에 "사실 이건 잡히면 안 됐다"가 나오면 **패턴 한 줄을 되돌리는 게 전체 문장의 판정을 바꾼다.**
   - **BE에서 그대로 옮기지 않은 것** (도메인이 달라서):

@@ -6,11 +6,6 @@ validation 모듈의 사전·정규식(BRK-LLM-3)도 참조하지 않는다.
 
 FastAPI 라우트가 없다 — 배치 러너(`pipeline/`) 전용 모듈이다.
 
-러너가 쓰는 진입점:
-    from bedrock import judge_service, validate_startup
-    validate_startup()                       # 기동 시 설정 계약 검사(BRK-LLM-6b/48b)
-    results = judge_service.judge(items)     # BRK-LLM-1
-
 `bedrock/__init__.py` 가 비어 있지 않은 이유: 이 모듈은 `main.py` 같은 진입점이
 없어서 공개 표면을 여기서 명시해 두는 편이 러너 쪽 import 를 안정시킨다.
 """

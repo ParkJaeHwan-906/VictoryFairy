@@ -9,8 +9,6 @@ from dataclasses import dataclass, field
 
 from .dimensions import TEAM_CODES
 
-_UA = "Mozilla/5.0"
-
 _GAME_TYPE = {"0": "regular", "1": "preseason"}
 _FRACTIONS = (("⅓", 1), ("⅔", 2), ("1/3", 1), ("2/3", 2))
 
@@ -300,7 +298,6 @@ def _team_of(record: dict, side: str) -> str:
 
 
 def parse_record(game_id: str, record: dict) -> GameRow:
-    """recordData -> GameRow (하위 pitching/batting/players 포함)."""
     gi = record.get("gameInfo") or {}
     sb = record.get("scoreBoard") or {}
     rheb = sb.get("rheb") or {}
