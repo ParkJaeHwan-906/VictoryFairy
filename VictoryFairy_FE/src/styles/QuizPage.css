@@ -1,0 +1,191 @@
+/**
+ * QuizPage(오늘의 퀴즈 풀이) 스타일.
+ * Figma: SWM / [Game] 퀴즈 메인(OorX) (node 744:22436), 기준 프레임 402 x 874.
+ *
+ * 세로 좌표를 흐름 레이아웃으로 환산한 값(iOS 상태바 47px 은 다른 화면들과 같이 제외):
+ *   상단 바 0~60 → 카드 80(=127-47)
+ * 인사말이 사라져 상단 바 바로 아래에서 카드가 시작한다.
+ *
+ * 디자인 아래쪽의 선택율 게이지는 데이터가 없어 넣지 않았다(QuizPage.tsx 머리말 참고).
+ */
+
+.quiz-page {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--layout-app-width);
+  min-height: 100dvh;
+  margin-inline: auto;
+  padding-bottom: 48px;
+  background-color: var(--color-background-basic);
+}
+
+/* ------------------------------------------------------------------ *
+ * Bar/Top — 뒤로가기 · 타이틀
+ * 오른쪽은 디자인상 opacity 0 인 빈 버튼 → 타이틀 중앙 정렬용 스페이서로 둔다.
+ * (PlayerSelectPage · TeamSelectPage 와 같은 Bar/Top 컴포넌트다)
+ * ------------------------------------------------------------------ */
+.quiz-page__topbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.quiz-page__back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 60px;
+  padding: 10px;
+  border-radius: var(--radius-10);
+  overflow: clip;
+}
+
+.quiz-page__back-icon {
+  width: 20px;
+  height: 20px;
+  background-color: var(--color-label-assistive);
+  -webkit-mask: url('../assets/arrow_l.svg') center / contain no-repeat;
+  mask: url('../assets/arrow_l.svg') center / contain no-repeat;
+}
+
+.quiz-page__topbar-title {
+  min-width: 0;
+  margin: 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.quiz-page__topbar-spacer {
+  flex-shrink: 0;
+  width: 60px;
+  height: 60px;
+}
+
+.quiz-page__body {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+}
+
+/* ------------------------------------------------------------------ *
+ * Deck — 남은 문제 수만큼 뒷장이 비쳐 보인다
+ *
+ * 뒷장은 앞 카드에 완전히 가려지고 **아래로 삐져나온 부분만** 보이므로,
+ * 위치를 잡는 값은 좌우 여백과 아래로 내민 길이 둘뿐이다. 그래서 top 은
+ * 고정값 하나로 두고 bottom 을 음수로 빼, 카드 높이가 변해도(보기가 많은 문제는
+ * 그만큼 자란다) 뒷장이 따라 늘어나게 했다.
+ *
+ * Figma 값(앞 카드 354x560, 세 장 모두 가운데 정렬):
+ *   1장 318 wide · top 203  →  좌우 18 · 아래 20
+ *   2장 282 wide · top 281  →  좌우 36 · 아래 40
+ * ------------------------------------------------------------------ */
+.quiz-page__deck {
+  position: relative;
+  /* 상단 바 아래 20, 가장 깊은 뒷장이 내민 40 만큼 아래를 비운다 */
+  margin: 20px var(--layout-gutter) 40px;
+}
+
+/*
+ * 뒷장도 앞 카드와 같은 흰 카드다 — 흰 배경 위에서 서로를 가르는 것은 그림자뿐이라
+ * 앞으로 올수록 그림자를 조금씩 키워 층이 보이게 한다(Figma 2.394 / 2.7 / 3).
+ */
+.quiz-page__layer {
+  position: absolute;
+  z-index: 0;
+  /* 앞 카드에 가려지는 구간이라 정확한 값일 필요가 없다 — 겹치기만 하면 된다 */
+  top: 40px;
+  border-radius: var(--radius-20);
+  background-color: var(--color-surface);
+}
+
+.quiz-page__layer--1 {
+  inset-inline: 18px;
+  bottom: -20px;
+  box-shadow: 0 0 2.7px var(--color-gray-200);
+}
+
+.quiz-page__layer--2 {
+  inset-inline: 36px;
+  bottom: -40px;
+  box-shadow: 0 0 2.4px var(--color-gray-200);
+}
+
+/* ------------------------------------------------------------------ *
+ * 상태 안내 — 로딩 · 실패 · 오늘 풀 퀴즈 없음
+ * ------------------------------------------------------------------ */
+.quiz-page__status {
+  margin: 40px var(--layout-gutter);
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-body2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body2);
+  text-align: center;
+}
+
+.quiz-page__status--error {
+  color: var(--color-error-strong);
+}
+
+/* 넘어간 문제 안내 — 실패가 아니라 사실 전달이라 에러 빨강 대신 강조색을 쓴다 */
+.quiz-page__status--notice {
+  color: var(--color-primary-normal);
+}
+
+/* ------------------------------------------------------------------ *
+ * 완료 — 세트를 다 푼 뒤(디자인 없음, 토큰 규칙만 따름)
+ * ------------------------------------------------------------------ */
+.quiz-page__done {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin: 80px var(--layout-gutter) 0;
+  text-align: center;
+}
+
+.quiz-page__done-title {
+  margin: 0;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-title1);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title1);
+}
+
+.quiz-page__done-score {
+  margin: 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+}
+
+.quiz-page__done-point {
+  margin: 0;
+  color: var(--color-primary-normal);
+  font-size: var(--font-size-title2);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title2);
+}
+
+.quiz-page__done-action {
+  width: 100%;
+  height: 60px;
+  margin-top: 24px;
+  border-radius: var(--radius-15);
+  background-color: var(--color-primary-normal);
+  color: var(--color-white);
+  font-size: var(--font-size-button2);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+}

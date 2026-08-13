@@ -8,7 +8,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date as date_cls
 from datetime import datetime, timedelta, timezone
 
-from . import community, dimensions, fetch, game_records, keys, kbo_register, kbo_trade, naver
+from . import (community, dimensions, fetch, game_records, kbo_register, kbo_schedule,
+               kbo_trade, keys, naver)
 from .config import get_settings
 from .journal import Journal, setup_logging
 from .sink import S3RawSink
@@ -490,8 +491,14 @@ def land_game_records(date, *, settings, db, client, team_ids=None) -> tuple[lis
                 game, team_ids=team_ids,
                 stadium_id=db.stadium_id(game.stadium),
                 status_id=db.status_id(status))
-            db.upsert_lineups(game_pk, game_records.build_lineups(game),
-                              player_map, team_ids)
+            lineups = game_records.build_lineups(game)
+            db.upsert_lineups(game_pk, lineups, player_map, team_ids)
+            # 경기 전 preview 로 깔아둔 선발이 직전 교체됐으면 박스스코어에 없는
+            # 유령 행으로 남는다 — 확정 적재 직후 그 차집합을 걷어낸다.
+            ghosts = db.delete_lineups_except(
+                game_pk, [player_map[r.pcode] for r in lineups if r.pcode in player_map])
+            if ghosts:
+                log.info("%s: 유령 라인업 %d행 정리", gid, ghosts)
             db.upsert_batting(game_pk, game.batting, player_map)
             db.upsert_pitching(game_pk, game.pitching, player_map)
             loaded.append(gid)
@@ -502,41 +509,232 @@ def land_game_records(date, *, settings, db, client, team_ids=None) -> tuple[lis
     return loaded, failed
 
 
-def job_games_sync(settings, db, date):
-    """당일 KBO 경기 전부의 상태를 games 테이블에 동기화 (취소·예정 포함).
+def _scheduled_game_stadium(settings, client, game, status, log):
+    """경기 전 구장 이름 (얻지 못하면 None).
 
-    점수는 LIVE/RESULT 에서만 채운다 — SCHEDULED/CANCELED 의 0-0 은 껍데기라
-    NULL 로 적재해야 미시작 경기가 0:0 무승부처럼 보이지 않는다.
+    스케줄 목록 응답에는 구장 필드가 아예 없어 경기 상세를 한 번 더 부른다
+    (land_results 가 쓰는 것과 같은 엔드포인트). SCHEDULED 일 때만 부르는 이유:
+    경기가 시작되면 records 잡이 박스스코어에서 구장을 확정 적재하므로 중복이고,
+    라이브 10분 주기에 얹히면 얻을 것 없이 호출량만 늘기 때문.
     """
-    log = logging.getLogger("games_sync")
-    with fetch.build_client(settings) as client:
-        resp = fetch.fetch(client, game_records.schedule_url(settings, date),
+    if status != "SCHEDULED":
+        return None
+    try:
+        resp = fetch.fetch(client, naver.result_url(settings, game["gameId"]),
                            settings=settings, referer=settings.naver_referer)
+        return ((resp.json().get("result") or {}).get("game") or {}).get("stadium") or None
+    except Exception as exc:  # 구장은 부가 정보 — 실패해도 일정 적재까지 막지 않는다
+        log.warning("stadium fetch fail %s: %s", game.get("gameId"), exc)
+        return None
+
+
+LINEUP_PENDING_STATUSES = ("SCHEDULED", "IN_PROGRESS")
+
+
+def _land_preview_lineups(settings, db, client, pending, team_ids, log) -> int:
+    """아직 라인업이 안 찬 경기의 preview 선발 공시를 game_lineups 에 적재.
+
+    `pending` 은 (game_id, game_pk) 목록. 이미 완성된 경기는 DB 판정으로 걸러
+    preview 호출 자체를 하지 않는다 — 그날 경기가 다 공시되고 나면 이 단계의
+    외부 호출은 0 이 되므로 1분 폴링에서도 비용이 붙지 않는다.
+
+    한 경기의 실패가 나머지 경기를 막지 않도록 경기 단위로 격리한다. 이 단계
+    전체가 실패해도 호출자의 상태 동기화는 이미 끝나 있다.
+    """
+    done = db.lineup_done_games([pk for _, pk in pending])
+    landed = 0
+    for gid, pk in pending:
+        if pk in done:
+            continue  # 이미 적재 완료 -> preview 호출 자체를 건너뛴다
+        try:
+            resp = fetch.fetch(client, naver.preview_url(settings, gid),
+                               settings=settings, referer=settings.naver_referer)
+            rows, refs = game_records.parse_preview_lineups(resp.json())
+            if not rows:
+                continue  # 아직 미공시 -> 다음 폴링에서 재시도
+            db.upsert_lineups(pk, rows, db.resolve_players(refs, team_ids), team_ids)
+            landed += 1
+            log.info("lineup landed %s: %d rows", gid, len(rows))
+        except Exception as exc:  # 한 경기 실패가 나머지 라인업·잡을 막지 않도록
+            log.warning("preview lineup fail %s: %s", gid, exc)
+    return landed
+
+
+def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=True) -> int:
+    """하루치 경기를 games 에 동기화.
+
+    `live_window`(단일 날짜 호출 = live 룰) 일 때만 선발 라인업까지 따라간다.
+    선적재(morning/nightly, 오늘~+N일)에서는 켜지 않는다 — 미래 경기의 preview 엔
+    라인업이 있을 리 없어 매 실행마다 날짜 수만큼 헛호출이 된다.
+    """
+    resp = fetch.fetch(client, game_records.schedule_url(settings, date),
+                       settings=settings, referer=settings.naver_referer)
     games = game_records.list_kbo_games(resp.json())
-    team_ids = db.upsert_teams(dimensions.TEAMS)
-    synced, skipped = 0, 0
+    # 구장은 한 번 채우면 변하지 않는다 — 아는 경기는 상세 API 를 다시 부르지 않는다.
+    known_stadium = db.games_with_stadium([g.get("gameId") for g in games])
+    synced, skipped, failed = 0, 0, 0
+    pending: list[tuple[str, int]] = []
     for g in games:
         status = game_records.map_status(g)
         if status is None:
             log.warning("unknown status %s: %s", g.get("gameId"), g.get("statusCode"))
             skipped += 1
             continue
-        live_or_done = status in ("IN_PROGRESS", "FINISHED", "DRAW")
-        dt = (g.get("gameDateTime") or "").replace("T", " ") or f"{date} 00:00:00"
-        db.sync_game(
-            naver_game_id=g["gameId"], game_dt=dt,
-            home_team_id=team_ids[g["homeTeamCode"]],
-            away_team_id=team_ids[g["awayTeamCode"]],
-            home_score=g.get("homeTeamScore") if live_or_done else None,
-            away_score=g.get("awayTeamScore") if live_or_done else None,
-            status_id=db.status_id(status))
-        synced += 1
-    log.info("%s: synced=%d skipped=%d", date, synced, skipped)
+        # 경기 하나의 실패가 그날 나머지 경기를 막지 않게 격리한다. 격리가 없으면
+        # 예외가 job_games_sync_range 의 **날짜 단위** 핸들러까지 올라가, 한 경기
+        # 때문에 그 날짜의 뒤쪽 경기가 통째로 안 들어간다. 이 잡은 1분마다 도는
+        # 멱등 upsert 라, 실패한 경기는 다음 폴링에서 자연히 회수된다.
+        #
+        # DB 제약 위반이 대표적이다 — games 의 CHECK(ck_games_current_inning 등)는
+        # 우리 코드가 아니라 DB 가 강제하므로, 파서 상한(INNING_MAX)과 DB 상한이
+        # 어긋나는 순간(예: DB CHECK 를 올리기 전에 수집기를 먼저 올린 배포)
+        # 여기로 떨어진다.
+        try:
+            live_or_done = status in ("IN_PROGRESS", "FINISHED", "DRAW")
+            dt = (g.get("gameDateTime") or "").replace("T", " ") or f"{date} 00:00:00"
+            stadium = (None if g.get("gameId") in known_stadium
+                       else _scheduled_game_stadium(settings, client, g, status, log))
+            # statusInfo 한 번 읽어 정반대 정책의 두 곳으로 나눠 보낸다.
+            #
+            #   current_inning/inning_half — **진행 중일 때만.** statusInfo 는 경기가
+            #     끝나도 마지막 이닝("9회말", 강우콜드면 "6회말")을 그대로 들고 있어서
+            #     상태로 거르지 않으면 종료 경기까지 "진행 중"으로 박힌다.
+            #   last_innning — **상태를 가리지 않는다.** 몇 회에 끝난 경기인지는 종료 후에도
+            #     남아야 하는 값이라, 오히려 종료 경기의 statusInfo 가 곧 정답이다.
+            #     upsert 쪽이 COALESCE 라 파싱 실패(None)가 기존 값을 지우지 않는다.
+            #
+            # last_innning 이 종료 상태에서도 채워지는 덕에, 라이브 구간을 놓친 경기도
+            # **games_sync 가 그 날짜를 다시 훑기만 하면** 회수된다(live 룰은 당일,
+            # morning/nightly 는 오늘~+N일. 그보다 과거는 수동 백필이 필요하다).
+            #
+            # 상한을 두 번 다르게 적용한다: current_inning 은 CHECK 때문에 11 로 막고,
+            # last_innning 은 CHECK 가 없어 막지 않는다. 같이 막으면 12회 경기에서
+            # 파싱이 None 이 되고 COALESCE 가 직전의 11 을 남겨 **틀린 값이 조용히**
+            # 기록된다(parse_inning 주석 참고).
+            inning, inning_half = game_records.parse_inning(g.get("statusInfo"))
+            last_inning, _ = game_records.parse_inning(g.get("statusInfo"), max_inning=None)
+            if status == "IN_PROGRESS" and inning is None:
+                # 진행 중인데 이닝이 안 읽힌 경우만 남긴다: 미지 포맷이거나 상한 초과다.
+                # 이닝이 없어도 상태·점수 동기화는 그대로 진행한다.
+                log.warning("이닝 파싱 실패 %s: statusInfo=%r",
+                            g.get("gameId"), g.get("statusInfo"))
+            live = status == "IN_PROGRESS"
+            game_pk = db.sync_game(
+                naver_game_id=g["gameId"], game_dt=dt,
+                home_team_id=team_ids[g["homeTeamCode"]],
+                away_team_id=team_ids[g["awayTeamCode"]],
+                home_score=g.get("homeTeamScore") if live_or_done else None,
+                away_score=g.get("awayTeamScore") if live_or_done else None,
+                status_id=db.status_id(status),
+                stadium_id=db.stadium_id(stadium),
+                current_inning=inning if live else None,
+                inning_half=inning_half if live else None,
+                last_innning=last_inning)
+            synced += 1
+            if not live_window:
+                continue
+            if status in LINEUP_PENDING_STATUSES:
+                # 끝난 경기는 제외 — 확정 라인업은 records 잡이 박스스코어로 적재한다.
+                pending.append((g["gameId"], game_pk))
+            elif status == "CANCELED":
+                # 공시 뒤 취소된 경기의 preview 라인업을 걷어낸다(records 가 안 도는 경로).
+                purged = db.delete_lineups_if_unplayed(game_pk)
+                if purged:
+                    log.info("%s 취소: 라인업 %d행 정리", g["gameId"], purged)
+        except Exception as exc:
+            failed += 1
+            log.warning("경기 동기화 실패 %s: %s", g.get("gameId"), exc)
+    lineups = _land_preview_lineups(settings, db, client, pending, team_ids, log) if pending else 0
+    log.info("%s: synced=%d skipped=%d failed=%d lineups=%d",
+             date, synced, skipped, failed, lineups)
     return synced
 
 
+def job_games_sync(settings, db, date):
+    """당일 KBO 경기 전부의 상태를 games 테이블에 동기화 (취소·예정 포함)."""
+    return job_games_sync_range(settings, db, date, date)
+
+
+def job_games_sync_range(settings, db, start, end, sleep=time.sleep) -> int:
+    """[start, end] 각 날짜의 KBO 경기를 games 에 동기화하고 총 건수 반환.
+
+    오늘~+N일로 부르면 아직 열리지 않은 경기가 SCHEDULED 행으로 미리 깔린다 —
+    이 잡에서는 일정 적재와 상태 동기화가 같은 upsert 다. 점수는 LIVE/RESULT
+    에서만 채운다: SCHEDULED/CANCELED 의 0-0 은 껍데기라 NULL 로 적재해야
+    미시작 경기가 0:0 무승부처럼 보이지 않는다.
+
+    단일 날짜 호출(start==end)은 EventBridge 의 live 룰(days 없음)이 오는 길이라
+    '당일 폴링'으로, 구간 호출은 morning/nightly 의 '선적재'로 취급한다 — 무엇을
+    더 받아올지가 갈리는 근거는 _sync_games_for_date 참고.
+    """
+    log = logging.getLogger("games_sync")
+    team_ids = db.upsert_teams(dimensions.TEAMS)
+    d0, d1 = date_cls.fromisoformat(start), date_cls.fromisoformat(end)
+    live_window = d0 == d1
+    total = 0
+    with fetch.build_client(settings) as client:
+        d = d0
+        while d <= d1:
+            day = d.isoformat()
+            try:
+                total += _sync_games_for_date(settings, db, client, day, team_ids, log,
+                                              live_window=live_window)
+            except Exception as exc:  # 하루가 막혀도 나머지 날짜는 적재한다
+                log.warning("games_sync fail %s: %s", day, exc)
+            d += timedelta(days=1)
+            if d <= d1:
+                sleep(settings.fetch_delay_ms / 1000)
+    return total
+
+
+def _cancel_reason_months(date_str: str) -> list[str]:
+    """훑을 달 목록: 기준일의 달 + 사흘 전의 달.
+
+    대개 같은 달이라 호출 1회고, 월초 사흘만 2회가 된다 — 월말 취소분이 달을
+    넘겨 조회에서 빠지는 걸 막는 최소한의 여유다.
+    """
+    d = date_cls.fromisoformat(date_str)
+    return sorted({d.strftime("%Y-%m"), (d - timedelta(days=3)).strftime("%Y-%m")})
+
+
+def job_cancel_reasons(settings, db, date=None, months=None) -> int:
+    """KBO 공식 일정표의 취소 사유를 games.cancel_reason 에 반영, **바뀐** 행 수 반환.
+
+    네이버에는 사유가 없어서(취소를 "경기취소" 로만 준다) 이 잡만 KBO 를 긁는다.
+    games_sync 에 얹지 않고 따로 둔 이유는 KBO 응답이 월 단위이기 때문 — 날짜
+    루프에 넣으면 같은 달을 날짜 수만큼 반복해서 받게 된다.
+
+    반환값은 "새로 채우거나 사유가 달라진 행"이다. 이미 같은 사유가 적힌 행은 세지
+    않으므로 **평상시 재실행은 0 이 정상**이고, 0 이 아니면 그날 새로 취소된 경기가
+    있었다는 뜻이다. 매일 같은 수가 찍히면 멱등성이 깨진 신호로 읽으면 된다.
+    """
+    log = logging.getLogger("cancel_reasons")
+    months = months or _cancel_reason_months(date or _kst_today())
+    team_ids = db.upsert_teams(dimensions.TEAMS)
+    total = 0
+    with fetch.build_client(settings) as client:
+        for ym in months:
+            season, month = ym.split("-")
+            try:
+                rows = kbo_schedule.fetch_month(season, month, settings=settings, client=client)
+            except Exception as exc:  # 한 달이 막혀도 나머지 달은 반영한다
+                log.warning("kbo schedule fetch fail %s: %s", ym, exc)
+                continue
+            cancelled = kbo_schedule.cancelled_rows(rows)
+            updated = 0
+            for r in cancelled:
+                home = team_ids.get(r["home_code"])
+                away = team_ids.get(r["away_code"])
+                if home is None or away is None:
+                    continue
+                updated += db.set_cancel_reason(
+                    date=r["date"], home_team_id=home, away_team_id=away, reason=r["note"])
+            log.info("%s: cancelled=%d changed=%d", ym, len(cancelled), updated)
+            total += updated
+    return total
+
+
 def land_game_records_range(start, end, *, settings, db, client, sleep=time.sleep) -> dict:
-    """[start, end] 날짜 구간 백필. teams 시드 후 일자별 반복."""
     team_ids = db.upsert_teams(dimensions.TEAMS)
     d0 = date_cls.fromisoformat(start)
     d1 = date_cls.fromisoformat(end)
@@ -558,7 +756,8 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="kbo_collector")
     parser.add_argument("job", choices=["schedule", "result", "relay", "game",
                                         "community", "all", "teams", "registrations",
-                                        "records", "games_sync", "collect", "export"])
+                                        "records", "games_sync", "cancel_reasons",
+                                        "collect", "export"])
     parser.add_argument("--target", default=None,
                         help="collect: source_id / export: docType")
     parser.add_argument("--date", default=None, help="YYYY-MM-DD (default: today UTC)")
@@ -626,14 +825,21 @@ def main(argv=None) -> int:
                 db.close()
         return 0
 
-    if args.job in ("teams", "registrations", "records", "games_sync"):
+    if args.job in ("teams", "registrations", "records", "games_sync", "cancel_reasons"):
         from .db import DbSink
         db = DbSink(settings)
         try:
-            if args.job == "games_sync":
-                # job_games_sync 는 fetch 클라이언트를 자체 관리한다(Task 9 Lambda
-                # 핸들러가 settings/db/date 세 인자만으로 직접 호출하는 것과 동일 경로).
-                job_games_sync(settings, db, date)
+            if args.job == "cancel_reasons":
+                # job_cancel_reasons 도 클라이언트를 자체 관리한다(KBO 세션 쿠키를
+                # 선발급받아야 해서 호출부와 수명을 맞출 이유가 없다).
+                job_cancel_reasons(settings, db, date=args.date)
+            elif args.job == "games_sync":
+                # job_games_sync_range 는 fetch 클라이언트를 자체 관리한다(Lambda
+                # 핸들러가 settings/db/구간만으로 직접 호출하는 것과 동일 경로).
+                # records 와 같은 --from/--to 로 구간(예: 오늘~+7일)을 받는다.
+                start = args.from_date or date
+                end = args.to_date or start
+                job_games_sync_range(settings, db, start, end)
             else:
                 with fetch.build_client(settings) as client:
                     if args.job == "teams":

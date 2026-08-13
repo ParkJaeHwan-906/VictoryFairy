@@ -80,6 +80,20 @@ public class UserAccount {
         this.point = 0L;
     }
 
+    /**
+     * 포인트 적립 — 퀴즈 정답 보상이 이 뮤테이터를 쓰는 유일한 경로다.
+     *
+     * <p>⚠ 호출자는 반드시 {@code UserAccountRepository.findWithLockById}로 이 행을 잠근 뒤 불러야
+     * 한다 — 일반 {@code findById}로 읽은 두 트랜잭션이 같은 잔액에서 각자 더하면 한쪽 적립이
+     * 유실된다(lost update). 락 없는 조회 경로에 습관적으로 붙이지 말 것.
+     *
+     * <p>{@code users_bq.bq_score}는 여기서 건드리지 않는다 — 레이팅 설계가 확정되기 전이라
+     * 보유 포인트({@code point})와 레이팅 점수를 미리 묶으면 나중에 풀 수 없다.
+     */
+    public void addPoint(long delta) {
+        this.point += delta;
+    }
+
     // exitAt은 "탈퇴 예정 시각"이 아니라 탈퇴 완료 시각이다(유예 기간·취소 없음). 이미 탈퇴한 계정이면
     // no-op으로 최초 탈퇴 시각을 보존한다. 호출자가 시각을 넘기는 이유는 같은 트랜잭션의 다른 작업
     // (refresh 토큰 만료)과 시각을 정확히 맞추기 위해서다.

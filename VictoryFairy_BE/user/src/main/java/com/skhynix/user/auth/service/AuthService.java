@@ -38,8 +38,6 @@ public class AuthService {
 
     @Transactional
     public Long signup(SignupRequest request) {
-        // 검사 순서: 형식(@Valid, 400) → 이메일 인증완료 여부(EMAIL_NOT_VERIFIED) → 중복(409).
-        // 인증완료 상태가 선행 조건이며, 미인증/만료(키 부재)는 EMAIL_NOT_VERIFIED로 거부한다.
         if (!emailVerificationService.isEmailVerified(request.email())) {
             throw new BusinessException(ErrorCode.EMAIL_NOT_VERIFIED);
         }
@@ -78,10 +76,6 @@ public class AuthService {
         return account.getId();
     }
 
-    /**
-     * 닉네임 사전 검사(2단 파이프라인: 정책 → 중복). 정책 위반이면 중복(DB) 검사를 생략하고 즉시
-     * 반환한다. 항상 예외 없이 {@link NicknameValidationResponse}로 반환한다(컨트롤러가 200 고정).
-     */
     public NicknameValidationResponse validateNickname(String nickname) {
         Optional<String> policyViolation = findNicknamePolicyViolation(nickname);
         if (policyViolation.isPresent()) {
@@ -93,11 +87,6 @@ public class AuthService {
         return NicknameValidationResponse.passed();
     }
 
-    /**
-     * 닉네임 중복 <b>단독</b> 검사. {@link #validateNickname(String)}와 달리 정책 검사 없이
-     * {@link #isNicknameDuplicated(String)}만 호출한다 — 정책 위반이지만 미점유인 닉네임에도
-     * {@code valid:true}를 반환할 수 있다("사용 가능"은 중복 아님을 뜻할 뿐 가입 가능 보장이 아니다).
-     */
     public NicknameValidationResponse checkNicknameDuplicate(String nickname) {
         if (isNicknameDuplicated(nickname)) {
             return NicknameValidationResponse.violated(ErrorCode.DUPLICATE_NICKNAME.getMessage());
@@ -105,20 +94,11 @@ public class AuthService {
         return NicknameValidationResponse.passed();
     }
 
-    /**
-     * 1단계: 정책 검사(순수, DB 미조회). {@link NicknamePolicy#findViolation(String)}에 위임한다.
-     * signup 검증({@code @ValidNickname})과 문자 그대로 같은 함수를 공유한다.
-     *
-     * @return 위반 시 정책 위반 메시지, 통과 시 {@link Optional#empty()}
-     */
     public Optional<String> findNicknamePolicyViolation(String nickname) {
         return NicknamePolicy.findViolation(nickname);
     }
 
-    /**
-     * 2단계: 중복 검사(DB 조회). signup과 동일한 {@code existsByNickname}을 재사용해 두 경로의 중복
-     * 판정이 어긋나지 않게 한다. 이 메서드는 {@code exit_at}을 거르지 않아 탈퇴 닉네임도 점유로 잡는다.
-     */
+    // exit_at 을 거르지 않아 탈퇴 계정의 닉네임도 점유로 잡는다(재가입 불가 정책과 일치).
     public boolean isNicknameDuplicated(String nickname) {
         return userAccountRepository.existsByNickname(nickname);
     }

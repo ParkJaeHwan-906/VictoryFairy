@@ -32,31 +32,19 @@ public class AuthController {
     private final AuthService authService;
     private final EmailVerificationService emailVerificationService;
 
-    /**
-     * 회원가입용 이메일 인증번호 발송. 형식(400)은 Bean Validation이, 가입 이력(409)·쿨다운(429)은
-     * 서비스가 판정한다. dev/test는 실제 발송 없이 mock(로그)으로 대체된다.
-     */
     @PostMapping("/email/send-code")
     public ResponseEntity<ApiResponse<Void>> sendEmailCode(@Valid @RequestBody EmailSendCodeRequest request) {
         emailVerificationService.sendCode(request.email());
         return ResponseEntity.ok(ApiResponse.<Void>ok(null));
     }
 
-    /**
-     * 인증번호 검증. 성공 시 인증완료 상태를 저장하고 200을 반환한다. 불일치/만료·무효/시도 초과는
-     * BusinessException(400)으로 GlobalExceptionHandler가 처리한다.
-     */
     @PostMapping("/email/verify")
     public ResponseEntity<ApiResponse<Void>> verifyEmailCode(@Valid @RequestBody EmailVerifyRequest request) {
         emailVerificationService.verify(request.email(), request.code());
         return ResponseEntity.ok(ApiResponse.<Void>ok(null));
     }
 
-    /**
-     * 비밀번호 정책 사전 검사. 타이핑마다 호출되는 용도라 DB를 보지 않고, 로그 노출 방지를 위해
-     * GET이 아닌 POST로 받는다. "정책 위반"도 정상 판정 결과라 400이 아니라 항상 200 +
-     * {@code valid:false}로 응답하며, 같은 이유로 요청 DTO에 {@code @Valid}를 걸지 않는다.
-     */
+    // 비밀번호가 본문에 실려 로그 노출을 피하려고 GET 이 아니라 POST 다.
     @PostMapping("/password/validate")
     public ResponseEntity<ApiResponse<PasswordValidationResponse>> validatePassword(
             @RequestBody PasswordValidationRequest request) {
@@ -66,11 +54,6 @@ public class AuthController {
         return ResponseEntity.ok(ApiResponse.ok(result));
     }
 
-    /**
-     * 닉네임 사전 검사(정책 → 중복 2단 파이프라인). 정책 위반도 중복도 정상 판정 결과이므로 400/409가
-     * 아니라 항상 200 + {@code valid:false}로 응답한다(signup의 중복만 409 — 의도된 차이). 같은 이유로
-     * 요청 DTO에 {@code @Valid}를 걸지 않는다.
-     */
     @PostMapping("/nickname/validate")
     public ResponseEntity<ApiResponse<NicknameValidationResponse>> validateNickname(
             @RequestBody NicknameValidationRequest request) {
@@ -78,10 +61,6 @@ public class AuthController {
         return ResponseEntity.ok(ApiResponse.ok(result));
     }
 
-    /**
-     * 닉네임 중복 단독 검사(정책 미검사). {@code /nickname/validate}와 동일하게 항상 200으로 응답하고
-     * {@code @Valid}를 걸지 않는다. {@code valid:true}는 "중복 아님"일 뿐 가입 가능 보장이 아니다.
-     */
     @PostMapping("/nickname/duplicate")
     public ResponseEntity<ApiResponse<NicknameValidationResponse>> checkNicknameDuplicate(
             @RequestBody NicknameValidationRequest request) {
@@ -91,7 +70,7 @@ public class AuthController {
 
     @PostMapping("/signup")
     public ResponseEntity<Boolean> signup(@Valid @RequestBody SignupRequest request) {
-        Long userAccountId = authService.signup(request);
+        authService.signup(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(true);
     }
 

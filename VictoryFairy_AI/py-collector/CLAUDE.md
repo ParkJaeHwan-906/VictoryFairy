@@ -43,8 +43,13 @@ Lambda·로컬 스크립트가 이를 얇게 호출합니다.
 - **DB 잡은 운영 서비스 스키마에 씁니다.** `records`·`registrations`·`teams`·`games_sync`·`export`가 쓰는
   teams/players/games/game_lineups 는 **domain 모듈 JPA 엔티티가 구조의 원천**(수집기는 소스
   자연키 — teams.code, players.kbo_player_id, games.naver_game_id — 로 upsert).
-  `games_sync`는 하루치 스케줄을 조회해 취소·예정·진행·완료 상태를 `games`에 동기화하는 잡으로,
+  `games_sync`는 스케줄을 조회해 취소·예정·진행·완료 상태를 `games`에 동기화하는 잡으로,
   `records`(박스스코어 확정 적재)와 별개다 — 상태 판정 함정은 `docs/data-formats.md` "경기 상태 판정" 참고.
+  **`cancel_reasons`는 취소 "사유"만 담당하는 별개 잡이다** — 네이버는 취소를 `"경기취소"`로만
+  알려줘 사유가 없고(실측), 사유가 있는 곳은 KBO 공식 일정표뿐이라 이 잡만 KBO를 긁는다
+  (`kbo_collector/kbo_schedule.py`). `games_sync`에 얹지 않은 이유는 KBO 응답이 **월 단위**여서다 —
+  날짜 루프에 넣으면 같은 달을 날짜 수만큼 반복해 받게 된다. 취소 경기엔 KBO 쪽 gameId가 비어
+  있어(실측: 8월 취소 30건 전부) `naver_game_id`가 아니라 **(날짜, 원정, 홈)**으로 매칭한다.
   **도메인 관련 코드는 domain 모듈 엔티티 파일만 참고해 작성하고, 이 리포에 DDL
   사본(schema.sql류)을 만들지 마세요** — 스키마 변경·생성은 dev_be 소관. 운영 실행은 **VPC 안
   Lambda**(`kbo-collector-db`, `VictoryFairy_Infra/collector-lambda/lambda_db.tf`(dev_infra) — records 03:30 KST ·
@@ -62,7 +67,7 @@ python -m kbo_collector.run records --from 2026-03-28 --to 2026-10-01   # 박스
 python -m kbo_collector.run export --target game_result --date 2026-07-08  # question-source 적재
 ```
 
-> 잡 목록·옵션은 `run.py`의 argparse(`schedule/result/relay/game/community/all/teams/registrations/records/games_sync/collect/export`),
+> 잡 목록·옵션은 `run.py`의 argparse(`schedule/result/relay/game/community/all/teams/registrations/records/games_sync/cancel_reasons/collect/export`),
 > 실행 흐름은 `docs/crawl-flow.md` 참고. 백필(경기·FMKorea 커뮤니티 구간)은 `directory-structure.md`
 > "자주 하는 변경" 절과 `deploy/local/backfill_fmkorea.sh` 참고.
 </content>

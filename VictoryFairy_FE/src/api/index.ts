@@ -52,7 +52,9 @@ export {
 export {
   getChatRooms,
   getChatRoom,
+  findMyTeamChatRoom,
   subscribeChatRoom,
+  leaveChatRoom,
   sendChatMessage,
   getChatMessages,
   reportChatMessage,
@@ -60,11 +62,31 @@ export {
   isChatRoomNotFound,
   isChatMessageNotFound,
   isSelfReport,
+  isSupportTeamRequired,
+  isChatTeamMismatch,
   CHAT_ERROR_MESSAGE,
   CHAT_MESSAGE_PAGE_SIZE,
   CHAT_MESSAGE_MAX_LENGTH,
 } from './chat';
 export type { ChatSubscription, ChatSubscriptionHandlers } from './chat';
+
+// 데일리 퀴즈(quiz 모듈 — 채팅과 같은 `/rt` base) 엔드포인트 함수 — 다섯 개 전부 인증이 필수다
+export {
+  getTodayQuizzes,
+  getQuiz,
+  submitQuiz,
+  getQuizSubmissions,
+  likeQuiz,
+  isQuizNotFound,
+  isQuizAlreadySubmitted,
+  isQuizSubmitNotAllowed,
+  isQuizOptionNotFound,
+  isQuizOptionMissing,
+  isQuizLikeNotAllowed,
+  QUIZ_ERROR_MESSAGE,
+  QUIZ_SUBMISSION_PAGE_SIZE,
+  OX_OPTION_NO,
+} from './quiz';
 
 // 토큰 저장 추상화 — store-agent가 setTokenStorage로 zustand persist 구현 주입
 export { setTokenStorage, getTokenStorage } from './tokenStorage';
@@ -120,3 +142,19 @@ export type {
   ChatMessagePage,
   SendChatMessageRequest,
 } from '../types/chat';
+export type {
+  QuizType,
+  QuizDifficulty,
+  QuizOption,
+  DailyQuiz,
+  QuizDetail,
+  UnsolvedQuizDetail,
+  SolvedQuizDetail,
+  QuizSubmitRequest,
+  QuizSubmitResult,
+  QuizSubmission,
+  QuizSubmissionSummary,
+  QuizSubmissionPage,
+  QuizSubmissionHistory,
+  QuizLikeResult,
+} from '../types/quiz';

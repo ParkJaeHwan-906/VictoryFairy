@@ -1,0 +1,339 @@
+/**
+ * QuizCard(퀴즈 한 장) 스타일.
+ * Figma: SWM / [Game] 퀴즈 메인(OorX) (node 744:22436) 의 `quiz card` (1130:7925).
+ * 카드 기준 크기 354 x 560, 좌표는 모두 카드 왼쪽 위를 원점으로 잰 값이다.
+ *
+ * 세로 배치를 흐름으로 옮긴 규칙(padding 32 기준):
+ *   머리말 32..78 → 구분선 98 → 문항 칩 118 → 질문 162
+ *   선택 영역은 margin-top:auto 로 아래에 붙어 560 일 때 정확히 327..439 에 온다.
+ *   그 아래 안내 그림 451..475, 진행 번호 507..528, 바닥 여백 32.
+ * 보기가 많은 객관식은 560 을 넘겨 자라며, 그때 auto 는 자연히 효과가 없어진다.
+ */
+
+.quiz-card {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 560px;
+  padding: 32px;
+  border-radius: var(--radius-20);
+  background-color: var(--color-surface);
+  /* Figma drop-shadow(0 0 3px Gray/200) — 흰 카드를 흰 배경에서 떼어 놓는 유일한 단서다 */
+  box-shadow: 0 0 3px var(--color-gray-200);
+  /* 세로 스크롤은 브라우저에 넘기고 가로 끌기만 가져온다 */
+  touch-action: pan-y;
+  /* 끄는 도중 글자가 잡히면 드래그가 텍스트 선택으로 새어나간다 */
+  user-select: none;
+}
+
+/* 놓는 순간에만 제자리로 되돌아가는 애니메이션을 건다.
+   끄는 중에는 transition 이 없어야 손가락을 그대로 따라온다. */
+.quiz-card:not([data-dragging]) {
+  transition: transform 0.24s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+/* ------------------------------------------------------------------ *
+ * 퇴장 — 답을 고르면 카드가 빠진다
+ * 방향은 고른 방식과 맞춘다: 민 쪽으로(2지선다) 또는 위로(3지선다 이상 버튼).
+ * 시간은 QuizPage 가 `--quiz-card-exit-duration` 으로 내려준다 — 화면이 다음 문제로
+ * 넘기기까지 기다리는 시간과 같은 값이어야 하기 때문이다.
+ *
+ * 위의 `:not([data-dragging])` 과 명시도가 같으므로 반드시 뒤에 와야 이긴다.
+ * ------------------------------------------------------------------ */
+.quiz-card[data-exit] {
+  opacity: 0;
+  transition:
+    transform var(--quiz-card-exit-duration, 280ms) cubic-bezier(0.4, 0, 0.9, 0.4),
+    opacity var(--quiz-card-exit-duration, 280ms) ease-in;
+  /* 빠지는 중에는 눌러도 반응하지 않는다 */
+  pointer-events: none;
+}
+
+.quiz-card[data-exit='left'] {
+  transform: translateX(-120%) rotate(-12deg);
+}
+
+.quiz-card[data-exit='right'] {
+  transform: translateX(120%) rotate(12deg);
+}
+
+/* 버튼으로 고른 카드는 위로 빠진다 — 뒷장이 그대로 드러나며 올라오는 인상이 된다 */
+.quiz-card[data-exit='up'] {
+  transform: translateY(-120%) scale(0.94);
+}
+
+/* ------------------------------------------------------------------ *
+ * 머리말 — 날짜 · 맞붙는 두 팀
+ * ------------------------------------------------------------------ */
+.quiz-card__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.quiz-card__meta-date {
+  margin: 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body4);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body4);
+}
+
+.quiz-card__meta-match {
+  margin: 0;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-body4);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body4);
+}
+
+/* 카드 좌우 20 까지 뻗는다 = 안쪽 여백 32 를 12 만큼 되밀기 */
+.quiz-card__divider {
+  height: 0;
+  margin: 20px -12px;
+  border: none;
+  border-top: 1px solid var(--color-line-light);
+}
+
+/* ------------------------------------------------------------------ *
+ * 문항 — 번호 칩 + 질문
+ * ------------------------------------------------------------------ */
+.quiz-card__order {
+  align-self: flex-start;
+  margin: 0;
+  padding: 4px 12px;
+  border-radius: var(--radius-20);
+  background-color: var(--color-background-red);
+  color: var(--color-primary-400);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+}
+
+.quiz-card__question {
+  margin: 12px 0 0;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-title1);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title1);
+  overflow-wrap: break-word;
+}
+
+/* ------------------------------------------------------------------ *
+ * 보기 2개 — 좌우로 밀어서 고른다
+ * 글리프 80 + 간격 8 + 이름 24 = 112 높이. 두 칸은 80 을 사이에 두고 가운데 모인다.
+ * ------------------------------------------------------------------ */
+.quiz-card__choices {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 80px;
+  margin-top: auto;
+}
+
+.quiz-card__choice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  /* 글리프 80 보다 넓게 잡아 두 줄까지 이름을 받는다. 105 x 2 + 간격 80 = 290 = 카드 안쪽 폭 */
+  width: 105px;
+  /* 버튼 기본 padding 을 지운다 — 남겨 두면 안쪽 80px 글리프가 눌린다 */
+  padding: 0;
+  text-align: center;
+  transition:
+    transform 0.15s ease-out,
+    opacity 0.15s ease-out;
+}
+
+/* 지금 놓으면 선택될 쪽을 키워 알려준다. 색이 아니라 크기로 구분해
+   대비만으로 판단하지 않아도 되게 한다. */
+.quiz-card__choices:has([data-active]) .quiz-card__choice:not([data-active]) {
+  opacity: 0.35;
+}
+
+.quiz-card__choice[data-active] {
+  transform: scale(1.12);
+}
+
+.quiz-card__choice:disabled {
+  cursor: default;
+}
+
+.quiz-card__choice-label {
+  color: var(--color-label-normal);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  overflow-wrap: break-word;
+}
+
+/* O/X 일 때만 이름에 색이 붙는다 — 초록 O / 빨강 X 와 짝을 맞춘다 */
+.quiz-card__choices[data-ox] .quiz-card__choice[data-side='left'] .quiz-card__choice-label {
+  color: var(--color-success-strong);
+}
+
+.quiz-card__choices[data-ox] .quiz-card__choice[data-side='right'] .quiz-card__choice-label {
+  color: var(--color-error-strong);
+}
+
+.quiz-card__glyph {
+  display: block;
+  flex-shrink: 0;
+  width: 80px;
+  height: 80px;
+}
+
+/* Figma `Ellipse 2`: 80 박스 · r 35 · stroke 10 → 테두리 10px 원 */
+.quiz-card__glyph--o {
+  border: 10px solid var(--color-success-normal);
+  border-radius: 50%;
+}
+
+/* Figma 1130:8176: 폭 10 · 높이 102.7 · 반경 11 막대 두 개를 교차 */
+.quiz-card__glyph--x {
+  position: relative;
+}
+
+.quiz-card__glyph-bar {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 10px;
+  height: 102.7px;
+  border-radius: 11px;
+  background-color: var(--color-error-normal);
+}
+
+.quiz-card__glyph-bar:first-child {
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.quiz-card__glyph-bar:last-child {
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+/*
+ * O/X 가 아닌 2지선다 — 순서만 가리키는 A · B 글리프.
+ * O/X 와 같은 80px 원을 쓰되 색을 빼, 초록·빨강이 뜻하는 옳고 그름을 덧씌우지 않는다.
+ */
+.quiz-card__glyph--left,
+.quiz-card__glyph--right {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 10px solid var(--color-line-light);
+  border-radius: 50%;
+}
+
+.quiz-card__glyph-letter {
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-display1);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+}
+
+.quiz-card__choice[data-active] .quiz-card__glyph--left,
+.quiz-card__choice[data-active] .quiz-card__glyph--right {
+  border-color: var(--color-primary-300);
+}
+
+.quiz-card__choice[data-active] .quiz-card__glyph-letter {
+  color: var(--color-primary-normal);
+}
+
+/*
+ * 좌우로 밀라는 안내 그림. 카드 폭을 그대로 채우므로 안쪽 여백 32 를 되민다.
+ * 전역 리셋의 `img { max-width: 100% }` 가 안쪽 폭(290)에 가둬 버리므로 풀어 준다.
+ */
+.quiz-card__hint {
+  width: calc(100% + 64px);
+  max-width: none;
+  height: auto;
+  margin: 12px -32px 0;
+}
+
+/* ------------------------------------------------------------------ *
+ * 보기 3개 이상 — 카드 안 버튼
+ * 디자인에 없는 유형이라 Btn/CTA 규칙(반경 15 · Button2)을 흰 카드 위에서 따른다:
+ * 바탕은 Background/Gray, 글자는 Label/Normal, 누르는 동안만 Primary 로 물든다.
+ * ------------------------------------------------------------------ */
+.quiz-card__options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: auto 0 0;
+  padding: 24px 0 0;
+  list-style: none;
+}
+
+.quiz-card__option {
+  width: 100%;
+  min-height: 52px;
+  padding: 12px 16px;
+  border-radius: var(--radius-15);
+  background-color: var(--color-background-gray);
+  color: var(--color-label-normal);
+  font-size: var(--font-size-button2);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  text-align: center;
+  transition:
+    background-color 0.15s ease-out,
+    color 0.15s ease-out,
+    opacity 0.15s ease-out;
+}
+
+.quiz-card__option:hover:not(:disabled),
+.quiz-card__option:focus-visible {
+  background-color: var(--color-background-red);
+  color: var(--color-primary-normal);
+}
+
+.quiz-card__option:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ------------------------------------------------------------------ *
+ * 진행 번호 — 카드 맨 아래 가운데
+ * ------------------------------------------------------------------ */
+.quiz-card__counter {
+  margin: 32px 0 0;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-body4);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body4);
+  text-align: center;
+}
+
+/* ------------------------------------------------------------------ *
+ * 반응형 · 접근성
+ * ------------------------------------------------------------------ */
+
+/* 좁은 화면에서는 두 글리프 사이(80)가 카드 밖으로 밀려난다 — 간격만 줄인다 */
+@media (max-width: 379px) {
+  .quiz-card {
+    padding: 24px;
+  }
+
+  .quiz-card__choices {
+    gap: 40px;
+  }
+
+  .quiz-card__hint {
+    width: calc(100% + 48px);
+    margin-inline: -24px;
+  }
+}
+
+/* 퇴장은 transition 만 끄고 결과(사라짐)는 그대로 둔다 — 움직임 없이 즉시 바뀐다. */
+@media (prefers-reduced-motion: reduce) {
+  .quiz-card,
+  .quiz-card__choice,
+  .quiz-card__option {
+    transition: none;
+  }
+}

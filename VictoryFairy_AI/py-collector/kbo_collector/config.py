@@ -32,6 +32,10 @@ class Settings(BaseSettings):
         default="{base}/schedule/games/{gameId}/relay?inning={inning}",
         validation_alias="COLLECTOR_RELAY_URL_TEMPLATE",
     )
+    preview_url_template: str = Field(
+        default="{base}/schedule/games/{gameId}/preview",
+        validation_alias="COLLECTOR_PREVIEW_URL_TEMPLATE",
+    )
 
     # --- community ---
     targets_file: str = Field(default="config/targets.yaml", validation_alias="COLLECTOR_TARGETS_FILE")

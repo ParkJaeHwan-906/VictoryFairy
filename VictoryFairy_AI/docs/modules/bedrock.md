@@ -90,5 +90,5 @@
 - **어느 게시글의 무엇인지 모른다.** 본문/댓글 구분은 `unit_kind` 한 글자로만 오고, 그걸
   게시글로 되돌리는 라우팅은 `pipeline/run_bedrock.py` 소관이다.
 - `pipeline/run_bedrock.py`가 `judge_batch()`를, `pipeline/run_backfill.py`가 같은 경로를 쓴다.
-- 비용 누적(`bedrock_spend_usd`)·예산 상한은 **러너 소관**이다. 이 모듈은 자기가 얼마를
-  썼는지 모르고 `usage`만 돌려준다.
+- 비용 누적·예산 상한은 **러너 소관**이다. 이 모듈은 자기가 얼마를 썼는지 모르고
+  `usage`만 돌려준다.

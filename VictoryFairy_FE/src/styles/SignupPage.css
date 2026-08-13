@@ -252,6 +252,81 @@
 }
 
 /* ------------------------------------------------------------------ *
+ * 성별 — 라디오 그룹
+ *
+ * Figma 에 없는 항목이지만 가입에 필수라 받는다. 새 규격을 만들지 않고
+ * 입력칸(.signup-page__input)의 높이·모서리·바탕색을 그대로 따라가게 해
+ * 위쪽 항목들과 같은 줄맞춤으로 보이게 했다.
+ * ------------------------------------------------------------------ */
+
+/*
+ * fieldset 기본 테두리·여백 제거. .signup-page__group 의 flex 를 덮어 block 으로 둔다 —
+ * legend 는 flex 아이템으로 다루는 브라우저와 흐름 밖으로 빼는 브라우저가 갈려
+ * gap 에 기대면 간격이 들쭉날쭉해진다. 대신 legend 에 직접 아래 여백을 준다.
+ */
+.signup-page__fieldset {
+  display: block;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.signup-page__fieldset > .signup-page__label {
+  padding: 0;
+  margin-bottom: 8px;
+}
+
+.signup-page__gender {
+  display: flex;
+  gap: 8px;
+}
+
+.signup-page__gender-option {
+  /* 감춘 라디오(position: absolute)가 밖으로 새어나가지 않게 기준을 잡는다 */
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  /* 입력칸(16px 상하 패딩 + body2 줄높이)과 같은 높이 */
+  padding: 16px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-12);
+  background-color: var(--color-gray-50);
+  color: var(--color-label-assistive);
+  font-size: var(--font-size-body2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body2);
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease-in-out,
+    border-color 0.15s ease-in-out,
+    color 0.15s ease-in-out;
+}
+
+/* 라디오는 의미(단일 선택 · 키보드 조작)만 쓰고 화면에서는 감춘다 */
+.signup-page__gender-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* 감춘 라디오 대신 선택지 상자에 포커스 링을 그린다 */
+.signup-page__gender-option:has(.signup-page__gender-input:focus-visible) {
+  outline: 2px solid var(--color-primary-400);
+  outline-offset: 2px;
+}
+
+/* 선택 상태 — 구단 선택 카드와 같은 표기(Primary 테두리 + Ivory 바탕) */
+.signup-page__gender-option--selected {
+  border-color: var(--color-primary-normal);
+  background-color: var(--color-background-ivory);
+  color: var(--color-primary-normal);
+}
+
+/* ------------------------------------------------------------------ *
  * CTA — 화면 하단에 붙인다
  * ------------------------------------------------------------------ */
 .signup-page__submit {
@@ -286,7 +361,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .signup-page__submit {
+  .signup-page__submit,
+  .signup-page__gender-option {
     transition: none;
   }
 }

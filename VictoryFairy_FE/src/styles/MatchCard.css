@@ -64,8 +64,14 @@
 /* ------------------------------------------------------------------ *
  * Chip — 경기 상태. 색만 다르고 형태는 같다.
  * ------------------------------------------------------------------ */
+/*
+ * 취소 경기는 문구가 상태 이름이 아니라 서버가 준 취소 사유라(길이 제한이 느슨하다)
+ * 칩 폭을 절반으로 묶고 넘치면 잘라낸다 — 안 묶으면 긴 사유 한 건에 카드가 찌그러진다.
+ * 잘린 전체 문구는 `title` 로 볼 수 있다.
+ */
 .match-card__chip {
   flex-shrink: 0;
+  max-width: 50%;
   padding: 4px 12px;
   border-radius: var(--radius-20);
   color: var(--color-white);
@@ -73,6 +79,8 @@
   font-weight: var(--font-weight-regular);
   line-height: var(--line-height-tight);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .match-card__chip--scheduled {

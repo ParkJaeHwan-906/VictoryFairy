@@ -57,6 +57,10 @@ export function isGameNotFound(error: unknown): boolean {
  * 그 날짜에 경기가 없으면 빈 배열(200)이며 오류가 아니다.
  * 응답의 `stadium` 은 구장 미정 시 `null` 이므로 표기 처리가 필요하다.
  *
+ * `cancelReason` 도 같은 성질이다 — 값이 없을 때 서버가 표시 문구로 채워 주지 않는다.
+ * 서버가 채우면 "사유를 아는 경우"와 "모르는 경우"의 구분이 응답에서 사라지기 때문에 일부러 안 채운다.
+ * 그래서 기본 문구 fallback 은 이 계층이 아니라 표시 계층(`getGameStateDisplay`)의 몫이다.
+ *
  * 형식이 어긋나면(`20260801`, `2026-13-01` 등) 400 인데, **이 400 만 `{success, data, message}`
  * 형식이 아니라 스프링 기본 오류 응답이 그대로 나간다** — `ApiError.message` 가 도메인 문구가
  * 아닐 수 있으니 문자열로 판별하지 말고 status 로만 다룬다.

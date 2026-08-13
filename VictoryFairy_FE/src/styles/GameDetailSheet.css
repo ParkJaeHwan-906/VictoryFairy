@@ -137,8 +137,10 @@
 }
 
 /* 목록 카드의 칩과 같은 형태·색이다 */
+/* 취소 경기의 문구는 서버가 준 취소 사유라 길 수 있다 — MatchCard 칩과 같은 이유로 잘라낸다. */
 .game-sheet__chip {
   flex-shrink: 0;
+  max-width: 50%;
   padding: 4px 12px;
   border-radius: var(--radius-20);
   color: var(--color-white);
@@ -146,6 +148,8 @@
   font-weight: var(--font-weight-regular);
   line-height: var(--line-height-tight);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .game-sheet__chip--scheduled {

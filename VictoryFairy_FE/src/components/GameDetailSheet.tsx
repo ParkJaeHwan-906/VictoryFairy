@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 // [DUMMY] UI 확인용. 백엔드가 뜨면 getLineUp 을 되살리고 dummyGames import 를 지운다.
 import { isGameNotFound } from '../api';
 import { getLineUp } from '../api';
@@ -7,6 +8,8 @@ import type { Game, LineUpBatter, TeamLineUp } from '../api';
 import { getGameStateDisplay } from '../data/gameState';
 import { getTeamDisplay } from '../data/kboTeams';
 import { getPositionDisplay } from '../data/positions';
+import { ROUTES, type QuizPageState } from '../routes';
+import { useMyProfile } from '../stores/useAccountStore';
 import { formatGameTime } from '../utils/date';
 import '../styles/GameDetailSheet.css';
 
@@ -60,10 +63,15 @@ function BatterColumn({ batters }: { batters: LineUpBatter[] }) {
  * 에 따라 선수 목록/안내문과 하단 CTA 만 갈린다.
  */
 export default function GameDetailSheet({ game, onClose }: GameDetailSheetProps) {
+  const navigate = useNavigate();
   const [lineUps, setLineUps] = useState<TeamLineUp[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const state = getGameStateDisplay(game.gameState);
+  /* 로그인해야 닿는 화면이라 프로필은 이미 스토어에 있다(다른 화면들과 같은 전제). */
+  const profile = useMyProfile();
+
+  // 취소 경기면 칩 문구가 취소 사유로 바뀐다.
+  const state = getGameStateDisplay(game);
 
   /* Esc 로 닫기 — 시트가 떠 있는 동안에만 듣는다. */
   useEffect(() => {
@@ -119,6 +127,41 @@ export default function GameDetailSheet({ game, onClose }: GameDetailSheetProps)
   // 라인업 미공시는 빈 배열(200)로 온다 — 오류가 아니라 정상 응답이다.
   const hasLineUp = Boolean(awayLineUp || homeLineUp);
 
+  /*
+   * 퀴즈는 **응원 구단이 뛰는 경기에서만** 제공한다.
+   * 그래서 남의 경기에는 CTA 자체를 그리지 않는다 — 눌러 봐야 풀 문제가 없기 때문이다.
+   * 판정은 이름이 아니라 PK 로 한다(`GET /teams` 의 `id` 와 같은 값 체계다).
+   */
+  const supportTeamId = profile?.supportTeam?.id ?? null;
+  const isSupportedGame =
+    supportTeamId !== null &&
+    (supportTeamId === game.homeTeamId || supportTeamId === game.awayTeamId);
+
+  /**
+   * 진행중 경기의 "퀴즈 풀러 가기".
+   * 넘기는 값은 조회 조건이 아니라 퀴즈 화면 상단 바에 쓸 표시용 문맥이다
+   * (퀴즈 API 에 경기별 필터가 없다 — `QuizPageState` 주석 참고).
+   */
+  const handleQuizStart = () => {
+    const quizState: QuizPageState = {
+      gameId: game.gameId,
+      awayTeam: game.awayTeam,
+      homeTeam: game.homeTeam,
+    };
+
+    navigate(ROUTES.quiz, { state: quizState });
+  };
+
+  /**
+   * 종료된 경기의 "퀴즈 결과 확인하기".
+   *
+   * 넘길 값이 없다 — 결과 화면은 내 풀이 이력을 통째로 보여주고(경기로 좁히는 API 가 없다)
+   * 화면에 경기 이름도 쓰지 않는다.
+   */
+  const handleQuizResult = () => {
+    navigate(ROUTES.quizResult);
+  };
+
   return (
     <div className="game-sheet">
       {/* 딤. 클릭하면 닫히지만 읽어 줄 내용은 없다. */}
@@ -143,7 +186,8 @@ export default function GameDetailSheet({ game, onClose }: GameDetailSheetProps)
               <span className="game-sheet__stadium">{game.stadium ?? '구장 미정'}</span>
               <span className="game-sheet__time">{formatGameTime(game.gameDate)}</span>
             </p>
-            <span className={`game-sheet__chip game-sheet__chip--${state.tone}`}>
+            {/* 긴 취소 사유는 칩에서 잘리므로 전체 문구를 title 로 남긴다 */}
+            <span className={`game-sheet__chip game-sheet__chip--${state.tone}`} title={state.label}>
               {state.label}
             </span>
           </div>
@@ -172,11 +216,15 @@ export default function GameDetailSheet({ game, onClose }: GameDetailSheetProps)
           )}
         </div>
 
-        {state.cta && (
+        {state.cta && isSupportedGame && (
           <button
             className={`game-sheet__cta game-sheet__cta--${state.cta.tone}`}
             type="button"
-            // TODO: react-agent - 퀴즈 화면이 생기면 이동 대상을 연결한다.
+            /*
+             * 같은 자리의 버튼이 경기 상태에 따라 다른 곳으로 간다 —
+             * 진행중이면 문제를 풀러, 종료됐으면 결과를 보러 간다.
+             */
+            onClick={state.cta.tone === 'live' ? handleQuizStart : handleQuizResult}
           >
             {state.cta.label}
           </button>

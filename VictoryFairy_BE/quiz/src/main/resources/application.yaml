@@ -66,3 +66,26 @@ management:
 jwt:
   # 토큰 검증만 수행. user와 반드시 동일한 secret이어야 검증됨 (.env의 JWT_SECRET 공유)
   secret: ${JWT_SECRET:local-dev-secret-please-change-this-to-a-32byte-plus-random-value}
+
+# S3 quiz-candidates → RDB 적재 (QuizIngestScheduler·QuizCandidateReader)
+quiz:
+  ingest:
+    # 생성 루틴이 쓰는 버킷과 같은 곳(읽기 전용). crawl-dev 가 크롤 파이프라인의 '운영' 버킷이다
+    # — crawl-local 은 테스트용(퀴즈 실데이터 아님). 이름의 dev 에 속지 말 것.
+    bucket: ${QUIZ_S3_BUCKET:victoryfairy-crawl-dev}
+    region: ${QUIZ_S3_REGION:ap-northeast-2}
+    # 매일 10:30 KST — 생성 루틴(08:50 시작·상한 60분)이 끝난 뒤 30분 여유. 기동 시 1회 적재
+    # (on-startup, 기본 on)가 이 시각의 사각(그 이후 재시작한 파드)을 메운다. 둘 다 멱등.
+    cron: ${QUIZ_INGEST_CRON:0 30 10 * * *}
+    on-startup: ${QUIZ_INGEST_ON_STARTUP:true}
+  serve:
+    # 전원 동일 데일리 세트 크기 — 편성 잡(QuizPublishService)이 이 수까지 미편성 풀에서 채운다.
+    # 경기 문항(적재가 바로 날짜를 찍음)이 이미 이 수를 넘는 날은 그대로 두고 보충하지 않는다.
+    daily-count: ${QUIZ_SERVE_DAILY_COUNT:10}
+    # GET /today 한 번에 내려줄 최대 문제 수(QuizService). 위 daily-count 와 별개 축이다 —
+    # 저건 '그날 세트를 몇 개로 편성하느냐'(편성), 이건 '한 번에 몇 개까지 보여주느냐'(서빙)다.
+    # 기본값끼리는 편성 10 < 상한 20 이라 상한이 발동하지 않는다(세트가 20 을 넘는 날에만 의미).
+    # ⚠ 여기서 잘려 나간 문제는 미답 행이 안 생겨 제출도 403 이다 — 낮출 때 그 영향을 함께 볼 것.
+    # ⚠ 이 값이 곧 "한 번에 시계에 들어가는 문제 수"다 — 실린 문제는 각자 8분 시한을 갖고 시작하며,
+    #   연장 수단이 없다(문제당 10~20초 × 20문제 ≒ 7분이 그 8분의 근거).
+    max-today-count: ${QUIZ_SERVE_MAX_TODAY_COUNT:20}

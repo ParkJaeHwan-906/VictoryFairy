@@ -74,7 +74,7 @@
 | **teams** | 10개 구단 시드 upsert (`db.upsert_teams`) | MySQL |
 | **registrations** | KBO Register.aspx 1군 등록명단 → `players` / `player_registrations` (`land_registrations`) | MySQL |
 | **records** | 네이버 record API 박스스코어(종료 경기) → `games`/`game_lineups`/`batter_records`/`pitcher_records`. `--from/--to`로 시즌 백필 (`land_game_records`) | MySQL |
-| **games_sync** | 하루치 스케줄 전체(취소·예정·진행·완료 포함) 상태를 `games`에 동기화 — 점수는 진행중/완료일 때만 채우고 취소·예정은 `NULL` (`job_games_sync`) | MySQL |
+| **games_sync** | 스케줄 전체(취소·예정·진행·완료 포함) 상태를 `games`에 동기화 — 점수는 진행중/완료일 때만 채우고 취소·예정은 `NULL`. **당일 폴링(단일 날짜 호출)에서는 네이버 preview API로 경기 전 선발 라인업도 `game_lineups`에 적재**한다 — 이미 찬 경기는 preview 호출 자체를 건너뛴다. `days`로 오늘~+N일을 부르면 일정 선적재 모드가 되고 라인업은 건드리지 않는다 (`job_games_sync` / `job_games_sync_range`) | MySQL |
 
 > `schedule`은 result/relay·game·all 앞에서 항상 선행 실행되어 gameId를 공급.
 > `records`·`registrations`는 일자 단위(`--date`) 또는 구간(`--from/--to`) 실행. `records`는 박스스코어 선수를 `players.kbo_player_id`로 즉시 해소한다(이름+팀 백필 없음 — 4-3 참고).

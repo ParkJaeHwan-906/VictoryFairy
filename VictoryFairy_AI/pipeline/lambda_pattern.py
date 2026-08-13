@@ -64,10 +64,8 @@ def _sqs_client():
 
 
 def parse_key(key: str) -> tuple:
-    """`community/{source}/{date}/{postId}.json` 을 (source, date, post_id) 로 분해한다.
-
-    규약에 맞지 않으면 `ValueError`. S3 알림에 prefix 필터를 걸어 두지만, 필터가
-    바뀌거나 수동 업로드가 섞일 수 있어 핸들러에서도 확인한다.
+    """S3 알림에 prefix 필터를 걸어 두지만, 필터가 바뀌거나 수동 업로드가 섞일 수 있어
+    핸들러에서도 규약을 확인한다.
     """
     if not key.startswith(_EXPECTED_PREFIX) or not key.endswith(".json"):
         raise ValueError(f"크롤 입력 키 규약과 다릅니다: {key}")
@@ -81,9 +79,7 @@ def parse_key(key: str) -> tuple:
 
 
 def _extract_keys(event: dict) -> list:
-    """S3 알림 이벤트에서 객체 키 목록을 뽑는다.
-
-    ⚠️ S3 이벤트의 키는 **URL 인코딩**돼 있다(공백이 `+`, 한글이 `%XX`). 디코드하지
+    """⚠️ S3 이벤트의 키는 **URL 인코딩**돼 있다(공백이 `+`, 한글이 `%XX`). 디코드하지
     않으면 GetObject 가 NoSuchKey 로 실패한다.
     """
     keys = []
