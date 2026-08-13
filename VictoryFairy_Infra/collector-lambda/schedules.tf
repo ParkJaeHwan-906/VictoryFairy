@@ -43,15 +43,6 @@ resource "aws_lambda_permission" "game" {
 }
 
 # --- 퀴즈 원천 잡 (kbo_records / game_schedule) ---
-#
-# 이 둘은 2026-08-06 확인 시점에 terraform 밖에서 매일 돌고 있었다 — `vf-local-test-*`
-# 룰이 관리 대상이 아닌 `kbo-collector-local-test` 함수를 때리는 형태였고, 어느 .tf
-# 에도 없었다. 여기로 회수하면서 타깃을 정식 함수로 바로잡는다.
-#
-# ⚠ quiz_source_jobs_enabled 기본값이 false 인 이유: 이 잡들의 분기가 아직 배포
-#   이미지의 handler.py 에 없다. 모르는 job 값은 예외 없이 조용히 빈 summary 만
-#   내고 끝나므로, 지금 켜면 "매일 성공하는데 산출물은 없는" 룰이 된다. 컷오버
-#   절차는 README.md "퀴즈 원천 잡 컷오버" 참고.
 
 resource "aws_cloudwatch_event_rule" "kbo_records" {
   count               = var.quiz_source_jobs_enabled ? 1 : 0
