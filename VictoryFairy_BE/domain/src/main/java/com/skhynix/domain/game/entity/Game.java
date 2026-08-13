@@ -99,6 +99,31 @@ public class Game {
     @Column(name = "inning_half", columnDefinition = "TINYINT", nullable = true)
     private InningHalf inningHalf;
 
+    /**
+     * 그 경기가 <b>몇 회에 끝났는지</b>. 위 {@code currentInning}(진행 중인 경기의 현재 이닝)과 정확히
+     * 반대 구간에서 값을 갖는다 — 종료·무승부·노게임 취소 경기에 채워지고, 진행 중·예정 경기에서는
+     * null 이다. 두 컬럼은 <b>서로의 대체재가 아니다</b>: 한쪽이 비었다고 다른 쪽을 읽으면 같은 화면이
+     * 경기마다 다른 규칙으로 그려진다(읽는 쪽은 경기 상태로 어느 컬럼을 볼지 먼저 정해야 한다).
+     *
+     * <p><b>이 앱은 읽기만 한다</b> — {@code cancelReason}·{@code currentInning}과 마찬가지로 채우는
+     * 주체는 py-collector 이고 {@code games} 쓰기 경로가 없다. 그래서 {@code @Builder} 파라미터에도
+     * 넣지 않는다(값을 만들 수 있는 것처럼 보이면 안 된다). 수집 지연으로 종료 경기에도 값이 비어 있을
+     * 수 있으므로 <b>읽는 쪽이 NULL 을 정상 입력으로 다뤄야 한다.</b>
+     *
+     * <p>CHECK 제약을 선언하지 않은 이유: 이 매핑은 <b>이미 DB 에 있는 컬럼</b>을 읽기 위한 것이고
+     * (사용자가 직접 추가), 제약 추가는 스키마 변경이라 이 작업의 범위 밖이다. 필요해지면
+     * {@code ck_games_current_inning} 과 같은 방식으로 별도 1회성 DDL 과 함께 선언할 것.
+     *
+     * <p>⚠ <b>{@code currentInning} 과 달리 {@code TINYINT} 가 아니라 {@code INT} 다</b> — 이닝이라는
+     * 값의 성격은 같지만 실제 컬럼이 그렇게 만들어졌다(2026-08-13 devdb {@code information_schema}
+     * 실측). 선언을 실물에 맞추는 이유는 <b>신규 환경</b>이다: 빈 DB 에 {@code ddl-auto=update} 로 뜨는
+     * 앱이 이 선언대로 컬럼을 만들므로, 여기서 TINYINT 라고 적으면 환경마다 타입이 갈린다(이미 컬럼이
+     * 있는 dev·prod 는 {@code update} 가 타입을 바꾸지 않아 조용히 어긋난 채로 남는다). 읽기 동작은
+     * 어느 쪽이든 같다 — 둘 다 {@code Integer} 로 읽힌다.
+     */
+    @Column(name = "last_inning", columnDefinition = "INT", nullable = true)
+    private Integer lastInning;
+
     // 네이버 스포츠 gameId — py-collector가 재실행해도 중복 없이 upsert하기 위한 소스 자연키(UNIQUE)
     @Column(name = "naver_game_id", length = 20, unique = true)
     private String naverGameId;
