@@ -6,6 +6,7 @@ import type {
   DailyQuiz,
   QuizDetail,
   QuizLikeResult,
+  QuizOption,
   QuizSubmissionHistory,
   QuizSubmitRequest,
   QuizSubmitResult,
@@ -26,6 +27,15 @@ import type {
  * - **미편성 문제는 존재하지 않는 것과 구분되지 않는다**(둘 다 404). id 순회로 내일 출제분을
  *   미리 보는 것을 막기 위한 의도이며, 클라이언트가 구분할 방법은 없다.
  * - **좋아요는 답한 문제에만 허용된다.** 미존재·미편성·미답이 전부 같은 403 이다.
+ *
+ * ── 🎯 두 엔드포인트가 `gameId` 를 받는다 ────────────────────────────
+ * `/today` 와 `/submissions` 는 **"지금 보고 있는 경기"를 지목해야** 부를 수 있다.
+ * 값은 내부 PK 가 아니라 `games.naver_game_id` 문자열(`Game.gameId` 와 같은 값)이다.
+ * 다만 두 경로의 역할이 다르다:
+ *   - `/today` — 그 경기가 **오늘·내 응원 구단·진행 중**인지 검증하는 관문이다.
+ *     통과하지 못하면 403 이고, 세트를 고르는 값은 아니다(세트는 여전히 전원 동일).
+ *   - `/submissions` — 관문이 없다(끝난 경기·남의 경기도 200). 순수한 **조회 축**이라
+ *     내 기록만 담겨 나오므로 아무 경기나 넣어도 새는 정보가 없다.
  *
  * ── ⏱️ 제출 시한 (2026-08-12 신설) ──────────────────────────────────
  * `getTodayQuizzes()` 는 **조회가 아니라 쓰기**다. 응답에 실린 문제마다 서버가 미답 행을
@@ -48,9 +58,6 @@ function unwrap<T>(res: AxiosResponse<ApiResponse<T>>): T {
 /* ------------------------------------------------------------------ *
  * 상수 · 도메인 에러 판별
  * ------------------------------------------------------------------ */
-
-/** 풀이 이력 페이지 크기. 서버 고정값이며 쿼리로 바꿀 수 없다(채팅은 30, 여기는 20). */
-export const QUIZ_SUBMISSION_PAGE_SIZE = 20;
 
 /**
  * O/X 유형의 보기 번호. 서버가 고정한 매핑이라 토글 UI 는 이 값을 그대로 제출한다.
@@ -78,6 +85,14 @@ export const QUIZ_ERROR_MESSAGE = {
   SUBMIT_NOT_ALLOWED: '오늘의 퀴즈로 받은 문제만 제한 시간 안에 제출할 수 있습니다.',
   /** 403 `QUIZ_LIKE_NOT_ALLOWED` — 그 문제를 푼 이력이 없음(미존재·미편성 포함). */
   LIKE_NOT_ALLOWED: '좋아요는 직접 푼 문제에만 할 수 있습니다.',
+  /** 403 `QUIZ_NOT_SERVABLE` — `/today` 의 세트 제공 검증 실패(다섯 사유가 한 응답이다). */
+  NOT_SERVABLE: '경기가 진행 중일 때만 문제를 받을 수 있습니다.',
+  /** 409 `QUIZ_ALREADY_SERVED_IN_INNING` — 그 `(경기, 이닝)`에 이미 세트를 받음. */
+  ALREADY_SERVED_IN_INNING: '이번 이닝에는 이미 문제를 받았습니다.',
+  /** 403 `GAME_NOT_STARTED` — 풀이 이력 조회에서 예정(`SCHEDULED`) 경기를 지목함. */
+  GAME_NOT_STARTED: '아직 시작하지 않은 경기입니다.',
+  /** 404 `GAME_NOT_FOUND` — 풀이 이력 조회의 `gameId` 가 가리키는 경기가 없음. */
+  GAME_NOT_FOUND: '존재하지 않는 경기입니다.',
 } as const;
 
 /**
@@ -85,6 +100,53 @@ export const QUIZ_ERROR_MESSAGE = {
  * 목록을 다시 받아야 한다는 신호로 다루면 된다.
  */
 export function isQuizNotFound(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 404;
+}
+
+/**
+ * 403 `QUIZ_NOT_SERVABLE` — `/today` 가 세트를 줄 수 없다(2026-08-12 신설).
+ *
+ * **다섯 사유가 하나의 응답으로 합쳐져 구분할 수 없다** — 지목한 경기가 없음 · 오늘(KST)
+ * 경기가 아님 · 내 응원 구단 경기가 아님 · 진행 중(`IN_PROGRESS`)이 아님(경기 전·종료·취소) ·
+ * 이닝 값 확보 실패. 재시도로 풀리는 실패가 아니므로(경기 상태가 바뀌어야 한다)
+ * 화면은 다시 시도를 권하지 말고 "지금은 받을 수 없다"고만 알린다.
+ */
+export function isQuizNotServable(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 403;
+}
+
+/**
+ * 409 `QUIZ_ALREADY_SERVED_IN_INNING` — 그 `(경기, 이닝)`에 이미 세트를 받았다(2026-08-12 신설).
+ *
+ * "한 이닝에 한 세트" 제한이다. **오류가 아니라 다음 이닝을 기다리라는 안내**로 다뤄야 한다.
+ *
+ * ⚠️ 이 세트를 이미 받았다는 뜻일 뿐, 그 문제들을 **되받을 수는 없다**(재조회 폐지) —
+ * 화면이 받은 세트를 잃었다면 미답분은 8분 뒤 오답으로 확정된다.
+ *
+ * `isQuizAlreadySubmitted` 와 상태 코드가 같지만 엔드포인트가 달라(`/today` vs 제출) 섞이지 않는다.
+ */
+export function isQuizAlreadyServedInInning(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 409;
+}
+
+/**
+ * 403 `GAME_NOT_STARTED` — 풀이 이력 조회가 **예정(`SCHEDULED`) 경기**를 지목했다(2026-08-13 신설).
+ *
+ * 이력 조회에는 `/today` 의 관문(오늘·내 구단·진행 중)이 없다 — 끝난 경기도 남의 경기도
+ * 200 이다. 거절되는 것은 아직 시작하지 않은 경기 하나뿐이라, 이 403 은 "결산할 이닝이
+ * 아직 없다"는 뜻으로 읽으면 된다.
+ */
+export function isQuizGameNotStarted(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 403;
+}
+
+/**
+ * 404 `GAME_NOT_FOUND` — 풀이 이력 조회의 `gameId` 가 가리키는 경기가 없다.
+ *
+ * 퀴즈의 404(`isQuizNotFound`)와 달리 **경기**가 없다는 뜻이다 — 화면이 넘긴 문맥이
+ * 낡았다는 신호라, 목록으로 돌려보내는 편이 맞다.
+ */
+export function isQuizGameNotFound(error: unknown): boolean {
   return error instanceof ApiError && error.status === 404;
 }
 
@@ -163,30 +225,40 @@ export function isQuizLikeNotAllowed(error: unknown): boolean {
  * ------------------------------------------------------------------ */
 
 /**
- * GET /quizzes/today — 오늘(KST) 세트 중 **내가 아직 안 푼 문제만**.
+ * GET /quizzes/today — 오늘(KST) 세트 중 **내가 아직 안 받은 문제만**.
  *
  * ⚠️ **부르는 것만으로 서버 상태가 바뀐다.** 응답에 실린 문제마다 미답 행이 생기고
  * 8분 시계가 돈다(파일 머리말 참고). 화면을 미리 데워 두려고 호출하면 안 되고,
  * 사용자가 실제로 풀기 시작하는 시점에 한 번만 불러야 한다.
  *
- * 답한 문제는 목록에서 빠진다. **시한을 넘긴 문제도 빠지며 다시는 실리지 않는다.**
+ * ⚠️ **재조회가 없다**(2026-08-12) — 한 번 실린 문제는 답 여부·시한과 무관하게 그 즉시
+ * 목록에서 영구히 빠진다. **화면이 받은 세트를 잃으면 되받을 방법이 없고**(같은 이닝은
+ * 409, 다음 이닝은 새 세트다) 미답분은 8분 뒤 오답으로 확정된다. 호출부는 응답을 받는
+ * 즉시 화면이 끝까지 들고 있어야 한다.
+ *
  * 정렬은 선호 먼저이고 그룹 안에서는 **사용자별로 고정된 랜덤**이다 — 같은 계정은 몇 번을
  * 불러도 같은 순서를 받으므로 새로고침으로 순서가 뒤집히지 않는다.
  * 응답은 최대 20건으로 잘린다(서버 설정, 편성 수와 별개). 날짜 파라미터도 페이징도 없다.
  *
- * ⚠️ **빈 배열의 의미가 둘이다** — "오늘 세트가 없음"과 "오늘 세트를 다 풀었음"이
- * 똑같이 `[]` 라 이 응답만으로는 구분되지 않는다. 구분이나 진행률 표시가 필요하면
- * `getQuizSubmissions()` 의 `summary` 를 함께 쓴다.
+ * ⚠️ **빈 배열의 뜻이 좁아졌다**(2026-08-12) — 이제 "줄 수 있는데 줄 게 없다"(오늘 세트
+ * 없음 · 이 이닝 몫을 이미 다 받음)만 뜻한다. "지금은 줄 수 없다"는 전부 403·409 로 빠진다.
  *
- * @param preferredOnly `true` 면 응원 구단·선수와 매칭되는 문제만 남긴다.
- *                      **응원 정보가 하나도 없으면 무시되고 전체가 온다** — 취향 미설정과
- *                      "오늘 퀴즈 없음"을 구분하기 위한 의도된 동작이다.
+ * @param gameId 지금 보고 있는 **내 응원 구단의 오늘 경기**(`Game.gameId` — 내부 PK 가
+ *               아니라 `naver_game_id` 문자열). 문제를 고르는 값이 아니라 **제공 여부를
+ *               검증하고 받는 행에 찍을 이닝을 확보하는 값**이다. 누락하면 400 이다.
+ * @param preferredOnly `true` 면 응원 구단·선수와 매칭되는 문제만 남긴다. 여기까지 왔다는
+ *                      것 자체가 응원 구단이 확인됐다는 뜻이라 **필터는 항상 실제로 걸리고,
+ *                      매칭이 없으면 빈 배열이 온다**(종전의 "응원 정보가 없으면 전체 반환"은
+ *                      2026-08-12부터 도달 불가능한 분기다).
  *                      기본값이 서버에서도 `false` 라 거짓일 때는 아예 보내지 않는다.
+ *
+ * 에러: 400(`gameId` 누락), 403 NOT_SERVABLE(제공 불가 다섯 사유), 409 ALREADY_SERVED_IN_INNING,
+ * 401 UNAUTHENTICATED.
  */
-export function getTodayQuizzes(preferredOnly = false): Promise<DailyQuiz[]> {
+export function getTodayQuizzes(gameId: string, preferredOnly = false): Promise<DailyQuiz[]> {
   return gameClient
     .get<ApiResponse<DailyQuiz[]>>('/quizzes/today', {
-      params: preferredOnly ? { preferredOnly: true } : undefined,
+      params: preferredOnly ? { gameId, preferredOnly: true } : { gameId },
       requiresAuth: true,
     })
     .then(unwrap);
@@ -240,27 +312,49 @@ export function submitQuiz(quizId: number, option: number): Promise<QuizSubmitRe
 }
 
 /**
- * GET /quizzes/submissions?page=N — 내가 **받은** 퀴즈 이력(최신순, 크기 20 고정) + 전체 요약.
+ * GET /quizzes/submissions?gameId=… — **경기 한 건**의 이닝별 풀이 결산.
+ *
+ * ⚠️ 2026-08-13 계약이 통째로 바뀌었다. 조회 축이 계정에서 경기로 좁혀졌고(`page` 폐지,
+ * `gameId` 필수) 응답이 페이지 구조에서 `summary` + `innings[]` 로 교체됐다.
+ * **계정 전체 누적 정답률을 주던 경로는 사라졌고 대체 API 가 없다** — 마이페이지처럼
+ * 경기와 무관한 통계가 필요한 화면은 이 함수로 만들 수 없다.
+ *
+ * `/today` 와 달리 **관문이 없다** — 어제 끝난 경기도, 응원하지 않는 구단의 경기도,
+ * 취소된 경기도 200 이다(응답이 내 행만 담으므로 아무것도 새지 않는다). 실패는 둘뿐이고
+ * 순서가 고정이다: 404(경기 미존재) → 403(예정 경기) → 200.
  *
  * ⚠️ 2026-08-12 부터 **"푼 문제"가 아니라 "받은 문제" 목록이다** — 아직 답하지 않았거나
- * 시한을 넘긴 문제도 함께 실리고, 그 항목은 `myOption`·`myOptionText` 가 `null` 이다.
- * `summary.total` 역시 그것들을 분모에 넣고 오답으로 친다("내지 않으면 틀린 것").
- * 그래서 `/today` 를 부른 직후 정답률이 떨어졌다가 풀수록 올라간다 — 화면에 그대로 띄우면
- * 오해를 사므로, 답한 것만 세고 싶다면 `content` 에서 `myOption !== null` 로 걸러야 한다
- * (단 그 값은 현재 페이지 기준이라 전체 통계가 되지는 못한다).
+ * 시한을 넘긴 문제도 함께 실리고, 그 항목은 `myOption` 이 `null` 이다. `total` 역시
+ * 그것들을 분모에 넣고 오답으로 친다("내지 않으면 틀린 것").
  *
- * `summary` 는 현재 페이지가 아니라 **전체** 기준이라 첫 페이지만 받아도 통계를 그릴 수 있다.
- * 받은 문제가 0건이어도 에러가 아니라 빈 목록 + `accuracy: 0.0` 이다.
+ * 열거되는 이닝은 **결산이 끝난 이닝뿐**이다 — 진행 중 경기면 `1 … current_inning-1`,
+ * 끝난 경기면 `1 … last_inning`. 그 경기에 내 기록이 0건이면 범위가 몇 이닝이든
+ * `innings` 가 통째로 빈 배열이고, 기록이 있으면 문제를 못 받은 이닝도 `0/0` 으로 남는다.
  *
- * 에러: 401 UNAUTHENTICATED — 이 엔드포인트의 유일한 실패다.
+ * @param gameId `Game.gameId`(내부 PK 가 아니라 `naver_game_id` 문자열).
+ *               누락·빈 문자열이면 400 이다.
+ *
+ * 에러: 400(누락), 403 GAME_NOT_STARTED(예정 경기), 404 GAME_NOT_FOUND, 401 UNAUTHENTICATED.
  */
-export function getQuizSubmissions(page = 0): Promise<QuizSubmissionHistory> {
+export function getQuizSubmissions(gameId: string): Promise<QuizSubmissionHistory> {
   return gameClient
     .get<ApiResponse<QuizSubmissionHistory>>('/quizzes/submissions', {
-      params: { page },
+      params: { gameId },
       requiresAuth: true,
     })
     .then(unwrap);
+}
+
+/**
+ * 보기 번호를 보기 글자로 바꾼다. 없는 번호면 `null`.
+ *
+ * 2026-08-13 부터 이력 항목에서 텍스트 두 필드(`myOptionText`·`answerText`)가 빠지고
+ * `options` 배열만 남아, 복기 화면이 직접 번호를 글자로 옮겨야 한다. 미답 항목의
+ * `myOption`(`null`)도 여기서 함께 접어 호출부가 분기를 하나만 보게 한다.
+ */
+export function findOptionText(options: QuizOption[], no: number | null): string | null {
+  if (no === null) return null;
+  return options.find((option) => option.no === no)?.text ?? null;
 }
 
 /**

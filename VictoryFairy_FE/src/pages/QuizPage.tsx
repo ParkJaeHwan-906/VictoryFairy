@@ -3,15 +3,17 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import {
   ApiError,
   getTodayQuizzes,
+  isQuizAlreadyServedInInning,
   isQuizAlreadySubmitted,
   isQuizNotFound,
+  isQuizNotServable,
   isQuizSubmitNotAllowed,
   submitQuiz,
 } from '../api';
 import type { DailyQuiz } from '../api';
 import QuizCard, { type QuizCardExit } from '../components/QuizCard';
 import { getTeamDisplay } from '../data/kboTeams';
-import { ROUTES, type QuizPageState } from '../routes';
+import { ROUTES, readQuizPageState } from '../routes';
 import { formatKoreanDate, getTodayInSeoul } from '../utils/date';
 import '../styles/QuizPage.css';
 
@@ -36,14 +38,17 @@ import '../styles/QuizPage.css';
  * 서버가 받은 시각을 응답에 주지 않아, 세려면 이 화면이 수신 시각을 스스로 찍어야 한다.
  *
  * ── 경기와 문제의 관계 ────────────────────────────────────────────────
- * **퀴즈 API 는 경기별로 문제를 주지 않는다.** `GET /quizzes/today` 는 그날의
- * 세트(전원 동일)를 줄 뿐이고 `gameId` 로 좁히는 파라미터가 없다(docs/quiz.md).
- * 지금 할 수 있는 가장 가까운 것은 `preferredOnly=true` — 내 응원 구단·선수와
- * 매칭되는 문제만 남기는 필터다. 그래서 이 화면은
- *   ① 진입 자체를 응원 구단 경기로 제한하고(GameDetailSheet 가 CTA 를 가린다)
- *   ② 받은 세트도 선호 문제로 좁힌다
- * 는 두 겹으로 "선호 구단 경기 문제"에 근사한다. 경기 단위로 정확히 묶으려면
- * 백엔드에 `gameId` 필터가 생겨야 한다.
+ * **`gameId` 가 이제 필수 조회 조건이다**(2026-08-12). 다만 문제를 고르는 값은 아니다 —
+ * 세트는 여전히 전원 동일하고, `gameId` 의 역할은 **"지금 보고 있는 경기가 오늘·내 응원
+ * 구단·진행 중인가"를 검증하고 받는 행에 찍을 이닝을 확보하는 것** 둘뿐이다(docs/quiz.md).
+ * 그래서 문제를 응원 구단 쪽으로 좁히는 일은 여전히 `preferredOnly=true` 가 한다.
+ *
+ * 문맥(`QuizPageState`)이 없으면 조회 자체를 걸 수 없으므로, 이 화면은 주소를 직접 치고
+ * 들어온 경우 아무것도 부르지 않고 돌아가라고 안내한다.
+ *
+ * ── 한 이닝에 한 세트 ─────────────────────────────────────────────────
+ * 같은 `(경기, 이닝)`으로 다시 부르면 409 다. **되받기가 아니라 거절**이므로, 이 화면이
+ * 받은 세트를 잃으면(새로고침·이탈) 그 문제들은 8분 뒤 오답으로 확정되고 돌아오지 않는다.
  * ──────────────────────────────────────────────────────────────────────
  *
  * 디자인 아래쪽의 실시간 선택율(O 65% / X 35% 와 게이지, 744:22706~22748)은 넣지 않았다 —
@@ -61,20 +66,29 @@ const CARD_EXIT_MS = 280;
 /** 카드로 보여줄 뒷장 수. 디자인은 2장이고, 남은 문제가 적으면 그만큼 줄인다. */
 const MAX_DECK_LAYERS = 2;
 
-/**
- * 앞 화면(경기 상세)이 넘긴 경기 문맥을 읽는다.
- *
- * 주소를 직접 치면 비어 있고, history 에 남은 옛 형태가 되살아날 수도 있다.
- * 없으면 상단 바 제목만 일반 문구로 바뀔 뿐 퀴즈는 정상 동작한다 —
- * 조회 조건이 아니라 표시용 값이기 때문이다.
- */
-function readQuizState(state: unknown): QuizPageState | null {
-  if (typeof state !== 'object' || state === null) return null;
+/** 문맥 없이 들어와 조회를 걸 수 없을 때의 안내. */
+const NO_CONTEXT_MESSAGE = '경기 정보가 없어 퀴즈를 불러올 수 없어요. 경기 목록에서 다시 들어와 주세요.';
 
-  const { gameId, awayTeam, homeTeam } = state as Partial<QuizPageState>;
-  return typeof gameId === 'string' && typeof awayTeam === 'string' && typeof homeTeam === 'string'
-    ? { gameId, awayTeam, homeTeam }
-    : null;
+/**
+ * 세트를 받지 못한 이유를 화면 문구로 옮긴다.
+ *
+ * 서버 문구를 그대로 쓰지 않는 이유 — 403 은 다섯 사유("경기 없음"·"오늘 아님"·"내 구단
+ * 아님"·"진행 중 아님"·"이닝 없음")가 한 응답으로 합쳐져 있어 원인을 단정할 수 없고,
+ * 409 는 실패가 아니라 "다음 이닝을 기다리라"는 안내다. 둘 다 재시도로 풀리지 않으므로
+ * 다시 시도를 권하지 않는다.
+ */
+function toLoadMessage(error: unknown): string {
+  if (isQuizAlreadyServedInInning(error)) {
+    return '이번 이닝 문제는 이미 받았어요. 다음 이닝에 새 문제가 나와요.';
+  }
+
+  if (isQuizNotServable(error)) {
+    return '지금은 퀴즈를 받을 수 없어요. 경기가 진행 중일 때만 문제가 나와요.';
+  }
+
+  return error instanceof ApiError
+    ? error.message
+    : '퀴즈를 불러오지 못했어요. 잠시 후 다시 시도해주세요.';
 }
 
 /** 서버의 짧은 구단명을 디자인의 정식 명칭으로 바꾼다. 모르는 구단이면 원문 그대로. */
@@ -95,7 +109,8 @@ function wait(ms: number): Promise<void> {
 
 export default function QuizPage() {
   const navigate = useNavigate();
-  const context = readQuizState(useLocation().state);
+  const context = readQuizPageState(useLocation().state);
+  const gameId = context?.gameId ?? null;
 
   const [quizzes, setQuizzes] = useState<DailyQuiz[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -116,28 +131,31 @@ export default function QuizPage() {
   const [submittedCount, setSubmittedCount] = useState(0);
 
   useEffect(() => {
+    /*
+     * 경기를 모르면 호출 자체가 400 이라 아예 걸지 않는다 —
+     * 서버 상태를 바꾸는 요청이라 "일단 던져 보는" 편이 더 나쁘다.
+     */
+    if (gameId === null) {
+      setLoadError(NO_CONTEXT_MESSAGE);
+      return;
+    }
+
     // 화면을 떠난 뒤 도착한 응답으로 state 를 건드리지 않도록 막는다.
     let alive = true;
 
-    // 응원 정보가 하나도 없으면 서버가 이 필터를 무시하고 전체를 준다 — 오류가 아니다.
-    getTodayQuizzes(true)
+    // 여기까지 왔다면 응원 구단은 이미 확인된 상태라 이 필터는 항상 실제로 걸린다.
+    getTodayQuizzes(gameId, true)
       .then((list) => {
         if (alive) setQuizzes(list);
       })
       .catch((error: unknown) => {
-        if (alive) {
-          setLoadError(
-            error instanceof ApiError
-              ? error.message
-              : '퀴즈를 불러오지 못했어요. 잠시 후 다시 시도해주세요.',
-          );
-        }
+        if (alive) setLoadError(toLoadMessage(error));
       });
 
     return () => {
       alive = false;
     };
-  }, []);
+  }, [gameId]);
 
   const handleSelect = (optionNo: number, direction: QuizCardExit) => {
     const quiz = quizzes?.[index];
@@ -255,14 +273,15 @@ export default function QuizPage() {
         )}
 
         {/*
-          빈 배열은 "오늘 세트가 없음"과 "오늘 세트를 다 풀었음"이 구분되지 않는다
-          (docs/quiz.md) — 둘 다 아우르는 문구를 쓴다.
+          빈 배열은 "줄 수 있는데 줄 게 없다"만 뜻한다(2026-08-12로 의미가 좁아졌다) —
+          오늘 세트가 없거나 이 이닝 몫을 이미 다 받은 경우다. 둘은 구분되지 않는다.
+          "지금은 줄 수 없다"에 해당하는 경우는 전부 403·409라 위 loadError 로 빠진다.
         */}
         {isEmpty && (
           <p className="quiz-page__status">
             지금 풀 수 있는 퀴즈가 없어요.
             <br />
-            오늘 몫을 이미 다 풀었을 수도 있어요.
+            이번 이닝 몫을 이미 다 받았을 수도 있어요.
           </p>
         )}
 
