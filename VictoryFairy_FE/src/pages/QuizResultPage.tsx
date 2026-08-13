@@ -1,108 +1,129 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ApiError, getQuizSubmissions } from '../api';
-import type { QuizSubmission, QuizSubmissionSummary } from '../api';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { ApiError, getQuizSubmissions, isQuizGameNotFound, isQuizGameNotStarted } from '../api';
+import type { QuizInningResult, QuizSubmissionHistory } from '../api';
 import LedNumber from '../components/LedNumber';
 import QuizResultSheet from '../components/QuizResultSheet';
+import { readQuizPageState } from '../routes';
 import '../styles/QuizResultPage.css';
 
 /**
- * QuizResultPage — 퀴즈 결과.
- * Figma: SWM / [Game] 퀴즈 결과 (node 597:9739)
+ * QuizResultPage — 퀴즈 결과(이닝별).
+ * Figma: SWM / [Game] 퀴즈 결과-스크롤 (node 708:16321 — 1~9회 행)
  *              [Game] 퀴즈 결과 상세보기-펼침예시 (node 724:18166 — 문제 및 정답 시트)
  *
  * 종료된 경기의 상세 시트에서 "퀴즈 결과 확인하기"로 들어온다.
  *
- * ── 회차가 없다 ────────────────────────────────────────────────────
- * 디자인은 1~9회 정답률을 회차별로 늘어놓지만 **서버에 회차 개념이 없다** —
- * `GET /quizzes/submissions` 는 내가 받은 문제를 이닝 구분 없이 최신순으로 줄 뿐이고
- * 경기로 좁히는 파라미터도 없다(docs/quiz.md). 그래서 지금은 **`1회` 한 줄만** 두고,
- * 그 줄을 누르면 전체 문제 목록이 시트로 열린다. 회차가 생기면 이 화면은 목록을
- * 회차별로 쪼개고 시트에 회차를 넘기기만 하면 된다 — 행·게이지·시트는 그대로 쓴다.
+ * ── 이닝이 생겼다(2026-08-13) ──────────────────────────────────────
+ * `GET /quizzes/submissions` 가 `gameId` 로 **경기 한 건**의 이닝별 결산을 준다 —
+ * 경기 전체 요약(`summary`) + 이닝 배열(`innings[]`, 각각 자기 요약과 문제 목록).
+ * 그래서 디자인대로 회차를 늘어놓을 수 있게 됐고, 행을 누르면 **그 이닝의** 문제만
+ * 시트로 열린다(종전에는 이닝 개념이 없어 `1회` 한 줄에 전부 담았다).
+ *
+ * 열거되는 것은 **결산이 끝난 이닝뿐**이다 — 진행 중 경기면 현재 이닝이 빠지고,
+ * 문제를 못 받은 이닝도 `0/0` 행으로 남는다(빈 행은 열 것이 없어 누를 수 없다).
  *
  * ── 숫자의 출처 ────────────────────────────────────────────────────
- *   획득 포인트 → `submissions.content[].earnedPoint` 합
+ *   획득 포인트 → `summary.earnedPoint` (신규 — 페이지를 이어 받아 합칠 필요가 없어졌다)
  *   정답률·맞힌 수 → `summary.accuracy` · `summary.correctCount` / `summary.total`
- * 요약은 전체 기준이지만 포인트 합은 **받아 온 페이지만큼**이라, 아래에서 모든 페이지를
- * 이어 받는다. 목록 시트도 같은 자료를 쓰므로 어차피 전부 필요하다.
+ *   회별 게이지 → `innings[].summary` 의 같은 세 값
+ * 요약의 `earnedPoint` 는 적립 원장이 아니라 이 경기 정답 배점의 합(표시용)이라
+ * 마이페이지의 보유 포인트와 다른 수다.
  */
-
-/**
- * 이어 받을 최대 페이지 수(한 페이지 20건).
- *
- * 이력은 계정이 오래될수록 무한정 길어진다 — 상한이 없으면 화면 하나를 여는 데
- * 요청 수십 건이 나간다. 여기서 끊기면 포인트 합이 실제보다 작아지므로,
- * 현실적으로 닿기 어려운 값으로 두되 닿았다는 사실은 화면에 알린다.
- */
-const MAX_SUBMISSION_PAGES = 25;
-
-type LoadedResult = {
-  summary: QuizSubmissionSummary;
-  submissions: QuizSubmission[];
-  /** 상한에 걸려 뒤를 못 받았는지. 포인트 합이 실제보다 작다는 뜻이다. */
-  isTruncated: boolean;
-};
-
-/**
- * 풀이 이력을 끝까지 이어 받는다.
- *
- * 페이지를 병렬로 던지지 않는 이유 — 전체 페이지 수는 첫 응답을 받아야 알 수 있고,
- * 그 사이 새 제출이 끼면 경계가 밀린다. 순서대로 `hasNext` 를 따라가는 편이 안전하다.
- */
-async function loadAllSubmissions(): Promise<LoadedResult> {
-  const first = await getQuizSubmissions(0);
-  const submissions = [...first.submissions.content];
-
-  let hasNext = first.submissions.hasNext;
-  let page = 0;
-
-  while (hasNext && page + 1 < MAX_SUBMISSION_PAGES) {
-    page += 1;
-    const next = await getQuizSubmissions(page);
-    submissions.push(...next.submissions.content);
-    hasNext = next.submissions.hasNext;
-  }
-
-  return { summary: first.summary, submissions, isTruncated: hasNext };
-}
 
 /** 게이지 칸 수. 디자인 고정값이라 정답률을 이 눈금으로 반올림해 채운다. */
 const GAUGE_SEGMENTS = 10;
 
+/** 문맥 없이 들어와 조회를 걸 수 없을 때의 안내. */
+const NO_CONTEXT_MESSAGE = '경기 정보가 없어 결과를 불러올 수 없어요. 경기 목록에서 다시 들어와 주세요.';
+
+/** 조회 실패를 화면 문구로 옮긴다. 실패는 둘뿐이라(404·403) 나머지는 일반 문구다. */
+function toLoadMessage(error: unknown): string {
+  if (isQuizGameNotFound(error)) return '경기를 찾을 수 없어요. 경기 목록에서 다시 들어와 주세요.';
+  if (isQuizGameNotStarted(error)) return '아직 시작하지 않은 경기예요.';
+
+  return error instanceof ApiError
+    ? error.message
+    : '퀴즈 결과를 불러오지 못했어요. 잠시 후 다시 시도해주세요.';
+}
+
+/**
+ * 회차 한 줄 — 이닝 번호 · 정답률 게이지 · 점수 · 화살표.
+ *
+ * 문제를 하나도 받지 않은 이닝(`0/0`)은 열어도 보여줄 것이 없어 누를 수 없게 둔다.
+ * 행 자체는 남긴다 — 디자인이 열거된 이닝을 빠짐없이 늘어놓고, 빈 회차도 "그 이닝엔
+ * 문제를 못 받았다"는 정보이기 때문이다.
+ */
+function InningRow({ result, onOpen }: { result: QuizInningResult; onOpen: () => void }) {
+  const { inning, summary, quizzes } = result;
+  const filledSegments = Math.round(summary.accuracy * GAUGE_SEGMENTS);
+  const isEmpty = quizzes.length === 0;
+
+  return (
+    <li>
+      <button
+        className="quiz-result-page__inning"
+        type="button"
+        disabled={isEmpty}
+        onClick={onOpen}
+        aria-label={
+          isEmpty
+            ? `${inning}회 받은 문제 없음`
+            : `${inning}회 문제 및 정답 보기. ${summary.total}문제 중 ${summary.correctCount}문제 정답`
+        }
+      >
+        <span className="quiz-result-page__inning-label">{inning}회</span>
+
+        <span className="quiz-result-page__gauge" aria-hidden="true">
+          {Array.from({ length: GAUGE_SEGMENTS }, (_, index) => (
+            <span data-on={index < filledSegments || undefined} key={index} />
+          ))}
+        </span>
+
+        <span className="quiz-result-page__inning-score">
+          {summary.correctCount}/{summary.total}
+        </span>
+        <span className="quiz-result-page__inning-arrow" aria-hidden="true" />
+      </button>
+    </li>
+  );
+}
+
 export default function QuizResultPage() {
   const navigate = useNavigate();
+  const context = readQuizPageState(useLocation().state);
+  const gameId = context?.gameId ?? null;
 
-  const [result, setResult] = useState<LoadedResult | null>(null);
+  const [result, setResult] = useState<QuizSubmissionHistory | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [isSheetOpen, setIsSheetOpen] = useState(false);
+  /** 시트에 띄울 이닝. 닫혀 있으면 `null` 이다(이닝 번호는 0이 아니라 1부터라 값으로 못 쓴다). */
+  const [openInning, setOpenInning] = useState<QuizInningResult | null>(null);
 
   useEffect(() => {
+    // 경기를 모르면 `gameId` 없는 요청은 400 이라 아예 걸지 않는다.
+    if (gameId === null) {
+      setLoadError(NO_CONTEXT_MESSAGE);
+      return;
+    }
+
     // 화면을 떠난 뒤 도착한 응답으로 state 를 건드리지 않도록 막는다.
     let alive = true;
 
-    loadAllSubmissions()
+    getQuizSubmissions(gameId)
       .then((loaded) => {
         if (alive) setResult(loaded);
       })
       .catch((error: unknown) => {
-        if (alive) {
-          setLoadError(
-            error instanceof ApiError
-              ? error.message
-              : '퀴즈 결과를 불러오지 못했어요. 잠시 후 다시 시도해주세요.',
-          );
-        }
+        if (alive) setLoadError(toLoadMessage(error));
       });
 
     return () => {
       alive = false;
     };
-  }, []);
+  }, [gameId]);
 
   const summary = result?.summary ?? null;
-  const earnedPoint = result?.submissions.reduce((sum, item) => sum + item.earnedPoint, 0) ?? 0;
   const accuracyPercent = Math.round((summary?.accuracy ?? 0) * 100);
-  const filledSegments = Math.round((accuracyPercent / 100) * GAUGE_SEGMENTS);
 
   return (
     <div className="quiz-result-page">
@@ -145,9 +166,9 @@ export default function QuizResultPage() {
               <div className="quiz-result-page__board-col">
                 <p className="quiz-result-page__board-chip">획득 포인트</p>
                 <LedNumber
-                  value={earnedPoint}
+                  value={summary.earnedPoint}
                   tone="primary"
-                  label={`획득 포인트 ${earnedPoint}점`}
+                  label={`획득 포인트 ${summary.earnedPoint}점`}
                 />
               </div>
 
@@ -181,47 +202,31 @@ export default function QuizResultPage() {
             </div>
           </section>
 
-          {result.isTruncated && (
-            <p className="quiz-result-page__status quiz-result-page__status--note">
-              풀이 이력이 많아 최근 {MAX_SUBMISSION_PAGES * 20}문제까지만 계산했어요
-            </p>
-          )}
-
           <h2 className="quiz-result-page__section-title">회별 정답률</h2>
 
-          <ul className="quiz-result-page__innings">
-            <li>
-              <button
-                className="quiz-result-page__inning"
-                type="button"
-                onClick={() => setIsSheetOpen(true)}
-                aria-label={`1회 문제 및 정답 보기. ${summary.total}문제 중 ${summary.correctCount}문제 정답`}
-              >
-                <span className="quiz-result-page__inning-label">1회</span>
-
-                <span className="quiz-result-page__gauge" aria-hidden="true">
-                  {Array.from({ length: GAUGE_SEGMENTS }, (_, index) => (
-                    <span data-on={index < filledSegments || undefined} key={index} />
-                  ))}
-                </span>
-
-                <span className="quiz-result-page__inning-score">
-                  {summary.correctCount}/{summary.total}
-                </span>
-                <span className="quiz-result-page__inning-arrow" aria-hidden="true" />
-              </button>
-            </li>
-          </ul>
+          {/*
+            빈 배열은 서로 다른 셋을 한 모양으로 덮는다(docs/quiz.md) — 이 경기에 내 기록이
+            0건 · 이닝 값을 아직 못 읽음 · 진행 중인데 1회라 결산할 이닝이 없음. 서버가 사유를
+            주지 않으므로 화면도 하나의 문구로 안내한다.
+          */}
+          {result.innings.length === 0 ? (
+            <p className="quiz-result-page__status">이 경기에서 푼 문제가 아직 없어요</p>
+          ) : (
+            <ul className="quiz-result-page__innings">
+              {result.innings.map((inningResult) => (
+                <InningRow
+                  key={inningResult.inning}
+                  result={inningResult}
+                  onOpen={() => setOpenInning(inningResult)}
+                />
+              ))}
+            </ul>
+          )}
         </>
       )}
 
-      {isSheetOpen && result !== null && summary !== null && (
-        <QuizResultSheet
-          title="1회 문제 및 정답"
-          submissions={result.submissions}
-          correctCount={summary.correctCount}
-          onClose={() => setIsSheetOpen(false)}
-        />
+      {openInning !== null && (
+        <QuizResultSheet inning={openInning} onClose={() => setOpenInning(null)} />
       )}
     </div>
   );

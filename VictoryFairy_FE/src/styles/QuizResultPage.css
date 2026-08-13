@@ -237,6 +237,23 @@
   text-align: left;
 }
 
+/*
+ * 문제를 하나도 받지 않은 회차(0/0). 행은 남기되 열 것이 없어 누를 수 없다 —
+ * 게이지가 비어 있는 것만으로는 "못 눌러요"가 읽히지 않아 화살표까지 흐린다.
+ */
+.quiz-result-page__inning:disabled {
+  cursor: default;
+}
+
+.quiz-result-page__inning:disabled .quiz-result-page__inning-label,
+.quiz-result-page__inning:disabled .quiz-result-page__inning-score {
+  color: var(--color-label-assistive);
+}
+
+.quiz-result-page__inning:disabled .quiz-result-page__inning-arrow {
+  opacity: 0.4;
+}
+
 .quiz-result-page__inning-label {
   flex-shrink: 0;
   width: 28px;

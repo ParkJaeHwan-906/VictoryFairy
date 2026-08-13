@@ -138,28 +138,26 @@ export default function GameDetailSheet({ game, onClose }: GameDetailSheetProps)
     (supportTeamId === game.homeTeamId || supportTeamId === game.awayTeamId);
 
   /**
-   * 진행중 경기의 "퀴즈 풀러 가기".
-   * 넘기는 값은 조회 조건이 아니라 퀴즈 화면 상단 바에 쓸 표시용 문맥이다
-   * (퀴즈 API 에 경기별 필터가 없다 — `QuizPageState` 주석 참고).
+   * 퀴즈 화면들로 넘길 경기 문맥.
+   *
+   * **`gameId` 가 조회 조건이라 두 화면 모두 이 값 없이는 아무것도 부를 수 없다** —
+   * 풀이는 `GET /quizzes/today`, 결과는 `GET /quizzes/submissions` 가 각각 이 값으로
+   * 경기를 지목한다(`QuizPageState` 주석 참고). 구단명 둘은 표시용이다.
    */
-  const handleQuizStart = () => {
-    const quizState: QuizPageState = {
-      gameId: game.gameId,
-      awayTeam: game.awayTeam,
-      homeTeam: game.homeTeam,
-    };
+  const quizState: QuizPageState = {
+    gameId: game.gameId,
+    awayTeam: game.awayTeam,
+    homeTeam: game.homeTeam,
+  };
 
+  /** 진행중 경기의 "퀴즈 풀러 가기". */
+  const handleQuizStart = () => {
     navigate(ROUTES.quiz, { state: quizState });
   };
 
-  /**
-   * 종료된 경기의 "퀴즈 결과 확인하기".
-   *
-   * 넘길 값이 없다 — 결과 화면은 내 풀이 이력을 통째로 보여주고(경기로 좁히는 API 가 없다)
-   * 화면에 경기 이름도 쓰지 않는다.
-   */
+  /** 종료된 경기의 "퀴즈 결과 확인하기" — 그 경기의 이닝별 결산으로 간다. */
   const handleQuizResult = () => {
-    navigate(ROUTES.quizResult);
+    navigate(ROUTES.quizResult, { state: quizState });
   };
 
   return (
