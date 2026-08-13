@@ -6,6 +6,8 @@ import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface GameRepository extends JpaRepository<Game, Long> {
 
@@ -16,6 +18,22 @@ public interface GameRepository extends JpaRepository<Game, Long> {
     @EntityGraph(attributePaths = {"homeTeam", "awayTeam", "stadium", "gameStatus"})
     List<Game> findAllByGameDateGreaterThanEqualAndGameDateLessThanOrderByGameDateAsc(
             LocalDateTime startInclusive, LocalDateTime endExclusive);
+
+    // 위 조회에 "지정 구단이 홈이거나 원정" 조건을 더한 변형 — user 앱의 GET /games/support 전용.
+    // 파생 쿼리명을 쓰지 않는 이유: OR 를 이름으로 표현하면 날짜 두 조건까지 OR 우선순위에 휘말려
+    // 괄호를 못 씌운다(날짜 범위 밖 경기가 섞인다). 조건 구조가 이름으로 안전하게 표현되지 않는 경우다.
+    // homeTeam.id/awayTeam.id 는 games 행의 FK 컬럼이라 이 비교만으로는 조인이 생기지 않는다
+    // (실제 teams 조인은 아래 @EntityGraph 가 만든다).
+    // @EntityGraph 목록은 위 조회와 동일하게 유지 — GameResponse 가 읽는 연관과 1:1 이며,
+    // 빠지면 N+1 부활 + prod(open-in-view:false)에서 LazyInitializationException.
+    @EntityGraph(attributePaths = {"homeTeam", "awayTeam", "stadium", "gameStatus"})
+    @Query("select g from Game g "
+            + "where g.gameDate >= :startInclusive and g.gameDate < :endExclusive "
+            + "and (g.homeTeam.id = :teamId or g.awayTeam.id = :teamId) "
+            + "order by g.gameDate asc")
+    List<Game> findAllByTeamAndGameDateRange(@Param("teamId") Long teamId,
+            @Param("startInclusive") LocalDateTime startInclusive,
+            @Param("endExclusive") LocalDateTime endExclusive);
 
     // naver_game_id는 py-collector 소유 자연키이자 외부에 노출된 유일한 경기 식별자다(GameResponse.gameId).
     // 위 목록 조회와 달리 @EntityGraph를 붙이지 않는다 — 라인업 조회는 이 결과에서 내부 PK만 꺼내 쓰고
