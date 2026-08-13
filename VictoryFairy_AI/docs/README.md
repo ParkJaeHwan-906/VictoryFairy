@@ -15,12 +15,6 @@
 | [modules/analysis.md](modules/analysis.md) | analysis 모듈 — 기능 단위별 구조 |
 | [modules/pipeline.md](modules/pipeline.md) | pipeline 모듈 — 기능 단위별 구조 |
 
-## 모듈 3종 요약
-
-- **validation** — 입력 문장 검열(욕설·비속어 필터). 정규화 + 룰/정규식.
-- **analysis** — 검열 통과 문장에서 형태소(명사·동사) + 개체명(이름·지명·기관·날짜) 추출.
-- **pipeline** — 파일 기반 배치 러너(검열 → 분석 → 집계).
-
 ## 하네스 사용법 (요약)
 
 1. Claude 세션 시작 시 SessionStart Hook이 "어느 모듈에서 작업할지" 묻도록 유도한다.

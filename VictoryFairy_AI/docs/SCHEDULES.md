@@ -6,15 +6,6 @@
 
 시각은 전부 KST 기준이고 괄호 안이 실제 등록값(UTC)이다.
 
-> **2026-08-07 현재, 아래 넷은 아직 안 돈다** — `kbo-records`, `game-schedule`,
-> `export-game-result`, `export-player-profile`. terraform
-> 정의는 PR #171에 있지만 `quiz_source_jobs_enabled` 기본값이 `false`이고, 배포
-> 이미지의 `handler.py`가 아직 이 `job` 값들을 모른다(모르는 job은 예외 없이 빈
-> summary만 내므로 지금 켜면 "매일 성공하는데 산출물은 없는" 룰이 된다). 컷오버
-> 순서는 이미지 재배포 → `quiz_source_jobs_enabled = true` → `vf-local-test-*`
-> 그림자 룰 2개 폐기. 상세는 `VictoryFairy_Infra/collector-lambda/README.md`
-> "퀴즈 원천 잡 컷오버".
-
 ## 하루 흐름
 
 ```

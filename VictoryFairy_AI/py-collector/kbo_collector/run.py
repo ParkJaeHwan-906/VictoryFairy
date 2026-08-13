@@ -735,7 +735,6 @@ def job_cancel_reasons(settings, db, date=None, months=None) -> int:
 
 
 def land_game_records_range(start, end, *, settings, db, client, sleep=time.sleep) -> dict:
-    """[start, end] 날짜 구간 백필. teams 시드 후 일자별 반복."""
     team_ids = db.upsert_teams(dimensions.TEAMS)
     d0 = date_cls.fromisoformat(start)
     d1 = date_cls.fromisoformat(end)

@@ -88,5 +88,5 @@
 - **analysis 는 무겁다** — Kiwi + KoELECTRA(torch) 로딩 + 첫 실행 시 모델 다운로드. 느리다고 실패로 단정하지 마라. 네트워크가 없으면 모델을 못 받는다.
 - **bedrock 은 실제로 과금된다.** `bedrock` 모듈·`run_bedrock` 검증은 **AWS 실호출**이라 돈이 나간다. 비용 없이 배선만 보려면 `BEDROCK_DRY_RUN=true`(호출 없음), 실판정 품질을 재려면 `BEDROCK_SHADOW=true`(호출함 — **과금됨**). 두 모드는 양립 불가다. 상한은 `BEDROCK_SPEND_LIMIT_USD`(기본 $30/일).
 - **bedrock 은 모델 선택지가 거의 없다.** 조직 SCP 가 서울 외 리전 호출을 막아 추론 프로파일(`apac.*`·`global.*`)을 쓸 수 없다. 서울 `ON_DEMAND` 모델은 2개뿐이고 **프롬프트 캐싱도 못 쓴다**. 모델을 바꾸려 하기 전에 `docs/modules/bedrock.md` "한계" 를 읽어라 — 이미 검증된 제약이다.
-- **AI 를 배포하는 CI 워크플로가 없다.** 저장소 루트 `.github/workflows/deploy.yml` 은 BE 만 다룬다.
+- **AI 도 CI 로 배포된다** (2026-08-13 실측). `.github/workflows/deploy-ai.yml` — `main` 푸시 + `pipeline/`·`validation/`·`bedrock/` 경로 변경 시 arm64 이미지를 굽고 ECR push → 두 Lambda 함수 갱신, 실패 시 직전 이미지로 롤백. `py-collector` 는 별도 이미지·별도 워크플로(`deploy-collector.yml`)다. 배포 상태는 `gh run list` 로 직접 확인할 수 있으니 근거 없이 SKIP 하지 마라.
 - **`data/` 는 실제 산출물이다.** 특히 `crawled_data.txt` 는 입력 원본이라 러너가 만들지 못한다 — 덮어쓰기 전에 확인하라.
