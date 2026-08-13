@@ -3,7 +3,7 @@
 > **도메인** `quiz` — 오늘의 퀴즈 조회·개별 조회·제출(채점)·풀이 이력·좋아요.
 > **모듈** quiz (포트 8081) · **경로 접두사** `/rt/quizzes` · **엔드포인트** 5개
 > **컨트롤러** `quiz/src/main/java/com/skhynix/quiz/quiz/controller/QuizController.java`(조회·좋아요 토글), `QuizSubmissionController.java`(제출·이력) — `/rt`는 context-path가 붙인다
-> **최종 갱신** 2026-08-12 — **5차 개정: `GET /today`에 `gameId`(내부 PK가 아니라 `games.naver_game_id` 문자열) 필수 쿼리 파라미터 신설.** 이제 응원 구단 경기가 **오늘·내 응원 구단·`IN_PROGRESS`**일 때만 세트를 주고, 넷 중 하나라도 아니면 사유 구분 없이 403 `QUIZ_NOT_SERVABLE`(신규), `gameId` 누락은 400(공통 래퍼)이다. **"한 이닝에 한 세트" 회차 제한이 신설**돼 같은 `(경기, 이닝)`에 다시 요청하면 409 `QUIZ_ALREADY_SERVED_IN_INNING`(신규)이다. **⚠ 재조회가 폐지됐다** — 종전엔 "미답이고 시한이 남은 문제는 다시 호출해도 계속 응답에 실린다"였으나, 이제 **행이 있는 문제는 답 여부·시한과 무관하게 그 즉시 목록에서 영구히 빠진다**. FE가 받은 세트를 화면에서 잃으면 되받을 방법이 없다(가장 큰 FE 영향). 8분 시한의 뜻도 **제출 경로 전용**으로 좁혀졌다(목록 재조회 판정과는 무관). 빈 배열의 뜻도 좁아졌다 — "지금은 줄 수 없다"가 전부 403·409로 빠지고 "줄 수 있는데 줄 게 없다"만 남는다. **응답 필드(이닝 미노출 포함)·정렬·성공 상태코드(200)·다른 4개 엔드포인트는 전부 불변.** 계약 원본 `docs/requirements/quiz/quiz-inning-tracking.md`(5차 개정, 승인됨 2026-08-12, QUIZ-INN-83~113). (직전: 같은 날 앞선 4차 이하 개정 — 제출 자격 증명의 근거가 Redis 티켓(`QuizSubmissionTicketStore`)에서 `quiz_users_submit`의 "미답 행"으로 전면 교체됨. `GET /today`가 서빙과 동시에 미답 행을 만드는 쓰기 트랜잭션이 됨. `GET /{quizId}`·`GET /submissions`에 `expired`(boolean) 필드 신설, `submitted`의 의미가 "받았는가"→"답했는가"로 재정의, `myOption`/`myOptionText`가 nullable로 완화, `submittedAt`이 `updated_at` 기준으로 재정의, 이력 요약이 미답 문제를 오답으로 집계. `POST /{quizId}/submit`은 판정 순서가 404→409→403→400에서 404→403→400→409로 바뀌어, 이미 답한 문제에 없는 보기 번호를 보내면 종전 409였던 응답이 이제 400). (직전: 2026-08-11 좋아요 기능 신설(`POST /{quizId}/like` 신규, 단건 상세·풀이 이력 응답에 `liked`·`likeCount` 필드 추가)).
+> **최종 갱신** 2026-08-13 — **`GET /rt/quizzes/submissions`(풀이 이력 조회) 요청·응답 계약 전면 교체.** `page` 파라미터 **폐지**, `gameId`(내부 PK가 아니라 `games.naver_game_id` 문자열 — `/today`와 같은 축) **필수** 신설. 응답이 종전 페이징 구조(`summary`+`PageResponse<submissions.content>`)에서 **지목한 경기 한 건의 이닝별 결산**(최상위 `summary`(correctCount/total/accuracy/**earnedPoint 신규**) + `innings[]`, 이닝마다 `{inning, summary, quizzes[]}`)으로 **전면 교체**됐다 — FE 파괴적 변경이며 BE·FE 동시 배포가 전제다. 이 교체로 **계정 전체 누적 정답률을 보여주던 경로가 사라졌다**(대체 엔드포인트 없음, 후속 과제). 문제 항목에 `options`(보기 배열) **신설**, `quizDate`·`myOptionText`·`answerText` **삭제**(`liked`/`likeCount`는 유지). 이닝 열거 범위는 경기 상태(`game_statuses.name`)로 갈린다 — 진행 중이면 `1..현재이닝-1`(현재 이닝 제외), 종료·무승부·취소는 `1..games.last_inning`, 그 경기에 내 제출 행이 0건이면 범위와 무관하게 `innings` 전체가 빈 배열(자세한 표는 해당 절 참고). 실패에 403 `GAME_NOT_STARTED`(신규 `ErrorCode` — 예정 경기 거절, `QUIZ_NOT_SERVABLE` 재사용 아님) 추가, 404 `GAME_NOT_FOUND`(기존 코드 재사용, 새 코드 아님)는 유지. **`/today`의 제공 가능 검증(오늘·응원 구단·`IN_PROGRESS`)은 이 경로에 적용되지 않는다** — 어제 끝난 경기·취소 경기도 200이다. **다른 4개 엔드포인트(응답 필드·정렬·상태코드 포함)는 전부 불변.** 변경 대상은 quiz(엔드포인트·서비스·DTO) + domain(`Game.lastInning` 매핑 신설, 읽기 전용) + common(`ErrorCode` 1건 신설) 세 모듈. 계약 원본 `docs/requirements/quiz/quiz-submission-by-inning.md`(승인됨 2026-08-13, QUIZ-SUB-1~73). (직전: 2026-08-12 5차 개정 — `GET /today`에 `gameId`(내부 PK가 아니라 `games.naver_game_id` 문자열) 필수 쿼리 파라미터 신설. 이제 응원 구단 경기가 **오늘·내 응원 구단·`IN_PROGRESS`**일 때만 세트를 주고, 넷 중 하나라도 아니면 사유 구분 없이 403 `QUIZ_NOT_SERVABLE`(신규), `gameId` 누락은 400(공통 래퍼)이다. **"한 이닝에 한 세트" 회차 제한이 신설**돼 같은 `(경기, 이닝)`에 다시 요청하면 409 `QUIZ_ALREADY_SERVED_IN_INNING`(신규)이다. **⚠ 재조회가 폐지됐다** — 종전엔 "미답이고 시한이 남은 문제는 다시 호출해도 계속 응답에 실린다"였으나, 이제 **행이 있는 문제는 답 여부·시한과 무관하게 그 즉시 목록에서 영구히 빠진다**. FE가 받은 세트를 화면에서 잃으면 되받을 방법이 없다(가장 큰 FE 영향). 8분 시한의 뜻도 **제출 경로 전용**으로 좁혀졌다(목록 재조회 판정과는 무관). 빈 배열의 뜻도 좁아졌다 — "지금은 줄 수 없다"가 전부 403·409로 빠지고 "줄 수 있는데 줄 게 없다"만 남는다. 응답 필드(이닝 미노출 포함)·정렬·성공 상태코드(200)·다른 4개 엔드포인트는 전부 불변. 계약 원본 `docs/requirements/quiz/quiz-inning-tracking.md`(5차 개정, 승인됨 2026-08-12, QUIZ-INN-83~113)). (직전: 같은 날 앞선 4차 이하 개정 — 제출 자격 증명의 근거가 Redis 티켓(`QuizSubmissionTicketStore`)에서 `quiz_users_submit`의 "미답 행"으로 전면 교체됨. `GET /today`가 서빙과 동시에 미답 행을 만드는 쓰기 트랜잭션이 됨. `GET /{quizId}`·`GET /submissions`에 `expired`(boolean) 필드 신설, `submitted`의 의미가 "받았는가"→"답했는가"로 재정의, `myOption`/`myOptionText`가 nullable로 완화, `submittedAt`이 `updated_at` 기준으로 재정의, 이력 요약이 미답 문제를 오답으로 집계. `POST /{quizId}/submit`은 판정 순서가 404→409→403→400에서 404→403→400→409로 바뀌어, 이미 답한 문제에 없는 보기 번호를 보내면 종전 409였던 응답이 이제 400). (직전: 2026-08-11 좋아요 기능 신설(`POST /{quizId}/like` 신규, 단건 상세·풀이 이력 응답에 `liked`·`likeCount` 필드 추가)).
 > 공통 규약(응답 래퍼·인증·401 정책)은 [README.md](README.md)를 먼저 볼 것.
 
 ## 엔드포인트 목록
@@ -13,7 +13,7 @@
 | GET | [/rt/quizzes/today](#get-rtquizzestoday) | 200 | `gameId`(내 응원 구단의 오늘 `IN_PROGRESS` 경기)가 지목한 이닝의 세트 목록 — 선호 문제 우선 정렬, `preferredOnly` 필터. 서빙과 동시에 미답 행 생성(쓰기 트랜잭션), 그 이닝에 이미 받았으면 409 |
 | GET | [/rt/quizzes/{quizId}](#get-rtquizzesquizid) | 200 | 단건 상세 — 답하기 전엔 정답 비노출, 답한 후엔 복기 정보 + 좋아요 상태 포함. `(submitted, expired)`로 진행 중/답함/시한 초과 구분 |
 | POST | [/rt/quizzes/{quizId}/submit](#post-rtquizzesquizidsubmit) | 200 | 제출·서버 채점 — 정답이면 포인트 적립 |
-| GET | [/rt/quizzes/submissions](#get-rtquizzessubmissions) | 200 | 내 풀이 이력(페이지, 답 없는 항목 포함) + 전체 요약(정답률), 각 항목 좋아요 상태 포함 |
+| GET | [/rt/quizzes/submissions](#get-rtquizzessubmissions) | 200 | `gameId`(필수, `games.naver_game_id`)로 지목한 **경기 한 건**의 이닝별 풀이 결산 — 이닝 배열(`summary`+`quizzes[]`) + 경기 전체 요약(정답률·획득 포인트). `page` 폐지(페이징 없음), 항목에 보기(`options`)·좋아요 상태 포함 |
 | POST | [/rt/quizzes/{quizId}/like](#post-rtquizzesquizidlike) | 200 | 좋아요 토글 — 내가 제출한 문제에만 허용 |
 
 ## 이 도메인의 특이사항
@@ -245,46 +245,108 @@ curl -X POST http://localhost:8081/rt/quizzes/23/submit \
 ---
 
 ## GET /rt/quizzes/submissions
-> 최종 변경: 2026-08-12 — `expired`(boolean) 필드 신설. **`myOption`·`myOptionText`가 nullable로 완화**됨(답 없는 항목 포함). **답 없는 항목(진행 중이거나 시한 초과)도 이제 목록에 실린다**(내부적으로 inner join → left join 전환) — 요약 `total`과 항목 수가 일치. **`submittedAt`의 의미가 바뀌었다**: 이제 그 행의 `updated_at`(답을 낸 시각) 기준이며(종전엔 `created_at`, 즉 받은 시각이었다), 답 없는 항목은 받은 시각(`created_at`)이 그대로 실린다. **정렬 축은 종전대로 `id DESC`로 불변.** 요약 통계는 답하지 않은 문제도 분모에 포함하고 오답으로 취급한다(제품 결정 — `/today` 직후 정확도가 낮게 나왔다가 풀수록 올라가는 것이 의도된 동작). (직전: 2026-08-11 각 이력 항목에 `liked`·`likeCount` 필드 추가)
+> 최종 변경: 2026-08-13 — **요청·응답 계약 전면 교체.** `page` 파라미터 **폐지**, `gameId`(필수, `games.naver_game_id` 문자열)로 조회 단위가 계정 전체에서 **경기 한 건**으로 좁혀졌다. 응답이 페이징 구조(`summary`+`PageResponse<submissions.content>`)에서 **`summary`(전체 요약, `earnedPoint` 신규) + `innings[]`(이닝별 `summary`+`quizzes[]`)**로 전면 교체됐다 — FE 파괴적 변경(BE·FE 동시 배포 전제), 계정 전체 누적 정답률을 보여주던 경로가 사라졌다(대체 없음, 후속 과제). 항목에 `options`(보기 배열) 신설, `quizDate`·`myOptionText`·`answerText` 삭제(`liked`/`likeCount`는 유지). 403 `GAME_NOT_STARTED`(신규 `ErrorCode`, 예정 경기 거절) 추가, `GAME_NOT_FOUND`(기존 코드)는 유지. 계약 원본 `docs/requirements/quiz/quiz-submission-by-inning.md`(승인됨 2026-08-13, QUIZ-SUB-1~73). (직전: 2026-08-12 `expired`(boolean) 필드 신설. `myOption`·`myOptionText`가 nullable로 완화되고 답 없는 항목도 목록에 실림, `submittedAt`이 `updated_at`(답을 낸 시각) 기준으로 재정의, 요약이 미답 문제를 오답으로 집계. 정렬 축은 `id DESC`였다 — **이번 개정으로 폐기**(아래 이닝 축으로 대체). 직전: 2026-08-11 각 이력 항목에 `liked`·`likeCount` 필드 추가)
 
-내 풀이 이력(**답한 문제뿐 아니라 받은 문제 전체**) + 전체 요약. `QuizSubmitService.getHistory(userAccountId, page)` — `id` 내림차순(최신 받은 순), 페이지 크기 서버 고정 20(채팅 이력과 같은 규약).
+**지목한 경기 한 건**의 이닝별 풀이 결산 — 이닝 배열 + 이닝별 요약 + 경기 전체 요약. `QuizSubmitService.getHistory(userAccountId, gameId)`. "경기 하나를 관전하며 이닝마다 문제를 푼다"가 사용 단위라 조회 축도 계정이 아니라 경기이고, 순서 축이 페이지 번호가 아니라 이닝이다.
 
-**인증 필요.**
+**인증 필요** — `Authorization: Bearer <accessToken>`
+
+**⚠ `/today`의 제공 가능 검증(오늘(KST)·요청자 응원 구단 참여·`IN_PROGRESS`)은 이 경로에 적용되지 않는다.** 이력은 끝난 경기를 보는 화면이라 그 관문을 두면 기능이 성립하지 않는다 — **어제 끝난 경기·응원하지 않은 구단의 경기·취소 경기도 200**이다(응답이 요청자 본인의 행만 담으므로 임의의 `gameId`를 넣어도 자기 기록 0건이 나올 뿐 아무것도 새지 않는다). 검증은 아래 둘뿐이며 순서가 고정이다: **404(경기 미존재) → 403(예정 경기, `SCHEDULED`) → 200(집계)**.
 
 **쿼리 파라미터**
 
 | 파라미터 | 타입 | 기본 | 설명 |
 |---|---|---|---|
-| page | int | 0 | 0-기반 페이지 번호 |
+| gameId | String | 없음(필수) | **내부 PK가 아니라 `games.naver_game_id` 문자열** — `/today`와 같은 값(`GameResponse.gameId`). 누락 또는 빈 문자열이면 400(이력 조회 쿼리 자체가 실행되지 않는다). 존재하지 않는 값이면 404 `GAME_NOT_FOUND` |
 
-**응답 200 OK** `ApiResponse<QuizSubmissionHistoryResponse>`
+**이닝 열거 범위 — 경기 상태(`game_statuses.name`)가 1차 축이다.** id 리터럴이 아니라 이름 문자열로 판정한다(id는 환경마다 다를 수 있음). 두 이닝 컬럼(`current_inning`/`last_inning`)을 섞어 읽거나 한쪽이 비면 다른 쪽으로 대체하는 폴백은 없다.
+
+| 경기 상태 | 읽는 컬럼 | 열거 범위 | 그 컬럼이 NULL이면 |
+|---|---|---|---|
+| `SCHEDULED` | **읽지 않음** | **없음 — 403 `GAME_NOT_STARTED`** | (해당 없음, 상태만으로 판정) |
+| `IN_PROGRESS` | `current_inning` | `1 … current_inning-1`(**진행 중인 현재 이닝은 제외** — 완료된 이닝만 결산. `current_inning=1`이면 범위 없음) | 200 + `innings: []`(방어) |
+| `FINISHED` / `DRAW` | `last_inning` | `1 … last_inning`(무승부는 정상 종료의 한 형태라 종료와 동일 처리) | 200 + `innings: []`(방어) |
+| `CANCELED` | `last_inning` | 값이 있으면 `1 … last_inning`, 없으면 범위 없음(노게임은 취소돼도 진행된 이닝의 기록이 남을 수 있어 `SCHEDULED`처럼 접지 않는다) | 200 + `innings: []` |
+| 위 표에 없는 상태 이름(예: 향후 `suspended`) | `last_inning` | `FINISHED`와 동일 처리(모르는 상태를 "시작 전"으로 단정해 이미 쌓인 기록을 감추지 않는다) | 200 + `innings: []` |
+
+**그 위에 접히는 규칙이 하나 더 있다(범위가 계산돼도 끝이 아니다):**
+- 그 경기에 요청자의 제출 행이 **하나도 없으면**, 위 범위가 몇 이닝으로 계산됐든 `innings`를 **통째로 빈 배열**로 반환한다(`0/0` 원소들을 만들지 않는다) — 그릴 축이 없는 화면이라 접는다.
+- 기록이 **하나라도 있으면** 열거 범위의 모든 이닝이 원소로 내려간다 — 받은 문제가 없는 이닝도 `quizzes: []` + `{"correctCount":0,"total":0,"accuracy":0.0}`으로 남는다(빈 이닝만 골라 빼지 않는다 — 배열 길이가 곧 열거 이닝 수라야 FE가 1~N 슬롯을 고정 축으로 그릴 수 있다).
+
+⚠ **`innings: []`는 서로 다른 세 사실을 한 모양으로 덮는다 — 응답만으로는 구별할 수 없다:** ① 그 경기에 내 기록이 0건 ② 열거에 쓸 이닝 값(`current_inning`/`last_inning`)이 NULL(수집 지연 등에 대한 방어 — 원천은 py-collector이고 이 앱은 통제하지 못한다, 값이 채워지면 재조회만으로 정상화됨) ③ `IN_PROGRESS`이고 `current_inning=1`이라 결산할 완료 이닝이 아직 없음(1회에 이미 세트를 받아 풀었어도 마찬가지 — "완료된 이닝만 결산한다"의 귀결). 지금은 화면 표시가 같아도 무방하다고 보고 **사유 필드를 두지 않는다**(감출 것이 있어서가 아니라 필요가 아직 없어서 — 구분 요구가 나오면 `emptyReason` 같은 필드를 더하는 별도 요구사항으로 다룬다).
+
+**응답 200 OK** `ApiResponse<QuizSubmissionHistoryResponse>` — 페이징 없음.
 
 | 필드 | 타입 | 설명 |
 |---|---|---|
-| data.summary.total | long | 전체 **받은** 문제 수(페이지 아님) — **답하지 않은 문제도 포함**(2026-08-12 — 행이 서빙 시점에 생기므로) |
-| data.summary.correctCount | long | 전체 정답 수 |
-| data.summary.accuracy | double | 정답률(0.0~1.0). **답하지 않은 문제는 분모에 포함되고 오답으로 취급된다**(제품 결정, 2026-08-12 — "내지 않으면 틀린 것"). `/today`로 문제를 받은 직후 정확도가 낮게 떨어졌다가 풀수록 올라가는 것이 **의도된 동작**이다. 제출 0건이면 0.0 |
-| data.submissions | object | [chat](chat.md)과 동일한 `PageResponse` — content·page·size·totalElements·totalPages·hasNext |
-| ...content[] | | quizId · question · type · difficulty · quizDate · **myOption(nullable)** · **myOptionText(nullable)** · correct · **expired(신규)** · answer · answerText · earnedPoint · **submittedAt(의미 변경)** · liked · likeCount |
+| data.summary.correctCount | long | 열거된 이닝 전체의 정답 수 합계(이닝 배열과 항상 일치 — 별도 count 쿼리가 아니라 이닝 합계로 유도) |
+| data.summary.total | long | 열거된 이닝 전체의 받은 문항 수 합계. **열거 범위 밖(진행 중인 현재 이닝 등) 행은 포함하지 않는다** |
+| data.summary.accuracy | double | `correctCount/total`(0.0~1.0), `total=0`이면 `0.0`(NaN 아님) |
+| data.summary.earnedPoint | long(신규) | 정답 행(`is_answer=true`)의 `quizzes.score` 합. **적립 원장이 아니라 표시용 근사치**(`users_account.point`는 읽지 않는다) — 배점이 사후 수정되면 실제 적립액과 어긋날 수 있음을 계약으로 인정 |
+| data.innings[].inning | int | 이닝 번호(1부터, 오름차순) |
+| data.innings[].summary.correctCount / total / accuracy | | 그 이닝만의 같은 산식 — **분모(`total`)는 그 이닝에 실제로 받은 문항 수**(고정 20이 아니다) |
+| data.innings[].quizzes[] | array | 그 이닝의 문제 목록. **행 `id` 오름차순(받은 순서)**. 기록 없는 이닝도 원소로 남고 `quizzes: []` |
 
-정답 번호·텍스트가 실리는 것은 의도다(제출한 문제의 복기 화면). **이제 이 목록에는 아직 답하지 않은 문제(진행 중이거나 시한 초과)도 함께 실린다** — 감출 수 없는 이유는 요약이다: `total`이 그 행을 세는데 목록에서 빼면 총건수와 항목 수가 어긋난다. **답 없는 항목**은 `myOption`·`myOptionText`가 `null`, `correct`는 `false`, `earnedPoint`는 `0`(오답과 같은 표시)이며, `expired`로 "진행 중"과 "시한 초과"를 구분한다(**답한 항목은 `expired`가 항상 `false`**).
+**data.innings[].quizzes[] 항목 필드**(13개 — `quizDate`·`myOptionText`·`answerText`는 삭제됨):
 
-**`submittedAt`은 이제 답을 낸 시각(그 행의 `updated_at`)이다(2026-08-12 재정의) — 종전엔 받은 시각(`created_at`)이었다.** 행이 출제 시점에 생기게 되면서 `created_at`은 "받은 시각"이 됐고, 그대로 실으면 이 필드가 최대 8분 어긋난다. **답 없는 항목은 낸 시각 자체가 없으므로 받은 시각이 그대로 남는다**(출제 시 `created_at`·`updated_at`을 같은 시각으로 찍는다). **정렬 축은 종전대로 `id` 내림차순이며 이번 변경으로 바뀌지 않는다.**
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| quizId | Long | 퀴즈 내부 PK |
+| question | String | 문제 본문 |
+| type | String | `"객관식"` \| `"O/X"` |
+| difficulty | String \| null | `EASY`/`MEDIUM`/`HARD`/`EXPERT`. null 가능 |
+| options | array(신규) | `[{"no":0,"text":"O"},...]` — `/today`의 `options`와 같은 모양(0-기반, 번호 오름차순). 텍스트 두 필드(`myOptionText`·`answerText`)가 사라진 대신 클라이언트가 이 배열에서 번호로 찾는다 |
+| myOption | Integer \| null | 내가 고른 보기 번호. **답하지 않은 항목이면 null** |
+| correct | boolean | `quiz_users_submit.is_answer` 그대로(재계산 안 함 — 정답이 사후 정정돼도 당시 판정을 보존). 미답이면 `false` |
+| expired | boolean | 답 없이 시한(받은 시각+8분)을 넘겼는지. 답한 항목은 항상 `false` |
+| answer | int | 정답 보기 번호. **미답 항목에도 실린다** — 이 목록의 항목은 정의상 전부 이미 받은 문제라 감출 대상이 아니다 |
+| earnedPoint | long | 그 문제로 적립된 포인트(정답 아니면 0, `score` NULL이면 0) |
+| submittedAt | LocalDateTime | 답을 낸 시각(그 행의 `updated_at`). **미답 항목은 낸 시각이 없어 받은 시각(`created_at`)이 그대로 남는다** |
+| liked | boolean | 내 현재 좋아요 상태(항상 존재, 미답 항목도 포함 — 좋아요는 받은 문제 전체에 열려 있다) |
+| likeCount | long | `liked=true` 행 수(취소한 좋아요는 세지 않음) |
 
-**`liked`·`likeCount`는 이력 항목 전부에 항상 포함된다**(키 부재 케이스 없음, 원시 타입) — 다만 **"이력 항목은 정의상 전부 제출한 문제"라던 종전 근거는 더 이상 참이 아니다**(답 없는 항목이 섞이기 때문). 좋아요 상태 조립은 여전히 페이지 항목 수와 무관하게 고정 쿼리 2건(집계 1 + 내 좋아요 1)으로 끝난다(N+1 금지). **실패**: 401뿐 — 이력 0건도 200이다.
+**비용**: 이닝 수·문항 수와 무관하게 SQL이 상수다 — 보기는 `quiz_id IN` 조회 1건, 좋아요는 고정 2쿼리(집계 1 + 내 좋아요 1). 이닝마다 쿼리를 도는 구현(이닝 N+1)은 금지. 읽기 전용(`@Transactional(readOnly = true)`) — 조회 전후로 `quiz_users_submit`·`quizzes_like`·`users_account.point`가 변하지 않는다.
+
+**실패**
+
+| 상태 | ErrorCode | 조건 |
+|---|---|---|
+| 400 | (검증) | `gameId` 쿼리 파라미터 누락 또는 빈 문자열 — 공통 래퍼로 응답, `data`는 `null`. 이력 조회 쿼리가 실행되지 않는다 |
+| 401 | UNAUTHENTICATED | 무토큰 |
+| 403 | GAME_NOT_STARTED(신규) | 지목한 경기가 `SCHEDULED` — 이닝 컬럼을 읽지 않고 상태만으로 거절. `QUIZ_NOT_SERVABLE`(출제 거절 문구)을 재사용하지 않는다 |
+| 404 | GAME_NOT_FOUND | `gameId`가 어떤 `games` 행과도 매칭되지 않음(기존 코드 재사용, 새 코드 아님) |
 
 ```bash
-curl "http://localhost:8081/rt/quizzes/submissions?page=0" -H 'Authorization: Bearer eyJ...'
-# {"success":true,"data":{"summary":{"total":13,"correctCount":9,"accuracy":0.6923076923076923},
-#   "submissions":{"content":[
-#     {"quizId":30,"question":"...","type":"O/X","difficulty":"EASY","quizDate":"2026-08-12",
-#      "myOption":null,"myOptionText":null,"correct":false,"expired":false,"answer":0,
-#      "answerText":"O","earnedPoint":0,"submittedAt":"2026-08-12T10:03:11","liked":false,"likeCount":0},
-#     {"quizId":23,"question":"...","type":"O/X","difficulty":"EASY","quizDate":"2026-08-10",
-#      "myOption":0,"myOptionText":"O","correct":true,"expired":false,"answer":0,"answerText":"O",
-#      "earnedPoint":50,"submittedAt":"2026-08-10T09:12:03","liked":true,"likeCount":5}],
-#     "page":0,"size":20,"totalElements":13,"totalPages":1,"hasNext":false}},"message":null}
-# (첫 항목은 아직 답하지 않은 채 진행 중인 문제 — myOption/myOptionText 가 null, submittedAt 은 받은 시각)
+# 성공 — 진행 중인 경기, 1회는 결산됐고 2회는 기록이 있는 경기라 0/0으로 남는다
+curl "http://localhost:8081/rt/quizzes/submissions?gameId=20260812SSHT02026" -H 'Authorization: Bearer eyJ...'
+# {"success":true,"data":{
+#   "summary":{"correctCount":9,"total":14,"accuracy":0.642857,"earnedPoint":450},
+#   "innings":[
+#     {"inning":1,"summary":{"correctCount":9,"total":14,"accuracy":0.642857},
+#      "quizzes":[
+#        {"quizId":30,"question":"...","type":"O/X","difficulty":"EASY",
+#         "options":[{"no":0,"text":"O"},{"no":1,"text":"X"}],
+#         "myOption":0,"correct":true,"expired":false,"answer":0,
+#         "earnedPoint":50,"submittedAt":"2026-08-13T19:03:11","liked":false,"likeCount":2}]},
+#     {"inning":2,"summary":{"correctCount":0,"total":0,"accuracy":0.0},"quizzes":[]}
+#   ]},"message":null}
+
+# 그 경기에서 문제를 한 번도 받지 않은 경우 — 열거 범위가 계산돼도 통째로 접힌다(빈 이닝 원소가 아니다)
+curl "http://localhost:8081/rt/quizzes/submissions?gameId=20260812LTKT02026" -H 'Authorization: Bearer eyJ...'
+# {"success":true,"data":{"summary":{"correctCount":0,"total":0,"accuracy":0.0,"earnedPoint":0},
+#   "innings":[]},"message":null}
+
+# gameId 누락 (실측 규약)
+curl http://localhost:8081/rt/quizzes/submissions -H 'Authorization: Bearer eyJ...'
+# 400 {"success":false,"data":null,"message":"필수 요청 파라미터가 누락되었습니다: gameId"}
+
+# 예정 경기
+curl "http://localhost:8081/rt/quizzes/submissions?gameId=20260813LGHH02026" -H 'Authorization: Bearer eyJ...'
+# 403 {"success":false,"data":null,"message":"아직 시작하지 않은 경기입니다."}
+
+# 존재하지 않는 gameId
+curl "http://localhost:8081/rt/quizzes/submissions?gameId=NOPE" -H 'Authorization: Bearer eyJ...'
+# 404 {"success":false,"data":null,"message":"존재하지 않는 경기입니다."}
 ```
 
 ---
