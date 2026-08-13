@@ -24,7 +24,9 @@
 -- ============================================================================
 SHOW COLUMNS FROM games WHERE Field = 'last_inning';
 
--- 1행  → 배포 가능. 참고로 Type 은 tinyint 를 기대한다(current_inning 과 같은 축이라 폭을 맞췄다).
+-- 1행  → 배포 가능. Type 은 int 를 기대한다 — 이닝이라는 값의 성격은 current_inning(tinyint) 과
+--        같지만 실제 컬럼이 int 로 만들어졌고(2026-08-13 devdb information_schema 실측),
+--        Game.lastInning 의 columnDefinition 도 그 실물에 맞춰 뒀다. 폭이 달라도 읽기는 같다.
 --        엔티티는 값을 Integer 로 읽으므로 int 로 만들어져 있어도 동작에는 문제가 없다.
 -- 0행  → **여기서 멈출 것.** 컬럼을 만든 사람에게 확인하고, 없으면 만들어야 한다
 --        (이 파일은 일부러 ALTER 를 담지 않는다 — 스키마 변경은 이 작업의 범위 밖이다).
