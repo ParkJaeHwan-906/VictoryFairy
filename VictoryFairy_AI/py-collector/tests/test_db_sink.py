@@ -371,7 +371,7 @@ def test_game_sync_upsert_sql_binds_stadium_and_coalesces_scores():
     from kbo_collector.db import GAME_SYNC_UPSERT
     # 경기 전에는 records 잡이 아직 안 돌아 구장이 비므로, 일정 선적재가 채울 수
     # 있도록 stadium_id 도 바인딩 파라미터로 받는다(예전엔 NULL 리터럴이었다).
-    assert "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(6), NOW(6))" in GAME_SYNC_UPSERT
+    assert "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(6), NOW(6))" in GAME_SYNC_UPSERT
     assert "home_score=COALESCE(VALUES(home_score), home_score)" in GAME_SYNC_UPSERT
     assert "away_score=COALESCE(VALUES(away_score), away_score)" in GAME_SYNC_UPSERT
 
@@ -386,6 +386,32 @@ def test_game_sync_upsert_overwrites_inning_instead_of_coalescing():
     assert "inning_half=VALUES(inning_half)" in update_clause
     assert "COALESCE(VALUES(current_inning)" not in update_clause
     assert "COALESCE(VALUES(inning_half)" not in update_clause
+
+
+def test_game_sync_upsert_column_order_is_pinned():
+    """INSERT 컬럼 **순서**를 통째로 고정한다.
+
+    개수만 세는 단언으로는 순서 회귀를 못 잡는다 — 예컨대 last_innning 을 컬럼
+    목록에서 current_inning 앞으로 옮기면 테스트는 전부 통과하고 **운영에서만
+    엉뚱한 컬럼에 값이 들어간다**(파라미터 튜플은 그대로이므로). 문자열을 통째로
+    비교해 그 창을 닫는다.
+    """
+    from kbo_collector.db import GAME_SYNC_UPSERT
+    assert (
+        "INSERT INTO games (naver_game_id, game_date, home_team_id, away_team_id, "
+        " stadium_id, home_score, away_score, game_status_id, current_inning, inning_half, "
+        " last_innning, created_at, updated_at) "
+    ) in GAME_SYNC_UPSERT
+
+
+def test_game_sync_upsert_keeps_last_inning_when_not_provided():
+    from kbo_collector.db import GAME_SYNC_UPSERT
+    # last_innning 은 current_inning 과 정반대다 — "몇 회에 끝난 경기인가"는 종료 후에도
+    # 남아야 하므로 COALESCE 로 지킨다. VALUES() 로 덮으면 다음 폴링(예정·취소 경기의
+    # statusInfo 는 이닝이 아니다)에서 곧바로 NULL 로 지워진다.
+    # ⚠ 컬럼명의 n 세 개는 실제 DB 컬럼명이다(prod 실측). 오타가 아니라 사실이다.
+    update_clause = GAME_SYNC_UPSERT.split("ON DUPLICATE KEY UPDATE", 1)[1]
+    assert "last_innning=COALESCE(VALUES(last_innning), last_innning)" in update_clause
 
 
 def test_game_sync_upsert_never_nulls_out_a_stadium_records_already_landed():
@@ -406,9 +432,9 @@ def test_sync_game_upserts_and_commits():
     kind, sql, params = conn.log[0]
     assert kind == "execute" and sql == GAME_SYNC_UPSERT
     # stadium_id 미지정 -> None (INSERT 시 NULL, UPDATE 시 COALESCE 로 기존 값 유지)
-    # 이닝 미지정 -> None (진행 중이 아닌 경기는 NULL 로 덮인다)
+    # 이닝 미지정 -> None (current/half 는 NULL 로 덮이고, last_innning 은 COALESCE 로 보존)
     assert params == ("20260708LGSS02026", "2026-07-08 18:30:00", 3, 2, None, 5, 3, 7,
-                      None, None)
+                      None, None, None)
     assert pk == 101
     assert conn.commits == 1
 
@@ -475,9 +501,20 @@ def test_sync_game_binds_inning_pair():
     DbSink(None, connection=conn).sync_game(
         naver_game_id="20260812SSHT02026", game_dt="2026-08-12 19:00:00",
         home_team_id=1, away_team_id=9, home_score=1, away_score=2, status_id=2,
-        current_inning=1, inning_half=1)
+        current_inning=1, inning_half=1, last_innning=1)
     _, _, params = conn.log[0]
-    assert (params[8], params[9]) == (1, 1)  # current_inning, inning_half
+    assert (params[8], params[9], params[10]) == (1, 1, 1)  # current, half, last
+
+
+def test_sync_game_binds_last_inning_for_a_finished_game():
+    # 종료 경기: current/half 는 NULL 이고 last_innning 만 값이 있다.
+    conn = FakeConn()
+    DbSink(None, connection=conn).sync_game(
+        naver_game_id="20260812KTNC02026", game_dt="2026-08-12 19:00:00",
+        home_team_id=1, away_team_id=9, home_score=3, away_score=0, status_id=3,
+        current_inning=None, inning_half=None, last_innning=9)
+    _, _, params = conn.log[0]
+    assert (params[8], params[9], params[10]) == (None, None, 9)
 
 
 # --------------------------------------------------------------------------- preview 라인업 정리

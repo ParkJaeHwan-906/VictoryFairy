@@ -594,17 +594,31 @@ def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=
             dt = (g.get("gameDateTime") or "").replace("T", " ") or f"{date} 00:00:00"
             stadium = (None if g.get("gameId") in known_stadium
                        else _scheduled_game_stadium(settings, client, g, status, log))
-            # 이닝은 진행 중일 때만 채운다 — 그 밖의 상태는 None 이 그대로 나가 NULL 로
-            # 덮인다. statusInfo 는 경기가 끝나도 마지막 이닝("9회말")을 그대로 들고
-            # 있어서(강우콜드면 "6회말") 상태로 거르지 않으면 종료 경기까지 값이 박힌다.
-            inning, inning_half = (
-                game_records.parse_inning(g.get("statusInfo"))
-                if status == "IN_PROGRESS" else (None, None))
+            # statusInfo 한 번 읽어 정반대 정책의 두 곳으로 나눠 보낸다.
+            #
+            #   current_inning/inning_half — **진행 중일 때만.** statusInfo 는 경기가
+            #     끝나도 마지막 이닝("9회말", 강우콜드면 "6회말")을 그대로 들고 있어서
+            #     상태로 거르지 않으면 종료 경기까지 "진행 중"으로 박힌다.
+            #   last_innning — **상태를 가리지 않는다.** 몇 회에 끝난 경기인지는 종료 후에도
+            #     남아야 하는 값이라, 오히려 종료 경기의 statusInfo 가 곧 정답이다.
+            #     upsert 쪽이 COALESCE 라 파싱 실패(None)가 기존 값을 지우지 않는다.
+            #
+            # last_innning 이 종료 상태에서도 채워지는 덕에, 라이브 구간을 놓친 경기도
+            # **games_sync 가 그 날짜를 다시 훑기만 하면** 회수된다(live 룰은 당일,
+            # morning/nightly 는 오늘~+N일. 그보다 과거는 수동 백필이 필요하다).
+            #
+            # 상한을 두 번 다르게 적용한다: current_inning 은 CHECK 때문에 11 로 막고,
+            # last_innning 은 CHECK 가 없어 막지 않는다. 같이 막으면 12회 경기에서
+            # 파싱이 None 이 되고 COALESCE 가 직전의 11 을 남겨 **틀린 값이 조용히**
+            # 기록된다(parse_inning 주석 참고).
+            inning, inning_half = game_records.parse_inning(g.get("statusInfo"))
+            last_inning, _ = game_records.parse_inning(g.get("statusInfo"), max_inning=None)
             if status == "IN_PROGRESS" and inning is None:
                 # 진행 중인데 이닝이 안 읽힌 경우만 남긴다: 미지 포맷이거나 상한 초과다.
                 # 이닝이 없어도 상태·점수 동기화는 그대로 진행한다.
                 log.warning("이닝 파싱 실패 %s: statusInfo=%r",
                             g.get("gameId"), g.get("statusInfo"))
+            live = status == "IN_PROGRESS"
             game_pk = db.sync_game(
                 naver_game_id=g["gameId"], game_dt=dt,
                 home_team_id=team_ids[g["homeTeamCode"]],
@@ -613,7 +627,9 @@ def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=
                 away_score=g.get("awayTeamScore") if live_or_done else None,
                 status_id=db.status_id(status),
                 stadium_id=db.stadium_id(stadium),
-                current_inning=inning, inning_half=inning_half)
+                current_inning=inning if live else None,
+                inning_half=inning_half if live else None,
+                last_innning=last_inning)
             synced += 1
             if not live_window:
                 continue
