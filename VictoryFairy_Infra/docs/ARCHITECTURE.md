@@ -15,7 +15,7 @@
 | 데이터 | **단일 고정 EC2**(비 EKS)에 MySQL + 서비스 Redis | 스케일 없음(수직만) |
 | 정제 | **서버리스** — Lambda + S3 이벤트 + SQS + DynamoDB (§4). 이미지 배포는 **CI 소유** | 이벤트 구동 |
 | batch 노드그룹 | Spot xlarge 0→N→0. **정제에는 미사용 — 문제 생성 단계용 보류** | 일시적 |
-| 접근 | SSM Session Manager only (DB·EKS 노드 SSH 모두 터널 경유, 22/3306 인입 없음) | — |
+| 접근 | SSM 터널(EKS 노드 SSH·셸, 22 인입 없음) **+ 운영 DB 는 2026-07-27부터 퍼블릭 EIP 직결 — `/32` 한정·임시**(§3) | — |
 
 ---
 
@@ -46,7 +46,12 @@
 - **서비스 Redis(6379)는 브로커 전용**: 채팅·퀴즈 pub/sub 팬아웃, 이메일 인증 TTL 키. quiz가 다중 파드로 스케일아웃돼도 pub/sub이 파드 간 SSE 이벤트를 팬아웃한다.
   - ⚠ t3.small(2GB)은 MySQL+Redis에 빠듯하다. `innodb_buffer_pool_size` + Redis `maxmemory`/`maxmemory-policy`로 상한을 나눠 잡고 스왑 대비.
 - **백업**(RDS 자동백업 대체): MySQL `mysqldump` cron → S3, 병행 EBS DLM 스냅샷. 이 백업 없이는 인스턴스/AZ 장애 = 데이터 유실.
-- **접근**: SSM 포트포워딩만. SG 인입은 `3306 ← user·quiz·batch`, `6379 ← user·quiz`.
+- **접근 — 2026-07-27부터 두 경로다.** 앱(EKS)용 SG 인입은 그대로 `3306 ← user·quiz·batch`, `6379 ← user·quiz`.
+  - **SSM 포트포워딩**(원래 유일 경로, **지금도 유효**): 인스턴스 롤의 `AmazonSSMManagedInstanceCore` 로 붙으므로 인입 개방이 필요 없다. 퍼블릭 경로를 닫아도 접근 수단은 남는다.
+  - **퍼블릭 EIP 직접 접속**(현행 추가분): `mysql_public_access_cidrs` 에 개발자 IP 를 넣으면 인스턴스가 **퍼블릭 서브넷(2a) + EIP** 로 서고 3306·6379 가 **그 `/32` 에서만** 열린다. 22 는 열지 않는다(이 인스턴스는 키페어가 없고 셸은 SSM 으로 붙는다). `0.0.0.0/0` 은 변수 검증으로 금지.
+  - **임시 조치이며 안정화 후 프라이빗 복귀 예정이다.** 변수를 비우면 퍼블릭 IP·EIP·인입 규칙이 통째로 사라지고 §3 원안(SSM 전용)으로 돌아간다. 다만 값의 유무가 서브넷 배치를 바꾸므로(루트에서 분기) **되돌릴 때 인스턴스가 재생성되고 프라이빗 IP 가 바뀐다** — 데이터는 별도 EBS 라 보존되지만 k8s Endpoints 갱신이 따라붙는다. "언제든 무비용으로 되돌린다"가 아니다.
+  - 인스턴스를 통째로 퍼블릭에 둔 이유는 **보조 ENI + EIP 가 막다른 길이었기 때문**이다(인바운드 SYN 이 NIC 도달 전 드롭 — 조사 기록은 `modules/mysql-ec2/main.tf` 주석). EIP 는 주 ENI 에 있어야 한다.
+  - ⚠ 이 호스트의 Redis 는 `requirepass` 없이 뜬다 → 허용 CIDR 안에서는 **인증 없는 데이터 스토어**가 된다. CIDR 을 `/32` 보다 넓히지 말 것.
   - ⚠️ **정제 파이프라인(§4)은 MySQL을 쓰지 않는다** — 산출물이 S3에서 끝난다. `3306 ← batch`는
     **문제 생성 단계가 생길 때** 필요해지는 것이고, 지금 배치가 실제로 쓰는 것은 **S3 + Bedrock**뿐이다.
     IRSA 권한을 최소로 잡을 때 이 구분을 지킬 것.
@@ -55,11 +60,11 @@
 
 위 운영 EC2와 별개로 **개발자용 DB EC2가 하나 더 있다.** 데이터 원본이 아니라 운영 백업의 리프레시 복제본이라 위 §3에서 빠져 있었다.
 
-- **목적**: 개발자가 **로컬에서 직접** MySQL/Redis 에 붙어 쓰기 위한 비프로덕션 DB. 그래서 운영 DB(SSM 터널만)와 달리 **퍼블릭 서브넷(2a) + 퍼블릭 IP** 로 띄운다.
+- **목적**: 개발자가 **로컬에서 직접** MySQL/Redis 에 붙어 쓰기 위한 비프로덕션 DB. **퍼블릭 서브넷(2a) + 퍼블릭 IP** 로 띄운다(운영 DB 가 아직 SSM 전용이던 시절의 유일한 직접 접속 수단이었다).
 - **접근**: SSM 이 아니라 **직접 접속.** SG 인입은 `22/3306/6379 ← allowed_cidrs` 하나에서만(개발자 IP `/32`). `0.0.0.0/0` 은 변수 검증으로 금지. EKS 노드 SG 를 소스로 쓰지 않는다(운영 DB 와 다른 점).
 - **데이터 갱신**: 운영 `mysql-ec2` 의 mysqldump S3 백업을 **매일 restore** 로 받아 프로덕션과 같은 상태로 리프레시. 백업 방향이 반대다 — 운영은 S3 로 **내보내고**, dev-db 는 S3 에서 **받아온다**(읽기 전용). root 비번도 같은 SSM 파라미터(`/victoryfairy/mysql/root-password`)를 공유해 복원 후에도 일관.
 - **조건부 생성**: `dev_db_allowed_cidrs` 가 비면 `count=0` → 아예 안 만들어진다(plan 에도 안 뜬다). tfvars 에 자기 IP `/32` 를 넣은 개발자에게만 뜬다. `dev_db_use_eip=true` 면 stop/start 후에도 퍼블릭 IP 가 고정(EIP).
-- ⚠️ **퍼블릭 노출은 의도된 트레이드오프다.** 운영 DB 는 절대 퍼블릭이 아니며, 이 노출은 운영 데이터가 아닌 '매일 덮어써지는 복제본'에 한정된다. 그래도 인입은 반드시 단일 `/32` 로 좁게 유지할 것.
+- ⚠️ **퍼블릭 노출은 의도된 트레이드오프다.** 인입은 반드시 단일 `/32` 로 좁게 유지할 것. (2026-07-27 부터는 운영 DB 도 같은 방식으로 열려 있다 — §3. 차이는 이쪽이 '매일 덮어써지는 복제본'이라 노출 대가가 작다는 것뿐이고, 운영 쪽은 되돌릴 계획이 있는 임시 구성이다.)
 
 ## 4. 정제 파이프라인 — 크롤 → 패턴 검열 → LLM 검열 (서버리스)
 
@@ -193,7 +198,7 @@ kbo-collector (Lambda)  ──▶ S3 community/{source}/{date}/{postId}.json
 
 - **Terraform(`.tf`, 이 레포)**: VPC·서브넷·NAT, EKS 클러스터, 노드그룹 2개(app/batch), MySQL EC2·EBS·SG·IAM, S3, **ECR 리포지토리**, 그리고 **정제 파이프라인 일체**(Lambda 2개·SQS+DLQ·DynamoDB·S3 이벤트 알림·IAM 실행 롤). **클러스터와 노드그룹까지 + 서버리스 정제 전부.**
   - ⚠️ **정제는 EKS 를 쓰지 않으므로 IRSA 가 아니라 Lambda 실행 롤**이다(§4). IRSA 는 문제 생성 단계가 EKS 로 갈 때 다시 본다.
-  - ⚠️ **`kbo-collector` Lambda 와 EventBridge 규칙은 `dev_ai` 트리의 자체 Terraform 스택 소유**다(이 레포 밖·state 분리). 한 파이프라인이 두 state 에 걸친다 — 흡수 여부는 미결정.
+  - ⚠️ 단, **`kbo-collector` Lambda 와 EventBridge 규칙은 `environments/dev` 소관이 아니다** — 같은 레포의 `collector-lambda/` 독립 스택이 소유한다(§4 한계).
 - **Kubernetes(YAML/Helm, `VictoryFairy_Infra/k8s/`)**: Deployment(user/quiz), HPA(user/quiz), taint↔toleration/nodeSelector. Spring `SPRING_PROFILES_ACTIVE=prod`. (앱 코드는 별도 레포/브랜치지만, 배포 매니페스트는 결합도가 큰 Terraform과 **같은 인프라 레포에 co-locate** — 도구/레이어 경계는 유지)
   - FE는 이 레이어에 없다. S3+CloudFront가 서비스한다(`docs/fe-cdn-migration.md`). nginx 파드(fe-app)와 Kubernetes Dashboard는 2026-08-07 제거됐다.
   - `40~42-batch-*.yaml` 은 **정제에 쓰이지 않는다.** 문제 생성 단계용으로 보류된 뼈대다(§4 한계).
@@ -219,8 +224,9 @@ kbo-collector (Lambda)  ──▶ S3 community/{source}/{date}/{postId}.json
 
 - [ ] **백필을 어떻게 돌릴 것인가**: 누적분 순회는 대량 반복이라 Lambda 15분 상한에 맞지 않는다.
       Step Functions + Map / EKS Job / 로컬 실행 중 택일. **정제 본류와 분리해 판단할 것.**
-- [ ] **`kbo-collector` 스택을 이 레포로 흡수할 것인가**: 크롤(`dev_ai` 자체 스택)과 정제(이 레포)가
-      한 파이프라인에 걸쳐 있다. 흡수하면 일관되지만 기존 배포 절차를 바꿔야 한다.
+- [ ] **`kbo-collector` 스택을 `environments/dev` 로 흡수할 것인가**: 코드는 2026-07-29 에 이 레포로
+      들어왔지만(`collector-lambda/`) **state 는 여전히 갈려 있다** — 한 파이프라인이 두 key 에 걸친다.
+      합치면 일관되지만 기존 배포 절차를 바꿔야 하고 apply 폭발 반경이 커진다.
       ⚠️ **역추적 문제는 2026-08-05 에 절반 닫혔다** — `deploy-collector.yml` 이 커밋 SHA 태그를
       함께 push 하므로 이제 도는 이미지가 어느 커밋인지 알 수 있다. 다만 그 리포지토리는
       여전히 `modules/ecr` 를 타지 않아 `IMMUTABLE`·`scan_on_push` 가 없고, `:latest` 핀
