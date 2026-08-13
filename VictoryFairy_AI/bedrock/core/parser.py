@@ -33,8 +33,6 @@ _DEFAULT_MESSAGES = {
 
 
 class ParsedJudgement:
-    """파싱된 판정 항목 하나(스키마 검증을 통과한 상태)."""
-
     def __init__(self, is_valid: bool, axis: Optional[str], message: str):
         self.is_valid = is_valid
         self.axis = axis
@@ -59,9 +57,7 @@ def _load_json(raw_text: str) -> Any:
 
 
 def _extract_result_list(payload: Any) -> list:
-    """`{"results": [...]}` 를 기대하되 최상위 배열도 받는다.
-
-    최상위 배열을 받아 주는 것은 **스키마 해석의 확장이 아니라 껍데기 차이**이고,
+    """최상위 배열을 받아 주는 것은 **스키마 해석의 확장이 아니라 껍데기 차이**이고,
     이걸 거절하면 배치 전체 재시도 비용만 든다(BRK-LLM-13 의 알려진 대가).
     그 외 형태는 전부 스키마 불일치다.
     """
@@ -76,9 +72,7 @@ def _extract_result_list(payload: Any) -> list:
 
 
 def _order_by_index(results: list, expected_count: int) -> list:
-    """`index` 가 있으면 그 값으로 1:1 대응시키고, 없으면 응답 순서를 쓴다(BRK-LLM-12).
-
-    `index` 가 1..N 을 정확히 한 번씩 덮지 않으면 스키마 불일치다 — 순서를 추측해
+    """`index` 가 1..N 을 정확히 한 번씩 덮지 않으면 스키마 불일치다 — 순서를 추측해
     맞추면 **다른 텍스트의 판정이 다른 단위에 붙는다.**
     """
     indices = []
@@ -141,12 +135,6 @@ def _parse_item(item: dict) -> ParsedJudgement:
 
 
 def parse_judgements(raw_text: str, expected_count: int) -> list:
-    """모델 응답 텍스트를 판정 목록으로 파싱한다.
-
-    - 항목 수가 요청 수와 다르면 스키마 불일치(BRK-LLM-13).
-    - 정의 밖의 axis 는 스키마 불일치(BRK-LLM-11b).
-    - 요청 순서와 1:1 로 대응시킨다(BRK-LLM-12).
-    """
     results = _extract_result_list(_load_json(raw_text))
 
     if len(results) != expected_count:
