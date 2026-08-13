@@ -1,22 +1,24 @@
 import { useEffect, useState } from 'react';
-import type { QuizSubmission } from '../api';
+import { findOptionText } from '../api';
+import type { QuizInningResult, QuizSubmission } from '../api';
 import '../styles/QuizResultSheet.css';
 
 /**
  * QuizResultSheet — 퀴즈 결과의 "문제 및 정답" 바텀시트.
  * Figma: SWM / [Game] 퀴즈 결과 상세보기-펼침예시 (node 724:18166)
  *
- * 회차 행의 화살표를 누르면 올라온다. 디자인은 `1회 초`·`1회 말` 로 나눠 담지만
- * **서버가 회차를 주지 않아 지금은 한 묶음으로 전부 보여준다**(QuizResultPage 머리말 참고).
+ * 회차 행의 화살표를 누르면 **그 이닝의 문제만** 담아 올라온다(2026-08-13 — 서버가
+ * 이닝별로 묶어 주기 전에는 전부 한 묶음이었다).
+ *
+ * 디자인은 묶음을 `1회 초`·`1회 말` 로 나누지만 **서버는 초·말을 구분하지 않는다** —
+ * 이닝 번호 하나뿐이라 `N회` 한 묶음으로 둔다.
  *
  * 카드는 접힌 상태로 시작하고, 누르면 내가 고른 답과 정답이 함께 펼쳐진다.
  */
 
 type QuizResultSheetProps = {
-  /** 시트 제목. 회차가 생기기 전까지는 화면이 "1회 …" 로 넘겨 준다. */
-  title: string;
-  submissions: QuizSubmission[];
-  correctCount: number;
+  /** 띄울 이닝의 결산(번호 · 요약 · 문제 목록). */
+  inning: QuizInningResult;
   /** 딤 클릭 · 핸들 클릭 · Esc 로 닫을 때 호출된다. */
   onClose: () => void;
 };
@@ -56,6 +58,13 @@ function AnswerMark({ text, tone }: { text: string | null; tone: 'correct' | 'wr
 function QuizAnswerCard({ order, submission }: { order: number; submission: QuizSubmission }) {
   const [isOpen, setIsOpen] = useState(false);
 
+  /*
+   * 답 텍스트 두 필드가 사라져(2026-08-13) 번호로 보기를 찾는다.
+   * 미답 항목은 `myOption` 이 null 이라 그대로 "미응답"으로 접힌다.
+   */
+  const myOptionText = findOptionText(submission.options, submission.myOption);
+  const answerText = findOptionText(submission.options, submission.answer);
+
   return (
     <li>
       <button
@@ -83,15 +92,12 @@ function QuizAnswerCard({ order, submission }: { order: number; submission: Quiz
           <span className="quiz-result-sheet__answers">
             <span className="quiz-result-sheet__answer">
               <span className="quiz-result-sheet__answer-label">내가 선택한 답</span>
-              <AnswerMark
-                text={submission.myOptionText}
-                tone={submission.correct ? 'correct' : 'wrong'}
-              />
+              <AnswerMark text={myOptionText} tone={submission.correct ? 'correct' : 'wrong'} />
             </span>
             <span className="quiz-result-sheet__answer-divider" aria-hidden="true" />
             <span className="quiz-result-sheet__answer">
               <span className="quiz-result-sheet__answer-label">정답</span>
-              <AnswerMark text={submission.answerText} tone="correct" />
+              <AnswerMark text={answerText} tone="correct" />
             </span>
           </span>
         )}
@@ -100,12 +106,9 @@ function QuizAnswerCard({ order, submission }: { order: number; submission: Quiz
   );
 }
 
-export default function QuizResultSheet({
-  title,
-  submissions,
-  correctCount,
-  onClose,
-}: QuizResultSheetProps) {
+export default function QuizResultSheet({ inning, onClose }: QuizResultSheetProps) {
+  const title = `${inning.inning}회 문제 및 정답`;
+
   /* Esc 로 닫기 — 시트가 떠 있는 동안에만 듣는다(다른 시트들과 같은 규칙). */
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -149,14 +152,15 @@ export default function QuizResultSheet({
 
         <div className="quiz-result-sheet__body">
           <p className="quiz-result-sheet__group">
-            <span className="quiz-result-sheet__group-name">전체 문제</span>
+            <span className="quiz-result-sheet__group-name">{inning.inning}회</span>
+            {/* 분모는 그 이닝에 **받은** 문항 수다(고정 20이 아니다) */}
             <span className="quiz-result-sheet__group-count">
-              {correctCount}/{submissions.length}
+              {inning.summary.correctCount}/{inning.summary.total}
             </span>
           </p>
 
           <ul className="quiz-result-sheet__cards">
-            {submissions.map((submission, index) => (
+            {inning.quizzes.map((submission, index) => (
               <QuizAnswerCard key={submission.quizId} order={index + 1} submission={submission} />
             ))}
           </ul>

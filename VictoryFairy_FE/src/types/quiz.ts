@@ -18,6 +18,11 @@ import type { ApiResponse } from './api';
  * | `false` | `false` | 아직 답할 수 있음(또는 받은 적 없음) |
  * | `true`  | `false` | 답함 — 복기 필드가 실린다 |
  * | `false` | `true`  | 시한 초과 — 제출하면 영구히 403, 복구 경로 없음 |
+ *
+ * ── 2026-08-13 풀이 이력이 "경기 한 건의 이닝별 결산"이 됐다 ──────────
+ * `GET /quizzes/submissions` 의 조회 축이 계정에서 **경기**로 좁혀지고(`gameId` 필수),
+ * 응답이 페이지 구조에서 `summary` + `innings[]` 로 바뀌었다. 항목에는 `options` 가
+ * 실리고 텍스트 두 필드(`myOptionText`·`answerText`)와 `quizDate` 가 빠졌다.
  */
 
 /** 렌더링 분기용 유형. `"O/X"` 는 보기 2개(0=O, 1=X)인 객관식과 같은 모양으로 내려온다. */
@@ -122,76 +127,97 @@ export interface QuizSubmitResult {
 }
 
 /**
- * 페이지와 무관한 **전체** 요약.
+ * 이닝 하나의 결산. 산식은 경기 전체 요약과 같고 `earnedPoint` 만 없다.
  *
- * ⚠️ 분모(`total`)에 **답하지 않은 문제도 들어가고 오답으로 친다**(2026-08-12, 제품 결정).
- * 그래서 `/today` 로 문제를 받은 직후 정답률이 뚝 떨어졌다가 풀수록 올라간다 —
- * 화면에 그대로 띄우면 "왜 갑자기 떨어졌냐"는 오해를 산다.
+ * ⚠️ 분모(`total`)에 **답하지 않은 문제도 들어가고 오답으로 친다**(2026-08-12, 제품 결정) —
+ * 그 이닝에 **받은** 문항 수이지 답한 수가 아니다(고정 20도 아니다).
  */
-export interface QuizSubmissionSummary {
-  /** 받은 문제 수(현재 페이지가 아니다). 답하지 않은 것도 센다. */
+export interface QuizInningSummary {
+  /** 그 이닝에 받은 문제 수. 답하지 않은 것도 센다. */
   total: number;
   correctCount: number;
-  /** 정답률 `0.0`~`1.0`. 받은 문제가 0건이면 `0.0`(null 아님). */
+  /** 정답률 `0.0`~`1.0`. `total = 0` 이면 `0.0`(null 아님). */
   accuracy: number;
 }
 
 /**
- * 풀이 이력 1건.
+ * 경기 한 건의 전체 요약 — 열거된 이닝 전체의 합.
+ *
+ * ⚠️ **계정 누적이 아니라 이 경기 기준이다**(2026-08-13 계약 교체). 종전에 마이페이지가
+ * 쓰던 "계정 전체 누적 정답률"을 주는 경로는 사라졌고 대체 API 가 아직 없다.
+ */
+export interface QuizGameSummary extends QuizInningSummary {
+  /**
+   * 정답 문항의 배점 합.
+   *
+   * **적립 원장이 아니라 표시용 근사치**다 — 서버가 `users_account.point` 를 읽지 않고
+   * 이 경기의 정답 행만 더해 만든 값이라, 보유 포인트(`GET /users/me` 의 `point`)와는
+   * 다른 수다. 화면에서 "이 경기로 얻은 포인트"로만 써야 한다.
+   */
+  earnedPoint: number;
+}
+
+/**
+ * 이닝 하나에서 받은 문제 1건.
  *
  * **"제출한 문제" 목록이 아니라 "받은 문제" 목록이다**(2026-08-12) — 진행 중이거나
- * 시한을 넘긴 문제도 함께 실린다. 그래서 내가 낸 답 두 필드가 `null` 일 수 있다.
+ * 시한을 넘긴 문제도 함께 실리고, 그때 `myOption` 이 `null` 이다.
+ *
+ * ⚠️ 2026-08-13 부터 **답 텍스트 두 필드(`myOptionText`·`answerText`)가 사라지고**
+ * 대신 `options` 배열이 실린다 — 화면이 번호로 보기를 찾아 써야 한다.
  */
 export interface QuizSubmission {
   quizId: number;
   question: string;
   type: QuizType;
   difficulty: QuizDifficulty | null;
-  /** 출제일(`yyyy-MM-dd`). */
-  quizDate: string;
+  /** `/today` 의 `options` 와 같은 모양(0-기반). 답 텍스트는 여기서 번호로 찾는다. */
+  options: QuizOption[];
   /** **null 가능** — 아직 답하지 않았거나 시한을 넘긴 항목. */
   myOption: number | null;
-  /** **null 가능** — `myOption` 과 함께 빈다. */
-  myOptionText: string | null;
   /** 답하지 않은 항목은 `false` 다("내지 않으면 틀린 것"). */
   correct: boolean;
   /** 받아 놓고 시한을 넘겼는지. 답한 항목은 `false`. */
   expired: boolean;
+  /** 정답 보기 번호. **미답 항목에도 실린다**(이미 끝난 문제라 감출 이유가 없다). */
   answer: number;
-  answerText: string;
   earnedPoint: number;
   /**
    * LocalDateTime 문자열. 타임존 오프셋이 없다(예: "2026-08-08T21:15:03").
    *
    * **답을 낸 시각**이다. 다만 답하지 않은 항목에는 받은 시각이 실리므로,
    * 이 값 하나로 "답한 시각"이라고 단정해 쓰면 안 된다 — `myOption` 유무로 갈라야 한다.
-   * (정렬 축은 이 값이 아니라 `quizId` 내림차순이다.)
    */
   submittedAt: string;
-  /** 이력 항목에는 답 여부와 무관하게 항상 실린다. */
+  /** 이력 항목에는 답 여부와 무관하게 항상 실린다(좋아요는 받은 문제 전체에 열려 있다). */
   liked: boolean;
   likeCount: number;
 }
 
 /**
- * 풀이 이력 페이지.
- * 채팅 히스토리(`ChatMessagePage`)와 같은 `PageResponse` 구조이며 크기만 30이 아니라 20이다.
+ * 이닝 하나의 결산 묶음.
+ *
+ * 기록이 하나도 없는 이닝도 원소로 남는다 — `quizzes: []` + `0/0` 이다.
+ * (원소 수가 곧 서버가 열거한 이닝 수이며, 진행 중 경기의 현재 이닝은 빠진다.)
  */
-export interface QuizSubmissionPage {
-  /** 최신순. */
-  content: QuizSubmission[];
-  page: number;
-  /** 서버 고정값 20. */
-  size: number;
-  totalElements: number;
-  totalPages: number;
-  hasNext: boolean;
+export interface QuizInningResult {
+  /** 이닝 번호(1부터, 오름차순). */
+  inning: number;
+  summary: QuizInningSummary;
+  /** 받은 순서(행 `id` 오름차순). */
+  quizzes: QuizSubmission[];
 }
 
-/** `GET /quizzes/submissions` 응답 — 전체 요약 + 현재 페이지. */
+/**
+ * `GET /quizzes/submissions?gameId=…` 응답 — 경기 한 건의 이닝별 결산.
+ *
+ * ⚠️ **`innings: []` 는 서로 다른 셋을 한 모양으로 덮는다** — ① 그 경기에 내 기록이 0건
+ * ② 이닝 값이 아직 없음(수집 지연 방어) ③ 진행 중이고 1회라 결산할 완료 이닝이 없음.
+ * 서버가 사유를 주지 않으므로 화면도 하나의 문구로 안내한다.
+ */
 export interface QuizSubmissionHistory {
-  summary: QuizSubmissionSummary;
-  submissions: QuizSubmissionPage;
+  summary: QuizGameSummary;
+  innings: QuizInningResult[];
 }
 
 /**

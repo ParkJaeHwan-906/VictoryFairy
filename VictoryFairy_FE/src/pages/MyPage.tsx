@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getQuizSubmissions, logout, withdraw } from '../api';
+import { logout, withdraw } from '../api';
 import profilePlaceholder from '../assets/profile_img.svg';
 import { getTeamDisplay } from '../data/kboTeams';
 import { ROUTES } from '../routes';
@@ -16,10 +16,15 @@ import '../styles/MyPage.css';
  * 목록 항목들은 아직 갈 곳이 없어 화살표만 그려 두고, 실제로 동작하는 것은
  * 맨 아래 로그아웃·회원 탈퇴 둘뿐이다.
  *
- * ── 평균 정답률만 전역이 아니다 ──────────────────────────────────────
- * `GET /users/me` 응답에는 정답률이 없다(키가 넷뿐 — `MyProfile` 주석 참고).
- * 대신 `GET /quizzes/submissions` 의 `summary.accuracy` 가 전체 기준 정답률이라
- * 이 화면에서 첫 페이지만 받아 요약만 쓴다. 목록은 쓰지 않으므로 한 번이면 된다.
+ * ── ⚠️ 평균 정답률을 줄 API 가 없다(2026-08-13) ─────────────────────
+ * `GET /users/me` 응답에는 정답률이 없고(키가 넷뿐 — `MyProfile` 주석 참고), 이 화면이
+ * 대신 쓰던 `GET /quizzes/submissions` 의 `summary.accuracy` 는 **계정 누적이 아니라
+ * 경기 한 건 기준으로 바뀌었다**(`gameId` 필수). 마이페이지에는 지목할 경기가 없어
+ * 그 값을 쓸 수 없고, 대체 경로는 아직 없다(docs/quiz.md — 후속 과제).
+ *
+ * 그래서 자리는 디자인대로 남기고 값만 비워 둔다. 임의의 경기 하나를 골라 채우면
+ * "평균"이라는 이름과 다른 수가 나오므로 지어내지 않는다.
+ * 계정 단위 통계 API 가 생기면 여기서 그 값을 읽어 채우면 된다.
  */
 
 /** 앱 버전. 배포 파이프라인이 주입하기 전까지는 화면에 고정값으로 둔다. */
@@ -52,9 +57,6 @@ export default function MyPage() {
   const profile = useMyProfile();
   const clearAccount = useAccountStore((state) => state.clear);
 
-  /** 정답률만 서버에서 따로 받는다(위 머리말 참고). 실패하면 그냥 비워 둔다. */
-  const [accuracy, setAccuracy] = useState<number | null>(null);
-
   /**
    * 지금 진행 중인 계정 작업. 두 버튼을 동시에 누르는 것을 막고 문구도 이 값으로 바꾼다.
    */
@@ -62,22 +64,6 @@ export default function MyPage() {
   /** 탈퇴는 되돌릴 수 없어 한 번 더 묻는다. */
   const [isConfirmingWithdraw, setIsConfirmingWithdraw] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-
-    getQuizSubmissions(0)
-      .then((history) => {
-        if (alive) setAccuracy(history.summary.accuracy);
-      })
-      .catch(() => {
-        /* 정답률은 이 화면의 곁가지다 — 못 받아도 나머지는 그대로 보여준다 */
-      });
-
-    return () => {
-      alive = false;
-    };
-  }, []);
 
   /**
    * 로그아웃.
@@ -166,9 +152,8 @@ export default function MyPage() {
           <div className="my-page__stats">
             <div className="my-page__stat">
               <p className="my-page__stat-label">평균 정답률</p>
-              <p className="my-page__stat-value">
-                {accuracy === null ? '-' : `${Math.round(accuracy * 100)}%`}
-              </p>
+              {/* 계정 단위 정답률을 주는 API 가 사라졌다 — 위 머리말 참고 */}
+              <p className="my-page__stat-value">-</p>
             </div>
 
             <span className="my-page__stat-divider" aria-hidden="true" />
