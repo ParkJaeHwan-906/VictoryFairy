@@ -221,11 +221,11 @@ def parse_inning(status_info: str | None, *,
     games 의 CHECK `ck_games_current_inning`(1~11, prod 실측) 때문이다 — 12 를 그대로
     넣으면 그 경기 한 건이 아니라 **잡이 죽는다**.
 
-    **`max_inning=None` 은 그 상한을 끄고 읽은 그대로 돌려준다.** `last_innning` 용이다.
+    **`max_inning=None` 은 그 상한을 끄고 읽은 그대로 돌려준다.** `last_inning` 용이다.
     그 컬럼에는 CHECK 가 없어(prod 제약 조회: ck_games_current_inning·ck_games_inning_half
     둘뿐) 상한을 지킬 이유가 없고, 오히려 상한을 걸면 12회 경기에서 **틀린 값이 조용히
     남는다** — 파싱이 None 이 되면 upsert 의 COALESCE 가 직전 폴링의 11 을 보존하므로
-    "12회에 끝난 경기"가 `last_innning=11` 로 기록된다. NULL 은 "모른다"지만 11 은
+    "12회에 끝난 경기"가 `last_inning=11` 로 기록된다. NULL 은 "모른다"지만 11 은
     "틀린 답"이라 더 나쁘다.
     """
     m = _INNING_RE.match((status_info or "").strip())
