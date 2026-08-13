@@ -204,7 +204,8 @@ def map_status(g: dict) -> str | None:
     return None
 
 
-def parse_inning(status_info: str | None) -> tuple[int | None, int | None]:
+def parse_inning(status_info: str | None, *,
+                 max_inning: int | None = INNING_MAX) -> tuple[int | None, int | None]:
     """schedule 의 statusInfo -> (이닝, 초/말). 이닝이 아니면 (None, None).
 
     진행 중 statusInfo 는 `"2회말"` 한 가지 형태다 — 아웃카운트·주자 같은 접미사가
@@ -218,16 +219,22 @@ def parse_inning(status_info: str | None) -> tuple[int | None, int | None]:
     detail 쪽은 경기 시작 20분 전(statusCode="READY")부터 이미 `"1회초"` 로 앞서
     나간다(같은 날 실측) — 상태 게이팅이 없으면 미시작 경기에 1회를 박는다.
 
-    ⚠ INNING_MAX 를 넘는 이닝은 값이 아니라 None 을 준다. games 에 CHECK
-    `ck_games_current_inning`(1~11)이 걸려 있어(prod 실측) 12 를 그대로 넣으면 그
-    경기 한 건이 아니라 **잡이 죽는다**. 2026 정규시즌 전수 스캔(3/22~8/11)의
-    상한은 11 이었지만(11회 18경기·12회 0경기) 포스트시즌은 상한이 달라 방어한다.
+    ⚠ `max_inning` 을 넘는 이닝은 값이 아니라 None 을 준다. 기본값 INNING_MAX 는
+    games 의 CHECK `ck_games_current_inning`(1~11, prod 실측) 때문이다 — 12 를 그대로
+    넣으면 그 경기 한 건이 아니라 **잡이 죽는다**.
+
+    **`max_inning=None` 은 그 상한을 끄고 읽은 그대로 돌려준다.** `last_innning` 용이다.
+    그 컬럼에는 CHECK 가 없어(prod 제약 조회: ck_games_current_inning·ck_games_inning_half
+    둘뿐) 상한을 지킬 이유가 없고, 오히려 상한을 걸면 12회 경기에서 **틀린 값이 조용히
+    남는다** — 파싱이 None 이 되면 upsert 의 COALESCE 가 직전 폴링의 11 을 보존하므로
+    "12회에 끝난 경기"가 `last_innning=11` 로 기록된다. NULL 은 "모른다"지만 11 은
+    "틀린 답"이라 더 나쁘다.
     """
     m = _INNING_RE.match((status_info or "").strip())
     if not m:
         return (None, None)
     inning = int(m.group(1))
-    if not 1 <= inning <= INNING_MAX:
+    if inning < 1 or (max_inning is not None and inning > max_inning):
         return (None, None)
     return (inning, _INNING_HALF[m.group(2)])
 
