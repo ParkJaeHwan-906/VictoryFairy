@@ -206,27 +206,22 @@ public class Quiz {
         this.templateId = templateId;
     }
 
-    /** 특정 선수에 대한 문제인가. */
     public boolean isPlayerQuiz() {
         return player != null;
     }
 
-    /** 특정 구단 하나에 대한 문제인가(선수·상대 구단 지정 없음). */
     public boolean isTeamQuiz() {
         return team != null && opponentTeam == null && player == null;
     }
 
-    /** 두 구단의 맞대결에 대한 문제인가. */
     public boolean isMatchupQuiz() {
         return team != null && opponentTeam != null;
     }
 
-    /** 특정 경기에 대한 문제인가. */
     public boolean isGameQuiz() {
         return game != null;
     }
 
-    /** 구단·선수·경기를 가리지 않는 야구 도메인 자체의 문제인가. */
     public boolean isGeneralQuiz() {
         return team == null && player == null && game == null;
     }

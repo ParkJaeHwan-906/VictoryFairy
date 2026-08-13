@@ -23,7 +23,7 @@ import org.hibernate.annotations.UpdateTimestamp;
  * <p>현재 값 2종(사용자 확정):
  * <ul>
  *   <li>{@code 객관식} — 보기 여러 개 중 하나를 고른다. {@link QuizOption#getOption()}이 보기 번호.</li>
- *   <li>{@code O/X} — 보기가 두 개뿐인 특수 형태. 보기 번호를 {@code 0}(X)/{@code 1}(O)로 표기한다.</li>
+ *   <li>{@code O/X} — 보기가 두 개뿐인 특수 형태.</li>
  * </ul>
  * 유형이 늘어나면 이 테이블에 행만 추가하면 되고 코드 변경·배포는 필요 없다. 뒤집어 말하면
  * {@code name}은 <b>닫힌 집합이 아니므로</b> 위 2종만 분기하고 default를 두지 않는 코드는 깨질 수 있다.
@@ -56,8 +56,6 @@ public class QuizType {
      * {@code GameStatus.name}·{@code Team.code} 와 같은 성격이다.
      *
      * <p>⚠ {@code ddl-auto=update} 는 <b>이미 존재하는 테이블에 UNIQUE 를 추가하지 않는다</b>(domain 실측).
-     * {@code quiz_type} 은 아직 어느 환경에도 없어 이 선언만으로 붙지만, 테이블이 한 번 생긴 뒤에는
-     * 1회성 DDL 을 손으로 돌아야 한다.
      */
     @Column(name = "name", length = 10, nullable = false)
     private String name;
