@@ -353,6 +353,12 @@
   text-align: center;
   /* 말풍선은 보여 주기만 한다 — 손가락은 아래 번호가 계속 받아야 한다 */
   pointer-events: none;
+  /*
+   * `left: 50%` 로 왼쪽 끝을 번호 가운데에 두고, 자기 폭의 절반만큼 되돌려 가운데를 맞춘다.
+   * ⚠️ 이 값은 애니메이션이 아니라 **평소 상태**에 있어야 한다 — 키프레임에만 두면
+   * 애니메이션이 끝나는 순간 transform 이 없는 상태로 돌아가 말풍선이 오른쪽으로 튄다.
+   */
+  transform: translateX(-50%);
   transform-origin: bottom center;
   animation: quiz-result-sheet-pop 0.26s ease-out;
 }
@@ -421,8 +427,8 @@
   height: 20px;
   /* 색을 상태에 따라 바꿔야 해서 img 가 아니라 마스크로 칠한다(다른 아이콘들과 같은 방식) */
   background-color: currentColor;
-  -webkit-mask: url('../assets/finger.svg') center / contain no-repeat;
-  mask: url('../assets/finger.svg') center / contain no-repeat;
+  -webkit-mask: url('../assets/thumbs_up.svg') center / contain no-repeat;
+  mask: url('../assets/thumbs_up.svg') center / contain no-repeat;
 }
 
 .quiz-result-sheet__like-icon[data-bursting] {
