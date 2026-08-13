@@ -346,15 +346,18 @@ export function getQuizSubmissions(gameId: string): Promise<QuizSubmissionHistor
 }
 
 /**
- * 보기 번호를 보기 글자로 바꾼다. 없는 번호면 `null`.
+ * 보기 번호로 보기를 찾는다. 없는 번호면 `null`.
  *
  * 2026-08-13 부터 이력 항목에서 텍스트 두 필드(`myOptionText`·`answerText`)가 빠지고
- * `options` 배열만 남아, 복기 화면이 직접 번호를 글자로 옮겨야 한다. 미답 항목의
+ * `options` 배열만 남아, 복기 화면이 직접 번호로 보기를 찾아야 한다. 미답 항목의
  * `myOption`(`null`)도 여기서 함께 접어 호출부가 분기를 하나만 보게 한다.
+ *
+ * 글자가 아니라 보기 객체를 그대로 돌려주는 이유 — 화면이 번호(`no`)와 글(`text`)을
+ * 둘 다 쓴다(다지선다는 번호로 접어 두고 꾹 눌렀을 때 글을 편다).
  */
-export function findOptionText(options: QuizOption[], no: number | null): string | null {
+export function findOption(options: QuizOption[], no: number | null): QuizOption | null {
   if (no === null) return null;
-  return options.find((option) => option.no === no)?.text ?? null;
+  return options.find((option) => option.no === no) ?? null;
 }
 
 /**
