@@ -1,21 +1,24 @@
 # 경기(game) API 명세
 
-> **도메인** `game` — 날짜별 KBO 경기 일정·스코어, 경기별 선발 라인업.
-> **모듈** user (포트 8080) · **경로 접두사** `/api/games` · **엔드포인트** 2개
-> **컨트롤러** `user/src/main/java/com/skhynix/user/game/controller/GameController.java`(`@RequestMapping("/games")`) · `GameLineupController.java`(`@RequestMapping("/games/lineup")`)
-> **최종 갱신** 2026-08-13 — `GET /api/games/lineup`의 `gameId` 파라미터 누락 400 서술 정정: `web-support`의 `GlobalExceptionHandler`에 `MissingServletRequestParameterException` 핸들러가 추가돼(공유 컴포넌트, user·quiz 공통) **이제 이 400도 `ApiResponse` 래퍼를 탄다**(종전엔 래퍼 아님으로 서술). 엔드포인트 자체·다른 400(타입 변환 실패 등)은 불변. (직전: 2026-08-11 `GET /api/games` 응답에 `inning`/`inningHalf` 필드 추가(11→13필드, `games` 테이블에 `current_inning`/`inning_half` 컬럼 신설). 같은 날 devdb 실측으로 현재는 항상 `null`임을 확인(아래 참고). (직전: 같은 날 `cancelReason` 필드 반영(10→11필드, 커밋 f01d08e #281). 같은 날 운영 DB 실측으로 py-collector 쓰기가 이미 동작 중임을 확인해 서술 정정, `cancelReason` 미채움 시 클라이언트 fallback(`"경기취소"`) 권장 규칙 추가(아래 참고).))
+> **도메인** `game` — 날짜별 KBO 경기 일정·스코어, 경기별 선발 라인업, 내 활성 응원 구단 경기 목록.
+> **모듈** user (포트 8080) · **경로 접두사** `/api/games` · **엔드포인트** 3개
+> **컨트롤러** `user/src/main/java/com/skhynix/user/game/controller/GameController.java`(`@RequestMapping("/games")`, `GET`+`GET /support`) · `GameLineupController.java`(`@RequestMapping("/games/lineup")`)
+> **최종 갱신** 2026-08-13 — `GET /api/games/support` 신규 추가: 인증된 계정의 **활성 응원 구단**(홈 또는 원정)이 참여한 경기만 돌려주는 조회. **이 도메인 최초의 인증 필수 엔드포인트**라 아래 "이 도메인의 특이사항"의 "전부 공개 참조 데이터" 서술이 더 이상 도메인 전체에 참이 아니게 됐다(범위를 `/games`·`/games/lineup` 두 경로로 좁혀 정정). 응답 형식·13필드·정렬·날짜 해석 규칙은 `GET /api/games`와 완전히 동일하며, `GET /api/games`·`GET /api/games/lineup`의 기존 계약은 변경 없음(요구사항 USER-GSP-24). (직전: 같은 날 `GET /api/games/lineup`의 `gameId` 파라미터 누락 400 서술 정정: `web-support`의 `GlobalExceptionHandler`에 `MissingServletRequestParameterException` 핸들러가 추가돼(공유 컴포넌트, user·quiz 공통) **이제 이 400도 `ApiResponse` 래퍼를 탄다**(종전엔 래퍼 아님으로 서술). 엔드포인트 자체·다른 400(타입 변환 실패 등)은 불변. (직전: 2026-08-11 `GET /api/games` 응답에 `inning`/`inningHalf` 필드 추가(11→13필드, `games` 테이블에 `current_inning`/`inning_half` 컬럼 신설). 같은 날 devdb 실측으로 현재는 항상 `null`임을 확인(아래 참고). (직전: 같은 날 `cancelReason` 필드 반영(10→11필드, 커밋 f01d08e #281). 같은 날 운영 DB 실측으로 py-collector 쓰기가 이미 동작 중임을 확인해 서술 정정, `cancelReason` 미채움 시 클라이언트 fallback(`"경기취소"`) 권장 규칙 추가(아래 참고).)))
 > 공통 규약(응답 래퍼·401 정책)은 [README.md](README.md)를 먼저 볼 것.
 
 ## 엔드포인트 목록
 
-| 메서드 | 경로 | 성공 | 용도 |
-|---|---|---|---|
-| GET | [/api/games](#get-apigames) | 200 | 날짜별 경기 목록 |
-| GET | [/api/games/lineup](#get-apigameslineup) | 200 | 경기별 선발 라인업 |
+| 메서드 | 경로 | 성공 | 용도 | 인증 |
+|---|---|---|---|---|
+| GET | [/api/games](#get-apigames) | 200 | 날짜별 경기 목록 | 불필요 |
+| GET | [/api/games/support](#get-apigamessupport) | 200 | 내 활성 응원 구단 경기 목록 | **필수** |
+| GET | [/api/games/lineup](#get-apigameslineup) | 200 | 경기별 선발 라인업 | 불필요 |
 
 ## 이 도메인의 특이사항
 
-[구단(team)](team.md)·[선수(player)](player.md)와 같은 **공개 참조 데이터**로, GET 한정 `permitAll`·페이징 없음·빈 결과 200이라는 계약을 공유한다.
+**`GET /api/games`·`GET /api/games/lineup` 두 경로는** [구단(team)](team.md)·[선수(player)](player.md)와 같은 **공개 참조 데이터**로, GET 한정 `permitAll`·페이징 없음·빈 결과 200이라는 계약을 공유한다.
+
+**`GET /api/games/support`는 이 패턴의 예외다 — 인증이 필수다.** 같은 `/games` 접두사 아래에서 인증 정책이 갈리는 첫 사례이며, `SecurityConfig`의 `.requestMatchers(HttpMethod.GET, "/games").permitAll()`이 **정확 경로 매칭**이라 하위 경로 `/games/support`를 커버하지 않는 덕에(`/games/lineup` 때와 정반대로) **`SecurityConfig`를 손대지 않는 것이 정답**이었다 — 별도 매처를 추가하지 않으면 자연히 `anyRequest().authenticated()`에 걸린다. 응답 형식(13필드)·날짜 해석 규칙(`Asia/Seoul` 기준 오늘, 반개구간)은 `GET /api/games`와 동일하게 유지한다.
 
 **단, 자연키 노출 정책만 다르다.** `TeamResponse`가 `Team.code`를, `PlayerResponse`가 `kboPlayerId`를 감추는 것과 달리 `GameResponse.gameId`는 `Game.naverGameId`(네이버 스포츠 gameId)를 그대로 내보내고, `GET /games/lineup`의 쿼리 파라미터 `gameId`도 내부 PK가 아니라 이 값이다.
 
@@ -140,6 +143,74 @@ curl -i -X GET "http://localhost:8080/api/games?date=20260801"
 경기 없는 날짜 예시:
 ```json
 {"success":true,"data":[],"message":null}
+```
+
+---
+
+## GET /api/games/support
+> 최종 변경: 2026-08-13 — 신규 추가(요구사항 `docs/requirements/user/support-team-games.md`, USER-GSP-1~24)
+
+인증된 요청 계정의 **활성 응원 구단**(홈 또는 원정)이 참여하는 경기만 좁혀서 돌려준다. `GameController.getSupportTeamGames` → `GameService.getSupportTeamGames(Long, LocalDate)` → `UserSupportTeamRepository.findByUserAccount_IdAndOpposeIsNull` + `GameRepository.findAllByTeamAndGameDateRange(teamId, start, end)`.
+
+같은 날짜 [`GET /api/games`](#get-apigames) 응답의 **부분집합**이다 — 이 경로 전용 가공·대체값은 없고, 겹치는 `gameId` 항목은 13필드 값이 완전히 동일하다(USER-GSP-3).
+
+**인증 필수.** `Authorization: Bearer <access>`. `SecurityConfig`는 이 경로를 별도로 `permitAll`하지 않는다 — `/games`의 `permitAll` 매처가 정확 경로 매칭이라 `/games/support`를 커버하지 않고, 그 결과 `anyRequest().authenticated()`에 자연히 걸린다(위 "이 도메인의 특이사항" 참고). **GET 이외의 메서드로 인증 없이 요청해도 405가 아니라 401이다** — `/games`(GET 한정 `permitAll`)와 표면적으로 같아 보이지만 원인이 다르다: `/games`는 "GET만 열려 있어서" 비-GET이 401이고, 이 경로는 **애초에 전 메서드가 인증 필요**라 미인증이면 메서드와 무관하게 401이다(USER-GSP-20).
+
+**쿼리 파라미터**
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| date | LocalDate | 아니오 | 조회할 날짜. ISO `yyyy-MM-dd`(`@DateTimeFormat(iso = DateTimeFormat.ISO.DATE)`). 생략하면 `Asia/Seoul` 기준 오늘(`GET /api/games`와 동일한 `ClockConfig`의 `Clock` 빈 사용). `?date=`(값 없이 키만)도 생략과 동일하게 `null`로 바인딩된다(USER-GSP-19, 실측: `GameControllerSupportTest`) |
+
+날짜 해석·반개구간 조회(`[대상일 00:00, 대상일+1일 00:00)`)는 [`GET /api/games`](#get-apigames)와 완전히 동일한 규칙이다 — 별도 서술을 반복하지 않는다.
+
+**"활성 응원 구단"의 판정 기준**: 요청 계정의 `user_support_teams` 중 `oppose IS NULL`인 행의 구단(`UserSupportTeamRepository.findByUserAccount_IdAndOpposeIsNull`). 응원 구단을 취소(`oppose` 전이)했거나 한 번도 선택하지 않은 계정은 이 조회가 빈 `Optional`을 반환하고, 서비스는 `GameRepository`를 아예 호출하지 않은 채 빈 리스트를 반환한다(USER-GSP-16·17).
+
+**응답 200 OK** `ApiResponse<List<GameResponse>>` — 항목 키·타입·의미는 [`GET /api/games`](#get-apigames)의 13필드 표와 완전히 동일하다(`gameId`/`stadium`/`homeTeam`/`homeTeamId`/`awayTeam`/`awayTeamId`/`homeTeamScore`/`awayTeamScore`/`gameDate`/`gameState`/`cancelReason`/`inning`/`inningHalf`). **이 경로 전용 필드는 없다** — 어느 쪽(홈/원정)이 응원 구단인지 알리는 필드(`isHome` 등)를 넣지 않는다. 클라이언트는 `homeTeamId`/`awayTeamId`를 `GET /api/users/me`의 `supportTeam.id`와 대조해 판별한다(범위 제외 결정, 요구사항 문서 "제외" 절).
+
+**경기 상태로 거르지 않는다.** `CANCELED`·`FINISHED` 등 상태와 무관하게 활성 응원 구단이 낀 경기는 전부 포함되고, `gameState`·`cancelReason`은 `GET /api/games`와 동일한 값 그대로 나간다(USER-GSP-9).
+
+**정렬: `gameDate` 오름차순**, DB(`@Query`, `order by g.gameDate asc`)가 단독 수행한다.
+
+**활성 응원 구단이 없는 계정은 200 + 빈 배열이다(에러 아님).** `SUPPORT_TEAM_REQUIRED` 류의 전용 오류 코드·메시지는 없다(결정 기록, 요구사항 문서 참고 — 2026-08-13 사용자 확정, 재조사 대상 아님):
+```json
+{"success":true,"data":[],"message":null}
+```
+**이 응답은 "대상 날짜에 경기가 없음"과 완전히 동일하다** — 응답만으로는 "응원 구단 미선택"과 "경기 없는 날"을 구분할 수 없다. 두 상황을 갈라야 하는 화면은 이 응답이 아니라 [`GET /api/users/me`](account.md)의 `supportTeam`(선택 여부)으로 판별한다(**사용자 확정 사항**).
+
+**대상 날짜에 응원 구단 경기가 없어도 다음 경기로 대체(폴백)하지 않는다.** `date`가 가리키는 그 날짜만 조회하며, 별도의 "다음 경기" 경로(`/games/support/next` 등)도 없다(요구사항 문서 결정 기록 2, 재조사 대상 아님).
+
+**SQL 호출 특성(요구사항 USER-GSP-21·22, 코드 근거).** 응원 구단 조회(`findByUserAccount_IdAndOpposeIsNull`)는 요청당 1회이고, 경기 조회(`findAllByTeamAndGameDateRange`)는 활성 응원 구단이 있을 때만 1회 추가된다 — 둘 다 경기 건수와 무관한 고정 횟수다. 경기 조회에는 `GET /api/games`와 동일한 `@EntityGraph(attributePaths = {"homeTeam", "awayTeam", "stadium", "gameStatus"})`가 붙어 있어 N+1이 없다.
+
+**실패**
+
+| 상태 | ErrorCode | 조건 |
+|---|---|---|
+| 400 | (래퍼 없음) | `date` 형식 위반(예: `?date=20260801`) 또는 존재하지 않는 날짜(예: `?date=2026-13-01`). `GET /api/games`와 같은 사정으로 컨트롤러 진입 전 타입 변환 단계라 `GlobalExceptionHandler`를 타지 않는다 — **`ApiResponse` 래퍼가 아니다**. 인증 여부와 무관하게 이 400이 우선한다(실측: `GameControllerSupportTest`, 유효 토큰을 실어도 400) |
+| 401 | UNAUTHENTICATED(`"인증이 필요합니다."`) | `Authorization` 헤더 없음 · 위조/만료 access 토큰 · refresh 타입 토큰 실림 · 탈퇴(`exit_at IS NOT NULL`)했거나 존재하지 않는 계정을 가리키는 uid · GET 이외 메서드로 미인증 요청. 네 경우 모두 응답이 구분되지 않는다(위 "인증 필수" 참고, `/players`가 같은 네 경우를 200으로 흡수하는 것과 정반대) |
+
+**예시**
+
+응원 구단(LG, `homeTeamId`/`awayTeamId` 값 체계는 [`GET /api/teams`](team.md)의 `id`와 동일)이 원정으로 출전한 경기 1건:
+```bash
+curl -i -X GET "http://localhost:8080/api/games/support?date=2026-08-01" \
+  -H "Authorization: Bearer <access-token>"
+```
+```json
+{"success":true,"data":[{"gameId":"20260801HTLG02026","stadium":"광주기아챔피언스필드","homeTeam":"KIA","homeTeamId":6,"awayTeam":"LG","awayTeamId":3,"homeTeamScore":4,"awayTeamScore":2,"gameDate":"2026-08-01T18:30:00","gameState":"FINISHED","cancelReason":null,"inning":null,"inningHalf":null}],"message":null}
+```
+
+활성 응원 구단이 없거나 그 날 경기가 없는 경우(둘 다 같은 응답):
+```json
+{"success":true,"data":[],"message":null}
+```
+
+인증 없이 요청(401):
+```bash
+curl -i -X GET "http://localhost:8080/api/games/support"
+```
+```json
+{"success":false,"data":null,"message":"인증이 필요합니다."}
 ```
 
 ---
