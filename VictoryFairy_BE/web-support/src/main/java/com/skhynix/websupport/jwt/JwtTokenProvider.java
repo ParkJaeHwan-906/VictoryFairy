@@ -37,8 +37,8 @@ public class JwtTokenProvider {
     }
 
     /**
-     * subject에는 외부 노출용 {@code uid}만 담는다. JWT payload는 서명될 뿐 암호화되지 않아
-     * base64 디코드만으로 누구나 읽을 수 있으므로, 내부 PK({@code id})는 claim에 절대 넣지 않는다.
+     * JWT payload는 서명될 뿐 암호화되지 않아 base64 디코드만으로 누구나 읽을 수 있으므로,
+     * 내부 PK({@code id})는 claim에 절대 넣지 않는다.
      */
     private String createToken(String uid, String type, long validityMillis) {
         long now = System.currentTimeMillis();

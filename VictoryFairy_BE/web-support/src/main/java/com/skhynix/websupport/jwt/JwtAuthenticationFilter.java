@@ -15,11 +15,6 @@ import org.springframework.security.web.authentication.WebAuthenticationDetailsS
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
-/**
- * 토큰의 subject(외부 노출용 {@code uid})를 내부 PK({@code id})로 바꿔주는 경계. 인증 이후 principal은
- * 종전과 동일하게 {@code Long userAccountId}다. {@code id}를 claim에 실어 조회를 없애는 건 PK 노출과
- * 같으므로, 요청당 조회 1회를 의도적으로 감수한다(엔티티가 아니라 {@code id}만 조회).
- */
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private static final String BEARER_PREFIX = "Bearer ";

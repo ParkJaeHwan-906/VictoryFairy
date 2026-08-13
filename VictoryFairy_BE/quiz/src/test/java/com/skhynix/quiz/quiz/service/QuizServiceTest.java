@@ -56,12 +56,6 @@ import org.springframework.test.util.ReflectionTestUtils;
 /**
  * {@link QuizService}를 리포지토리 목으로 단위 검증한다. DB·Spring 컨텍스트 없음.
  *
- * <p><b>2026-08-12 5차 개정({@code docs/requirements/quiz/quiz-inning-tracking.md} T·U·V절) 기준으로
- * 전면 재작성했다.</b> {@code /today}가 {@code gameId}(= {@code games.naver_game_id})를 필수로 받고,
- * 그 경기를 검증(존재·오늘·내 응원 구단·{@code IN_PROGRESS})해 세트 제공 가능 여부부터 가린 뒤에야
- * 기존 정렬·필터·상한이 적용된다. <b>옛 회귀 AC-INN-74-1("두 번 호출해도 같은 목록")은 폐기됐고
- * 정반대(AC-INN-96 — 행이 있으면 답 여부·시한과 무관하게 전부 제외, 재조회 없음)로 대체됐다.</b>
- *
  * <p>'오늘'({@code quiz_date} 판정 · '오늘 경기' 판정)은 KST 고정 클록으로 결정되므로 {@code Clock.fixed}
  * 를 직접 주입한다. 제출 시한 계산({@link QuizSubmitWindow})은 이 파일(서빙 경로)의 관심사가 아니다 —
  * 그 회귀는 {@code QuizSubmitServiceTest}가 그대로 유지하며 이번 작업으로 바뀌지 않았다.

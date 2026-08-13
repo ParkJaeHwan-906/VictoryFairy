@@ -13,8 +13,6 @@ public interface UserRefreshTokenRepository extends JpaRepository<UserRefreshTok
 
     Optional<UserRefreshToken> findByRefreshToken(String refreshToken);
 
-    void deleteByUserAccount(UserAccount userAccount);
-
     /**
      * 해당 account의 아직 유효한(expiredAt > now) refresh token을 모두 즉시 만료시킨다.
      * 유저당 유효 토큰을 1개로 유지하기 위해 새 토큰 발급 직전에 호출한다.

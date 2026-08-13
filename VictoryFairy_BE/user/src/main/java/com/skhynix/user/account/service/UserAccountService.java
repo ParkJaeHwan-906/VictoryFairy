@@ -10,9 +10,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * 계정 생명주기(탈퇴) 담당. 토큰 발급/재발급은 {@code AuthService}가 갖는다.
- */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -21,13 +18,8 @@ public class UserAccountService {
     private final UserAccountRepository userAccountRepository;
     private final UserRefreshTokenRepository userRefreshTokenRepository;
 
-    /**
-     * 계정을 탈퇴 처리한다(soft delete). 즉시 완료되며 유예 기간도 취소도 없다. access 토큰은
-     * stateless라 여기서 폐기할 수 없고, 대신 {@code JwtAuthenticationFilter}가 요청마다 활성 계정을
-     * 확인해 탈퇴 즉시 인증이 끊긴다.
-     *
-     * @param userAccountId 인증된 요청의 principal(내부 PK)
-     */
+    // access 토큰은 stateless 라 여기서 폐기할 수 없다 — JwtAuthenticationFilter 가 요청마다 활성 계정을
+    // 확인하는 것이 탈퇴 즉시 인증을 끊는 실제 지점이다.
     @Transactional
     public void withdraw(Long userAccountId) {
         // 필터가 활성 계정임을 확인한 id라 정상 경로에서는 항상 존재한다. 그 사이 사라졌다면

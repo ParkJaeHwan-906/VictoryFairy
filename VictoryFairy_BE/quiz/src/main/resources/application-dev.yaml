@@ -35,9 +35,6 @@ spring:
 # 클래스패스에 있다는 이유만으로 액추에이터가 redis 인디케이터를 켜서, 로컬에 Redis 가 없으면
 # /actuator/health 가 DOWN 으로 보인다 → 오해를 막기 위해 dev 에서만 끈다.
 # (readiness 그룹은 원래 이 인디케이터를 보지 않으므로 ALB 헬스체크와는 무관하다.)
-# ⚠ 한때 제출 티켓 때문에 이 설정을 걷어냈었다("dev 도 Redis 가 필요하니 DOWN 이 맞는 신호"). 그
-#   근거는 제출 자격이 Redis 키에서 DB 행으로 옮겨가며 사라졌으므로 되돌렸다 — 지금 dev 에서 Redis
-#   DOWN 은 퀴즈 조회·제출과 아무 상관이 없다.
 management:
   health:
     redis:

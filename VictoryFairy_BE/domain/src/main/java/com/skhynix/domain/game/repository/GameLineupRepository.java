@@ -8,11 +8,6 @@ import org.springframework.data.repository.query.Param;
 
 public interface GameLineupRepository extends JpaRepository<GameLineup, Long> {
 
-    List<GameLineup> findByGameId(Long gameId);
-
-    /** 선발 라인업(타순 1~9 + 선발투수)만 조회. */
-    List<GameLineup> findByGameIdAndIsStarterTrue(Long gameId);
-
     // 아래 두 메서드는 파생 쿼리명 대신 @Query를 쓴다. 이유는 두 가지다.
     // ① 응답 DTO가 player.name·position.name을 읽는데 둘 다 LAZY라, prod(open-in-view:false)에서는
     //    LazyInitializationException이고 dev에서도 선발 20여 행에 대한 N+1이다. fetch join으로 못 박는다.

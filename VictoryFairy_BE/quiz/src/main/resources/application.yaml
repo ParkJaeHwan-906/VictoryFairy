@@ -13,11 +13,6 @@ spring:
     # 실시간 fan-out pub/sub 용(prod 전용 — RedisPubSubPublisher/RealtimeRedisConfig).
     # 운영 값은 k8s configmap app-config 가 주입한다. prod 이외 프로파일은 연결을 맺는 빈이
     # 아예 등록되지 않으므로(=InMemoryPublisher 사용) 이 값이 쓰이지 않는다.
-    # ⚠ 한때 퀴즈 제출 티켓이 전 프로파일에서 이 연결을 함께 썼으나, 제출 자격의 근거가 Redis 키에서
-    #   DB 행(quiz_users_submit 의 미답 행)으로 옮겨가며 사라졌다 — 퀴즈 조회·제출은 이제 Redis 장애와
-    #   무관하다. 되살리자는 제안(티켓과 DB 행을 AND 로 묶기)은 명시적으로 기각됐다: 두 저장소가 같은
-    #   명제를 각자 주장하므로 거짓 거절만 늘고, 키 축출·재시작이 곧 "정상적으로 받은 문제를 영영 못
-    #   내는" 상태가 된다.
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
