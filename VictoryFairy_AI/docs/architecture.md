@@ -30,6 +30,11 @@ VictoryFairy_AI는 KBO 커뮤니티 텍스트를 **패턴 검열 → LLM 2차 �
 | `bedrock/` | 2차 검열(AWS Bedrock LLM). **라우트 없는 서비스 모듈** | `bedrock.services.judge` |
 | `analysis/` | 형태소 + NER 추출 FastAPI 앱 (**배선에서 빠짐**) | `analysis.main:app` |
 | `pipeline/` | S3 기반 배치 러너 | `python -m pipeline.run_*` |
+| `py-collector/` | KBO 경기·기록 수집기 (BE MySQL 적재). 별도 이미지·별도 스택 | `deploy/lambda/handler.py` |
+| `question-gen/` | 퀴즈 생성 루틴의 지침·프롬프트·설정 | `ROUTINE.md` |
+| `runner/` | 퀴즈 생성의 **결정적** 단계 — 템플릿 선택·바인딩·최종화 (LLM 없음) | `runner.catalog` · `binding` · `finalize` |
+| `wiki-builder/` | 선수 위키 그래프·시드 빌드 (LLM 병합은 루틴 세션이 직접 수행) | `ROUTINE.md` · `scripts/compile_graph.py` |
+| `deploy/routines/` | Claude Code 클라우드 루틴 정의(퀴즈 생성·위키 빌더)와 IAM 정책 | — |
 | `data/` | 유산 경로(분석·집계)의 파일 저장소 | (러너가 읽고 씀) |
 | `docs/` | 구조·전략·모듈·요구사항 문서 | — |
 | `.claude/` | 하네스 설정(Hook·에이전트·권한) | — |
