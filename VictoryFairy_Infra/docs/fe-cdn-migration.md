@@ -198,22 +198,10 @@ CloudFront 로 되돌리는 것뿐이다(= 앞으로 고치기).
 
 ### 3 단계 — 정리 ✅ 2026-08-07 완료
 
-7. ✅ `22-ingress.yaml` 에서 `victoryfairy-fe` Ingress 제거.
-8. ✅ `24-fe-app.yaml` 삭제 (Deployment·Service·HPA). 파일도 저장소에서 제거했다.
-   ⚠ 파드만 지우는 것으로는 멈추지 않는다. Deployment 의 ReplicaSet 이 즉시 새 파드를 만들고,
-     `kubectl scale --replicas=0` 도 HPA(`minReplicas: 1`)가 되돌린다. 세 리소스를 함께 지워야 한다.
 9. apex 에 남은 ExternalDNS 소유권 TXT 레코드 정리. **(미완)**
    ExternalDNS 는 `--policy=upsert-only` 라 레코드를 지우지 않으므로 수동 정리가 필요하다.
    > 부수 효과: 이걸 치우면 apex TXT 충돌 때문에 보류해 둔 Mailjet SPF 레코드
    > (`environments/dev/main.tf` 의 `mailjet_spf_value`)를 등록할 수 있다.
-10. ECR `victoryfairy-fe` 리포지토리 제거(선택). **(미완)**
-    fe-app 이 사라져 이 이미지를 pull 할 주체가 없다. `environments/dev/main.tf` 의
-    `repository_names` 에서 `"fe"` 를 빼면 리포지토리와 이미지가 **함께 삭제**된다 —
-    되돌릴 수 없으므로 의도를 확인한 뒤 할 것.
-
-> 7 번의 부수 효과: apex TXT 를 ExternalDNS 가 더 이상 소유하지 않으므로, 충돌 때문에 보류해 둔
-> **Mailjet SPF 레코드(`mailjet_spf_value`)를 드디어 등록할 수 있다** (`environments/dev/main.tf` 참고).
-
 ## 5. API base path 교체의 순단
 
 `/api/member` → `/api`, `/api/game` → `/rt` 는 세 곳이 동시에 맞아야 한다.

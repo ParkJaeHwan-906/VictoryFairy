@@ -23,21 +23,6 @@
 두 리소스는 **Terraform 밖에서 수동 생성**했다(2026-07-23). 백엔드 저장소 자체를
 Terraform으로 만들면 닭-달걀 문제가 생기므로 의도된 예외다(태그 `ManagedBy=Manual-Backend`).
 
-## 2. 최초 1회: 기존 로컬 state 이관
-
-**로컬 state를 가진 기기에서** 실행한다 (다른 기기에서 하면 안 됨 — 이관할 원본이 없다):
-
-```bash
-git pull                                  # backend 활성화된 terraform.tf 수신
-cd VictoryFairy_Infra/environments/dev
-terraform init -migrate-state             # 물으면 "yes" → 로컬 state가 S3로 업로드
-terraform state list                      # 기존 리소스 목록이 그대로 보이면 성공
-```
-
-- 이관 후에도 로컬 `terraform.tfstate`·`.backup` 파일은 **바로 지우지 말고** 당분간
-  백업으로 보관한다(어차피 gitignore 대상).
-- 이관은 최초 1회만. 이후 모든 기기는 §3 절차만 따르면 된다.
-
 ## 3. 새 기기 온보딩 (이관 완료 후)
 
 ```bash
