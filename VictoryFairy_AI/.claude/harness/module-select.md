@@ -43,13 +43,15 @@
 
 ### 공통
 - **context-keeper** — `docs/modules/<module>.md` 를 코드와 일치하게 유지
+- **cruft-sweeper** — 구현으로 대체된 흔적을 삭제(죽은 코드·명세 복창 docstring·주인 없는 낡은 문서). **삭제만** 하고 로직·판정 결과는 안 바꾼다. `code-commenter` 와 정반대이니 같은 파일에 동시에 돌리지 말고 `cruft-sweeper` 를 먼저 태운다. ⚠️ **`analysis` 는 배선에서 빠졌을 뿐 죽은 코드가 아니다** — 정리 대상이 아니라고 프롬프트에 못 박아라
 - **commit-writer** — 워킹 트리 변경을 의도 단위로 쪼개 커밋 (사용자가 커밋을 요청했을 때만 호출. push 는 하지 않는다)
 
 의존 없는 작업은 한 메시지에서 병렬로 띄운다. 단순 질문·읽기·한 줄 수정은 위임 없이 직접 처리한다.
 
 ## 3. 표준 흐름
 
-- **기능 구현**: requirements-writer → (사용자 승인) → fastapi-dev(또는 pipeline-dev) → test-writer(+필요시 test-data) → module-verifier → API면 api-documenter → context-keeper
+- **기능 구현**: requirements-writer → (사용자 승인) → fastapi-dev(또는 pipeline-dev) → test-writer(+필요시 test-data) → (구버전 흔적이 남았으면 cruft-sweeper) → module-verifier → API면 api-documenter → context-keeper
+- **정리**: "주석이 너무 많다"·"구버전 흔적을 지워달라"는 요청은 cruft-sweeper 단독으로 태운다(`/cleanup` 으로도 호출 가능). 삭제는 되돌리기 비싸니 **범위(파일·모듈)를 프롬프트에 반드시 명시**하고 저장소 전체를 한 번에 맡기지 마라. 코드를 지웠으면 module-verifier 로 이어간다
 - **정확도 작업**: accuracy-tuner 가 측정·판단 → 사전으로 풀 것은 dict-curator 위임 → test-writer 로 회귀 확인 → context-keeper 로 "한계" 갱신
   - 단, **판정 규칙 자체를 새로/다르게 정의**하는 요청(무엇을 잡고 무엇을 안 잡을지가 바뀜)이면 accuracy-tuner 앞에 requirements-writer 를 태운다. 튜닝은 목표가 있어야 한다.
 
