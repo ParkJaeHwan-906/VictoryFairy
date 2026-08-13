@@ -109,11 +109,15 @@
 | `"3회말"` (IN_PROGRESS) | 3 | 1 (`BOTTOM`) | 3 |
 | `"9회말"` (FINISHED) | `NULL` | `NULL` | 9 |
 | `"경기전"` · `"경기취소"` · `""` · 미지 포맷 | `NULL` | `NULL` | 기존 값 유지 |
-| `"12회초"` 이상 | `NULL` (+ warning) | `NULL` | 기존 값 유지 |
+| `"12회초"` 이상 | `NULL` (+ warning) | `NULL` | **12** (상한 없음) |
+
+**상한이 두 컬럼에 다르게 걸린다.** `current_inning`은 CHECK `ck_games_current_inning`(1~11) 때문에 `INNING_MAX`로 막지만, `last_innning`에는 **CHECK가 없어**(prod 제약 조회 결과 `ck_games_current_inning`·`ck_games_inning_half` 둘뿐) `parse_inning(..., max_inning=None)`으로 읽은 그대로 넣는다. 같이 막으면 12회 경기에서 파싱이 `None`이 되고 `COALESCE`가 직전 폴링의 11을 보존해 **"12회에 끝난 경기"가 `last_innning=11`로 틀리게 기록된다** — `NULL`은 "모른다"지만 11은 "틀린 답"이라 더 나쁘다.
 
 > ⚠ **`last_innning`의 `n` 세 개는 오타가 아니라 실제 DB 컬럼명이다**(2026-08-13 prod 실측). 우리가 지은 이름이 아니라 고칠 수 없다. DB가 `last_inning`으로 바뀌면 `db.py`·`run.py`·테스트의 같은 이름을 함께 치환할 것.
 
-종료 경기의 `statusInfo`가 마지막 이닝을 그대로 들고 있다는 성질(아래 함정 ①)이 여기서는 **버그가 아니라 정답의 출처**가 된다. 덕분에 라이브 구간을 통째로 놓친 경기(수집기 중단 등)도 나중 동기화 한 번으로 `last_innning`이 회수된다.
+종료 경기의 `statusInfo`가 마지막 이닝을 그대로 들고 있다는 성질(아래 함정 ①)이 여기서는 **버그가 아니라 정답의 출처**가 된다. 덕분에 라이브 구간을 놓친 경기도 `last_innning`이 회수된다 — 단 **`games_sync`가 그 날짜를 다시 훑을 때만**이다(live 룰은 당일, morning/nightly는 오늘~+N일). 그보다 과거 날짜는 `--from`/`--to` 수동 백필이 필요하다.
+>
+> 진행 중 취소(노게임)면 취소 직전 이닝이 `last_innning`에 남는다 — `COALESCE`라 지우는 경로가 없다. 점수·구장과 같은 성질이며, "몇 회까지 하고 취소됐나"로 읽으면 오히려 정보다.
 
 `inning_half`는 domain `InningHalf`의 **ORDINAL**(`TOP=0`/`BOTTOM=1`)이다. 네이버 relay의 `homeOrAway`(`"0"`=원정 공격=초, `"1"`=홈 공격=말)와도 값이 같다.
 

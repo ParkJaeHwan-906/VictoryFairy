@@ -603,9 +603,16 @@ def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=
             #     남아야 하는 값이라, 오히려 종료 경기의 statusInfo 가 곧 정답이다.
             #     upsert 쪽이 COALESCE 라 파싱 실패(None)가 기존 값을 지우지 않는다.
             #
-            # last_innning 이 종료 상태에서도 채워지는 덕에, 라이브 구간을 통째로 놓친
-            # 경기(수집기 중단 등)도 나중 동기화 한 번으로 회수된다.
+            # last_innning 이 종료 상태에서도 채워지는 덕에, 라이브 구간을 놓친 경기도
+            # **games_sync 가 그 날짜를 다시 훑기만 하면** 회수된다(live 룰은 당일,
+            # morning/nightly 는 오늘~+N일. 그보다 과거는 수동 백필이 필요하다).
+            #
+            # 상한을 두 번 다르게 적용한다: current_inning 은 CHECK 때문에 11 로 막고,
+            # last_innning 은 CHECK 가 없어 막지 않는다. 같이 막으면 12회 경기에서
+            # 파싱이 None 이 되고 COALESCE 가 직전의 11 을 남겨 **틀린 값이 조용히**
+            # 기록된다(parse_inning 주석 참고).
             inning, inning_half = game_records.parse_inning(g.get("statusInfo"))
+            last_inning, _ = game_records.parse_inning(g.get("statusInfo"), max_inning=None)
             if status == "IN_PROGRESS" and inning is None:
                 # 진행 중인데 이닝이 안 읽힌 경우만 남긴다: 미지 포맷이거나 상한 초과다.
                 # 이닝이 없어도 상태·점수 동기화는 그대로 진행한다.
@@ -622,7 +629,7 @@ def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=
                 stadium_id=db.stadium_id(stadium),
                 current_inning=inning if live else None,
                 inning_half=inning_half if live else None,
-                last_innning=inning)
+                last_innning=last_inning)
             synced += 1
             if not live_window:
                 continue

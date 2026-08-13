@@ -725,6 +725,36 @@ def test_job_games_sync_last_inning_survives_the_end_of_the_game(monkeypatch, se
     assert by_id["cancelled"]["last_innning"] is None   # "경기취소"
 
 
+def test_job_games_sync_last_inning_is_not_capped_by_the_check_constraint(monkeypatch, settings):
+    """12회 경기: current_inning 은 CHECK 때문에 None, last_innning 은 12 여야 한다.
+
+    둘 다 막으면 파싱이 None 이 되고 upsert 의 COALESCE 가 직전 폴링의 11 을 보존해
+    "12회에 끝난 경기"가 last_innning=11 로 **틀리게** 남는다 — 값이 있으니 맞겠지로
+    읽히는 게 NULL 보다 나쁘다.
+    """
+    import contextlib
+
+    class _ExtraInningResp:
+        def json(self):
+            return {"result": {"games": [
+                {"gameId": "twelve", "categoryId": "kbo", "statusCode": "RESULT",
+                 "cancel": False, "statusInfo": "12회말", "homeTeamCode": "OB",
+                 "awayTeamCode": "LG", "homeTeamScore": 5, "awayTeamScore": 4,
+                 "gameDateTime": "2026-07-10T18:30:00"},
+            ]}}
+
+    monkeypatch.setattr(run.fetch, "build_client", lambda settings: contextlib.nullcontext(object()))
+    monkeypatch.setattr(run.fetch, "fetch", lambda *a, **k: _ExtraInningResp())
+    db = _RecordingSyncDb(team_ids={"OB": 1, "LG": 2})
+
+    run.job_games_sync(settings, db, "2026-07-10")
+
+    call = db.calls[0]
+    assert call["current_inning"] is None   # CHECK(1~11) 를 지킨다
+    assert call["inning_half"] is None
+    assert call["last_innning"] == 12       # CHECK 가 없으므로 사실대로 남긴다
+
+
 def test_job_games_sync_warns_when_live_inning_unparsable(monkeypatch, settings, caplog):
     # 진행 중인데 이닝이 안 읽히는 경우(미지 포맷·CHECK 상한 초과)는 조용히 넘기지
     # 않는다. 다만 이닝이 없다고 상태·점수 동기화까지 막지는 않는다.

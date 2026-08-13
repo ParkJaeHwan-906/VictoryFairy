@@ -388,6 +388,22 @@ def test_game_sync_upsert_overwrites_inning_instead_of_coalescing():
     assert "COALESCE(VALUES(inning_half)" not in update_clause
 
 
+def test_game_sync_upsert_column_order_is_pinned():
+    """INSERT 컬럼 **순서**를 통째로 고정한다.
+
+    개수만 세는 단언으로는 순서 회귀를 못 잡는다 — 예컨대 last_innning 을 컬럼
+    목록에서 current_inning 앞으로 옮기면 테스트는 전부 통과하고 **운영에서만
+    엉뚱한 컬럼에 값이 들어간다**(파라미터 튜플은 그대로이므로). 문자열을 통째로
+    비교해 그 창을 닫는다.
+    """
+    from kbo_collector.db import GAME_SYNC_UPSERT
+    assert (
+        "INSERT INTO games (naver_game_id, game_date, home_team_id, away_team_id, "
+        " stadium_id, home_score, away_score, game_status_id, current_inning, inning_half, "
+        " last_innning, created_at, updated_at) "
+    ) in GAME_SYNC_UPSERT
+
+
 def test_game_sync_upsert_keeps_last_inning_when_not_provided():
     from kbo_collector.db import GAME_SYNC_UPSERT
     # last_innning 은 current_inning 과 정반대다 — "몇 회에 끝난 경기인가"는 종료 후에도
