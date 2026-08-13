@@ -1,5 +1,4 @@
 # dev 환경: 모듈을 조립하는 루트. 리소스는 여기서 직접 선언하지 않는다.
-# 모듈 구현이 끝나면 아래 블록의 주석을 해제한다.
 
 # 다른 state 가 소유한 리소스의 ARN 조립용(locals.tf 의 collector_* 참고).
 data "aws_caller_identity" "current" {}
