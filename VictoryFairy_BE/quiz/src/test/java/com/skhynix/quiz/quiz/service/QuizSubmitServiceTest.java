@@ -57,7 +57,7 @@ import org.springframework.test.util.ReflectionTestUtils;
  *
  * <p>제출 자격의 근거는 이제 Redis 티켓이 아니라 <b>{@code quiz_users_submit} 행 자체</b>다 —
  * {@code /today}가 미리 만들어 둔 행을 조건부 UPDATE로 채우는 구조라, 이 서비스 자체는 Redis에
- * 의존하지 않는다({@code QuizSubmissionTicketStore}는 이 브랜치에서 폐기됐다).
+ * 의존하지 않는다.
  */
 @ExtendWith(MockitoExtension.class)
 class QuizSubmitServiceTest {

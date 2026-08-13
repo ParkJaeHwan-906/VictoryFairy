@@ -8,12 +8,6 @@ import org.springframework.data.redis.connection.MessageListener;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
 
-/**
- * Redis 채널({@link RedisPubSubPublisher#CHANNEL})을 듣고 이 인스턴스의 구독자에게 전달하는 수신 측
- * ({@code prod} 전용). 등록은 {@link RealtimeRedisConfig}가 한다.
- *
- * <p>깨진 payload 하나가 리스너 컨테이너를 흔들지 않도록 예외는 여기서 삼키고 로그만 남긴다.
- */
 @Component
 @Profile("prod")
 @RequiredArgsConstructor
