@@ -34,7 +34,7 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * 필수 요청 파라미터 누락. 이 핸들러가 없으면 스프링 기본 에러 본문이 그대로 나가
+     * 이 핸들러가 없으면 스프링 기본 에러 본문이 그대로 나가
      * 공통 응답 규약({@code success/data/message})을 벗어난다.
      */
     @ExceptionHandler(MissingServletRequestParameterException.class)
