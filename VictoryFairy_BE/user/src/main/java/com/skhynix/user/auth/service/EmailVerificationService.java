@@ -9,15 +9,6 @@ import java.security.SecureRandom;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
-/**
- * 회원가입용 이메일 소유 검증. 발송(인증번호 메일) → 검증(이메일+인증번호 대조) 2단계로 소유를 확인하고,
- * 검증에 성공한 이메일만 signup을 허용하도록 상태를 남긴다.
- *
- * <p>인증번호·시도횟수·쿨다운·인증완료 상태의 실제 저장은 {@link EmailVerificationStore}(포트)에 위임한다.
- * 이 서비스는 <b>정책 판정</b>(가입 이력·쿨다운·시도 5회 한도·1회용 소비 순서)만 담당하고 저장소 세부는
- * 알지 않는다. 형식 검증(400, Bean Validation)은 컨트롤러 DTO가 끝내므로 여기서는 저장값 대조/정책
- * 위반만 {@link BusinessException}으로 던진다(형식과 대조의 분리).
- */
 @Service
 @RequiredArgsConstructor
 public class EmailVerificationService {
@@ -31,10 +22,6 @@ public class EmailVerificationService {
     private final UserRepository userRepository;
     private final EmailSender emailSender;
 
-    /**
-     * 인증번호 발송. 이미 가입된 이메일은 409, 쿨다운(60초) 내 재요청은 429로 거부한다. 재발송 시
-     * 이전 코드·시도 카운터를 무효화하고 새 코드를 저장·발송한다.
-     */
     public void sendCode(String email) {
         if (userRepository.existsByEmail(email)) {
             throw new BusinessException(ErrorCode.DUPLICATE_EMAIL);
@@ -51,11 +38,6 @@ public class EmailVerificationService {
         emailSender.sendVerificationCode(email, code);
     }
 
-    /**
-     * 인증번호 검증. 유효 코드 없음은 {@code EXPIRED_VERIFICATION_CODE}, 불일치는
-     * {@code INVALID_VERIFICATION_CODE}, 5회 초과 시도는 {@code VERIFICATION_ATTEMPTS_EXCEEDED}로
-     * 던진다. 성공 시 코드를 1회용으로 무효화하고 인증완료 상태를 저장한다.
-     */
     public void verify(String email, String code) {
         String stored = store.findCode(email)
                 .orElseThrow(() -> new BusinessException(ErrorCode.EXPIRED_VERIFICATION_CODE));

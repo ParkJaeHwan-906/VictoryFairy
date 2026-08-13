@@ -3,10 +3,7 @@ package com.skhynix.user.auth.policy;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
-/**
- * 비밀번호 정책의 <b>단일 출처</b>. 회원가입과 사전 검사 API가 같은 정책을 각자 하드코딩해 어긋나는 것을
- * 막는다 — 정책을 바꾸려면 이 클래스만 고치면 된다.
- */
+// 비밀번호 정책의 단일 출처 — 다른 곳에 다시 적지 말 것.
 public final class PasswordPolicy {
 
     public static final int MIN_LENGTH = 8;
@@ -29,12 +26,7 @@ public final class PasswordPolicy {
     private PasswordPolicy() {
     }
 
-    /**
-     * 여러 규칙을 동시에 위반해도 메시지는 1개만 반환하며, 길이 위반이 우선한다. {@code null}·빈
-     * 문자열은 길이 위반으로 처리한다(예외 없음).
-     *
-     * @return 위반 시 해당 규칙의 메시지, 통과 시 {@link Optional#empty()}
-     */
+    // 여러 규칙을 동시에 위반해도 메시지는 1개만 반환한다 — 위반이 2개면 응답 메시지가 비결정적이 된다.
     public static Optional<String> findViolation(String password) {
         if (password == null || password.length() < MIN_LENGTH || password.length() > MAX_LENGTH) {
             return Optional.of(LENGTH_MESSAGE);
