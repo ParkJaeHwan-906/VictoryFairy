@@ -131,8 +131,13 @@ export default function QuizResultPage() {
 
   const [result, setResult] = useState<QuizSubmissionHistory | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  /** 시트에 띄울 이닝. 닫혀 있으면 `null` 이다(이닝 번호는 0이 아니라 1부터라 값으로 못 쓴다). */
-  const [openInning, setOpenInning] = useState<QuizInningResult | null>(null);
+  /**
+   * 시트에 띄울 이닝의 **번호**. 닫혀 있으면 `null` 이다.
+   *
+   * 이닝 객체를 그대로 붙들지 않는 이유 — 좋아요가 `result` 를 갈아 끼우면 붙들어 둔
+   * 객체는 갱신 전 사본으로 남아, 시트가 방금 누른 좋아요를 반영하지 못한다.
+   */
+  const [openInningNumber, setOpenInningNumber] = useState<number | null>(null);
 
   useEffect(() => {
     // 경기를 모르면 `gameId` 없는 요청은 400 이라 아예 걸지 않는다.
@@ -157,8 +162,33 @@ export default function QuizResultPage() {
     };
   }, [gameId]);
 
+  /**
+   * 좋아요를 이 화면의 자료에 반영한다.
+   *
+   * 시트·카드는 접히거나 닫히면 사라지는 자리라 상태를 들고 있을 수 없다
+   * (`QuizLikeChangeHandler` 주석 참고). 낙관적 반영·서버 확정·실패 되돌리기가 모두
+   * 이 함수로 들어오므로, 여기서는 받은 값을 그대로 덮어쓰기만 한다.
+   */
+  const handleLikeChange = (quizId: number, liked: boolean, likeCount: number) => {
+    setResult((current) =>
+      current === null
+        ? current
+        : {
+            ...current,
+            innings: current.innings.map((inningResult) => ({
+              ...inningResult,
+              quizzes: inningResult.quizzes.map((quiz) =>
+                quiz.quizId === quizId ? { ...quiz, liked, likeCount } : quiz,
+              ),
+            })),
+          },
+    );
+  };
+
   const summary = result?.summary ?? null;
   const accuracyPercent = Math.round((summary?.accuracy ?? 0) * 100);
+  const openInning =
+    result?.innings.find((inningResult) => inningResult.inning === openInningNumber) ?? null;
 
   return (
     <div className="quiz-result-page">
@@ -258,7 +288,7 @@ export default function QuizResultPage() {
                 <InningRow
                   key={inningResult.inning}
                   result={inningResult}
-                  onOpen={() => setOpenInning(inningResult)}
+                  onOpen={() => setOpenInningNumber(inningResult.inning)}
                 />
               ))}
             </ul>
@@ -267,7 +297,11 @@ export default function QuizResultPage() {
       )}
 
       {openInning !== null && (
-        <QuizResultSheet inning={openInning} onClose={() => setOpenInning(null)} />
+        <QuizResultSheet
+          inning={openInning}
+          onLikeChange={handleLikeChange}
+          onClose={() => setOpenInningNumber(null)}
+        />
       )}
     </div>
   );

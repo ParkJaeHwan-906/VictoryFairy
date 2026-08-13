@@ -77,7 +77,7 @@ export {
   submitQuiz,
   getQuizSubmissions,
   likeQuiz,
-  findOptionText,
+  findOption,
   isQuizNotFound,
   isQuizAlreadySubmitted,
   isQuizSubmitNotAllowed,
