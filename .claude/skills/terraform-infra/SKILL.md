@@ -23,9 +23,9 @@ Terraform Style Guide / Module 모범 사례를 이 프로젝트에 맞게 추�
 - **네트워크**: VPC `10.0.0.0/16`. 서브넷은 2 AZ에 선언(EKS 요건)하되 **노드·DB는 2a 집중, 2c는 예비**. NAT 2a 단일. (앱만 멀티 AZ로 벌려도 DB 단일 AZ라 반쪽 HA)
 - **앱 컴퓨트**: EKS(관리형) 프라이빗 서브넷 + **노드그룹 2개** — `app`(label workload=app, taint 없음, user+quiz 공용 + 둘 다 HPA/Cluster Autoscaler), `batch`(Spot·taint workload=batch·min0).
 - **DB**: **단일 고정 EC2**(비 EKS)에 MySQL + Redis 컨테이너 + EBS 영속 볼륨(RDS 미사용). Redis는 서비스 브로커 전용. 앱 격리·스케일아웃 없음(수직 승급). SG: 3306←user·quiz·batch, 6379←user·quiz.
-- **정제 파이프라인**: **서버리스**(2026-07-26 결정). 크롤(Lambda `kbo-collector`, EventBridge 상시) → **S3 이벤트** → 패턴 검열(Lambda) → **SQS**(`batch_size=10`) → LLM 검열(Lambda, Bedrock). 예산 상한은 **DynamoDB 원자적 카운터** + Bedrock Lambda **예약 동시성 1**. 멱등은 S3 `_manifest` 마커. 산출물은 **S3 에서 끝난다(MySQL 미사용)**. ⚠️ 폴링 컨트롤러·배치 Redis·Spot 회수 대응은 **전부 폐기됐다** — 트리거가 인프라 부품이 됐다. 두 Lambda 가 공유하는 `victoryfairy-pipeline` 이미지는 **CI 소유**다 — `image_uri` 에 `ignore_changes` 가 걸려 있어 `refine_image_tag` 는 최초 생성용 값일 뿐이다(`.github/workflows/deploy-ai.yml`).
+- **정제 파이프라인**: **서버리스**(2026-07-26 결정). 크롤(Lambda `kbo-collector`, EventBridge 상시) → **S3 이벤트** → 패턴 검열(Lambda) → **SQS**(`batch_size=7`, 2026-07-29 실측) → LLM 검열(Lambda, Bedrock). 예산 상한은 **DynamoDB 원자적 카운터** + Bedrock Lambda **예약 동시성 1**. 멱등은 S3 `_manifest` 마커. 산출물은 **S3 에서 끝난다(MySQL 미사용)**. ⚠️ 폴링 컨트롤러·배치 Redis·Spot 회수 대응은 **전부 폐기됐다** — 트리거가 인프라 부품이 됐다. 두 Lambda 가 공유하는 `victoryfairy-pipeline` 이미지는 **CI 소유**다 — `image_uri` 에 `ignore_changes` 가 걸려 있어 `refine_image_tag` 는 최초 생성용 값일 뿐이다(`.github/workflows/deploy-ai.yml`).
 - **batch 노드그룹**(Spot·taint `workload=batch`·min0): **정제에 쓰이지 않는다.** 문제 생성 단계용 보류. `k8s/40~42-batch-*.yaml` 도 같은 상태.
-- **외부 접근**: SSM Session Manager 포트포워딩(DB EC2 + EKS 노드 SSH 모두 동일 패턴, 인바운드 22/3306 개방 없음). EKS API(kubectl)는 별개로 퍼블릭 엔드포인트+IAM.
+- **외부 접근**: SSM Session Manager(DB EC2 + EKS 노드 SSH 동일 패턴, 22 인입 없음)가 기본이고 지금도 유효. ⚠️ **예외 — 운영 MySQL EC2 는 2026-07-27부터 퍼블릭 서브넷 + EIP 로도 붙는다**(`mysql_public_access_cidrs` 의 `/32` 에만 3306·6379 개방). **임시 조치이며 프라이빗 복귀 예정**이니 이 경로를 영구 전제로 새 코드를 쓰지 말 것. EKS API(kubectl)는 별개로 퍼블릭 엔드포인트+IAM.
 - **경계**: Terraform은 클러스터·노드그룹까지. Deployment/HPA/CronJob/배치워커/taint↔toleration은 K8s 매니페스트(`VictoryFairy_Infra/k8s/` — Terraform과 같은 인프라 레포에 co-locate).
 - ⚠️ EKS 컨트롤플레인 월 ~$73 고정비 인지됨. EC2 MySQL은 자동 백업이 없어 백업 크론 필수. t3.small(2GB)에 MySQL+Redis 메모리 빠듯.
 
@@ -35,6 +35,7 @@ Terraform Style Guide / Module 모범 사례를 이 프로젝트에 맞게 추�
 
 재사용 로직은 `modules/`에, 환경별 조립·값은 `environments/`에 둡니다.
 루트에서 리소스를 직접 선언하지 말고, 환경이 모듈을 조합하게 하세요.
+(아래는 구조 예시입니다. **실제 모듈 목록은 `VictoryFairy_Infra/README.md`** 를 보세요 — 새 모듈을 만들기 전에 이미 있는지 확인할 것.)
 
 ```
 VictoryFairy_Infra/
