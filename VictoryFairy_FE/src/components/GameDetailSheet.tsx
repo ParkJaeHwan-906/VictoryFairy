@@ -8,9 +8,11 @@ import type { Game, LineUpBatter, TeamLineUp } from '../api';
 import { getGameStateDisplay } from '../data/gameState';
 import { getTeamDisplay } from '../data/kboTeams';
 import { getPositionDisplay } from '../data/positions';
+import { useBottomSheet } from '../hooks/useBottomSheet';
 import { ROUTES, type QuizPageState } from '../routes';
 import { useMyProfile } from '../stores/useAccountStore';
 import { formatGameTime } from '../utils/date';
+import '../styles/bottomSheet.css';
 import '../styles/GameDetailSheet.css';
 
 type GameDetailSheetProps = {
@@ -73,24 +75,8 @@ export default function GameDetailSheet({ game, onClose }: GameDetailSheetProps)
   // 취소 경기면 칩 문구가 취소 사유로 바뀐다.
   const state = getGameStateDisplay(game);
 
-  /* Esc 로 닫기 — 시트가 떠 있는 동안에만 듣는다. */
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
-
-  /* 시트가 떠 있는 동안 뒤 페이지가 같이 스크롤되지 않게 막는다. */
-  useEffect(() => {
-    const { overflow } = document.body.style;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = overflow;
-    };
-  }, []);
+  /* 딤 클릭 · 핸들 끌기 · Esc · 배경 스크롤 잠금은 모든 시트가 함께 쓴다. */
+  const sheet = useBottomSheet(onClose);
 
   useEffect(() => {
     // 다른 경기로 갈아탄 뒤 늦게 도착한 응답으로 상태를 건드리지 않도록 막는다.
@@ -161,17 +147,24 @@ export default function GameDetailSheet({ game, onClose }: GameDetailSheetProps)
   };
 
   return (
-    <div className="game-sheet">
+    <div className="game-sheet bottom-sheet-root" {...sheet.rootProps}>
       {/* 딤. 클릭하면 닫히지만 읽어 줄 내용은 없다. */}
       <button
-        className="game-sheet__dim"
+        className="game-sheet__dim bottom-sheet-dim"
         type="button"
-        onClick={onClose}
+        {...sheet.dimProps}
         aria-label="경기 정보 닫기"
       />
 
-      <section className="game-sheet__sheet" role="dialog" aria-modal="true" aria-label="경기 정보">
-        <button className="game-sheet__handle" type="button" onClick={onClose}>
+      <section
+        className="game-sheet__sheet bottom-sheet-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label="경기 정보"
+        {...sheet.panelProps}
+      >
+        {/* 잡아서 아래로 끌면 닫힌다. 그냥 누르기만 해도 닫힌다. */}
+        <button className="game-sheet__handle bottom-sheet-handle" type="button" {...sheet.handleProps}>
           <span className="game-sheet__handle-bar" aria-hidden="true" />
           <span className="game-sheet__handle-label">경기 정보 닫기</span>
         </button>

@@ -22,8 +22,10 @@ import {
   validateChatMessageContent,
 } from '../api';
 import type { ChatMessage, ChatRoom } from '../api';
+import { useBottomSheet } from '../hooks/useBottomSheet';
 import { useAccountStore, useMyNickname, useSupportTeam } from '../stores/useAccountStore';
 import profilePlaceholder from '../assets/profile_img.svg';
+import '../styles/bottomSheet.css';
 import '../styles/LoungeChatSheet.css';
 
 /**
@@ -169,26 +171,8 @@ export default function LoungeChatSheet({ onClose }: LoungeChatSheetProps) {
    */
   const pullDistanceRef = useRef(0);
 
-  /* Esc 로 닫기 — 시트가 떠 있는 동안에만 듣는다. */
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        onClose();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
-
-  /* 시트가 떠 있는 동안 뒤 페이지가 같이 스크롤되지 않게 막는다. */
-  useEffect(() => {
-    const { overflow } = document.body.style;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = overflow;
-    };
-  }, []);
+  /* 딤 클릭 · 핸들 끌기 · Esc · 배경 스크롤 잠금은 모든 시트가 함께 쓴다. */
+  const sheet = useBottomSheet(onClose);
 
   /*
    * 구단이 없으면 들어갈 방이 없다 — 온보딩에서 아직 안 골랐다는 뜻이다.
@@ -596,17 +580,28 @@ export default function LoungeChatSheet({ onClose }: LoungeChatSheetProps) {
   }[liveStatus];
 
   return (
-    <div className="lounge-chat">
+    <div className="lounge-chat bottom-sheet-root" {...sheet.rootProps}>
       {/* 딤. 클릭하면 닫히지만 읽어 줄 내용은 없다. */}
       <button
-        className="lounge-chat__dim"
+        className="lounge-chat__dim bottom-sheet-dim"
         type="button"
-        onClick={onClose}
+        {...sheet.dimProps}
         aria-label="라운지 채팅 닫기"
       />
 
-      <section className="lounge-chat__sheet" role="dialog" aria-modal="true" aria-label="라운지 채팅">
-        <button className="lounge-chat__handle" type="button" onClick={onClose}>
+      <section
+        className="lounge-chat__sheet bottom-sheet-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label="라운지 채팅"
+        {...sheet.panelProps}
+      >
+        {/* 잡아서 아래로 끌면 닫힌다. 그냥 누르기만 해도 닫힌다. */}
+        <button
+          className="lounge-chat__handle bottom-sheet-handle"
+          type="button"
+          {...sheet.handleProps}
+        >
           <span className="lounge-chat__handle-bar" aria-hidden="true" />
           <span className="lounge-chat__handle-label">라운지 채팅 닫기</span>
         </button>
