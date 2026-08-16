@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { findOption, likeQuiz } from '../api';
 import type { QuizInningResult, QuizOption, QuizSubmission, QuizType } from '../api';
+import { useBottomSheet } from '../hooks/useBottomSheet';
+import '../styles/bottomSheet.css';
 import '../styles/QuizResultSheet.css';
 
 /**
@@ -295,41 +297,31 @@ export default function QuizResultSheet({
 }: QuizResultSheetProps) {
   const title = `${inning.inning}회 문제 및 정답`;
 
-  /* Esc 로 닫기 — 시트가 떠 있는 동안에만 듣는다(다른 시트들과 같은 규칙). */
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
-
-  /* 시트가 떠 있는 동안 뒤 페이지가 같이 스크롤되지 않게 막는다. */
-  useEffect(() => {
-    const { overflow } = document.body.style;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = overflow;
-    };
-  }, []);
+  /* 딤 클릭 · 핸들 끌기 · Esc · 배경 스크롤 잠금은 모든 시트가 함께 쓴다. */
+  const sheet = useBottomSheet(onClose);
 
   return (
-    <div className="quiz-result-sheet">
+    <div className="quiz-result-sheet bottom-sheet-root" {...sheet.rootProps}>
       <button
-        className="quiz-result-sheet__dim"
+        className="quiz-result-sheet__dim bottom-sheet-dim"
         type="button"
-        onClick={onClose}
+        {...sheet.dimProps}
         aria-label="문제 및 정답 닫기"
       />
 
       <section
-        className="quiz-result-sheet__panel"
+        className="quiz-result-sheet__panel bottom-sheet-panel"
         role="dialog"
         aria-modal="true"
         aria-label={title}
+        {...sheet.panelProps}
       >
-        <button className="quiz-result-sheet__handle" type="button" onClick={onClose}>
+        {/* 잡아서 아래로 끌면 닫힌다. 그냥 누르기만 해도 닫힌다. */}
+        <button
+          className="quiz-result-sheet__handle bottom-sheet-handle"
+          type="button"
+          {...sheet.handleProps}
+        >
           <span className="quiz-result-sheet__handle-bar" aria-hidden="true" />
           <span className="quiz-result-sheet__sr-only">문제 및 정답 닫기</span>
         </button>

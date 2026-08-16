@@ -1,5 +1,7 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import { sendEmailCode, verifyEmailCode } from '../api';
+import { useBottomSheet } from '../hooks/useBottomSheet';
+import '../styles/bottomSheet.css';
 import '../styles/EmailVerifySheet.css';
 
 /** 서버가 발급하는 인증번호 자릿수(`EmailVerifyRequest.code` 는 6자리 숫자 문자열이다). */
@@ -33,24 +35,8 @@ export default function EmailVerifySheet({ email, onVerified, onClose }: EmailVe
   /** 재요청 성공 안내. 다음 입력·제출에서 지운다. */
   const [notice, setNotice] = useState<string | null>(null);
 
-  /* Esc 로 닫기 — 시트가 떠 있는 동안에만 듣는다. */
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
-
-  /* 시트가 떠 있는 동안 뒤 페이지가 같이 스크롤되지 않게 막는다. */
-  useEffect(() => {
-    const { overflow } = document.body.style;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = overflow;
-    };
-  }, []);
+  /* 딤 클릭 · 핸들 끌기 · Esc · 배경 스크롤 잠금은 모든 시트가 함께 쓴다. */
+  const sheet = useBottomSheet(onClose);
 
   /** 숫자만 남기고 자릿수를 넘기지 않는다 — 붙여넣기로 들어오는 공백·하이픈도 여기서 걸러진다. */
   const handleChange = (value: string) => {
@@ -100,22 +86,28 @@ export default function EmailVerifySheet({ email, onVerified, onClose }: EmailVe
   };
 
   return (
-    <div className="email-sheet">
+    <div className="email-sheet bottom-sheet-root" {...sheet.rootProps}>
       {/* 딤. 클릭하면 닫히지만 읽어 줄 내용은 없다. */}
       <button
-        className="email-sheet__dim"
+        className="email-sheet__dim bottom-sheet-dim"
         type="button"
-        onClick={onClose}
+        {...sheet.dimProps}
         aria-label="이메일 인증 닫기"
       />
 
       <section
-        className="email-sheet__sheet"
+        className="email-sheet__sheet bottom-sheet-panel"
         role="dialog"
         aria-modal="true"
         aria-labelledby="email-sheet-title"
+        {...sheet.panelProps}
       >
-        <button className="email-sheet__handle" type="button" onClick={onClose}>
+        {/* 잡아서 아래로 끌면 닫힌다. 그냥 누르기만 해도 닫힌다. */}
+        <button
+          className="email-sheet__handle bottom-sheet-handle"
+          type="button"
+          {...sheet.handleProps}
+        >
           <span className="email-sheet__handle-bar" aria-hidden="true" />
           <span className="email-sheet__sr-only">이메일 인증 닫기</span>
         </button>
