@@ -82,12 +82,33 @@ cd android
 
 ### 서명
 
-release 빌드는 **debug keystore로 서명된다**. RN 템플릿 기본값이다
+로컬 release 빌드는 **debug keystore로 서명된다**. RN 템플릿 기본값이다
 (`android/app/build.gradle`의 `signingConfigs`).
 
 - 테스트 기기 설치에는 문제없다
 - Play 스토어에는 업로드할 수 없다
 - 정식 keystore로 서명한 빌드와 서명이 달라, 나중에 덮어쓰기 설치가 안 된다 (기존 앱 삭제 후 설치)
+
+## 스토어 빌드 (EAS)
+
+배포용 빌드는 로컬 Gradle이 아니라 EAS Build로 만든다. keystore·iOS 인증서를
+EAS가 만들어 보관하고, Mac 없이 iOS를 빌드할 수 있다.
+
+```powershell
+npm install
+npx eas login
+npx eas init                   # 최초 1회. app.json에 projectId를 심는다
+
+npm run build:preview          # 내부 테스트용 APK
+npm run build:android          # 스토어용 AAB
+npm run build:ios              # 스토어용 IPA
+```
+
+프로필은 `eas.json`에 있다. 버전은 `appVersionSource: "remote"`라 `versionCode`·
+`buildNumber`를 EAS가 올린다 — 손으로 건드리지 않는다. 표시용 버전만
+`app.json`의 `version`에서 관리한다.
+
+스토어 등록 절차·심사 요구사항은 [`docs/store-release.md`](docs/store-release.md).
 
 ## 구조
 
@@ -106,7 +127,9 @@ src/
 - **아이콘·스플래시 이미지가 Expo 기본 자산이다.** 브랜드 로고(1024×1024 PNG)를 받으면
   `assets/`의 `icon.png`, `android-icon-foreground.png`, `splash-icon.png`를 교체한다.
   배경색은 `app.json`에 브랜드 컬러(`#F04E23`)로 잡혀 있다.
+  **스토어 제출을 막는 블로커다.**
+- **푸시 알림** — 스토어 심사에서 "웹사이트 재포장"(Apple 4.2) 판정을 피하려면
+  네이티브 기능이 필요하다. `docs/store-release.md` 참고.
 - **소셜 로그인** — 웹에 OAuth가 붙으면 카카오·네이버 도메인 리다이렉트를 WebView 안에서
   처리할지 시스템 브라우저로 뺄지 정해야 한다. 지금은 모든 링크를 WebView 내부에서 연다.
-- **iOS** — `app.json` 설정은 돼 있지만 빌드·테스트한 적이 없다. Mac 또는 EAS Build가 필요하다.
-- **푸시 알림**
+- **iOS** — `app.json`·`eas.json` 설정은 돼 있지만 빌드·실행한 적이 없다.
