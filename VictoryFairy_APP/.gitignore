@@ -18,6 +18,9 @@ expo-env.d.ts
 *.key
 *.mobileprovision
 
+# 스토어 제출 자격 증명. eas.json이 경로로만 참조하고 파일 자체는 공유하지 않는다.
+google-play-service-account.json
+
 # Metro
 .metro-health-check*
 
