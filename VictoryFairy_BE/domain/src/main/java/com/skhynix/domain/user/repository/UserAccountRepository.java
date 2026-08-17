@@ -13,11 +13,25 @@ public interface UserAccountRepository extends JpaRepository<UserAccount, Long> 
     // 탈퇴 계정을 "못 찾음"으로 흡수 — login이 미가입 이메일과 동일한 응답(INVALID_CREDENTIALS)이 되도록 한다.
     Optional<UserAccount> findByUser_EmailAndExitAtIsNull(String email);
 
-    // 파생 쿼리명으로는 id 프로젝션을 표현 못 해 @Query로 명시. exit_at 조건 때문에 uid 인덱스만으로
-    // 커버링되지 않지만, access 토큰이 stateless(3h)라 이 조회가 탈퇴 즉시 차단의 유일한 지점이라 감수한다
-    // (트레이드오프 근거: docs/requirements/user/withdraw.md "결정 근거 2").
-    @Query("select ua.id from UserAccount ua where ua.uid = :uid and ua.exitAt is null")
-    Optional<Long> findActiveIdByUid(@Param("uid") String uid);
+    /**
+     * 요청 인증용 계정 조회 — uid→내부 PK 해석과 토큰 무효화 기준 시각을 <b>한 번의 조회</b>로 함께
+     * 가져온다. {@code JwtAuthenticationFilter}가 요청마다 부르는 유일한 운영 호출자다.
+     *
+     * <p>파생 쿼리명으로는 프로젝션을 표현하지 못해 {@code @Query}로 명시한다. {@code exit_at} 조건
+     * 때문에 uid 인덱스만으로 커버링되지 않지만, access 토큰이 stateless(3h)라 이 조회가 탈퇴 즉시
+     * 차단의 유일한 지점이라 감수한다(근거: {@code docs/requirements/user/withdraw.md} "결정 근거 2").
+     *
+     * <p>⚠ 기준 시각을 <b>여기서 함께 싣는 것</b>이 계약이다. 별도 조회로 빼면 요청당 SELECT 가 늘어
+     * "무효화 검사는 조회를 늘리지 않는다"(USER-ATI-13)가 깨진다. 반대로 엔티티 전체를 반환하도록
+     * 바꾸는 것도 안 된다 — 요청마다 쓰지도 않는 컬럼을 전부 읽게 된다.
+     */
+    @Query("""
+            select new com.skhynix.domain.user.repository.ActiveAccountView(
+                       ua.id, ua.passwordChangedEpochSecond)
+            from UserAccount ua
+            where ua.uid = :uid and ua.exitAt is null
+            """)
+    Optional<ActiveAccountView> findActiveAuthByUid(@Param("uid") String uid);
 
     boolean existsByNickname(String nickname);
 
