@@ -3,7 +3,7 @@
 > **도메인** `quiz` — 오늘의 퀴즈 조회·개별 조회·제출(채점)·풀이 이력·좋아요.
 > **모듈** quiz (포트 8081) · **경로 접두사** `/rt/quizzes` · **엔드포인트** 5개
 > **컨트롤러** `quiz/src/main/java/com/skhynix/quiz/quiz/controller/QuizController.java`(조회·좋아요 토글), `QuizSubmissionController.java`(제출·이력) — `/rt`는 context-path가 붙인다
-> **최종 갱신** 2026-08-13 — **`GET /rt/quizzes/submissions`(풀이 이력 조회) 요청·응답 계약 전면 교체.** `page` 파라미터 **폐지**, `gameId`(내부 PK가 아니라 `games.naver_game_id` 문자열 — `/today`와 같은 축) **필수** 신설. 응답이 종전 페이징 구조(`summary`+`PageResponse<submissions.content>`)에서 **지목한 경기 한 건의 이닝별 결산**(최상위 `summary`(correctCount/total/accuracy/**earnedPoint 신규**) + `innings[]`, 이닝마다 `{inning, summary, quizzes[]}`)으로 **전면 교체**됐다 — FE 파괴적 변경이며 BE·FE 동시 배포가 전제다. 이 교체로 **계정 전체 누적 정답률을 보여주던 경로가 사라졌다**(대체 엔드포인트 없음, 후속 과제). 문제 항목에 `options`(보기 배열) **신설**, `quizDate`·`myOptionText`·`answerText` **삭제**(`liked`/`likeCount`는 유지). 이닝 열거 범위는 경기 상태(`game_statuses.name`)로 갈린다 — 진행 중이면 `1..현재이닝-1`(현재 이닝 제외), 종료·무승부·취소는 `1..games.last_inning`, 그 경기에 내 제출 행이 0건이면 범위와 무관하게 `innings` 전체가 빈 배열(자세한 표는 해당 절 참고). 실패에 403 `GAME_NOT_STARTED`(신규 `ErrorCode` — 예정 경기 거절, `QUIZ_NOT_SERVABLE` 재사용 아님) 추가, 404 `GAME_NOT_FOUND`(기존 코드 재사용, 새 코드 아님)는 유지. **`/today`의 제공 가능 검증(오늘·응원 구단·`IN_PROGRESS`)은 이 경로에 적용되지 않는다** — 어제 끝난 경기·취소 경기도 200이다. **다른 4개 엔드포인트(응답 필드·정렬·상태코드 포함)는 전부 불변.** 변경 대상은 quiz(엔드포인트·서비스·DTO) + domain(`Game.lastInning` 매핑 신설, 읽기 전용) + common(`ErrorCode` 1건 신설) 세 모듈. 계약 원본 `docs/requirements/quiz/quiz-submission-by-inning.md`(승인됨 2026-08-13, QUIZ-SUB-1~73). (직전: 2026-08-12 5차 개정 — `GET /today`에 `gameId`(내부 PK가 아니라 `games.naver_game_id` 문자열) 필수 쿼리 파라미터 신설. 이제 응원 구단 경기가 **오늘·내 응원 구단·`IN_PROGRESS`**일 때만 세트를 주고, 넷 중 하나라도 아니면 사유 구분 없이 403 `QUIZ_NOT_SERVABLE`(신규), `gameId` 누락은 400(공통 래퍼)이다. **"한 이닝에 한 세트" 회차 제한이 신설**돼 같은 `(경기, 이닝)`에 다시 요청하면 409 `QUIZ_ALREADY_SERVED_IN_INNING`(신규)이다. **⚠ 재조회가 폐지됐다** — 종전엔 "미답이고 시한이 남은 문제는 다시 호출해도 계속 응답에 실린다"였으나, 이제 **행이 있는 문제는 답 여부·시한과 무관하게 그 즉시 목록에서 영구히 빠진다**. FE가 받은 세트를 화면에서 잃으면 되받을 방법이 없다(가장 큰 FE 영향). 8분 시한의 뜻도 **제출 경로 전용**으로 좁혀졌다(목록 재조회 판정과는 무관). 빈 배열의 뜻도 좁아졌다 — "지금은 줄 수 없다"가 전부 403·409로 빠지고 "줄 수 있는데 줄 게 없다"만 남는다. 응답 필드(이닝 미노출 포함)·정렬·성공 상태코드(200)·다른 4개 엔드포인트는 전부 불변. 계약 원본 `docs/requirements/quiz/quiz-inning-tracking.md`(5차 개정, 승인됨 2026-08-12, QUIZ-INN-83~113)). (직전: 같은 날 앞선 4차 이하 개정 — 제출 자격 증명의 근거가 Redis 티켓(`QuizSubmissionTicketStore`)에서 `quiz_users_submit`의 "미답 행"으로 전면 교체됨. `GET /today`가 서빙과 동시에 미답 행을 만드는 쓰기 트랜잭션이 됨. `GET /{quizId}`·`GET /submissions`에 `expired`(boolean) 필드 신설, `submitted`의 의미가 "받았는가"→"답했는가"로 재정의, `myOption`/`myOptionText`가 nullable로 완화, `submittedAt`이 `updated_at` 기준으로 재정의, 이력 요약이 미답 문제를 오답으로 집계. `POST /{quizId}/submit`은 판정 순서가 404→409→403→400에서 404→403→400→409로 바뀌어, 이미 답한 문제에 없는 보기 번호를 보내면 종전 409였던 응답이 이제 400). (직전: 2026-08-11 좋아요 기능 신설(`POST /{quizId}/like` 신규, 단건 상세·풀이 이력 응답에 `liked`·`likeCount` 필드 추가)).
+> **최종 갱신** 2026-08-17 — **비밀번호 변경 이전에 발급된 토큰이 이 도메인 5개 엔드포인트 전부에서 401로 거절되게 됨**(user 모듈의 `PATCH /api/users/me/password`, `main` 84f6f4a 머지 완료, PR #425 — 공유 인증 필터라 quiz 쪽 코드 변경 없이 적용됨). 응답은 기존 401 `UNAUTHENTICATED`와 문자 그대로 동일, 신규 코드 없음. 나머지 요청·응답 계약은 불변. 자세한 내용은 [README.md](README.md#2-인증-방식-jwt) 참고. (직전: 2026-08-13 — **`GET /rt/quizzes/submissions`(풀이 이력 조회) 요청·응답 계약 전면 교체.** `page` 파라미터 **폐지**, `gameId`(내부 PK가 아니라 `games.naver_game_id` 문자열 — `/today`와 같은 축) **필수** 신설. 응답이 종전 페이징 구조(`summary`+`PageResponse<submissions.content>`)에서 **지목한 경기 한 건의 이닝별 결산**(최상위 `summary`(correctCount/total/accuracy/**earnedPoint 신규**) + `innings[]`, 이닝마다 `{inning, summary, quizzes[]}`)으로 **전면 교체**됐다 — FE 파괴적 변경이며 BE·FE 동시 배포가 전제다. 이 교체로 **계정 전체 누적 정답률을 보여주던 경로가 사라졌다**(대체 엔드포인트 없음, 후속 과제). 문제 항목에 `options`(보기 배열) **신설**, `quizDate`·`myOptionText`·`answerText` **삭제**(`liked`/`likeCount`는 유지). 이닝 열거 범위는 경기 상태(`game_statuses.name`)로 갈린다 — 진행 중이면 `1..현재이닝-1`(현재 이닝 제외), 종료·무승부·취소는 `1..games.last_inning`, 그 경기에 내 제출 행이 0건이면 범위와 무관하게 `innings` 전체가 빈 배열(자세한 표는 해당 절 참고). 실패에 403 `GAME_NOT_STARTED`(신규 `ErrorCode` — 예정 경기 거절, `QUIZ_NOT_SERVABLE` 재사용 아님) 추가, 404 `GAME_NOT_FOUND`(기존 코드 재사용, 새 코드 아님)는 유지. **`/today`의 제공 가능 검증(오늘·응원 구단·`IN_PROGRESS`)은 이 경로에 적용되지 않는다** — 어제 끝난 경기·취소 경기도 200이다. **다른 4개 엔드포인트(응답 필드·정렬·상태코드 포함)는 전부 불변.** 변경 대상은 quiz(엔드포인트·서비스·DTO) + domain(`Game.lastInning` 매핑 신설, 읽기 전용) + common(`ErrorCode` 1건 신설) 세 모듈. 계약 원본 `docs/requirements/quiz/quiz-submission-by-inning.md`(승인됨 2026-08-13, QUIZ-SUB-1~73). (직전: 2026-08-12 5차 개정 — `GET /today`에 `gameId`(내부 PK가 아니라 `games.naver_game_id` 문자열) 필수 쿼리 파라미터 신설. 이제 응원 구단 경기가 **오늘·내 응원 구단·`IN_PROGRESS`**일 때만 세트를 주고, 넷 중 하나라도 아니면 사유 구분 없이 403 `QUIZ_NOT_SERVABLE`(신규), `gameId` 누락은 400(공통 래퍼)이다. **"한 이닝에 한 세트" 회차 제한이 신설**돼 같은 `(경기, 이닝)`에 다시 요청하면 409 `QUIZ_ALREADY_SERVED_IN_INNING`(신규)이다. **⚠ 재조회가 폐지됐다** — 종전엔 "미답이고 시한이 남은 문제는 다시 호출해도 계속 응답에 실린다"였으나, 이제 **행이 있는 문제는 답 여부·시한과 무관하게 그 즉시 목록에서 영구히 빠진다**. FE가 받은 세트를 화면에서 잃으면 되받을 방법이 없다(가장 큰 FE 영향). 8분 시한의 뜻도 **제출 경로 전용**으로 좁혀졌다(목록 재조회 판정과는 무관). 빈 배열의 뜻도 좁아졌다 — "지금은 줄 수 없다"가 전부 403·409로 빠지고 "줄 수 있는데 줄 게 없다"만 남는다. 응답 필드(이닝 미노출 포함)·정렬·성공 상태코드(200)·다른 4개 엔드포인트는 전부 불변. 계약 원본 `docs/requirements/quiz/quiz-inning-tracking.md`(5차 개정, 승인됨 2026-08-12, QUIZ-INN-83~113)). (직전: 같은 날 앞선 4차 이하 개정 — 제출 자격 증명의 근거가 Redis 티켓(`QuizSubmissionTicketStore`)에서 `quiz_users_submit`의 "미답 행"으로 전면 교체됨. `GET /today`가 서빙과 동시에 미답 행을 만드는 쓰기 트랜잭션이 됨. `GET /{quizId}`·`GET /submissions`에 `expired`(boolean) 필드 신설, `submitted`의 의미가 "받았는가"→"답했는가"로 재정의, `myOption`/`myOptionText`가 nullable로 완화, `submittedAt`이 `updated_at` 기준으로 재정의, 이력 요약이 미답 문제를 오답으로 집계. `POST /{quizId}/submit`은 판정 순서가 404→409→403→400에서 404→403→400→409로 바뀌어, 이미 답한 문제에 없는 보기 번호를 보내면 종전 409였던 응답이 이제 400). (직전: 2026-08-11 좋아요 기능 신설(`POST /{quizId}/like` 신규, 단건 상세·풀이 이력 응답에 `liked`·`likeCount` 필드 추가))).
 > 공통 규약(응답 래퍼·인증·401 정책)은 [README.md](README.md)를 먼저 볼 것.
 
 ## 엔드포인트 목록
@@ -19,6 +19,8 @@
 ## 이 도메인의 특이사항
 
 **인증 필수.** quiz 모듈의 `SecurityConfig`는 `/`, `/error`, `GET /actuator/health/**`만 permitAll이고 그 외 `anyRequest().authenticated()`다. 무토큰 요청은 전부 401 `"인증이 필요합니다."`([README](README.md)의 401 정책).
+
+**비밀번호 변경 이전에 발급된 토큰도 이 5개 엔드포인트 전부에서 같은 401로 거절된다(2026-08-17부터).** 인증 필터(`JwtAuthenticationFilter`, `web-support` 공유 컴포넌트)가 user(8080)·quiz(8081) 양쪽에서 동일하게 동작하므로, user 쪽 `PATCH /api/users/me/password`로 비밀번호를 바꾸면 그 이전에 발급된 access 토큰은 quiz의 `/rt/**` 요청에서도 그 순간부터 401 `UNAUTHENTICATED`가 된다(토큰이 아예 없을 때와 응답 완전히 동일 — 전용 코드 없음). quiz는 이 판정을 위한 별도 코드가 없다 — `UserAccountRepository`(공유 `:domain`)를 그대로 물려받아 자동으로 적용된다. 자세한 계약은 [README.md](README.md#2-인증-방식-jwt) 참고.
 
 **전원 동일 데일리 세트.** `quizzes.quiz_date`는 **출제일**이다(생성일 아님). 시효성 없는 문제(역대기록형)는 `quiz_date=NULL` 풀에 쌓였다가 매일 편성 잡이 세트 부족분(기본 10문항, `quiz.serve.daily-count`)을 오래된 것부터 채운다. 경기 문항(gameId 귀속)만 그 경기 날짜에 고정. 모든 사용자가 같은 날 같은 세트를 받는다 — 레이팅(도입 예정)의 점수 비교 전제다. **미편성 풀 문제는 어떤 API로도 보이지 않는다**(단건 조회·제출 모두 404 — id 순회로 내일 출제분을 미리 보는 것을 막는다).
 
@@ -87,7 +89,7 @@
 | 상태 | ErrorCode | 조건 |
 |---|---|---|
 | 400 | (검증) | `gameId` 쿼리 파라미터 누락 — 공통 래퍼로 응답, `data`는 `null` |
-| 401 | UNAUTHENTICATED | 무토큰 |
+| 401 | UNAUTHENTICATED | 무토큰(또는 비밀번호 변경 이전에 발급된 토큰, 2026-08-17부터 — 위 "이 도메인의 특이사항" 참고) |
 | 403 | QUIZ_NOT_SERVABLE | 지목한 경기 없음 · 오늘(KST) 경기 아님 · 내 응원 구단 경기 아님 · `IN_PROGRESS` 아님(경기 전·종료·취소) · 이닝 값 확보 실패 — **다섯 사유 모두 이 하나의 응답으로 합쳐지고 구분되지 않는다** |
 | 409 | QUIZ_ALREADY_SERVED_IN_INNING | 그 `(경기, 이닝)`에 이미 세트를 받음(같은 이닝 재요청) |
 
@@ -151,7 +153,7 @@ curl "http://localhost:8081/rt/quizzes/today?gameId=20260812SSHT02026" -H 'Autho
 
 | 상태 | ErrorCode | 조건 |
 |---|---|---|
-| 401 | UNAUTHENTICATED | 무토큰 |
+| 401 | UNAUTHENTICATED | 무토큰(또는 비밀번호 변경 이전에 발급된 토큰, 2026-08-17부터 — 위 "이 도메인의 특이사항" 참고) |
 | 404 | QUIZ_NOT_FOUND | 미존재 **또는 미편성 풀 문제**(구분 불가가 의도 — 존재 은닉) |
 
 **예시 — 미제출(진행 중)**
@@ -221,7 +223,7 @@ curl http://localhost:8081/rt/quizzes/23 -H 'Authorization: Bearer eyJ...'
 |---|---|---|
 | 400 | (검증) | `option` 누락 — `data`에 필드 오류 맵 |
 | 400 | QUIZ_OPTION_NOT_FOUND | 존재하지 않는 보기 번호(판정 순서상 403 다음·409 이전. **⚠ 2026-08-12부터: 이미 답한 문제에 없는 보기 번호를 보낸 경우도 이 400이다** — 종전엔 409였다) |
-| 401 | UNAUTHENTICATED | 무토큰 |
+| 401 | UNAUTHENTICATED | 무토큰(또는 비밀번호 변경 이전에 발급된 토큰, 2026-08-17부터 — 위 "이 도메인의 특이사항" 참고) |
 | 403 | QUIZ_SUBMIT_NOT_ALLOWED | 그 문제를 `/today`로 받은 적이 없거나(행 없음), 받았지만 제한 시간(8분)이 지남(행은 있으나 만료) — **두 경우 응답 동일**(판정 순서상 404 다음·400 이전, 2026-08-12부터 409보다 앞) |
 | 404 | QUIZ_NOT_FOUND | 미존재·미편성(판정 순서상 가장 먼저) |
 | 409 | QUIZ_ALREADY_SUBMITTED | 이미 답한 문제 재제출(동시 제출 race 포함) — **판정 순서상 가장 마지막**(계정 락·적립 이후, 2026-08-12부터. 종전엔 가장 먼저였다) |
@@ -312,7 +314,7 @@ curl -X POST http://localhost:8081/rt/quizzes/23/submit \
 | 상태 | ErrorCode | 조건 |
 |---|---|---|
 | 400 | (검증) | `gameId` 쿼리 파라미터 누락 또는 빈 문자열 — 공통 래퍼로 응답, `data`는 `null`. 이력 조회 쿼리가 실행되지 않는다 |
-| 401 | UNAUTHENTICATED | 무토큰 |
+| 401 | UNAUTHENTICATED | 무토큰(또는 비밀번호 변경 이전에 발급된 토큰, 2026-08-17부터 — 위 "이 도메인의 특이사항" 참고) |
 | 403 | GAME_NOT_STARTED(신규) | 지목한 경기가 `SCHEDULED` — 이닝 컬럼을 읽지 않고 상태만으로 거절. `QUIZ_NOT_SERVABLE`(출제 거절 문구)을 재사용하지 않는다 |
 | 404 | GAME_NOT_FOUND | `gameId`가 어떤 `games` 행과도 매칭되지 않음(기존 코드 재사용, 새 코드 아님) |
 
@@ -383,7 +385,7 @@ curl "http://localhost:8081/rt/quizzes/submissions?gameId=NOPE" -H 'Authorizatio
 
 | 상태 | ErrorCode | 조건 |
 |---|---|---|
-| 401 | UNAUTHENTICATED | 무토큰 |
+| 401 | UNAUTHENTICATED | 무토큰(또는 비밀번호 변경 이전에 발급된 토큰, 2026-08-17부터 — 위 "이 도메인의 특이사항" 참고) |
 | 403 | QUIZ_LIKE_NOT_ALLOWED | 요청자에게 그 `quizId`의 제출 이력이 없음 |
 
 **⚠ 403은 미존재·미편성 풀·미제출 세 경우를 구분하지 않는 단일 응답이다(404가 아니다).** 제출이 좋아요의 선행조건이 되는 순간, 요청자 입장에서 "그 문제가 존재하지 않음"과 "존재하지만 아직 안 풀었음"이 같은 상태로 합쳐진다 — 어느 쪽이든 "너는 이 문제에 좋아요할 수 없다"이므로 하나의 403으로 통일해 퀴즈 존재 여부와 내일 출제분(미편성 풀)이 새어 나가지 않게 한다. 세 경우 모두 상태코드·에러코드·메시지·응답 본문 문자열이 완전히 동일하며(테스트로 바이트 단위 고정), `data`는 항상 `null`이다. 판정 순서(문제 존재→편성→제출 이력)는 계약이 아니며 구현은 제출 이력 존재 확인 하나로 세 경우를 한 번에 가른다.
@@ -406,5 +408,6 @@ curl -X POST http://localhost:8081/rt/quizzes/999999/like -H 'Authorization: Bea
 
 ## 관련 문서
 
-- [README.md](README.md) — 응답 래퍼·JWT 인증·401 정책은 quiz 모듈 공통.
+- [README.md](README.md) — 응답 래퍼·JWT 인증·401 정책은 quiz 모듈 공통. 2026-08-17부터 토큰 무효화(비밀번호 변경) 판정도 포함.
 - [chat.md](chat.md) — 같은 quiz 모듈(포트 8081, `/rt`)의 채팅 도메인. `PageResponse` 규약의 원 출처.
+- 요구사항: `docs/requirements/user/access-token-invalidation.md`(USER-ATI-12 — quiz(8081) 인증 경로에도 이 대조가 동일 적용된다는 계약의 출처. user 모듈 문서이지만 파급 범위에 quiz가 명시돼 있다)
