@@ -44,6 +44,16 @@ public enum ErrorCode {
     // GAME_NOT_FOUND(404)로 그대로 알린다(은닉 정책이 없다).
     GAME_NOT_STARTED(403, "아직 시작하지 않은 경기입니다."),
 
+    // 400 Bad Request - 프로필 수정
+    // 현재 비밀번호 오답에 INVALID_CREDENTIALS(401)를 재사용하지 않는다 — FE 인터셉터가 401을
+    // "토큰 만료 → 재발급/로그아웃"으로 처리하면 비밀번호 오타 한 번에 로그아웃되고, 이 경로의
+    // 인증 수단(access 토큰)은 이미 통과한 상태라 현재 비밀번호는 인증이 아니라 본문 검증 대상이다.
+    INVALID_CURRENT_PASSWORD(400, "현재 비밀번호가 올바르지 않습니다."),
+    SAME_AS_CURRENT_PASSWORD(400, "현재 비밀번호와 다른 비밀번호를 사용해 주세요."),
+    // 자기 닉네임을 DUPLICATE_NICKNAME(409)으로 흡수하지 않는다 — "이미 사용 중"이라는 문구가
+    // 자기 자신에 대해서는 거짓이다.
+    SAME_AS_CURRENT_NICKNAME(400, "현재 닉네임과 다른 닉네임을 사용해 주세요."),
+
     // 400 Bad Request - 응원 선택
     SUPPORT_TEAM_REQUIRED(400, "응원하는 구단을 먼저 선택해 주세요."),
     PLAYER_NOT_IN_SUPPORT_TEAM(400, "응원하는 구단 소속 선수만 선택할 수 있습니다."),
@@ -70,7 +80,15 @@ public enum ErrorCode {
     QUIZ_ALREADY_SERVED_IN_INNING(409, "이번 이닝에는 이미 문제를 받았습니다."),
 
     // 429 Too Many Requests - 이메일 인증
-    EMAIL_SEND_COOLDOWN(429, "인증번호를 방금 발송했습니다. 잠시 후 다시 시도해 주세요.");
+    EMAIL_SEND_COOLDOWN(429, "인증번호를 방금 발송했습니다. 잠시 후 다시 시도해 주세요."),
+
+    // 429 Too Many Requests - 닉네임 변경 쿨다운
+    // 400으로 두지 않는 이유: 이 경로의 400은 data.nickname에 필드 메시지가 실리는 형식 오류라
+    // FE·사용자가 "입력을 고치면 된다"로 오해한다(고칠 입력이 없다). 409도 아니다 — 충돌하는
+    // 상대 자원이 없고 막는 주체는 내 계정의 시간 제한이다(EMAIL_SEND_COOLDOWN과 같은 성격).
+    // ⚠ 메시지의 "30"은 기간의 단일 출처인 NicknameChangeCooldownPolicy.COOLDOWN_DAYS와 같은 값이어야
+    //   한다 — :common은 앱 모듈을 참조할 수 없어 상수로 조립할 수 없으니 한쪽만 고치지 말 것.
+    NICKNAME_CHANGE_COOLDOWN(429, "닉네임은 30일에 한 번만 변경할 수 있습니다.");
 
     private final int status;
     private final String message;
