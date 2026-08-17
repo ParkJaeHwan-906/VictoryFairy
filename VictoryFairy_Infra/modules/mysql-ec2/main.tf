@@ -211,6 +211,9 @@ resource "aws_instance" "this" {
     mysql_root_password_ssm_parameter_name = var.mysql_root_password_ssm_parameter_name
     innodb_buffer_pool_size                = var.innodb_buffer_pool_size
     redis_maxmemory                        = var.redis_maxmemory
+    swap_size_mb                           = var.swap_size_mb
+    mysql_container_memory                 = var.mysql_container_memory
+    redis_container_memory                 = var.redis_container_memory
   })
 
   root_block_device {
