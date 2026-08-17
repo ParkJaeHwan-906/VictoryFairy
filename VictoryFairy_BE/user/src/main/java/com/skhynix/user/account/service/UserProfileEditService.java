@@ -10,6 +10,7 @@ import com.skhynix.user.auth.dto.TokenResponse;
 import com.skhynix.user.auth.policy.NicknameChangeCooldownPolicy;
 import com.skhynix.user.auth.service.AuthService;
 import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -85,9 +86,9 @@ public class UserProfileEditService {
      * 피해가 크다. 닉네임 쿨다운이 보호하는 대상은 다른 사용자(사칭·세탁)이고 여기서 보호할 대상은
      * 계정 주인이다. "일관성" 명목으로 붙이지 말 것.
      *
-     * <p>성공 시 기존 유효 refresh 토큰을 모두 만료시키고 새 토큰 쌍을 돌려준다. 다만 <b>변경 전에
-     * 발급된 access 토큰은 무효화되지 않는다</b> — 서명·만료만 보는 stateless 검증이라 "더 새로운
-     * 토큰이 나왔다"를 알 방법이 없고, 그 즉시 무효화는 별도 작업으로 분리돼 있다.
+     * <p>성공 시 기존 유효 refresh 토큰을 모두 만료시키고 새 토큰 쌍을 돌려주며, <b>변경 이전에 발급된
+     * access·refresh 토큰도 즉시 무효화된다</b> — 계정에 기준 시각을 적어 두고 필터·재발급이 토큰의
+     * {@code iat}를 그 값과 대조한다.
      */
     public TokenResponse updatePassword(Long userAccountId, String currentPassword, String newPassword) {
         UserAccount account = loadAccount(userAccountId);
@@ -104,10 +105,15 @@ public class UserProfileEditService {
             throw new BusinessException(ErrorCode.SAME_AS_CURRENT_PASSWORD);
         }
 
-        account.changePassword(passwordEncoder.encode(newPassword));
+        // 토큰 무효화 기준 시각만은 Clock 빈이 아니라 Instant.now() 에서 읽는다. 이 값은 표시용 벽시계가
+        // 아니라 토큰의 iat 와 직접 비교되는 절대 시각이라 존을 고를 일 자체가 없어야 하고, 대조 상대인
+        // iat 가 System.currentTimeMillis() 에서 나오므로 같은 시스템 시계에서 읽어야 "기록 → 발급"
+        // 순서가 값의 순서로도 보장된다(주입된 Clock 이 고정·오프셋 시계면 그 보장이 깨진다).
+        // 아래 issueTokens 보다 반드시 먼저 읽는다 — 뒤집으면 방금 발급한 토큰이 스스로 무효화된다.
+        account.changePassword(passwordEncoder.encode(newPassword), Instant.now().getEpochSecond());
 
-        // 실패 경로는 전부 이 줄 앞에서 예외로 끝난다 — 그래서 실패 시 refresh 만료도 토큰 발급도 없다.
-        // 운영 파드가 UTC 라 LocalDateTime.now() 를 직접 읽지 않고 Clock(Asia/Seoul 고정) 빈을 쓴다.
+        // 실패 경로는 전부 이 줄 앞에서 예외로 끝난다 — 그래서 실패 시 기준 시각 기록도 refresh 만료도
+        // 토큰 발급도 없다. 운영 파드가 UTC 라 LocalDateTime.now() 를 직접 읽지 않고 Clock 빈을 쓴다.
         return authService.issueTokens(account, LocalDateTime.now(clock));
     }
 

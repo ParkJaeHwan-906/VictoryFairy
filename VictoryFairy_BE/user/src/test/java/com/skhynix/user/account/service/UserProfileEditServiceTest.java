@@ -426,6 +426,97 @@ class UserProfileEditServiceTest {
                 .isEqualTo(ErrorCode.INVALID_CURRENT_PASSWORD);
     }
 
+    // ---------- 비밀번호 변경: access 토큰 무효화 기준 시각 기록 (USER-ATI-2, 3, 7, 15, 22) ----------
+
+    @Test
+    @DisplayName("[USER-ATI-2, USER-ATI-7] 비밀번호 변경이 성공하면 passwordChangedEpochSecond가 NULL이 "
+            + "아닌 실제 시각(Instant.now() 기준, 초 단위)으로 기록되고, 그 기록은 authService.issueTokens가 "
+            + "호출되는 시점에 이미 반영돼 있다 — 기록이 토큰 발급보다 먼저다(순서가 뒤집히면 방금 발급한 "
+            + "토큰이 스스로 무효화된다)")
+    void updatePassword_success_recordsBaselineBeforeIssuingTokens() {
+        // given
+        UserProfileEditService service = serviceWithFixedClock();
+        UserAccount account = accountWith("길동", "encoded-old");
+        given(userAccountRepository.findById(ACCOUNT_ID)).willReturn(Optional.of(account));
+        given(passwordEncoder.matches("Old1234!", "encoded-old")).willReturn(true);
+        given(passwordEncoder.encode("New1234!")).willReturn("encoded-new");
+        long beforeCall = Instant.now().getEpochSecond();
+
+        // issueTokens 호출 시점에 계정의 기준 시각이 이미 기록돼 있는지를 그 순간 스냅샷으로 검증한다
+        java.util.concurrent.atomic.AtomicReference<Long> baselineAtIssueTime =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        given(authService.issueTokens(eq(account), any())).willAnswer(invocation -> {
+            baselineAtIssueTime.set(account.getPasswordChangedEpochSecond());
+            return new TokenResponse("access-token", "refresh-token");
+        });
+
+        // when
+        service.updatePassword(ACCOUNT_ID, "Old1234!", "New1234!");
+        long afterCall = Instant.now().getEpochSecond();
+
+        // then: 기록값이 issueTokens 호출 이전에 이미 채워져 있어야 하고(순서 증거),
+        // 실제 시스템 시계(FIXED_CLOCK이 아니다)로 기록된 값이라 호출 전후 구간 안에 있어야 한다
+        assertThat(baselineAtIssueTime.get()).isNotNull();
+        assertThat(baselineAtIssueTime.get()).isBetween(beforeCall, afterCall);
+        assertThat(account.getPasswordChangedEpochSecond()).isEqualTo(baselineAtIssueTime.get());
+    }
+
+    @Test
+    @DisplayName("[USER-ATI-3] 현재 비밀번호 불일치로 실패하면 이미 기록돼 있던 passwordChangedEpochSecond가 "
+            + "갱신되지 않는다(NULL이던 계정은 계속 NULL)")
+    void updatePassword_wrongCurrentPassword_doesNotUpdateBaseline() {
+        // given
+        UserAccount account = accountWith("길동", "encoded-old");
+        given(userAccountRepository.findById(ACCOUNT_ID)).willReturn(Optional.of(account));
+        given(passwordEncoder.matches("Wrong1234!", "encoded-old")).willReturn(false);
+
+        // when & then
+        assertThatThrownBy(() -> userProfileEditService.updatePassword(ACCOUNT_ID, "Wrong1234!", "New1234!"))
+                .isInstanceOf(BusinessException.class);
+
+        assertThat(account.getPasswordChangedEpochSecond()).isNull();
+    }
+
+    @Test
+    @DisplayName("[USER-ATI-3] 신·구 비밀번호가 같아 SAME_AS_CURRENT_PASSWORD로 실패하면 이미 기록돼 있던 "
+            + "passwordChangedEpochSecond가 갱신되지 않는다")
+    void updatePassword_sameAsCurrent_doesNotUpdateBaseline() {
+        // given: 과거에 이미 한 번 바꾼 적 있는 계정(기준 시각이 NULL이 아님을 함께 증명)
+        UserAccount account = accountWith("길동", "encoded-old");
+        long previouslyRecorded = 1_700_000_000L;
+        account.changePassword("encoded-old", previouslyRecorded);
+        given(userAccountRepository.findById(ACCOUNT_ID)).willReturn(Optional.of(account));
+        given(passwordEncoder.matches("Same1234!", "encoded-old")).willReturn(true);
+
+        // when & then
+        assertThatThrownBy(() -> userProfileEditService.updatePassword(ACCOUNT_ID, "Same1234!", "Same1234!"))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.SAME_AS_CURRENT_PASSWORD);
+
+        assertThat(account.getPasswordChangedEpochSecond()).isEqualTo(previouslyRecorded);
+    }
+
+    @Test
+    @DisplayName("[USER-ATI-15] 닉네임 변경 성공은 passwordChangedEpochSecond를 갱신하지 않는다(닉네임 변경으로 "
+            + "access 토큰이 무효화되지 않는다는 계약)")
+    void updateNickname_success_doesNotTouchPasswordChangedEpochSecond() {
+        // given: 비밀번호 변경 이력이 있는 계정(기준 시각이 이미 채워진 상태)에서 닉네임만 바꾼다
+        UserProfileEditService service = serviceWithFixedClock();
+        UserAccount account = accountWith("길동", "encoded");
+        long recordedBaseline = 1_700_000_000L;
+        account.changePassword("encoded", recordedBaseline);
+        given(userAccountRepository.findById(ACCOUNT_ID)).willReturn(Optional.of(account));
+        given(authService.isNicknameDuplicated("철수")).willReturn(false);
+
+        // when
+        service.updateNickname(ACCOUNT_ID, "철수");
+
+        // then
+        assertThat(account.getNickname()).isEqualTo("철수");
+        assertThat(account.getPasswordChangedEpochSecond()).isEqualTo(recordedBaseline);
+    }
+
     @Test
     @DisplayName("(요구사항 ID 없음, USER-WD 패턴 대응) 존재하지 않는 계정 id로 비밀번호 변경을 시도하면 UNAUTHENTICATED가 발생한다")
     void updatePassword_accountNotFound_throwsUnauthenticated() {
