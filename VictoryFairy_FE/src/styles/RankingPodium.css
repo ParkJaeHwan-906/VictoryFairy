@@ -1,0 +1,115 @@
+/**
+ * RankingPodium(승리요정 랭킹 시상대) 스타일.
+ * Figma: [Lounge] 라운지 메인 (1090:8107) · [Home] 홈 메인(full) (1443:15451)
+ *
+ * 세 칸은 각 100px 고정이라 합이 300 이고, 카드(354) 안에서 가운데로 모인다.
+ * Figma 는 좌우 여백을 51 로 잡아 두었지만 칸 합이 안쪽 폭(252)보다 넓어 실제로는
+ * 무시된다 — 그래서 같은 결과가 나오는 16 을 주고 가운데 정렬에 맡긴다.
+ *
+ * 바탕은 가운데가 밝은 타원 그라데이션(Figma 1090:8172, 반지름 692 x 175).
+ * Figma 가 뽑아 준 중간 두 스톱은 양 끝을 선형 보간한 값과 같아 생략했다.
+ *
+ * 좌우 여백은 이 카드가 직접 갖는다 — 라운지·홈 두 화면에서 같은 거터 안에 놓이므로
+ * 부르는 쪽마다 감싸개를 만들지 않는다.
+ */
+
+.ranking-podium {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  margin-inline: var(--layout-gutter);
+  padding: 16px;
+  border-radius: var(--radius-20);
+  background-image: radial-gradient(
+    692px 175px at 50% 50%,
+    var(--color-primary-300),
+    var(--color-primary-500)
+  );
+}
+
+.ranking-podium__item {
+  display: flex;
+  flex: 0 1 100px;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* 왕관 — 1위만 32px, 나머지는 24px. 원본 비율(10:7)은 mask 의 contain 이 지킨다. */
+.ranking-podium__crown {
+  width: 24px;
+  height: 24px;
+  background-color: var(--color-ivory-100);
+  -webkit-mask: url('../assets/crown.svg') center / contain no-repeat;
+  mask: url('../assets/crown.svg') center / contain no-repeat;
+}
+
+.ranking-podium__profile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 60px;
+}
+
+.ranking-podium__label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+}
+
+/* 주황 바탕 위라 포인트는 아이보리, 이름은 흰색이다 */
+.ranking-podium__point {
+  margin: 0;
+  color: var(--color-ivory-100);
+  font-size: var(--font-size-label2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+.ranking-podium__name {
+  margin: 0;
+  color: var(--color-white);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+}
+
+.ranking-podium__avatar {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: var(--radius-40);
+  object-fit: cover;
+}
+
+/* 1위 — 왕관·사진·이름이 한 단계씩 크다. 순위 차이를 이 크기만으로 보여 준다. */
+.ranking-podium__item--rank1 .ranking-podium__crown {
+  width: 32px;
+  height: 32px;
+}
+
+.ranking-podium__item--rank1 .ranking-podium__profile {
+  width: 80px;
+}
+
+.ranking-podium__item--rank1 .ranking-podium__point {
+  line-height: var(--line-height-body4);
+}
+
+.ranking-podium__item--rank1 .ranking-podium__name {
+  font-size: var(--font-size-title3);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title3);
+}
+
+/* 402px 미만(소형 단말)에서 좌우 여백을 줄인다(다른 화면과 동일). */
+@media (max-width: 359px) {
+  .ranking-podium {
+    margin-inline: 16px;
+    padding-inline: 8px;
+  }
+}
