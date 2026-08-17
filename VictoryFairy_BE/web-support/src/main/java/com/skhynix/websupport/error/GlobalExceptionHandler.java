@@ -1,5 +1,6 @@
 package com.skhynix.websupport.error;
 
+import com.skhynix.common.error.BusinessDataException;
 import com.skhynix.common.error.BusinessException;
 import com.skhynix.common.error.ErrorCode;
 import com.skhynix.common.response.ApiResponse;
@@ -21,6 +22,21 @@ public class GlobalExceptionHandler {
         ErrorCode errorCode = e.getErrorCode();
         return ResponseEntity.status(errorCode.getStatus())
                 .body(ApiResponse.fail(errorCode.getMessage()));
+    }
+
+    /**
+     * {@link BusinessDataException}만 {@code data}를 실은 실패 응답으로 내보낸다.
+     *
+     * <p>{@code @ExceptionHandler}는 던져진 타입에 가장 가까운 핸들러를 고르므로, 이 메서드는
+     * {@code BusinessDataException}으로 던진 예외에만 걸리고 {@code BusinessException}으로 던진
+     * 기존 예외는 위 {@link #handleBusiness}에 그대로 간다 — 즉 <b>기존 응답의 {@code data:null}은
+     * 유지된다.</b> 두 핸들러를 하나로 합치지 말 것(합치면 그 계약이 한 곳에서 통째로 흔들린다).
+     */
+    @ExceptionHandler(BusinessDataException.class)
+    public ResponseEntity<ApiResponse<Object>> handleBusinessData(BusinessDataException e) {
+        ErrorCode errorCode = e.getErrorCode();
+        return ResponseEntity.status(errorCode.getStatus())
+                .body(ApiResponse.fail(errorCode.getMessage(), e.getData()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

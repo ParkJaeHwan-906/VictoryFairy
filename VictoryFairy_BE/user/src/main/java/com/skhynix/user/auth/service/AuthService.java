@@ -150,8 +150,21 @@ public class AuthService {
     }
 
     private TokenResponse issueTokens(UserAccount account) {
+        return issueTokens(account, LocalDateTime.now());
+    }
+
+    /**
+     * 토큰 쌍 발급 — 기존 유효 refresh 토큰을 먼저 만료시킨 뒤 새로 발급한다(계정당 유효 refresh 1개).
+     *
+     * <p>비밀번호 변경 경로가 같은 절차를 필요로 해 공개한다. 발급 로직을 복제하면 "고쳐야 할 자리"가
+     * 두 곳이 되므로 호출로 재사용한다. 호출자가 시각을 넘기는 이유는 {@code withdraw(LocalDateTime)}와
+     * 같다 — 같은 트랜잭션의 다른 작업과 시각을 맞추고, {@code Clock} 빈을 가진 호출자가 시간대
+     * 단일 출처를 유지할 수 있게 한다.
+     */
+    @Transactional
+    public TokenResponse issueTokens(UserAccount account, LocalDateTime now) {
         // 유저당 유효 refresh token 1개 유지: 기존 유효 토큰을 즉시 만료시킨 뒤 발급
-        userRefreshTokenRepository.expireValidTokens(account, LocalDateTime.now());
+        userRefreshTokenRepository.expireValidTokens(account, now);
 
         String accessToken = tokenProvider.createAccessToken(account.getUid());
         String refreshToken = tokenProvider.createRefreshToken(account.getUid());
