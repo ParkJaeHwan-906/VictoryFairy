@@ -295,7 +295,7 @@
 
 /* ------------------------------------------------------------------ *
  * 로그아웃 · 회원 탈퇴
- * 디자인에는 두 글자 버튼만 있지만, 탈퇴는 되돌릴 수 없어 확인 단계를 같은 자리에 둔다.
+ * 둘 다 누르는 즉시 실행하지 않고 확인 바텀시트를 띄운다(`ConfirmSheet.css`).
  * ------------------------------------------------------------------ */
 .my-page__account {
   display: flex;
@@ -330,24 +330,10 @@
   opacity: 0.6;
 }
 
-/* 확인 단계에서만 나오는 실행 버튼 — 되돌릴 수 없는 쪽임을 색으로 알린다 */
-.my-page__text-button--danger {
-  color: var(--color-error-strong);
-}
-
 .my-page__account-divider {
   width: 1px;
   height: 16px;
   background-color: var(--color-line-light);
-}
-
-.my-page__confirm {
-  margin: 0;
-  color: var(--color-label-neutral);
-  font-size: var(--font-size-caption2);
-  font-weight: var(--font-weight-regular);
-  line-height: var(--line-height-tight);
-  text-align: center;
 }
 
 .my-page__error {

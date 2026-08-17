@@ -1,0 +1,180 @@
+/**
+ * ConfirmSheet(로그아웃 · 회원 탈퇴 확인 바텀시트) 스타일.
+ * Figma: [My] 로그아웃 확인 (1443:14171) · [My] 회원탈퇴 확인 (1443:14481)
+ *
+ * 딤 · 모서리 · 핸들 · rise 는 다른 시트들과 같은 값을 쓴다 — 한 앱 안에서 번갈아 뜨므로
+ * 열리는 모양이 달라 보이면 안 된다.
+ *
+ * 높이는 고정하지 않는다. 디자인은 317px 이지만 그 안에 홈 인디케이터(28px)가 들어 있고,
+ * 웹에는 그 자리가 없다. 대신 여백을 디자인대로 두고 내용에 맡긴다 — 글이 세 줄로 늘어도
+ * 버튼이 잘리지 않는다.
+ */
+
+.confirm-sheet {
+  position: fixed;
+  z-index: 10;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+/* 딤 — 클릭하면 닫힌다. 버튼이지만 화면에는 어두운 면으로만 보인다. */
+.confirm-sheet__dim {
+  position: absolute;
+  inset: 0;
+  border: none;
+  padding: 0;
+  background-color: var(--color-dim);
+  cursor: default;
+}
+
+.confirm-sheet__panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--layout-app-width);
+  padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  border-radius: var(--radius-40) var(--radius-40) 0 0;
+  background-color: var(--color-surface);
+  animation: confirm-sheet-rise 0.24s ease-out;
+}
+
+@keyframes confirm-sheet-rise {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+/* 화면에는 감추고 보조기기에만 남기는 텍스트 */
+.confirm-sheet__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------ *
+ * Handle
+ * ------------------------------------------------------------------ */
+.confirm-sheet__handle {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 12px 0;
+}
+
+.confirm-sheet__handle-bar {
+  width: 48px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-label-assistive);
+}
+
+/* ------------------------------------------------------------------ *
+ * 묻는 글 — 제목과 설명이 가운데로 모인다
+ * ------------------------------------------------------------------ */
+.confirm-sheet__body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  padding: 40px var(--layout-gutter) 0;
+  text-align: center;
+}
+
+/* Title/Title2 — SemiBold 20 / 1.4 / -1% */
+.confirm-sheet__title {
+  margin: 0;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-title2);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title2);
+}
+
+/* Body/Body2 — Regular 16 / 1.5 */
+.confirm-sheet__description {
+  margin: 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body2);
+}
+
+/*
+ * 줄바꿈 자리는 디자인이 정한다. 다만 폭이 좁아 한 줄이 넘치면 그 줄 안에서 접히게 두고,
+ * 접힌 줄도 가운데로 모이게 한다.
+ */
+.confirm-sheet__description-line {
+  display: block;
+}
+
+/* ------------------------------------------------------------------ *
+ * 취소 · 실행 — 반씩 나눠 쓴다
+ * ------------------------------------------------------------------ */
+.confirm-sheet__actions {
+  display: flex;
+  gap: 16px;
+  margin-top: 40px;
+  padding-inline: var(--layout-gutter);
+}
+
+.confirm-sheet__button {
+  display: flex;
+  flex: 1 0 0;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  height: 60px;
+  padding-inline: 16px;
+  border-radius: var(--radius-15);
+  font-size: var(--font-size-button2);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  transition: background-color 0.15s ease-in-out;
+}
+
+.confirm-sheet__button--cancel {
+  background-color: var(--color-gray-100);
+  color: var(--color-label-neutral);
+}
+
+.confirm-sheet__button--confirm {
+  background-color: var(--color-primary-normal);
+  color: var(--color-white);
+}
+
+.confirm-sheet__button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* ------------------------------------------------------------------ *
+ * 반응형 · 접근성
+ * ------------------------------------------------------------------ */
+@media (max-width: 359px) {
+  .confirm-sheet__body,
+  .confirm-sheet__actions {
+    padding-inline: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .confirm-sheet__panel {
+    animation: none;
+  }
+
+  .confirm-sheet__button {
+    transition: none;
+  }
+}
