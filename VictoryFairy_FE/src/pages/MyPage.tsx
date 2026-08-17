@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { logout, withdraw } from '../api';
 import profilePlaceholder from '../assets/profile_img.svg';
+import ConfirmSheet from '../components/ConfirmSheet';
 import { getTeamDisplay } from '../data/kboTeams';
 import { ROUTES } from '../routes';
 import { useAccountStore, useMyProfile } from '../stores/useAccountStore';
@@ -35,10 +36,36 @@ const SETTING_ITEMS = ['계정 설정', '알림 설정', 'SNS 연동'] as const;
 const CENTER_ITEMS = ['공지사항', '문의하기', '개인정보처리방침', '서비스 이용약관'] as const;
 
 /**
+ * 확인 시트에 넣을 문구. 둘 다 되돌리기 어려운 동작이라 **무엇이 남고 무엇이 사라지는지**를
+ * 먼저 말한다. 줄은 디자인이 끊어 둔 그대로다(`ConfirmSheet` 의 `description` 주석 참고).
+ */
+const ACCOUNT_CONFIRMS = {
+  logout: {
+    title: '로그아웃 하시겠어요?',
+    description: ['다시 로그인하면 언제든', '승리요정을 이어서 이용할 수 있어요.'],
+    confirmLabel: '로그아웃',
+    pendingLabel: '로그아웃 중…',
+  },
+  withdraw: {
+    title: '회원 탈퇴 하시겠어요?',
+    description: [
+      '탈퇴하면 승리요정의 이용 정보가 삭제되며,',
+      '동일한 계정으로 30일간 다시 가입할 수 없어요.',
+    ],
+    confirmLabel: '회원 탈퇴',
+    pendingLabel: '탈퇴하는 중…',
+  },
+} as const;
+
+/** 지금 묻고 있는 것 — 곧 확인 시트의 정체다. */
+type AccountAction = keyof typeof ACCOUNT_CONFIRMS;
+
+/**
  * 목록 한 줄.
  *
  * 아이콘은 디자인에서도 아직 자리(회색 사각형)만 잡혀 있어 그대로 옮겼다 —
  * 임의로 아이콘을 골라 넣으면 나중에 진짜 아이콘이 왔을 때 무엇을 바꿔야 하는지 흐려진다.
+ *
  */
 function MenuRow({ label }: { label: string }) {
   return (
@@ -58,11 +85,15 @@ export default function MyPage() {
   const clearAccount = useAccountStore((state) => state.clear);
 
   /**
-   * 지금 진행 중인 계정 작업. 두 버튼을 동시에 누르는 것을 막고 문구도 이 값으로 바꾼다.
+   * 지금 진행 중인 계정 작업. 두 버튼을 동시에 누르는 것을 막고, 확인 시트의 실행 버튼도
+   * 이 값이 있는 동안 잠근다.
    */
-  const [pending, setPending] = useState<'logout' | 'withdraw' | null>(null);
-  /** 탈퇴는 되돌릴 수 없어 한 번 더 묻는다. */
-  const [isConfirmingWithdraw, setIsConfirmingWithdraw] = useState(false);
+  const [pending, setPending] = useState<AccountAction | null>(null);
+  /**
+   * 지금 떠 있는 확인 시트. 로그아웃도 탈퇴도 누르는 즉시 실행하지 않고 한 번 더 묻는다 —
+   * 둘 다 화면 맨 아래에 나란히 붙어 있어 잘못 누르기 쉽다.
+   */
+  const [confirming, setConfirming] = useState<AccountAction | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   /**
@@ -111,8 +142,15 @@ export default function MyPage() {
     } catch {
       setActionError('탈퇴하지 못했어요. 잠시 후 다시 시도해주세요.');
       setPending(null);
-      setIsConfirmingWithdraw(false);
+      /* 시트를 닫아야 그 아래 화면의 오류 문구가 보인다 */
+      setConfirming(null);
     }
+  };
+
+  /** 확인 시트의 실행 버튼. 어느 것을 묻고 있었는지에 따라 갈린다. */
+  const handleConfirm = () => {
+    if (confirming === 'logout') void handleLogout();
+    if (confirming === 'withdraw') void handleWithdraw();
   };
 
   const teamName = profile?.supportTeam
@@ -208,52 +246,35 @@ export default function MyPage() {
       )}
 
       <div className="my-page__account">
-        {isConfirmingWithdraw ? (
-          /* 탈퇴는 되돌릴 수 없어 같은 자리에서 한 번 더 묻는다 */
-          <>
-            <p className="my-page__confirm">탈퇴하면 되돌릴 수 없어요. 계속할까요?</p>
-            <div className="my-page__account-actions">
-              <button
-                className="my-page__text-button my-page__text-button--danger"
-                type="button"
-                onClick={() => void handleWithdraw()}
-                disabled={pending !== null}
-              >
-                {pending === 'withdraw' ? '탈퇴하는 중…' : '탈퇴하기'}
-              </button>
-              <span className="my-page__account-divider" aria-hidden="true" />
-              <button
-                className="my-page__text-button"
-                type="button"
-                onClick={() => setIsConfirmingWithdraw(false)}
-                disabled={pending !== null}
-              >
-                취소
-              </button>
-            </div>
-          </>
-        ) : (
-          <div className="my-page__account-actions">
-            <button
-              className="my-page__text-button"
-              type="button"
-              onClick={() => void handleLogout()}
-              disabled={pending !== null}
-            >
-              {pending === 'logout' ? '로그아웃 중…' : '로그아웃'}
-            </button>
-            <span className="my-page__account-divider" aria-hidden="true" />
-            <button
-              className="my-page__text-button"
-              type="button"
-              onClick={() => setIsConfirmingWithdraw(true)}
-              disabled={pending !== null}
-            >
-              회원 탈퇴
-            </button>
-          </div>
-        )}
+        <div className="my-page__account-actions">
+          <button
+            className="my-page__text-button"
+            type="button"
+            onClick={() => setConfirming('logout')}
+            disabled={pending !== null}
+          >
+            로그아웃
+          </button>
+          <span className="my-page__account-divider" aria-hidden="true" />
+          <button
+            className="my-page__text-button"
+            type="button"
+            onClick={() => setConfirming('withdraw')}
+            disabled={pending !== null}
+          >
+            회원 탈퇴
+          </button>
+        </div>
       </div>
+
+      {confirming !== null && (
+        <ConfirmSheet
+          {...ACCOUNT_CONFIRMS[confirming]}
+          isPending={pending !== null}
+          onConfirm={handleConfirm}
+          onClose={() => setConfirming(null)}
+        />
+      )}
     </main>
   );
 }
