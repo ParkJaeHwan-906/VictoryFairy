@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.skhynix.domain.user.repository.ActiveAccountView;
 import com.skhynix.domain.user.repository.UserAccountRepository;
 import com.skhynix.user.game.dto.GameResponse;
 import com.skhynix.user.game.service.GameService;
@@ -98,7 +99,8 @@ class GameControllerSupportTest {
         given(jwtTokenProvider.validateToken(token)).willReturn(true);
         given(jwtTokenProvider.isRefreshToken(token)).willReturn(false);
         given(jwtTokenProvider.getUid(token)).willReturn(uid);
-        given(userAccountRepository.findActiveIdByUid(uid)).willReturn(Optional.of(ACCOUNT_ID));
+        given(userAccountRepository.findActiveAuthByUid(uid))
+                .willReturn(Optional.of(new ActiveAccountView(ACCOUNT_ID, null)));
         return token;
     }
 
@@ -309,13 +311,13 @@ class GameControllerSupportTest {
     @DisplayName("[USER-GSP-14] 탈퇴한 계정의 유효기간 남은 access 토큰(uid가 활성 계정을 가리키지 않음)"
             + "이면 401과 \"인증이 필요합니다.\"를 반환한다")
     void getSupportTeamGames_withWithdrawnAccountToken_returns401() throws Exception {
-        // given: 토큰 자체는 유효하지만 findActiveIdByUid가 비어 있다(exit_at is null 조건에서 탈락)
+        // given: 토큰 자체는 유효하지만 findActiveAuthByUid가 비어 있다(exit_at is null 조건에서 탈락)
         String uid = UUID.randomUUID().toString();
         String token = "access-token-for-" + uid;
         given(jwtTokenProvider.validateToken(token)).willReturn(true);
         given(jwtTokenProvider.isRefreshToken(token)).willReturn(false);
         given(jwtTokenProvider.getUid(token)).willReturn(uid);
-        given(userAccountRepository.findActiveIdByUid(uid)).willReturn(Optional.empty());
+        given(userAccountRepository.findActiveAuthByUid(uid)).willReturn(Optional.empty());
 
         // when & then
         mockMvc.perform(get("/games/support")

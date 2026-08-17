@@ -1,5 +1,6 @@
 package com.skhynix.websupport.jwt;
 
+import com.skhynix.domain.user.repository.ActiveAccountView;
 import com.skhynix.domain.user.repository.UserAccountRepository;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -34,13 +35,19 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         String token = resolveToken(request);
         if (token != null && tokenProvider.validateToken(token) && !tokenProvider.isRefreshToken(token)) {
-            // access 토큰은 stateless라 서버가 폐기할 수 없다 — 탈퇴한 계정이 남은 유효기간 동안
-            // 인증되는 걸 막는 지점이 이 조회다(계정 없으면 SecurityContext를 비워 401로 이어진다).
-            Optional<Long> accountId = userAccountRepository.findActiveIdByUid(tokenProvider.getUid(token));
-            if (accountId.isPresent()) {
+            // access 토큰은 stateless라 서버가 폐기할 수 없다 — 탈퇴(계정 없음)와 비밀번호 변경
+            // (기준 시각보다 앞선 초에 발급됨) 둘 다 이 한 번의 조회로 막는다. 기준 시각을 따로
+            // 조회하면 요청당 SELECT 가 늘어나므로 같은 행에서 함께 실어 온다.
+            Optional<ActiveAccountView> account =
+                    userAccountRepository.findActiveAuthByUid(tokenProvider.getUid(token));
+            if (account.isPresent()
+                    && account.get().acceptsTokenIssuedAt(tokenProvider.getIssuedAtEpochSecond(token))) {
+                // 무효화된 토큰은 예외를 던지지 않고 그냥 principal 을 안 채운다 — 인증 필수 경로는
+                // 기존 미인증과 문자 그대로 같은 401 이 되고, permitAll 경로(/api/players)는 헤더가
+                // 없는 요청과 동일하게 200 으로 지나간다. 여기서 응답을 직접 쓰면 그 두 성질이 함께 깨진다.
                 UsernamePasswordAuthenticationToken authentication =
                         new UsernamePasswordAuthenticationToken(
-                                accountId.get(), null, Collections.emptyList());
+                                account.get().id(), null, Collections.emptyList());
                 authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                 SecurityContextHolder.getContext().setAuthentication(authentication);
             }

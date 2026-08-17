@@ -139,6 +139,15 @@ public class AuthService {
             throw new BusinessException(ErrorCode.EXPIRED_REFRESH_TOKEN);
         }
 
+        // 비밀번호 변경보다 앞선 초에 발급된 refresh 는 행이 살아 있어도 거절한다. 변경이 유효 토큰을
+        // 전부 만료시키므로 보통 위 만료 검사에 먼저 걸리지만, 옛 비밀번호로 진행 중이던 로그인이
+        // expireValidTokens 이후에 INSERT 하면 유효한 옛 세션이 남는다 — 바로 위 탈퇴 검사와 정확히
+        // 같은 종류의 레이스다. 계정은 위에서 이미 초기화돼 추가 조회는 0회이고, 계정 상태를 드러내지
+        // 않으려고 응답도 같은 EXPIRED_REFRESH_TOKEN 을 쓴다.
+        if (!account.acceptsTokenIssuedAt(tokenProvider.getIssuedAtEpochSecond(refreshToken))) {
+            throw new BusinessException(ErrorCode.EXPIRED_REFRESH_TOKEN);
+        }
+
         // issueTokens가 이 토큰을 포함한 account의 유효 토큰을 모두 만료시킨 뒤 새로 발급한다.
         return issueTokens(account);
     }
