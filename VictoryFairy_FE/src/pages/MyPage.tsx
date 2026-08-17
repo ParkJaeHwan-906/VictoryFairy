@@ -14,8 +14,8 @@ import '../styles/MyPage.css';
  * Figma: SWM / [My] 마이페이지 메인 (node 1186:9147)
  *
  * 위쪽 프로필·성적은 **전역 프로필 스토어**에서 읽는다(닉네임·응원 구단·포인트).
- * 목록 항목들은 아직 갈 곳이 없어 화살표만 그려 두고, 실제로 동작하는 것은
- * 맨 아래 로그아웃·회원 탈퇴 둘뿐이다.
+ * 목록 항목들은 대부분 아직 갈 곳이 없어 화살표만 그려 두었다. 지금 동작하는 것은
+ * 약관 두 건(Notion 문서로 나가는 링크)과 맨 아래 로그아웃·회원 탈퇴뿐이다.
  *
  * ── ⚠️ 평균 정답률을 줄 API 가 없다(2026-08-13) ─────────────────────
  * `GET /users/me` 응답에는 정답률이 없고(키가 넷뿐 — `MyProfile` 주석 참고), 이 화면이
@@ -33,7 +33,30 @@ const APP_VERSION = 'v 1.0.0';
 
 /** 아직 갈 곳이 정해지지 않은 목록 항목. 화살표만 그리고 눌러도 아무 일도 없다. */
 const SETTING_ITEMS = ['계정 설정', '알림 설정', 'SNS 연동'] as const;
-const CENTER_ITEMS = ['공지사항', '문의하기', '개인정보처리방침', '서비스 이용약관'] as const;
+
+/**
+ * 센터 묶음.
+ *
+ * 약관 두 건은 **앱 안에 화면을 두지 않고 Notion 문서로 내보낸다** — 법무 문구는 배포 없이
+ * 고쳐야 하는 글이라, 문서 쪽에서 고치면 앱은 그대로 최신을 가리킨다.
+ *
+ * 주소는 반드시 **웹에 게시된 `*.notion.site` 쪽**이어야 한다. 작업용 `app.notion.com/p/…`
+ * 주소는 워크스페이스 멤버만 열 수 있어, 로그인하지 않은 사용자에게는 빈 화면이 된다.
+ *
+ * 나머지는 아직 갈 곳이 없어 `href` 가 비어 있다.
+ */
+const CENTER_ITEMS: readonly { label: string; href?: string }[] = [
+  { label: '공지사항' },
+  { label: '문의하기' },
+  {
+    label: '개인정보처리방침',
+    href: 'https://fate-almanac-c79.notion.site/3bead13a96fe8057b5b7c5abb0c3762c',
+  },
+  {
+    label: '서비스 이용약관',
+    href: 'https://fate-almanac-c79.notion.site/3bead13a96fe80c8b3f0c6445dae13e3',
+  },
+];
 
 /**
  * 확인 시트에 넣을 문구. 둘 다 되돌리기 어려운 동작이라 **무엇이 남고 무엇이 사라지는지**를
@@ -66,15 +89,32 @@ type AccountAction = keyof typeof ACCOUNT_CONFIRMS;
  * 아이콘은 디자인에서도 아직 자리(회색 사각형)만 잡혀 있어 그대로 옮겼다 —
  * 임의로 아이콘을 골라 넣으면 나중에 진짜 아이콘이 왔을 때 무엇을 바꿔야 하는지 흐려진다.
  *
+ *
+ * `href` 가 있으면 **버튼이 아니라 링크로 그린다** — 바깥 문서로 나가는 줄은 길게 눌러
+ * 주소를 복사하거나 새 탭으로 여는 것이 브라우저에서 당연히 되어야 한다. `href` 가 없는
+ * 줄은 종전대로 아무 일도 하지 않는 버튼이다.
  */
-function MenuRow({ label }: { label: string }) {
+function MenuRow({ label, href }: { label: string; href?: string }) {
+  const inner = (
+    <>
+      <span className="my-page__row-icon" aria-hidden="true" />
+      <span className="my-page__row-label">{label}</span>
+      <span className="my-page__row-arrow" aria-hidden="true" />
+    </>
+  );
+
   return (
     <li>
-      <button className="my-page__row" type="button">
-        <span className="my-page__row-icon" aria-hidden="true" />
-        <span className="my-page__row-label">{label}</span>
-        <span className="my-page__row-arrow" aria-hidden="true" />
-      </button>
+      {href === undefined ? (
+        <button className="my-page__row" type="button">
+          {inner}
+        </button>
+      ) : (
+        /* 앱을 떠나는 링크라 새 탭으로 연다 — 보던 자리를 잃지 않는다. */
+        <a className="my-page__row" href={href} target="_blank" rel="noreferrer">
+          {inner}
+        </a>
+      )}
     </li>
   );
 }
@@ -224,8 +264,8 @@ export default function MyPage() {
         <section className="my-page__section">
           <h2 className="my-page__section-title">센터</h2>
           <ul className="my-page__rows">
-            {CENTER_ITEMS.map((label) => (
-              <MenuRow key={label} label={label} />
+            {CENTER_ITEMS.map((item) => (
+              <MenuRow key={item.label} label={item.label} href={item.href} />
             ))}
             {/* 버전은 눌러 갈 곳이 없어 화살표 대신 값이 붙는다 */}
             <li>
