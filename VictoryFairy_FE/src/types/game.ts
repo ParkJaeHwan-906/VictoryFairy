@@ -25,7 +25,24 @@ export type GameState =
   | 'CANCELED'
   | (string & {});
 
-/** 경기 1건. `GET /games` 의 `data` 는 이 객체의 **배열**(경기 시각 오름차순, 페이징 없음)이다. */
+/**
+ * 이닝 초/말.
+ *
+ * `gameState` 와 달리 **닫아 둔다** — 야구의 한 이닝은 초·말 둘뿐이라 서버가 셋째 값을
+ * 만들어 낼 여지가 없다(`gameState` 는 운영상 새 상태가 늘 수 있어 열어 뒀다).
+ * 값 자체가 없는 경우는 union 이 아니라 `Game.inningHalf` 의 `null` 로 표현한다.
+ */
+export type InningHalf = 'TOP' | 'BOTTOM';
+
+/**
+ * 경기 1건. `GET /games` · `GET /games/support` 의 `data` 는 이 객체의 **배열**이다
+ * (경기 시각 오름차순, 페이징 없음).
+ *
+ * 두 경로의 항목은 키·타입·의미가 **완전히 같다** — `/games/support` 는 `/games` 의
+ * 부분집합일 뿐, 전용 필드도 전용 가공값도 없다. 어느 쪽이 내 응원 구단인지 알려주는
+ * 필드(`isHome` 같은 것)도 없으므로 `homeTeamId`/`awayTeamId` 를 `GET /users/me` 의
+ * `supportTeam.id` 와 대조해 화면에서 판정해야 한다.
+ */
 export interface Game {
   gameId: string;
   stadium: string | null;
@@ -50,6 +67,24 @@ export interface Game {
    * (표시할 때 끝의 `취소` 앞에 공백만 넣는다 — `getGameStateDisplay` 참고).
    */
   cancelReason: string | null;
+  /**
+   * 진행 중인 이닝 번호. 값이 있으면 1~11 이다(정규 9회 + 연장 2회, DB CHECK 가 강제).
+   *
+   * `gameState` 가 `IN_PROGRESS` 일 때만 값이 있고 그 외에는 `null` 이다.
+   *
+   * ⚠️ **지금은 `IN_PROGRESS` 여도 항상 `null` 이다**(2026-08-11 신설, 채우는 주체인
+   * py-collector 쪽 쓰기 구현이 아직 없다 — `cancelReason` 이 밟았던 경로와 같다).
+   * 그러니 이 값이 있다고 가정하고 화면을 짜면 안 된다. 값이 없을 때 무엇을 보여줄지가
+   * 당분간은 **정상 경로**이고, 값이 채워지기 시작해도 그 처리는 그대로 필요하다.
+   */
+  inning: number | null;
+  /**
+   * 이닝 초/말. `inning` 과 성질이 같다 — `IN_PROGRESS` 일 때만 값이 있고, 지금은 항상 `null`.
+   *
+   * 표시 형태(`9회초` 처럼 합쳐 보여주기)는 서버가 정하지 않는다. 두 값을 조합해
+   * 화면 계층에서 만들되, **한쪽만 있는 경우**(수집 중간 상태)도 다뤄야 한다.
+   */
+  inningHalf: InningHalf | null;
 }
 
 /**
