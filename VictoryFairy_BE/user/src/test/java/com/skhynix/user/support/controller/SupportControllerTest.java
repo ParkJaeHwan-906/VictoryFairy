@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.skhynix.common.error.BusinessException;
 import com.skhynix.common.error.ErrorCode;
+import com.skhynix.domain.user.repository.ActiveAccountView;
 import com.skhynix.domain.user.repository.UserAccountRepository;
 import com.skhynix.user.global.config.SecurityConfig;
 import com.skhynix.user.player.dto.PlayerResponse;
@@ -83,7 +84,8 @@ class SupportControllerTest {
         given(jwtTokenProvider.validateToken(token)).willReturn(true);
         given(jwtTokenProvider.isRefreshToken(token)).willReturn(false);
         given(jwtTokenProvider.getUid(token)).willReturn(uid);
-        given(userAccountRepository.findActiveIdByUid(uid)).willReturn(Optional.of(ACCOUNT_ID));
+        given(userAccountRepository.findActiveAuthByUid(uid))
+                .willReturn(Optional.of(new ActiveAccountView(ACCOUNT_ID, null)));
         return token;
     }
 
@@ -438,13 +440,13 @@ class SupportControllerTest {
     @Test
     @DisplayName("[USER-SP-1] 탈퇴 계정의 토큰(uid가 활성 계정을 가리키지 않음)으로 호출하면 401이다")
     void selectTeam_withWithdrawnAccountToken_returns401() throws Exception {
-        // given: 토큰 자체는 유효하지만 findActiveIdByUid가 비어 있다(exit_at is null 조건에서 탈락)
+        // given: 토큰 자체는 유효하지만 findActiveAuthByUid가 비어 있다(exit_at is null 조건에서 탈락)
         String uid = UUID.randomUUID().toString();
         String token = "access-token-for-" + uid;
         given(jwtTokenProvider.validateToken(token)).willReturn(true);
         given(jwtTokenProvider.isRefreshToken(token)).willReturn(false);
         given(jwtTokenProvider.getUid(token)).willReturn(uid);
-        given(userAccountRepository.findActiveIdByUid(uid)).willReturn(Optional.empty());
+        given(userAccountRepository.findActiveAuthByUid(uid)).willReturn(Optional.empty());
 
         // when & then
         mockMvc.perform(post("/support/team")
@@ -485,6 +487,6 @@ class SupportControllerTest {
 
         verifyNoInteractions(supportService);
         // 필터가 refresh 토큰을 인증에 쓰지 않으므로 uid→id 해석 자체가 일어나지 않는다
-        verify(userAccountRepository, never()).findActiveIdByUid(anyString());
+        verify(userAccountRepository, never()).findActiveAuthByUid(anyString());
     }
 }

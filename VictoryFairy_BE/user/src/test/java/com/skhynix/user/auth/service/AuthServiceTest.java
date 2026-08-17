@@ -223,6 +223,98 @@ class AuthServiceTest {
         verify(userRefreshTokenRepository).expireValidTokens(eq(account), any());
     }
 
+    // ---------- reissue: 비밀번호 변경 기준 시각 대조 (USER-ATI-20, 22, 13) ----------
+
+    @Test
+    @DisplayName("[USER-ATI-20 ①] 비밀번호 변경 전에 발급된(iat가 기준 시각보다 앞선 초) refresh 토큰으로 "
+            + "재발급을 요청하면, 저장된 토큰 행이 아직 만료 전이어도 EXPIRED_REFRESH_TOKEN을 던지고 새 "
+            + "토큰을 발급하지 않는다 — 만료·탈퇴에 이어 세 번째 차단 지점이다")
+    void reissue_refreshIssuedBeforePasswordChangeBaseline_throwsExpiredRefreshToken() {
+        // given
+        UserAccount account = activeAccountWithPassword("encoded");
+        long baseline = 1_755_400_000L;
+        account.changePassword("encoded-new", baseline); // 비밀번호 변경으로 기준 시각 기록
+        String refreshToken = "old-refresh-token";
+        UserRefreshToken stored = UserRefreshToken.builder()
+                .userAccount(account)
+                .refreshToken(refreshToken)
+                .expiredAt(LocalDateTime.now().plusDays(1)) // 아직 만료 전 — iat 대조가 별도로 막아야 함
+                .build();
+        given(tokenProvider.validateToken(refreshToken)).willReturn(true);
+        given(tokenProvider.isRefreshToken(refreshToken)).willReturn(true);
+        given(userRefreshTokenRepository.findByRefreshToken(refreshToken)).willReturn(Optional.of(stored));
+        given(tokenProvider.getIssuedAtEpochSecond(refreshToken)).willReturn(baseline - 1);
+
+        // when & then
+        assertThatThrownBy(() -> authService.reissue(refreshToken))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.EXPIRED_REFRESH_TOKEN);
+
+        verify(tokenProvider, never()).createAccessToken(anyString());
+        verify(userRefreshTokenRepository, never()).save(any());
+        // USER-ATI-13: 대조에 쓰는 계정은 refresh 행을 통해 이미 로딩돼 있어 추가 조회가 없다
+        verifyNoInteractions(userAccountRepository);
+    }
+
+    @Test
+    @DisplayName("[USER-ATI-20 ②, 결정 근거 3] expireValidTokens를 빠져나가 아직 만료 전인 행(옛 비밀번호로 "
+            + "진행 중이던 로그인이 비밀번호 변경 직후 INSERT한 레이스 시나리오)도 iat 대조로 막힌다")
+    void reissue_rowSurvivedExpireValidTokensButIssuedBeforeBaseline_stillThrowsExpiredRefreshToken() {
+        // given: expireValidTokens 이후 만들어진 것처럼 expiredAt이 충분히 먼 미래인 행
+        UserAccount account = activeAccountWithPassword("encoded");
+        long baseline = 1_755_400_000L;
+        account.changePassword("encoded-new", baseline);
+        String refreshToken = "race-refresh-token";
+        UserRefreshToken stored = UserRefreshToken.builder()
+                .userAccount(account)
+                .refreshToken(refreshToken)
+                .expiredAt(LocalDateTime.now().plusDays(14))
+                .build();
+        given(tokenProvider.validateToken(refreshToken)).willReturn(true);
+        given(tokenProvider.isRefreshToken(refreshToken)).willReturn(true);
+        given(userRefreshTokenRepository.findByRefreshToken(refreshToken)).willReturn(Optional.of(stored));
+        // 옛 비밀번호로 로그인 중 발급된 토큰이라 iat가 기준 시각보다 한참 앞선다
+        given(tokenProvider.getIssuedAtEpochSecond(refreshToken)).willReturn(baseline - 3600);
+
+        // when & then
+        assertThatThrownBy(() -> authService.reissue(refreshToken))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.EXPIRED_REFRESH_TOKEN);
+    }
+
+    @Test
+    @DisplayName("[USER-ATI-22, USER-ATI-8] 비밀번호 변경 응답으로 즉시 받은 refresh 토큰(iat가 기준 시각과 "
+            + "정확히 같은 초)으로 재발급을 요청하면 성공한다 — 자기 자신에게 거부되지 않는다")
+    void reissue_refreshIssuedExactlyAtBaseline_succeeds() {
+        // given
+        UserAccount account = activeAccountWithPassword("encoded");
+        long baseline = 1_755_400_000L;
+        account.changePassword("encoded-new", baseline);
+        String refreshToken = "just-issued-refresh-token";
+        UserRefreshToken stored = UserRefreshToken.builder()
+                .userAccount(account)
+                .refreshToken(refreshToken)
+                .expiredAt(LocalDateTime.now().plusDays(14))
+                .build();
+        given(tokenProvider.validateToken(refreshToken)).willReturn(true);
+        given(tokenProvider.isRefreshToken(refreshToken)).willReturn(true);
+        given(userRefreshTokenRepository.findByRefreshToken(refreshToken)).willReturn(Optional.of(stored));
+        given(tokenProvider.getIssuedAtEpochSecond(refreshToken)).willReturn(baseline);
+        given(tokenProvider.createAccessToken(account.getUid())).willReturn("new-access-token");
+        given(tokenProvider.createRefreshToken(account.getUid())).willReturn("new-refresh-token");
+        given(tokenProvider.getExpiration("new-refresh-token")).willReturn(LocalDateTime.now().plusDays(14));
+
+        // when
+        TokenResponse response = authService.reissue(refreshToken);
+
+        // then
+        assertThat(response.accessToken()).isEqualTo("new-access-token");
+        assertThat(response.refreshToken()).isEqualTo("new-refresh-token");
+        verifyNoInteractions(userAccountRepository);
+    }
+
     // ---------- signup ----------
 
     private SignupRequest signupRequest() {

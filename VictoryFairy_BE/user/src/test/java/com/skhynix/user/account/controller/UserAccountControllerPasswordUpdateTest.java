@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.skhynix.common.error.BusinessException;
 import com.skhynix.common.error.ErrorCode;
+import com.skhynix.domain.user.repository.ActiveAccountView;
 import com.skhynix.domain.user.repository.UserAccountRepository;
 import com.skhynix.user.account.service.UserAccountService;
 import com.skhynix.user.account.service.UserProfileEditService;
@@ -83,7 +84,8 @@ class UserAccountControllerPasswordUpdateTest {
         String uid = UUID.randomUUID().toString();
         Long accountId = 1L;
         String token = stubValidAccessToken(uid);
-        given(userAccountRepository.findActiveIdByUid(uid)).willReturn(Optional.of(accountId));
+        given(userAccountRepository.findActiveAuthByUid(uid))
+                .willReturn(Optional.of(new ActiveAccountView(accountId, null)));
         return token;
     }
 
@@ -147,7 +149,7 @@ class UserAccountControllerPasswordUpdateTest {
     void updatePassword_withdrawnAccountToken_returns401AndDoesNotCallService() throws Exception {
         String uid = UUID.randomUUID().toString();
         String token = stubValidAccessToken(uid);
-        given(userAccountRepository.findActiveIdByUid(uid)).willReturn(Optional.empty());
+        given(userAccountRepository.findActiveAuthByUid(uid)).willReturn(Optional.empty());
 
         mockMvc.perform(patch(ENDPOINT)
                         .header("Authorization", "Bearer " + token)
