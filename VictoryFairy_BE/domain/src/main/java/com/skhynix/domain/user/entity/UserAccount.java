@@ -52,6 +52,16 @@ public class UserAccount {
     private LocalDateTime exitAt;
 
     /**
+     * 마지막 닉네임 변경 시각(epoch 초). 한 번도 바꾼 적 없으면 {@code null}이다 — 가입 시점에도 채우지
+     * 않는다(채우면 가입 직후 30일간 닉네임을 못 바꾸게 된다).
+     *
+     * <p>{@code DATETIME}이 아니라 epoch 초인 이유: 파드 TZ(운영은 UTC)나 파드 간 TZ 불일치의 영향을
+     * 받지 않는 존 무관 저장이라, 변경 간격 판정이 실행 환경에 좌우되지 않는다.
+     */
+    @Column(name = "nickname_changed_epoch_second")
+    private Long nicknameChangedEpochSecond;
+
+    /**
      * 보유 포인트. 신규 계정은 항상 0에서 시작한다.
      *
      * <p>이미 행이 있는 테이블에 붙는 NOT NULL 컬럼이라 {@code @ColumnDefault}(기존 행)와 자바 필드
@@ -106,5 +116,28 @@ public class UserAccount {
 
     public boolean isWithdrawn() {
         return exitAt != null;
+    }
+
+    /**
+     * 닉네임 교체 + 변경 시각 기록. 형식·중복·현재 값과의 동일 여부·변경 간격은 호출자(정책·리포지토리를
+     * 아는 쪽)가 판정한 뒤 부른다 — 엔티티에 @Setter 를 두지 않는 것과 같은 이유로, 상태 전이는 이름
+     * 있는 메서드로만 연다.
+     *
+     * <p><b>시각 기록을 별도 메서드로 분리하지 말 것.</b> 교체와 기록을 한 전이에 묶어야 "성공했을 때만
+     * 기록된다"가 구조로 보장된다 — 나누면 닉네임만 바뀌고 시각은 그대로인(=변경 간격 제한이 뚫리는)
+     * 호출 경로가 언젠가 생긴다. 호출자가 시각을 넘기는 이유는 {@link #withdraw(LocalDateTime)}와 같다:
+     * "지금"의 출처는 엔티티가 아니라 호출자의 {@code Clock}이다.
+     */
+    public void changeNickname(String nickname, long changedEpochSecond) {
+        this.nickname = nickname;
+        this.nicknameChangedEpochSecond = changedEpochSecond;
+    }
+
+    /**
+     * 비밀번호 교체. 인자는 <b>이미 인코딩된</b> 값이어야 한다 — domain 은 인코더를 알지 못하므로
+     * 평문을 넘기면 그대로 저장돼 로그인이 깨진다.
+     */
+    public void changePassword(String encodedPassword) {
+        this.password = encodedPassword;
     }
 }
