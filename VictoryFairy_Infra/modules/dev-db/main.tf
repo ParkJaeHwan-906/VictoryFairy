@@ -184,6 +184,9 @@ resource "aws_instance" "this" {
     innodb_buffer_pool_size                = var.innodb_buffer_pool_size
     redis_maxmemory                        = var.redis_maxmemory
     restore_cron                           = var.restore_cron
+    swap_size_mb                           = var.swap_size_mb
+    mysql_container_memory                 = var.mysql_container_memory
+    redis_container_memory                 = var.redis_container_memory
   })
 
   root_block_device {

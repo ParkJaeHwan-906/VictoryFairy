@@ -264,7 +264,9 @@ module "mysql_ec2" {
   #   절차(데이터 보존 확인 + k8s Endpoints IP 갱신)는 docs/COMMANDS.md 를 따를 것.
   subnet_id = length(var.mysql_public_access_cidrs) > 0 ? module.network.public_subnet_ids_by_az[var.azs[0]] : module.network.private_subnet_ids_by_az[var.azs[0]]
 
-  instance_type = "t3.small"
+  # 2026-08-17 t3.small(2GB) → t3.medium(4GB). small 에서는 available 이 870MB 밖에
+  # 남지 않아 mysqld 가 자라면 여유가 없었다. CPU 는 두 타입이 같으므로 늘어난 건 RAM 뿐.
+  instance_type = "t3.medium"
 
   # 3306 ← user·quiz·batch, 6379 ← user·quiz 만. 현재 eks 는 공용 노드 SG 하나라
   # 두 맵에 같은 SG가 들어간다. 노드그룹이 전용 SG로 분리되면 redis 맵에서 batch 를 제외.
