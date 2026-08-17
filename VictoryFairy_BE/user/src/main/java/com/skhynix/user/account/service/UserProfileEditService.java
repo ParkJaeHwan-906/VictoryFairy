@@ -60,11 +60,11 @@ public class UserProfileEditService {
             throw new BusinessException(ErrorCode.DUPLICATE_NICKNAME);
         }
 
-        // 운영 파드가 UTC 라 Instant.now() 대신 Clock(Asia/Seoul 고정) 빈에서 읽는다. 판정 자체는 epoch
-        // 초 비교라 존과 무관하고, 존은 아래 nextChangeableAt 표기에만 쓰인다.
-        long nowEpochSecond = clock.instant().getEpochSecond();
-        Long lastChanged = account.getNicknameChangedEpochSecond();
-        if (NicknameChangeCooldownPolicy.isCoolingDown(lastChanged, nowEpochSecond)) {
+        // 운영 파드가 UTC 라 LocalDateTime.now() 대신 Clock(Asia/Seoul 고정) 빈에서 읽는다. 저장 값도
+        // 판정 기준도 표기도 전부 이 한 시계에서 나와야 존이 어긋나지 않는다(컬럼이 벽시계라 그렇다).
+        LocalDateTime now = LocalDateTime.now(clock);
+        LocalDateTime lastChanged = account.getNicknameChangedAt();
+        if (NicknameChangeCooldownPolicy.isCoolingDown(lastChanged, now)) {
             // 이 저장소에서 실패 응답에 data 를 싣는 첫 지점 — "왜 막혔는지"만으로는 사용자가 언제
             // 다시 시도해야 할지 알 방법이 없어 BusinessException 이 아니라 하위 타입으로 던진다.
             throw new BusinessDataException(ErrorCode.NICKNAME_CHANGE_COOLDOWN,
@@ -74,7 +74,7 @@ public class UserProfileEditService {
 
         // 교체와 시각 기록은 한 전이다 — 실패 경로는 전부 이 줄 앞에서 예외로 끝나므로 성공했을 때만
         // 기록된다.
-        account.changeNickname(nickname, nowEpochSecond);
+        account.changeNickname(nickname, now);
     }
 
     /**

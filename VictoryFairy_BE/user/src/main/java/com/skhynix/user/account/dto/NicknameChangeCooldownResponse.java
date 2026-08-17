@@ -1,6 +1,6 @@
 package com.skhynix.user.account.dto;
 
-import java.time.Instant;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 
@@ -21,7 +21,12 @@ public record NicknameChangeCooldownResponse(String nextChangeableAt) {
      */
     private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssXXX");
 
-    public static NicknameChangeCooldownResponse of(Instant nextChangeableAt, ZoneId zone) {
+    /**
+     * {@code nextChangeableAt}은 존이 없는 벽시계 값이라 {@code zone}이 "그 벽시계가 어느 존의 것인지"를
+     * 알려주는 역할을 한다(변환이 아니라 해석이다) — 호출자는 반드시 그 값을 만든 시계와 같은 존을
+     * 넘겨야 한다. 다른 존을 넘기면 오프셋만 갈아끼워져 실제와 다른 시각이 응답에 실린다.
+     */
+    public static NicknameChangeCooldownResponse of(LocalDateTime nextChangeableAt, ZoneId zone) {
         return new NicknameChangeCooldownResponse(FORMATTER.format(nextChangeableAt.atZone(zone)));
     }
 }

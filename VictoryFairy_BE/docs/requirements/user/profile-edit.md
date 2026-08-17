@@ -1,8 +1,9 @@
 # 내 프로필 수정(닉네임·비밀번호) 요구사항
-> 상태: **승인됨 (2026-08-17)** · 모듈: user · 최종 수정: 2026-08-17
+> 상태: **승인됨 (2026-08-17)** · 모듈: user · 최종 수정: 2026-08-17 (4차 개정 — 닉네임 변경 시각 컬럼 타입 교체, 구현·실측 검증 완료 후 사후 반영)
 > `docs/api/account.md`("프로필 **수정**(`PATCH`/`PUT /api/users/me` 류) 엔드포인트는 아직 없다")와 `me-profile.md`·`nickname-policy.md`가 각각 "별도 요구사항"으로 미뤄 둔 자리를 채운다.
 > **2026-08-17 개정**: 초안의 미해결 질문 7건이 전부 확정됐다 — 경로 분리 유지 · 현재 비밀번호 재확인 요구 · **같은 값(비밀번호·닉네임)은 둘 다 거부** · 불일치·동일은 400 신규 `ErrorCode` 3종 · 비밀번호 변경 시 refresh 전량 만료. 그 결과 초안 USER-PE-17(같은 닉네임을 성공 처리)이 **반대로 뒤집혔고**, 함께 예고했던 "중복 판정에서 본인 제외" 요건이 사라졌다(아래 결정 근거 3).
-> **2026-08-17 3차 개정(닉네임 변경 쿨다운 30일)**: 새 정책이 **덧붙는다** — 닉네임은 마지막 변경으로부터 **30일** 이내 재변경이 금지되고, 위반은 **429 + 다음 변경 가능 시각**이다(USER-PE-40~49). **비밀번호에는 쿨다운을 두지 않는다**(결정 근거 9 — "왜 닉네임만인가"는 반드시 다시 나올 질문이다). 기존 요구사항 중 손댄 것은 **USER-PE-8·15·33 세 건의 확장뿐**이며 나머지는 그대로다. 선행 스키마 1건(`users_account.nickname_changed_epoch_second`)이 생겨 **"배포 전제" 절을 신설**했다 — 이 문서가 계약으로 포함하는 DDL이다.
+> **2026-08-17 4차 개정(닉네임 변경 시각 컬럼의 타입 교체 — 구현·실측 검증 완료 후 사후 반영)**: 쿨다운 **정책은 한 글자도 바뀌지 않았다**(30일·경계·429·`nextChangeableAt`·판정 순서 전부 그대로). 바뀐 것은 **값을 담는 그릇뿐**이다 — `nickname_changed_epoch_second`(`BIGINT`, epoch 초) → **`nickname_changed_at`(`DATETIME(6)`, nullable)**. 영향받는 요구사항은 USER-PE-40·41·42·44·45·46·49와 "배포 전제" 절이며, **`password_changed_epoch_second`는 epoch `BIGINT` 그대로다**(두 컬럼의 타입이 다른 이유와 "일관성" 명목으로 통일하지 말라는 경고는 결정 근거 14). 이 교체로 닉네임 컬럼에 **새 부채가 하나 생겼다** — 이제 이 값은 KST 벽시계라 TZ 전환 대상 목록에 들어가야 한다(알려진 한계).
+> **2026-08-17 3차 개정(닉네임 변경 쿨다운 30일)**: 새 정책이 **덧붙는다** — 닉네임은 마지막 변경으로부터 **30일** 이내 재변경이 금지되고, 위반은 **429 + 다음 변경 가능 시각**이다(USER-PE-40~49). **비밀번호에는 쿨다운을 두지 않는다**(결정 근거 9 — "왜 닉네임만인가"는 반드시 다시 나올 질문이다). 기존 요구사항 중 손댄 것은 **USER-PE-8·15·33 세 건의 확장뿐**이며 나머지는 그대로다. 선행 스키마 1건(당시 이름 `users_account.nickname_changed_epoch_second` — **4차 개정에서 `nickname_changed_at`으로 대체됨**)이 생겨 **"배포 전제" 절을 신설**했다 — 이 문서가 계약으로 포함하는 DDL이다.
 > **2026-08-17 2차 개정(성공 응답 비대칭)**: `PATCH /api/users/me/password`의 성공 응답이 **204에서 200 + `ApiResponse<TokenResponse>`로 바뀌었다** — 기존 유효 refresh를 만료시킨 뒤 **새 토큰 쌍을 발급해 응답에 담는다**(비밀번호를 바꾼 본인이 재로그인하지 않아도 되게 하려는 UX 결정). 이 개정으로 USER-PE-35가 **정반대로 뒤집혔고**(미발급 → 발급), 결정 근거 5·6도 함께 개정됐다. **닉네임 경로는 204 그대로다.** access 토큰 즉시 무효화는 이번에도 범위 밖이며 **별도 작업으로 분리**됐다(USER-PE-32·제약 4 유지).
 
 ## 배경 / 목적
@@ -21,11 +22,11 @@
   - 기존 `NicknamePolicy`·`PasswordPolicy` 재사용(형식 판정), 기존 `existsByNickname` 재사용(중복 판정)
   - 비밀번호 변경 시 현재 비밀번호 재확인 · 신·구 동일 거부 · 닉네임 동일 거부
   - 비밀번호 변경 시 **기존 refresh 토큰 전량 만료 → 새 토큰 쌍 발급**, 응답은 기존 `auth.dto.TokenResponse` 재사용(신규 DTO 없음)
-  - **닉네임 변경 쿨다운 30일**(3차 개정) + 선행 스키마 1건(`users_account.nickname_changed_epoch_second`) + 그 컬럼의 수동 DDL 선투입(아래 "배포 전제")
+  - **닉네임 변경 쿨다운 30일**(3차 개정) + 선행 스키마 1건(`users_account.nickname_changed_at`, 4차 개정으로 타입 교체) + 그 컬럼의 수동 DDL 선투입 및 **옛 컬럼 제거**(아래 "배포 전제")
   - 신규 `ErrorCode` 4종(`:common`): `INVALID_CURRENT_PASSWORD` · `SAME_AS_CURRENT_PASSWORD` · `SAME_AS_CURRENT_NICKNAME` · `NICKNAME_CHANGE_COOLDOWN`
 - 제외
   - **비밀번호 변경 쿨다운** — 의식적으로 두지 않는다. 유출 대응 수단을 30일 잠그는 정책이며 후속 작업(토큰 무효화)의 목적과 정면으로 부딪친다(결정 근거 9). 이 줄이 "왜 닉네임만 쿨다운이 있나"에 대한 답이다
-  - **비밀번호 변경 시각 컬럼(`password_changed_epoch_second`)** — 비밀번호 쿨다운이 빠지면서 이 브랜치에는 그 컬럼이 필요한 이유가 없어졌다. **후속 작업 `hwannee/be/feat-token-invalidation`(`access-token-invalidation.md`)이 자기 목적으로 별도 추가한다** — 이 문서가 만드는 컬럼은 닉네임 것 하나뿐이다
+  - **비밀번호 변경 시각 컬럼(`password_changed_epoch_second`)** — 비밀번호 쿨다운이 빠지면서 이 브랜치에는 그 컬럼이 필요한 이유가 없어졌다. **후속 작업 `hwannee/be/feat-token-invalidation`(`access-token-invalidation.md`)이 자기 목적으로 별도 추가한다** — 이 문서가 만드는 컬럼은 닉네임 것 하나뿐이다. ⚠ 그 컬럼은 **epoch 초 `BIGINT`이고 앞으로도 그렇다** — 4차 개정으로 닉네임 쪽만 `DATETIME(6)`이 되어 두 컬럼의 타입이 갈렸는데, 이는 실수가 아니라 각자의 용도를 따른 결과다(결정 근거 14). 이 문서는 `password_changed_epoch_second`의 타입을 바꾸지 않으며, 바꾸자는 제안도 범위 밖이다
   - **쿨다운의 관리자 우회·예외 처리·잔여 기간 조회 전용 API** — 요청에 없었다. 남은 시간은 429 응답의 `nextChangeableAt`으로만 알 수 있다
   - **한 요청으로 닉네임과 비밀번호를 동시에 바꾸는 경로** — 사용자 확정: **한 번에 하나만 변경한다.** 단일 `PATCH /api/users/me`도, 두 필드를 함께 받는 본문도 만들지 않는다
   - **이메일·전화번호·이름·성별 수정** — 요청된 항목 밖(닉네임·비밀번호 2개). 이메일 변경은 소유 재검증(`email-verification.md`)까지 끌고 오므로 별도 요구사항이다
@@ -85,19 +86,20 @@
 ### 닉네임 변경 쿨다운 30일 (3차 개정) — 선행 스키마 + `PATCH /api/users/me/nickname`
 
 > 이 절만 새 컬럼을 요구한다. 컬럼이 없으면 USER-PE-43이 성립할 수 없고, **quiz 앱이 500으로 죽는다**(아래 "배포 전제").
+> **4차 개정으로 이 절의 컬럼은 `nickname_changed_at`(`DATETIME(6)`)이 됐다.** 정책 문장(30일·경계·429·`nextChangeableAt`)은 그대로이고, 바뀐 것은 저장 타입과 그에 딸린 판정 방식(epoch 초 비교 → 같은 존의 벽시계 비교)뿐이다.
 
 | ID | 유형 | 요구사항 | 인수 기준 |
 |---|---|---|---|
-| USER-PE-40 | 유비쿼터스 | THE 시스템 SHALL `users_account` 테이블에 `nickname_changed_epoch_second` 컬럼(BIGINT, NULL 허용, 기본값 없음, 인덱스 없음)을 보유한다 | `SHOW COLUMNS FROM users_account LIKE 'nickname_changed_epoch_second'` → `Type=bigint`, `Null=YES`, `Default=NULL`, `Key`가 비어 있음 |
-| USER-PE-41 | 이벤트 | WHEN 닉네임 변경이 성공하면, THE 시스템 SHALL 그 계정의 `nickname_changed_epoch_second`에 변경 시각의 epoch 초를 기록한다 | 204를 받은 직후 그 계정의 컬럼 값이 요청 시각의 epoch 초(±수 초). 이전 값이 있었다면 덮어쓴다 |
-| USER-PE-42 | 예외 | IF 닉네임 변경이 실패하면, THEN THE 시스템 SHALL `nickname_changed_epoch_second`를 갱신하지 않는다 | 400·409·429 응답 후 컬럼 값이 요청 전과 동일(NULL이었다면 NULL 그대로). USER-PE-7("실패 시 무변경")의 연장이다 |
+| USER-PE-40 | 유비쿼터스 | THE 시스템 SHALL `users_account` 테이블에 `nickname_changed_at` 컬럼(`DATETIME(6)`, NULL 허용, 기본값 없음, 인덱스 없음)을 보유한다 | `SHOW COLUMNS FROM users_account LIKE 'nickname_changed_at'` → `Type=datetime(6)`, `Null=YES`, `Default=NULL`, `Key`가 비어 있음. **`datetime(0)`이면 위반이다**(정밀도까지가 계약 — 아래 "배포 전제") |
+| USER-PE-41 | 이벤트 | WHEN 닉네임 변경이 성공하면, THE 시스템 SHALL 그 계정의 `nickname_changed_at`에 `Clock` 빈(`Asia/Seoul`) 기준 변경 시각을 기록한다 | 204를 받은 직후 그 계정의 컬럼 값이 요청 시각의 **KST 벽시계**(±수 초). 파드가 UTC로 돌아도 UTC 벽시계가 기록되지 않는다. 이전 값이 있었다면 덮어쓴다 |
+| USER-PE-42 | 예외 | IF 닉네임 변경이 실패하면, THEN THE 시스템 SHALL `nickname_changed_at`을 갱신하지 않는다 | 400·409·429 응답 후 컬럼 값이 요청 전과 동일(NULL이었다면 NULL 그대로). USER-PE-7("실패 시 무변경")의 연장이다 |
 | USER-PE-43 | 예외 | IF 마지막 닉네임 변경으로부터 30일이 지나지 않았으면, THEN THE 시스템 SHALL 429와 `"닉네임은 30일에 한 번만 변경할 수 있습니다."`를 반환하고 닉네임을 교체하지 않는다 | 닉네임을 바꾼 직후 다른 유효 닉네임으로 재요청 → 429, `{"success":false,"data":{"nextChangeableAt":"2026-09-16T14:03:21+09:00"},"message":"닉네임은 30일에 한 번만 변경할 수 있습니다."}` (신규 `NICKNAME_CHANGE_COOLDOWN`). DB `nickname` 불변 |
-| USER-PE-44 | 유비쿼터스 | THE 시스템 SHALL 마지막 변경으로부터 **30일(2,592,000초)이 지난 시점부터** 재변경을 허용한다 | `nickname_changed_epoch_second`를 `현재 - 2,592,000`으로 맞추면 변경 성공(204). `현재 - 2,591,999`(1초 모자람)면 429. 경계 시점은 **허용** 쪽이다 |
-| USER-PE-45 | 예외 | IF 그 계정의 `nickname_changed_epoch_second`가 NULL이면, THEN THE 시스템 SHALL 쿨다운을 적용하지 않는다 | 컬럼이 NULL인 계정(가입 후 한 번도 안 바꿨거나 컬럼 도입 이전 계정) → 429 없이 변경 성공. 429·500이 아니다 |
-| USER-PE-46 | 유비쿼터스 | THE 시스템 SHALL 회원가입 시 `nickname_changed_epoch_second`를 채우지 않는다 | 가입 직후 `SELECT nickname_changed_epoch_second` → NULL. 가입 직후 곧바로 닉네임을 바꿔도 429가 나지 않는다(가입 요청·응답 계약도 변하지 않음) |
+| USER-PE-44 | 유비쿼터스 | THE 시스템 SHALL 마지막 변경으로부터 **30일이 지난 시점부터** 재변경을 허용한다 | `nickname_changed_at`을 `현재(KST) - 30일`로 맞추면 변경 성공(204). `현재 - 30일 + 1초`(1초 모자람)면 429. 경계 시점은 **허용** 쪽이다. 기간 계산은 `마지막 변경 시각 + 30일` 한 식에서만 나온다 |
+| USER-PE-45 | 예외 | IF 그 계정의 `nickname_changed_at`이 NULL이면, THEN THE 시스템 SHALL 쿨다운을 적용하지 않는다 | 컬럼이 NULL인 계정(가입 후 한 번도 안 바꿨거나 컬럼 도입 이전 계정) → 429 없이 변경 성공. 429·500이 아니다 |
+| USER-PE-46 | 유비쿼터스 | THE 시스템 SHALL 회원가입 시 `nickname_changed_at`을 채우지 않는다 | 가입 직후 `SELECT nickname_changed_at` → NULL. 가입 직후 곧바로 닉네임을 바꿔도 429가 나지 않는다(가입 요청·응답 계약도 변하지 않음) |
 | USER-PE-47 | 유비쿼터스 | THE 시스템 SHALL 429 응답의 `data` 키 집합을 정확히 `{nextChangeableAt}`으로 한정하고, 그 값을 오프셋을 포함한 ISO-8601 시각 문자열로 담는다 | `data`의 키가 1개. 값이 `"2026-09-16T14:03:21+09:00"` 형태(오프셋 `+09:00` 포함, 남은 일수·epoch 숫자가 아님). 그 값은 `마지막 변경 시각 + 30일`과 일치한다 |
 | USER-PE-48 | 유비쿼터스 | THE 시스템 SHALL 비밀번호 변경에는 쿨다운을 적용하지 않는다 | 비밀번호를 연속 2회(간격 제한 없이) 변경 → 두 번 다 200 + 새 토큰 쌍. 429가 나지 않는다(결정 근거 9) |
-| USER-PE-49 | 유비쿼터스 | THE 시스템 SHALL 쿨다운 판정을 epoch 초 비교로 수행해 실행 환경의 시간대에 좌우되지 않게 한다 | 파드 시간대가 UTC든 KST든 같은 데이터에 대해 판정 결과가 같고, `nextChangeableAt`이 가리키는 **절대 시각**도 같다(표기 오프셋만 `Asia/Seoul` 기준으로 렌더링됨) |
+| USER-PE-49 | 유비쿼터스 | THE 시스템 SHALL 쿨다운의 기록·판정·표기에 쓰는 "지금"을 `Clock` 빈(`Asia/Seoul` 고정) 한 곳에서만 읽는다 | 파드 시간대가 UTC여도 ①기록되는 `nickname_changed_at` ②판정 기준 시각 ③`nextChangeableAt`의 오프셋 해석이 전부 같은 KST 벽시계에서 나온다. `Clock`을 UTC 자정 직후(KST 09:00 이전)로 고정해도 기록·판정 결과가 KST 기준과 일치한다 |
 
 **429 응답에 `data`를 싣는 것은 이 저장소에서 처음이다** — 기존 `BusinessException` 경로는 예외 없이 `data: null`이었다. 구조적 마찰은 제약 9에 사실로 적었다.
 
@@ -127,34 +129,42 @@
 
 1. **`/api/users/**`는 이미 `anyRequest().authenticated()`에 걸린다 — `SecurityConfig`를 건드리지 않는 것이 정답이다.** `/teams`·`/players`·`/games/lineup`처럼 GET 한정 `permitAll` 한 줄을 추가하면 USER-PE-1~4가 통째로 무너진다(`/games/support`가 같은 이유로 `SecurityConfig`를 그대로 둔 사례가 있다). 반대로 `/api/auth/**` 아래에 두면 전부 `permitAll`이라 인증이 걸리지 않는다(`withdraw.md` 제약 1과 같은 함정).
 2. **닉네임 중복 판정에 "본인 제외" 로직을 넣지 않는다.** `existsByNickname`은 자기 자신을 걸러내지 않지만, USER-PE-17이 **중복 조회보다 먼저** 같은 값을 400으로 잘라내므로 중복 단계에 요청자 본인이 도달하는 경우가 없다(USER-PE-33의 순서가 이 사실을 보장한다). signup·`/nickname/validate`·`/nickname/duplicate`와 **문자 그대로 같은 판정**을 계속 공유하는 것이 단일 출처 원칙에 맞다. ⚠ USER-PE-17을 없애거나 순서를 뒤집으면 이 전제가 깨져 자기 닉네임 요청이 409가 된다.
-3. **`UserAccount`에 `@Setter`가 없고 domain 컨벤션상 두지 않는다.** 닉네임·비밀번호 교체는 엔티티가 자신의 상태 전이를 책임지는 형태여야 한다(`withdraw(LocalDateTime)`가 이미 그 형태다). 서비스가 setter로 값을 밀어넣는 형태는 컨벤션 위반이다. **변경 시각 기록도 마찬가지다** — `nickname_changed_epoch_second`를 별도 setter로 밀어넣지 말고 **닉네임 전이 메서드(`changeNickname` 류)가 닉네임 교체와 시각 기록을 함께 책임져야** USER-PE-41("성공했을 때만 기록")이 구조적으로 보장된다. 둘을 분리하면 한쪽만 호출되는 경로가 언젠가 생긴다.
+3. **`UserAccount`에 `@Setter`가 없고 domain 컨벤션상 두지 않는다.** 닉네임·비밀번호 교체는 엔티티가 자신의 상태 전이를 책임지는 형태여야 한다(`withdraw(LocalDateTime)`가 이미 그 형태다). 서비스가 setter로 값을 밀어넣는 형태는 컨벤션 위반이다. **변경 시각 기록도 마찬가지다** — `nickname_changed_at`을 별도 setter로 밀어넣지 말고 **닉네임 전이 메서드(`changeNickname` 류)가 닉네임 교체와 시각 기록을 함께 책임져야** USER-PE-41("성공했을 때만 기록")이 구조적으로 보장된다. 둘을 분리하면 한쪽만 호출되는 경로가 언젠가 생긴다. **"지금"의 출처는 엔티티가 아니라 호출자**여야 한다(`withdraw(LocalDateTime)`와 같은 형태) — 엔티티가 스스로 현재 시각을 읽으면 그 지점만 `Clock` 밖으로 새고 USER-PE-49가 깨진다.
 4. ~~**비밀번호 변경에는 탈퇴가 가진 안전망이 없다 — 새 토큰을 발급해도 마찬가지다.**~~ **이 제약은 더 이상 참이 아니다 — `access-token-invalidation.md`(USER-ATI-4·13·20)가 그 구멍을 닫았다.** 필터가 매 요청 "비밀번호 변경 시각보다 앞선 초에 발급된 토큰인가"를 대조하고(같은 조회에 기준 시각 컬럼을 함께 실어 요청당 조회는 늘지 않았다), `AuthService.reissue`가 refresh에도 같은 대조를 적용한다. 토큰 claim 계약(`sub`=uid만)은 결국 **바뀌지 않았다** — `iat`가 이미 실려 있었기 때문이다(USER-ATI-14). 남은 사실만 기록해 둔다: access 토큰 검증이 서명·만료만 보는 stateless 판정이라는 성질 자체는 그대로이고, 무효화는 그 판정 뒤에 계정 상태 대조를 한 겹 얹어 이룬 것이다.
 5. **`newPassword`·`nickname`에 검증 애노테이션을 겹쳐 걸지 말 것.** 각각 `@ValidPassword`/`@ValidNickname` 하나만 건다. 겹치면 동시 위반 시 `GlobalExceptionHandler`의 `Map#put` 순서 비보장으로 응답 메시지가 호출마다 달라진다(모듈 컨텍스트의 `SignupRequest` 주의 그대로). USER-PE-27이 `currentPassword` 누락을 별도 `@NotBlank` 400이 아니라 "불일치"로 흡수하는 이유도 같다 — 위반이 항상 정확히 1개여야 USER-PE-29가 성립한다.
 6. **신규 `ErrorCode` 4종이 `:common`에 필요하다**: `INVALID_CURRENT_PASSWORD`(400, `"현재 비밀번호가 올바르지 않습니다."`) · `SAME_AS_CURRENT_PASSWORD`(400, `"현재 비밀번호와 다른 비밀번호를 사용해 주세요."`) · `SAME_AS_CURRENT_NICKNAME`(400, `"현재 닉네임과 다른 닉네임을 사용해 주세요."`) · **`NICKNAME_CHANGE_COOLDOWN`(429, `"닉네임은 30일에 한 번만 변경할 수 있습니다."`)**. 앞 셋은 `BusinessException` 경로를 그대로 타지만 **넷째는 그렇지 않다**(제약 9). 명명은 기존 `EMAIL_SEND_COOLDOWN`(이 모듈 유일한 429)의 `<대상>_<동작>_COOLDOWN` 형태를 따랐다. `:common`은 user·quiz 공용이므로 추가는 두 앱에 함께 반영된다.
-7. **현재 시각이 필요하면 `Clock` 빈을 쓴다.** USER-PE-30(refresh 토큰 만료)과 USER-PE-41·43(쿨다운 기록·판정) 둘 다 현재 시각을 필요로 한다. 운영 파드가 UTC라 `LocalDateTime.now()`를 직접 읽으면 KST 자정~오전 9시 사이에 날짜가 어긋난다(`ClockConfig`가 `Asia/Seoul` 고정 단일 출처). 기존 `AuthService`·`UserAccountService`가 아직 `LocalDateTime.now()`를 직접 쓰는 것은 알려진 미해결 지점이며, 새 경로가 그것을 따라갈 이유는 없다. **쿨다운은 저장·비교가 epoch 초라 시간대 자체에는 영향받지 않지만**(USER-PE-49), `nextChangeableAt`을 `+09:00` 오프셋으로 렌더링하는 데에는 이 `Clock`의 존이 그대로 쓰인다.
-8. **30일이라는 기간과 429 메시지는 각각 한 곳에서만 정의돼야 한다.** 닉네임 정책의 단일 출처가 `NicknamePolicy`인 것과 같은 이유다 — 쿨다운 길이가 판정 코드·응답 메시지·`nextChangeableAt` 계산 세 군데에 각각 박히면 셋이 어긋난다(메시지에 `30`이라는 숫자가 들어 있어 특히 어긋나기 쉽다. `PasswordPolicy.LENGTH_MESSAGE`가 `MIN_LENGTH`·`MAX_LENGTH`로 조립되는 이유와 같다). 어느 클래스에 둘지는 구현 판단이다.
+7. **현재 시각이 필요하면 `Clock` 빈을 쓴다.** USER-PE-30(refresh 토큰 만료)과 USER-PE-41·43(쿨다운 기록·판정) 둘 다 현재 시각을 필요로 한다. 운영 파드가 UTC라 `LocalDateTime.now()`를 직접 읽으면 KST 자정~오전 9시 사이에 날짜가 어긋난다(`ClockConfig`가 `Asia/Seoul` 고정 단일 출처). 기존 `AuthService`·`UserAccountService`가 아직 `LocalDateTime.now()`를 직접 쓰는 것은 알려진 미해결 지점이며, 새 경로가 그것을 따라갈 이유는 없다.
+   - **⚠ 4차 개정으로 이 제약의 무게가 달라졌다.** 컬럼이 epoch 초였을 때는 `Clock`이 필요한 곳이 `nextChangeableAt` **표기 한 군데**뿐이었고, 실수해도 응답 오프셋만 틀렸다. 지금 `nickname_changed_at`은 **존 없는 벽시계**라 "어느 존으로 쓰고 읽느냐"가 곧 값의 의미다 — 기록(USER-PE-41)·판정(USER-PE-43·44)·표기(USER-PE-47) **세 지점이 모두** 같은 `Clock`을 통과해야 하고, 이 경로에 `LocalDateTime.now()`(시스템 기본 존) 호출이 **한 줄이라도** 섞이면 UTC 파드에서 저장값이 9시간 어긋나 30일 경계가 그만큼 밀린다. 증상은 배포 즉시가 아니라 그 계정이 다음 변경을 시도하는 30일 뒤에 나타난다.
+8. **30일이라는 기간과 429 메시지는 각각 한 곳에서만 정의돼야 한다.** 닉네임 정책의 단일 출처가 `NicknamePolicy`인 것과 같은 이유다 — 쿨다운 길이가 판정 코드·응답 메시지·`nextChangeableAt` 계산 세 군데에 각각 박히면 셋이 어긋난다(메시지에 `30`이라는 숫자가 들어 있어 특히 어긋나기 쉽다. `PasswordPolicy.LENGTH_MESSAGE`가 `MIN_LENGTH`·`MAX_LENGTH`로 조립되는 이유와 같다). 어느 클래스에 둘지는 구현 판단이다. **4차 개정으로 기간 상수는 "일" 하나만 남았다** — 3차 개정 때 함께 있던 초 단위 표현(`COOLDOWN_SECONDS` = 2,592,000)은 `DATETIME` 비교로 바뀌며 쓸 곳이 없어져 삭제됐다. 같은 기간을 두 눈금으로 들고 있으면 한쪽만 고쳐 어긋나므로, **초 단위 상수를 "혹시 필요할까 봐" 되살리지 말 것.**
 9. **⚠ `BusinessException`은 응답에 데이터를 실을 수 없다 — USER-PE-43이 이 구조와 정면으로 부딪친다.** 확인한 사실은 이렇다.
    - `ApiResponse`에는 이미 `fail(String message, T data)` 오버로드가 **있고**, `GlobalExceptionHandler.handleValidation`이 그것으로 400 응답에 `data`(필드별 메시지 맵)를 싣고 있다. 즉 **막힌 것은 `ApiResponse`가 아니다.**
    - 막힌 곳은 `BusinessException` 경로다: `BusinessException`은 `ErrorCode` 하나만 들고 있고 `ErrorCode`는 `status`·`message`만 갖는다. 그래서 `handleBusiness`가 `ApiResponse.fail(errorCode.getMessage())`밖에 부를 수 없고 **모든 `BusinessException` 응답의 `data`는 예외 없이 `null`이다.**
    - USER-PE-43은 이 저장소에서 **`BusinessException` 계열 실패 응답이 도메인 데이터를 싣는 첫 사례**다. 예외 객체·`ErrorCode`·핸들러 중 어디를 어떻게 여느냐는 `spring-dev` 판단이지만, **어느 길을 택하든 기존 `BusinessException` 응답들의 `data:null` 계약을 깨뜨리지 않아야 한다**(다른 예외의 응답 형태가 함께 바뀌면 그건 이 요구사항의 범위를 넘는 파급이다).
 
-## 배포 전제 (3차 개정 — 컬럼 수동 선투입)
+## 배포 전제 (4차 개정 — 컬럼 수동 선투입 + 옛 컬럼 제거)
 
-**사용자가 컬럼을 수동 DDL로 선투입하기로 확정했다.** 이 문서가 만드는 컬럼은 **하나뿐**이다.
+**사용자가 컬럼을 수동 DDL로 선투입하기로 확정했다.** 이 문서가 요구하는 DDL은 두 문장이며, **두 문장의 성격이 서로 다르다** — 하나는 배포를 막는 선행 조건이고, 다른 하나는 아무도 대신 해 주지 않는 뒷정리다.
 
 ```sql
-ALTER TABLE users_account ADD COLUMN nickname_changed_epoch_second BIGINT NULL;
+ALTER TABLE users_account ADD COLUMN nickname_changed_at DATETIME(6) NULL;
+ALTER TABLE users_account DROP COLUMN nickname_changed_epoch_second;
 ```
 
-- **컬럼명은 후속 작업과 대칭이다.** 후속 작업 `hwannee/be/feat-token-invalidation`이 자기 목적으로 추가할 `password_changed_epoch_second`와 짝을 이루도록 `nickname_changed_epoch_second`로 정했다. **그 컬럼은 이 브랜치가 만들지 않는다**(비밀번호 쿨다운이 빠지면서 이 브랜치에 필요한 이유가 사라졌다).
-- **왜 epoch 초 `BIGINT`인가**: 존 무관 저장이라 파드 TZ 전환·파드 간 TZ 불일치의 영향을 받지 않는다(USER-PE-49). `DATETIME`으로 두면 이 저장소가 이미 겪고 있는 "파드 UTC ↔ KST 9시간" 문제를 새 컬럼이 한 벌 더 떠안는다.
-- **인덱스 없음**: 이 컬럼으로 조회하는 경로가 없다(항상 자기 계정 행을 읽은 뒤 그 안의 값을 본다). 기본값 없음·NULL 허용인 이유는 USER-PE-45·46(결정 근거 12)이다.
+**① `ADD COLUMN` — 배포보다 먼저다(선행 조건).**
+- user는 `ddl-auto=update`라 스스로 컬럼을 만들지만, **`ddl-auto=none`인 quiz는 같은 `UserAccount` 매핑을 공유**한다. 컬럼이 없으면 quiz의 인증 요청이 500이 된다(아래 "증상" 참고).
+- **`DATETIME`이 아니라 `DATETIME(6)`이다.** Hibernate가 `LocalDateTime`을 `datetime(6)`으로 매핑하므로 정밀도를 0으로 만들면 매핑과 어긋나는데, **`ddl-auto=update`는 이미 있는 컬럼의 정밀도를 고쳐 주지 않는다** — 아무 에러 없이 초 미만이 조용히 잘린다. USER-PE-40이 정밀도까지 인수 기준에 넣은 이유다.
+- 검증: `SHOW COLUMNS FROM users_account LIKE 'nickname_changed_at'` → `Type=datetime(6)`, `Null=YES`(USER-PE-40).
 
-**적용 순서**
-1. **DDL을 먼저 넣는다**(운영·dev 양쪽). 그 다음 앱을 배포한다.
-2. 검증: `SHOW COLUMNS FROM users_account LIKE 'nickname_changed_epoch_second'`가 1행(USER-PE-40).
+**② `DROP COLUMN` — 자동으로 일어나지 않는다(배포 후에 해도 안전하다).**
+- **`ddl-auto=update`는 컬럼을 추가만 하고 없어진 필드의 옛 컬럼을 지우지 않는다** — devdb에 `nickname_changed_epoch_second`가 그대로 남아 있는 것을 실측으로 확인했다. 손으로 지우지 않으면 영원히 남는다.
+- 새 코드는 그 컬럼을 **읽지도 쓰지도 않으므로** 배포 뒤에 돌려도 안전하다. ①과 달리 배포를 막는 조건이 아니다.
+- 순서를 지키는 것이 중요한 쪽은 ①뿐이다. ②를 ① **이전에** 돌리면 구 버전 앱이 살아 있는 동안 그 컬럼을 찾다가 깨질 수 있으니, 굳이 앞당기지 말 것.
 
-**⚠ 이 순서를 빠뜨렸을 때의 증상 — user만 보면 절대 못 잡는다**
+**백필하지 않는다 — 필요가 없다.** 운영 계정 6건 전부 이 값이 NULL임을 확인했다(옛 컬럼도 전부 NULL이었다). 즉 옮길 값 자체가 없어 epoch→`DATETIME` 변환 UPDATE가 필요 없다. NULL은 결핍이 아니라 "아직 바꾼 적 없음"이라는 상태이므로 채워 넣을 올바른 값도 애초에 존재하지 않는다(결정 근거 12).
+
+**인덱스 없음**: 이 컬럼으로 조회하는 경로가 없다(항상 자기 계정 행을 읽은 뒤 그 안의 값을 본다). 기본값 없음·NULL 허용인 이유는 USER-PE-45·46(결정 근거 12)이다.
+
+**⚠ ①을 빠뜨렸을 때의 증상 — user만 보면 절대 못 잡는다**
 - **user 앱은 멀쩡해 보인다.** prod `ddl-auto`가 앱마다 다르고 **user는 `update`**라, DDL을 빠뜨려도 user가 기동하면서 컬럼을 스스로 만들어 버린다. "배포했더니 잘 되네"가 곧 "빠뜨린 걸 몰랐다"가 된다.
 - **터지는 쪽은 quiz다.** quiz는 `ddl-auto=none`이라 컬럼을 만들지 않는데, `UserAccount`는 `:domain`의 **공유 엔티티**이고 quiz가 `UserAccountRepository`를 **`QuizSubmitService`·`QuizLikeToggler`·`ChatService` 세 곳**에서 쓴다(코드 확인). 엔티티에 없는 컬럼을 SELECT 하게 되어 **quiz 쪽 요청이 500**으로 떨어진다.
 - 즉 **user 배포가 quiz를 깨뜨리는 형태**이며, 증상과 원인이 다른 앱에 있다. 배포 검증은 user가 아니라 **quiz의 퀴즈 제출·좋아요·채팅 경로**에서 해야 한다.
@@ -185,11 +195,16 @@ ALTER TABLE users_account ADD COLUMN nickname_changed_epoch_second BIGINT NULL;
 10. **왜 429인가(400·409가 아니라).** 이 모듈에는 이미 쿨다운 선례가 있다 — `EMAIL_SEND_COOLDOWN`(429)이 이 모듈 유일한 429이고, 성격이 정확히 같다("지금은 안 되고 시간이 지나면 된다"). 400으로 두면 **형식 오류와 구분되지 않는다** — 이 경로의 400은 `data.nickname`에 필드 메시지가 실리는 응답이라, FE가 "입력을 고치면 된다"로 오해하고 사용자는 멀쩡한 닉네임을 계속 고쳐 보게 된다. 409도 아니다 — 충돌하는 상대 자원(타인이 점유한 닉네임)이 없고, 막는 주체는 내 계정의 시간 제한이다. 같은 이유로 409(`DUPLICATE_NICKNAME`)와 429는 **동시에 성립할 수 있지만 429가 뒤**다(USER-PE-33).
 11. **왜 `nextChangeableAt`이 오프셋 포함 ISO-8601 문자열인가(epoch 숫자·남은 일수가 아니라).** 기존 API 응답 관례를 조사한 결과다.
     - **응답 본문의 시각은 전부 문자열이다** — `GameResponse.gameDate`(`"2026-08-01T18:30:00"`), 채팅 `createdAt`, 퀴즈 `submittedAt` 모두 `LocalDateTime` 직렬화 문자열이다. **epoch 숫자를 쓰는 곳은 JWT claim(`iat`/`exp`)뿐**이고 그건 응답 본문이 아니라 토큰 내부다. 그래서 문자열을 택했다.
-    - **단, 기존 문자열들이 쓰는 오프셋 없는 형태는 따라가지 않는다.** 오프셋이 없으면 그 시각이 어느 존인지 응답만 봐서는 알 수 없고, 파드가 UTC라 실제로 9시간 어긋나 보이는 문제가 이미 관측돼 있다(별도 보류 과제). **저장이 epoch라 오프셋을 붙여 렌더링하는 데 아무 손실이 없으므로**, 이 신규 필드는 처음부터 `+09:00`을 포함한다.
+    - **단, 기존 문자열들이 쓰는 오프셋 없는 형태는 따라가지 않는다.** 오프셋이 없으면 그 시각이 어느 존인지 응답만 봐서는 알 수 없고, 파드가 UTC라 실제로 9시간 어긋나 보이는 문제가 이미 관측돼 있다(별도 보류 과제). 그래서 이 신규 필드는 처음부터 `+09:00`을 포함한다. **4차 개정으로 저장이 벽시계(`DATETIME`)가 되면서 이 표기의 책임이 오히려 무거워졌다** — 저장값 자체에 존 정보가 없으므로, 응답에 붙는 오프셋은 "변환"이 아니라 **그 벽시계가 어느 존의 것인지에 대한 선언**이다. 값을 만든 시계와 다른 존으로 렌더링하면 오프셋만 갈아끼워져 실제와 다른 절대 시각이 나간다(USER-PE-49가 이를 막는다).
     - **남은 일수(`daysLeft`) 안은 폐기했다**: 반올림 규칙이 모호하고(12시간 남았을 때 0인지 1인지), 자정 경계에서 같은 값이 하루 종일 유지되다 갑자기 튀며, 무엇보다 사용자가 **"언제"를 알 수 없다**. 값의 형식이 사용자에게 주는 정보량이 가장 큰 것을 골랐다.
 12. **왜 가입 시점에 값을 채우지 않는가(NULL로 시작).** 채우면 **가입 직후 30일간 닉네임을 못 바꾸게 된다** — 쿨다운이 막으려던 것은 "잦은 재변경"이지 "첫 변경"이 아니므로 부작용만 남는다. 컬럼 도입 이전 계정도 같은 이유로 NULL이며 첫 변경까지 제한이 없다(USER-PE-45).
     - **백필하지 않는다.** `me-profile.md`가 `users_bq`를 백필했던 것과 반대 결정인데, 그건 "모든 계정에 행이 있어야 한다"는 전제를 세우는 작업이었고 **여기서 NULL은 결핍이 아니라 "아직 바꾼 적 없음"이라는 의미 있는 상태**이기 때문이다. 채워 넣을 올바른 값 자체가 존재하지 않는다.
 13. **왜 쿨다운이 판정 순서의 마지막인가.** 앞에 두면 **형식이 틀린 요청에도 쿨다운 메시지가 나간다** — 사용자는 닉네임 형식을 고쳐도 계속 같은 메시지에 막히는 것처럼 보이고, 실제 원인(형식 오류)을 끝내 못 본다. 부수적으로 쿨다운 판정은 계정 행의 값을 읽어야 하는데, 형식 위반은 그 전에 잘려 조회가 아예 일어나지 않는다(USER-PE-15).
+14. **⚠ 왜 두 시각 컬럼의 타입이 다른가 — `nickname_changed_at`은 `DATETIME(6)`, `password_changed_epoch_second`는 epoch `BIGINT`다(2026-08-17 4차 개정).** 3차 개정은 닉네임 컬럼도 epoch로 뒀지만, 실제로 두 값이 하는 일이 다르다는 것이 드러나 닉네임 쪽만 바꿨다. **이 비대칭은 실수가 아니며, "일관성"을 이유로 통일하려는 시도가 반드시 다시 나온다 — 아래가 그 답이다.**
+    - **닉네임 쪽이 `DATETIME`인 이유**: 이 값은 **오직 자기 자신과의 간격("지금부터 30일")만** 따진다. 외부의 절대 시각과 대조되는 일이 없으므로 존 무관 저장이 주는 이점이 없고, 저장소의 다른 시각 컬럼(`exit_at`·`expired_at`·`created_at`)과 형태를 맞추는 편이 읽기·디버깅·백필 모두에서 낫다.
+    - **비밀번호 쪽이 epoch인 이유**: 이 값은 **JWT `iat`(시간대 개념이 없는 절대 시각)와 직접 비교**되는 유일한 컬럼이다(`access-token-invalidation.md`). 게다가 운영 커넥션이 `preserveInstants=false`라 `LocalDateTime`은 의미가 **프로세스 기본 존에 매달리는데**, 파드는 UTC이고 `ClockConfig`는 KST다. 여기에 존 의존 타입을 쓰면 쓰는 쪽과 읽는 쪽의 존이 9시간 어긋나 **정상 계정 전원이 401을 맞는다**(또는 무효화가 통째로 무력화된다). 초 단위인 것도 우연이 아니다 — `iat`가 초로 내림되므로 기준선도 같은 눈금이어야 자기 무효화가 원리적으로 불가능해진다.
+    - **정리하면 판단 기준은 "값의 형태"가 아니라 "무엇과 비교되는가"다.** 자기 자신과 비교되는 값(닉네임)은 벽시계여도 되고, 외부의 절대 시각과 비교되는 값(비밀번호)은 절대 시각이어야 한다. **⚠ `password_changed_epoch_second`를 `DATETIME`으로 바꾸지 말 것** — 컴파일도 테스트도 통과하고, 증상은 TZ 설정이 바뀌는 날에야 전원 로그아웃으로 나타난다.
+    - **대가는 정직하게 적어 둔다**: 닉네임 쪽은 존 무관 저장이 주던 안전망을 내려놓았다. 그 대신 `Clock` 단일 출처(USER-PE-49·제약 7)와 TZ 전환 대상 편입(아래 "알려진 한계")이 그 자리를 메운다.
 
 ## 알려진 한계 (이번 범위에서 고치지 않는 것)
 
@@ -199,6 +214,13 @@ ALTER TABLE users_account ADD COLUMN nickname_changed_epoch_second BIGINT NULL;
 - **30일 이내에는 오타로 바꾼 닉네임도 되돌릴 수 없다.** `길동` → `길둥`으로 잘못 바꾸면 30일간 그대로 살아야 한다. 되돌리기 예외·유예 시간(예: 변경 직후 N분 내 취소)·관리자 우회 경로는 이번 범위에 없다(3차 개정으로 새로 생긴 한계).
 - **컬럼이 NULL인 계정에는 첫 변경까지 제한이 없다**(USER-PE-45의 귀결). 컬럼 도입 이전에 이미 닉네임을 여러 번 바꿨던 계정이 있더라도 그 이력은 어디에도 없으므로 한 번은 그냥 통과한다 — 정책이 소급되지 않는다는 뜻이다.
 - **`nextChangeableAt`은 항상 `Asia/Seoul` 오프셋으로 렌더링된다.** 클라이언트가 다른 지역에 있어도 서버는 `+09:00` 표기로 내보낸다(가리키는 절대 시각은 같으므로 클라이언트가 자기 존으로 변환하면 된다).
+- **⚠ `nickname_changed_at`은 이제 TZ 전환 작업의 대상이다 — 4차 개정으로 새로 생긴 부채다.** 이 값은 존 정보가 없는 **KST 벽시계**이므로, 파드·MySQL 서버 TZ 전환 스크립트 `infra/sql/migrate-timestamps-utc-to-kst.sql`의 `users_account` 이동 목록(`created_at`·`updated_at`·`exit_at`)에 **이 컬럼도 들어가야 한다**. 확인 시점 기준 그 스크립트에는 아직 없다.
+  - **epoch였을 때는 대상이 아니었다** — 존 무관 저장이라 TZ 전환의 영향을 받지 않았고, 그래서 스크립트가 이 컬럼을 다룰 이유가 없었다. 타입을 바꾸며 스크립트의 전제가 조용히 달라진 것이다.
+  - 빠뜨렸을 때의 증상은 **눈에 잘 안 띈다**: 전환 이후 판정 기준("지금")만 9시간 앞으로 뛰고 저장된 과거 값은 UTC 벽시계로 남아, 그 계정들의 쿨다운이 **9시간 일찍 풀린다**. 에러도 로그도 없이 30일이 29일 15시간이 될 뿐이다.
+  - 반대로 `password_changed_epoch_second`는 그 스크립트의 대상이 **아니고 앞으로도 아니다**(결정 근거 14) — 같은 테이블의 두 시각 컬럼이 서로 다른 취급을 받는다는 뜻이므로, 스크립트를 고칠 때 "users_account의 시각 컬럼 전부"로 뭉뚱그리지 말 것.
+  - 실제 전환 작업의 선행 조건·순서는 그 스크립트가 소유한다. 이 문서는 **대상 목록에 이 컬럼이 빠져 있다는 사실만** 계약으로 남긴다.
 
 ## 미해결 질문
 없음 — 7건 전부 해소됨(2026-08-17 사용자 확정, 결정 근거 절 참고). 2차 개정(비밀번호 경로 성공 응답)과 3차 개정(닉네임 쿨다운 30일)으로 새로 생긴 미해결 항목도 없다. 3차 개정에서 판단이 필요했던 두 가지(429 응답 값의 형식 · 신규 `ErrorCode` 명명)는 기존 관례 조사로 확정했다(결정 근거 10·11, 제약 6).
+
+**4차 개정으로도 새 미해결 항목은 없다** — 컬럼 타입 교체는 이미 구현·실측 검증(PASS)까지 끝난 뒤 문서에 반영한 것이고, 정책 문장은 하나도 바뀌지 않았다. 다만 **질문이 아니라 할 일**로 남은 것이 하나 있으며 "알려진 한계"에 사실로 적어 뒀다: `infra/sql/migrate-timestamps-utc-to-kst.sql`의 `users_account` 이동 목록에 `nickname_changed_at`을 추가하는 일(이 문서의 계약이 아니라 그 스크립트의 소관이라 여기서 결정하지 않는다).

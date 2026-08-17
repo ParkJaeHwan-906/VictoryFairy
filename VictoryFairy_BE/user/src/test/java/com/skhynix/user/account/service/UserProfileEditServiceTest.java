@@ -40,6 +40,10 @@ import org.springframework.security.crypto.password.PasswordEncoder;
  * <p>{@code Clock}은 {@link #FIXED_CLOCK}으로 고정해 {@code AuthService.issueTokens}에 넘기는 시각을
  * 결정적으로 검증한다(모듈 컨벤션 "새 협력자·새 빈을 추가할 때 흔한 함정" 참고 — {@code @InjectMocks}에
  * 새 협력자 mock을 빠뜨리면 컴파일은 통과하고 런타임 NPE로만 깨진다).
+ *
+ * <p>{@code nicknameChangedAt}은 KST 벽시계 값이고 쓰는 쪽·읽는 쪽이 전부 {@code Clock} 빈을 거쳐야
+ * 일관된다({@code LocalDateTime.now()}가 한 줄이라도 섞이면 UTC 파드에서 9시간 어긋난다) — 이 클래스의
+ * "UTC/KST 날짜 경계" 회귀 테스트 2건이 그 계약을 증명한다({@code GameServiceTest}의 같은 패턴 참고).
  */
 @ExtendWith(MockitoExtension.class)
 class UserProfileEditServiceTest {
@@ -47,6 +51,9 @@ class UserProfileEditServiceTest {
     private static final Long ACCOUNT_ID = 1L;
     private static final Instant FIXED_INSTANT = Instant.parse("2026-08-17T03:00:00Z");
     private static final Clock FIXED_CLOCK = Clock.fixed(FIXED_INSTANT, ZoneId.of("Asia/Seoul"));
+    // FIXED_CLOCK이 나타내는 KST 벽시계 값(2026-08-17T12:00:00) — 서비스가 Clock에서 읽는 "지금"과
+    // 문자 그대로 같은 값이어야 하므로 별도로 계산하지 않고 리터럴로 고정한다.
+    private static final LocalDateTime FIXED_NOW = LocalDateTime.of(2026, 8, 17, 12, 0, 0);
 
     @Mock
     private UserAccountRepository userAccountRepository;
@@ -65,13 +72,13 @@ class UserProfileEditServiceTest {
     }
 
     /**
-     * 마지막 닉네임 변경 시각(epoch 초)까지 채운 계정을 만든다. 엔티티에 전용 setter가 없어(컨벤션상
-     * 두지 않음) 엔티티 자신의 {@code changeNickname}을 같은 닉네임 값으로 다시 호출해 epoch만 채운다
-     * — 닉네임 값은 그대로 유지되므로 fixture 구성 목적에 어긋나지 않는다.
+     * 마지막 닉네임 변경 시각까지 채운 계정을 만든다. 엔티티에 전용 setter가 없어(컨벤션상 두지 않음)
+     * 엔티티 자신의 {@code changeNickname}을 같은 닉네임 값으로 다시 호출해 변경 시각만 채운다 — 닉네임
+     * 값은 그대로 유지되므로 fixture 구성 목적에 어긋나지 않는다.
      */
-    private UserAccount accountWith(String nickname, String encodedPassword, long lastChangedEpochSecond) {
+    private UserAccount accountWith(String nickname, String encodedPassword, LocalDateTime lastChangedAt) {
         UserAccount account = accountWith(nickname, encodedPassword);
-        account.changeNickname(nickname, lastChangedEpochSecond);
+        account.changeNickname(nickname, lastChangedAt);
         return account;
     }
 
@@ -87,8 +94,8 @@ class UserProfileEditServiceTest {
 
     @Test
     @DisplayName("[USER-PE-8] 정책을 만족하고 다른 계정이 점유하지 않은 새 닉네임이면 엔티티의 닉네임이 교체된다"
-            + "(계정은 컬럼 도입 이전 상태와 같은 NULL 쿨다운이라 쿨다운 조회는 clock.instant()를 필요로 한다"
-            + " — Clock을 고정하지 않으면 NPE로 깨진다)")
+            + "(계정은 컬럼 도입 이전 상태와 같은 NULL 쿨다운이라 쿨다운 조회는 LocalDateTime.now(clock)을 필요로"
+            + " 한다 — Clock을 고정하지 않으면 NPE로 깨진다)")
     void updateNickname_newAndNotDuplicated_replacesNickname() {
         // given
         UserProfileEditService service = serviceWithFixedClock();
@@ -110,7 +117,7 @@ class UserProfileEditServiceTest {
             + "(isNicknameDuplicated)는 호출되지 않는다(동일 판정이 중복 조회·쿨다운보다 먼저다)")
     void updateNickname_sameAsCurrentNickname_throwsWithoutCheckingDuplicate() {
         // given: 쿨다운 판정 이전에 잘리는 경로임을 함께 증명하기 위해 이미 기록된 변경 시각을 채워 둔다
-        long previouslyChanged = 1_700_000_000L;
+        LocalDateTime previouslyChanged = LocalDateTime.of(2026, 7, 1, 0, 0, 0);
         UserAccount account = accountWith("길동", "encoded", previouslyChanged);
         given(userAccountRepository.findById(ACCOUNT_ID)).willReturn(Optional.of(account));
 
@@ -121,7 +128,7 @@ class UserProfileEditServiceTest {
                 .isEqualTo(ErrorCode.SAME_AS_CURRENT_NICKNAME);
 
         assertThat(account.getNickname()).isEqualTo("길동");
-        assertThat(account.getNicknameChangedEpochSecond()).isEqualTo(previouslyChanged);
+        assertThat(account.getNicknameChangedAt()).isEqualTo(previouslyChanged);
         verify(authService, never()).isNicknameDuplicated(anyString());
     }
 
@@ -144,7 +151,7 @@ class UserProfileEditServiceTest {
 
     @Test
     @DisplayName("[USER-PE-19] 닉네임 변경 성공은 AuthService·PasswordEncoder와 상호작용하지 않는다(토큰·비밀번호 미변경)"
-            + "(쿨다운 조회가 clock.instant()를 필요로 해 Clock을 고정하지 않으면 NPE로 깨진다)")
+            + "(쿨다운 조회가 LocalDateTime.now(clock)을 필요로 해 Clock을 고정하지 않으면 NPE로 깨진다)")
     void updateNickname_success_doesNotTouchTokensOrPassword() {
         // given
         UserProfileEditService service = serviceWithFixedClock();
@@ -176,12 +183,11 @@ class UserProfileEditServiceTest {
     // ---------- 닉네임 변경 쿨다운 30일 (USER-PE-40~49) ----------
 
     @Test
-    @DisplayName("[USER-PE-44] 마지막 변경으로부터 정확히 30일(2,592,000초)이 지났으면 경계는 허용 쪽이라 닉네임이 교체된다")
-    void updateNickname_exactlyCooldownSecondsElapsed_isAllowed() {
+    @DisplayName("[USER-PE-44] 마지막 변경으로부터 정확히 30일이 지났으면 경계는 허용 쪽이라 닉네임이 교체된다")
+    void updateNickname_exactlyThirtyDaysElapsed_isAllowed() {
         // given
         UserProfileEditService service = serviceWithFixedClock();
-        long nowEpochSecond = FIXED_INSTANT.getEpochSecond();
-        long lastChanged = nowEpochSecond - NicknameChangeCooldownPolicy.COOLDOWN_SECONDS;
+        LocalDateTime lastChanged = FIXED_NOW.minusDays(NicknameChangeCooldownPolicy.COOLDOWN_DAYS);
         UserAccount account = accountWith("길동", "encoded", lastChanged);
         given(userAccountRepository.findById(ACCOUNT_ID)).willReturn(Optional.of(account));
         given(authService.isNicknameDuplicated("철수")).willReturn(false);
@@ -191,17 +197,17 @@ class UserProfileEditServiceTest {
 
         // then
         assertThat(account.getNickname()).isEqualTo("철수");
-        assertThat(account.getNicknameChangedEpochSecond()).isEqualTo(nowEpochSecond);
+        assertThat(account.getNicknameChangedAt()).isEqualTo(FIXED_NOW);
     }
 
     @Test
-    @DisplayName("[USER-PE-43, 44] 마지막 변경으로부터 2,591,999초(1초 모자람) 지났으면 429 NICKNAME_CHANGE_COOLDOWN이 "
+    @DisplayName("[USER-PE-43, 44] 마지막 변경으로부터 30일-1초(1초 모자람) 지났으면 429 NICKNAME_CHANGE_COOLDOWN이 "
             + "발생하고 닉네임과 변경 시각 컬럼이 둘 다 불변이다")
     void updateNickname_oneSecondShortOfCooldown_throws429AndKeepsNicknameAndColumnUnchanged() {
         // given
         UserProfileEditService service = serviceWithFixedClock();
-        long nowEpochSecond = FIXED_INSTANT.getEpochSecond();
-        long lastChanged = nowEpochSecond - (NicknameChangeCooldownPolicy.COOLDOWN_SECONDS - 1);
+        LocalDateTime lastChanged =
+                FIXED_NOW.minusDays(NicknameChangeCooldownPolicy.COOLDOWN_DAYS).plusSeconds(1);
         UserAccount account = accountWith("길동", "encoded", lastChanged);
         given(userAccountRepository.findById(ACCOUNT_ID)).willReturn(Optional.of(account));
         given(authService.isNicknameDuplicated("철수")).willReturn(false);
@@ -213,17 +219,17 @@ class UserProfileEditServiceTest {
                 .isEqualTo(ErrorCode.NICKNAME_CHANGE_COOLDOWN);
 
         assertThat(account.getNickname()).isEqualTo("길동");
-        assertThat(account.getNicknameChangedEpochSecond()).isEqualTo(lastChanged);
+        assertThat(account.getNicknameChangedAt()).isEqualTo(lastChanged);
     }
 
     @Test
-    @DisplayName("[USER-PE-45] nicknameChangedEpochSecond가 NULL인 계정(한 번도 안 바꿨거나 컬럼 도입 이전)은 "
+    @DisplayName("[USER-PE-45] nicknameChangedAt이 NULL인 계정(한 번도 안 바꿨거나 컬럼 도입 이전)은 "
             + "쿨다운 없이 변경이 성공한다")
     void updateNickname_nullLastChanged_isNotSubjectToCooldown() {
-        // given: accountWith(nickname, password)는 builder()만 거쳐 epoch가 NULL인 채로 남는다
+        // given: accountWith(nickname, password)는 builder()만 거쳐 변경 시각이 NULL인 채로 남는다
         UserProfileEditService service = serviceWithFixedClock();
         UserAccount account = accountWith("길동", "encoded");
-        assertThat(account.getNicknameChangedEpochSecond()).isNull();
+        assertThat(account.getNicknameChangedAt()).isNull();
         given(userAccountRepository.findById(ACCOUNT_ID)).willReturn(Optional.of(account));
         given(authService.isNicknameDuplicated("철수")).willReturn(false);
 
@@ -232,16 +238,16 @@ class UserProfileEditServiceTest {
 
         // then
         assertThat(account.getNickname()).isEqualTo("철수");
-        assertThat(account.getNicknameChangedEpochSecond()).isEqualTo(FIXED_INSTANT.getEpochSecond());
+        assertThat(account.getNicknameChangedAt()).isEqualTo(FIXED_NOW);
     }
 
     @Test
-    @DisplayName("[USER-PE-41] 이전에 기록된 변경 시각이 있어도 성공하면 새 epoch 초로 덮어쓴다")
-    void updateNickname_success_overwritesPreviousRecordedEpochSecond() {
+    @DisplayName("[USER-PE-41] 이전에 기록된 변경 시각이 있어도 성공하면 새 시각으로 덮어쓴다")
+    void updateNickname_success_overwritesPreviousRecordedChangedAt() {
         // given: 쿨다운이 이미 풀린 과거 변경 이력(31일 전)이 있는 계정
         UserProfileEditService service = serviceWithFixedClock();
-        long nowEpochSecond = FIXED_INSTANT.getEpochSecond();
-        long previouslyChanged = nowEpochSecond - NicknameChangeCooldownPolicy.COOLDOWN_SECONDS - 86_400;
+        LocalDateTime previouslyChanged =
+                FIXED_NOW.minusDays(NicknameChangeCooldownPolicy.COOLDOWN_DAYS).minusDays(1);
         UserAccount account = accountWith("길동", "encoded", previouslyChanged);
         given(userAccountRepository.findById(ACCOUNT_ID)).willReturn(Optional.of(account));
         given(authService.isNicknameDuplicated("철수")).willReturn(false);
@@ -250,17 +256,17 @@ class UserProfileEditServiceTest {
         service.updateNickname(ACCOUNT_ID, "철수");
 
         // then
-        assertThat(account.getNicknameChangedEpochSecond())
+        assertThat(account.getNicknameChangedAt())
                 .isNotEqualTo(previouslyChanged)
-                .isEqualTo(nowEpochSecond);
+                .isEqualTo(FIXED_NOW);
     }
 
     @Test
-    @DisplayName("[USER-PE-42] 실패(DUPLICATE_NICKNAME)하면 이미 기록돼 있던 nicknameChangedEpochSecond가 갱신되지 않는다")
-    void updateNickname_duplicateFailure_doesNotUpdateRecordedEpochSecond() {
+    @DisplayName("[USER-PE-42] 실패(DUPLICATE_NICKNAME)하면 이미 기록돼 있던 nicknameChangedAt이 갱신되지 않는다")
+    void updateNickname_duplicateFailure_doesNotUpdateRecordedChangedAt() {
         // given
         UserProfileEditService service = serviceWithFixedClock();
-        long previouslyChanged = FIXED_INSTANT.getEpochSecond() - NicknameChangeCooldownPolicy.COOLDOWN_SECONDS;
+        LocalDateTime previouslyChanged = FIXED_NOW.minusDays(NicknameChangeCooldownPolicy.COOLDOWN_DAYS);
         UserAccount account = accountWith("길동", "encoded", previouslyChanged);
         given(userAccountRepository.findById(ACCOUNT_ID)).willReturn(Optional.of(account));
         given(authService.isNicknameDuplicated("이미있음")).willReturn(true);
@@ -271,7 +277,7 @@ class UserProfileEditServiceTest {
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(ErrorCode.DUPLICATE_NICKNAME);
 
-        assertThat(account.getNicknameChangedEpochSecond()).isEqualTo(previouslyChanged);
+        assertThat(account.getNicknameChangedAt()).isEqualTo(previouslyChanged);
     }
 
     @Test
@@ -280,7 +286,7 @@ class UserProfileEditServiceTest {
     void updateNickname_coolingDownAndDuplicated_prefersDuplicateOver429() {
         // given: 쿨다운 중(1초 전에 바꿈)이면서 요청 닉네임은 타 계정이 점유한 상태
         UserProfileEditService service = serviceWithFixedClock();
-        long lastChanged = FIXED_INSTANT.getEpochSecond() - 1;
+        LocalDateTime lastChanged = FIXED_NOW.minusSeconds(1);
         UserAccount account = accountWith("길동", "encoded", lastChanged);
         given(userAccountRepository.findById(ACCOUNT_ID)).willReturn(Optional.of(account));
         given(authService.isNicknameDuplicated("이미있음")).willReturn(true);
@@ -293,7 +299,7 @@ class UserProfileEditServiceTest {
                 .isEqualTo(ErrorCode.DUPLICATE_NICKNAME);
 
         assertThat(account.getNickname()).isEqualTo("길동");
-        assertThat(account.getNicknameChangedEpochSecond()).isEqualTo(lastChanged);
+        assertThat(account.getNicknameChangedAt()).isEqualTo(lastChanged);
     }
 
     @Test
@@ -302,11 +308,11 @@ class UserProfileEditServiceTest {
             + "(초가 0이어도 \":00\"이 생략되지 않는다 — 다음 변경 가능 시각을 FIXED_CLOCK의 정각(초=0)에서 정확히 "
             + "60초 뒤로 맞춰, 그 결과가 다시 초=0인 시각이 되도록 고른 경계 케이스다)")
     void updateNickname_coolingDown_dataIsExactCooldownResponseWithNonTruncatedSeconds() {
-        // given: FIXED_INSTANT(2026-08-17T03:00:00Z, 초=0)에서 60초 뒤가 다음 변경 가능 시각이 되도록
+        // given: FIXED_NOW(2026-08-17T12:00:00, 초=0)에서 60초 뒤가 다음 변경 가능 시각이 되도록
         // lastChanged를 역산한다 — 60초 뒤도 정각(초=0)이라 ":00" 생략 함정을 그대로 재현한다.
         UserProfileEditService service = serviceWithFixedClock();
-        long nowEpochSecond = FIXED_INSTANT.getEpochSecond();
-        long lastChanged = nowEpochSecond - NicknameChangeCooldownPolicy.COOLDOWN_SECONDS + 60;
+        LocalDateTime lastChanged =
+                FIXED_NOW.minusDays(NicknameChangeCooldownPolicy.COOLDOWN_DAYS).plusSeconds(60);
         UserAccount account = accountWith("길동", "encoded", lastChanged);
         given(userAccountRepository.findById(ACCOUNT_ID)).willReturn(Optional.of(account));
         given(authService.isNicknameDuplicated("철수")).willReturn(false);
@@ -321,6 +327,47 @@ class UserProfileEditServiceTest {
         assertThatThrownBy(() -> service.updateNickname(ACCOUNT_ID, "철수"))
                 .isInstanceOfSatisfying(BusinessDataException.class,
                         e -> assertThat(e.getData()).isEqualTo(expected));
+    }
+
+    @Test
+    @DisplayName("[회귀] UTC로는 8/1이지만 KST로는 8/2로 넘어간 순간(2026-08-01T15:30:00Z = "
+            + "KST 2026-08-02T00:30:00)에도 기록되는 nicknameChangedAt은 KST 벽시계다 — "
+            + "LocalDateTime.now(clock) 대신 시스템 기본 시간대의 LocalDateTime.now()로 되돌리면 이 테스트가 깨진다")
+    void updateNickname_success_utcKstDateBoundary_recordsKstWallClockNotUtcDate() {
+        // given: UTC 자정을 넘겨 KST 날짜가 하루 앞서가는 순간으로 clock 고정
+        Clock boundaryClock = Clock.fixed(Instant.parse("2026-08-01T15:30:00Z"), ZoneId.of("Asia/Seoul"));
+        UserProfileEditService service =
+                new UserProfileEditService(userAccountRepository, passwordEncoder, authService, boundaryClock);
+        UserAccount account = accountWith("길동", "encoded");
+        given(userAccountRepository.findById(ACCOUNT_ID)).willReturn(Optional.of(account));
+        given(authService.isNicknameDuplicated("철수")).willReturn(false);
+
+        // when
+        service.updateNickname(ACCOUNT_ID, "철수");
+
+        // then: KST 벽시계는 8/2 00:30:00이다 — UTC 그대로였다면(=시스템 기본 존이 UTC인 파드에서
+        // LocalDateTime.now()를 직접 썼다면) 8/1 15:30:00으로 기록됐을 것이다
+        assertThat(account.getNicknameChangedAt()).isEqualTo(LocalDateTime.of(2026, 8, 2, 0, 30, 0));
+    }
+
+    @Test
+    @DisplayName("[회귀] 같은 UTC/KST 날짜 경계에서 쿨다운 중이면 429 응답의 nextChangeableAt도 "
+            + "KST 벽시계 기준 날짜로 렌더링된다(UTC 기준이면 하루 앞선 날짜가 나갔을 것이다)")
+    void updateNickname_coolingDown_utcKstDateBoundary_nextChangeableAtUsesKstWallClockDate() {
+        // given: lastChanged = KST 2026-08-01T00:30:00(경계 하루 전) → nextChangeableAt = KST 2026-08-31T00:30:00
+        Clock boundaryClock = Clock.fixed(Instant.parse("2026-08-01T15:30:00Z"), ZoneId.of("Asia/Seoul"));
+        UserProfileEditService service =
+                new UserProfileEditService(userAccountRepository, passwordEncoder, authService, boundaryClock);
+        LocalDateTime lastChanged = LocalDateTime.of(2026, 8, 1, 0, 30, 0);
+        UserAccount account = accountWith("길동", "encoded", lastChanged);
+        given(userAccountRepository.findById(ACCOUNT_ID)).willReturn(Optional.of(account));
+        given(authService.isNicknameDuplicated("철수")).willReturn(false);
+
+        // when & then
+        assertThatThrownBy(() -> service.updateNickname(ACCOUNT_ID, "철수"))
+                .isInstanceOfSatisfying(BusinessDataException.class,
+                        e -> assertThat(e.getData())
+                                .isEqualTo(new NicknameChangeCooldownResponse("2026-08-31T00:30:00+09:00")));
     }
 
     // ---------- 비밀번호 변경 ----------
