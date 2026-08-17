@@ -3,7 +3,7 @@
  * Figma: SWM / [My] 마이페이지 메인 (node 1186:9147), 기준 프레임 402 x 874.
  *
  * 위쪽 회색 머리 블록(프로필 + 성적)과 아래쪽 흰 목록 두 덩어리다.
- * 세로 좌표는 흐름으로 옮겼다(상태 바 47px 제외): 머리 0~284 → 목록 284.
+ * 세로 좌표는 흐름으로 옮겼다(상태 바 47px 제외): 머리 0~264 → 흰 여백 20 → 목록 284.
  * 화면 높이 · 앱 폭(402px) · 하단 NavBar 자리는 AppLayout 이 잡아 준다.
  */
 
@@ -209,6 +209,8 @@
 .my-page__menu {
   display: flex;
   flex-direction: column;
+  /* 회색 머리 블록과 첫 제목 사이 흰 여백 20px (264 → 284) */
+  margin-top: 20px;
   gap: 8px;
 }
 
@@ -293,7 +295,7 @@
 
 /* ------------------------------------------------------------------ *
  * 로그아웃 · 회원 탈퇴
- * 디자인에는 두 글자 버튼만 있지만, 탈퇴는 되돌릴 수 없어 확인 단계를 같은 자리에 둔다.
+ * 둘 다 누르는 즉시 실행하지 않고 확인 바텀시트를 띄운다(`ConfirmSheet.css`).
  * ------------------------------------------------------------------ */
 .my-page__account {
   display: flex;
@@ -328,24 +330,10 @@
   opacity: 0.6;
 }
 
-/* 확인 단계에서만 나오는 실행 버튼 — 되돌릴 수 없는 쪽임을 색으로 알린다 */
-.my-page__text-button--danger {
-  color: var(--color-error-strong);
-}
-
 .my-page__account-divider {
   width: 1px;
   height: 16px;
   background-color: var(--color-line-light);
-}
-
-.my-page__confirm {
-  margin: 0;
-  color: var(--color-label-neutral);
-  font-size: var(--font-size-caption2);
-  font-weight: var(--font-weight-regular);
-  line-height: var(--line-height-tight);
-  text-align: center;
 }
 
 .my-page__error {

@@ -1,16 +1,6 @@
 # dev-db 모듈: dev 전용 MySQL + (fresh) Redis EC2 자체 호스팅
 # (프로덕션 modules/mysql-ec2 와 '별도' 모듈 — 원본 무수정. 별도 인스턴스/이름 네임스페이스.)
-#
-# 프로덕션과의 차이(ARCHITECTURE.md §3 대비):
-#   - 네트워크: '퍼블릭' 서브넷 + 퍼블릭 IP(associate_public_ip_address). IMDSv2 강제 유지.
-#   - 보안그룹: 22/3306/6379 를 'allowed_cidr 하나'에서만(EKS 노드 SG 소스 아님). 0.0.0.0/0 금지.
-#   - IAM: S3 '읽기'(GetObject+ListBucket) + SSM Core + 비밀번호 조회. '쓰기 없음'(restore 전용).
-#   - 데이터: 매일 최신 덤프를 restore 로 갱신. Redis 는 fresh(빈 상태, 복원 안 함).
-#   - 데이터 EBS: dev 소모성이라 prevent_destroy 없음(원본은 prevent_destroy).
 
-# ---------------------------------------------------------------------------
-# Data sources
-# ---------------------------------------------------------------------------
 data "aws_caller_identity" "current" {}
 
 data "aws_region" "current" {}
@@ -194,6 +184,9 @@ resource "aws_instance" "this" {
     innodb_buffer_pool_size                = var.innodb_buffer_pool_size
     redis_maxmemory                        = var.redis_maxmemory
     restore_cron                           = var.restore_cron
+    swap_size_mb                           = var.swap_size_mb
+    mysql_container_memory                 = var.mysql_container_memory
+    redis_container_memory                 = var.redis_container_memory
   })
 
   root_block_device {

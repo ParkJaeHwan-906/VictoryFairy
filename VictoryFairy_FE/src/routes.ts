@@ -15,13 +15,18 @@ export const ROUTES = {
   /** 데일리 퀴즈 풀이. 경기 상세 시트의 "퀴즈 풀러 가기"로 들어온다(NavBar 없는 전체 화면). */
   quiz: '/quiz',
   /**
-   * 퀴즈 결과. 종료된 경기 상세 시트의 "퀴즈 결과 확인하기"로 들어온다.
+   * 퀴즈 결과(이닝별). 종료된 경기 상세 시트의 "퀴즈 결과 확인하기"로 들어온다.
    *
-   * 넘기는 state 가 없다 — 퀴즈 결과는 경기로 좁혀지지 않고(`QuizPageState` 주석 참고)
-   * 화면에도 경기 이름이 나오지 않아, 들고 갈 문맥 자체가 없다.
+   * **`QuizResultPageState` 를 반드시 넘겨야 한다** — 결과 조회가 경기 단위라
+   * `gameId` 없이는 아무것도 부를 수 없다(2026-08-13 계약 교체).
    */
   quizResult: '/quiz-result',
   my: '/my',
+  /**
+   * 문의하기(자주 묻는 질문). 마이페이지 "센터 > 문의하기"로 들어온다.
+   * 디자인에 NavBar 가 없어 레이아웃 밖 전체 화면이다.
+   */
+  inquiry: '/inquiry',
 } as const;
 
 /**
@@ -41,16 +46,41 @@ export interface PlayerSelectState {
 /**
  * 경기 상세 → 퀴즈 화면으로 넘길 값.
  *
- * 퀴즈 API 는 경기와 묶여 있지 않다 — `GET /quizzes/today` 는 그날의 세트를 줄 뿐
- * `gameId` 로 좁히는 파라미터가 없다(docs/quiz.md). 그래서 이 값은 조회 조건이 아니라
- * **상단 바에 "NC 다이노스 VS LG 트윈스"를 쓰기 위한 표시용 문맥**이다.
+ * ⚠️ **`gameId` 는 이제 조회 조건이다**(2026-08-12) — `GET /quizzes/today` 가 이 값으로
+ * "지금 보고 있는 경기"를 검증한 뒤에만 세트를 준다(docs/quiz.md). 없으면 퀴즈를 아예
+ * 부를 수 없으므로, 문맥 없이 들어온 화면은 조회를 시도하지 말고 돌아가라고 안내해야 한다.
+ * 구단명 둘은 여전히 카드 머리말에 쓰는 표시용 값이라 없어도 화면은 성립한다.
  *
  * 라우터 state 는 주소를 직접 치고 들어오면 비어 있다 — 받는 쪽은 없는 경우를 견뎌야 한다.
  */
 export interface QuizPageState {
-  /** 어느 경기에서 들어왔는지. 지금은 표시에 쓰지 않지만 결과 화면이 생기면 필요하다. */
+  /** `Game.gameId`(내부 PK 가 아니라 `naver_game_id` 문자열). 퀴즈 조회의 필수 조건이다. */
   gameId: string;
   /** 서버의 짧은 구단명(`Game.awayTeam`). 표시용 정식 명칭 변환은 화면에서 한다. */
   awayTeam: string;
   homeTeam: string;
+}
+
+/**
+ * 경기 상세 → 퀴즈 결과 화면으로 넘길 값.
+ *
+ * 결과도 경기 단위가 됐다(2026-08-13) — `GET /quizzes/submissions` 가 `gameId` 로
+ * 그 경기의 이닝별 결산을 준다. 풀이 화면과 필요한 값이 같아 형태를 그대로 맞춘다.
+ */
+export type QuizResultPageState = QuizPageState;
+
+/**
+ * 라우터 state 에서 퀴즈 경기 문맥을 읽는다. 형태가 맞지 않으면 `null`.
+ *
+ * 주소를 직접 치면 비어 있고, history 에 남은 옛 형태(`gameId` 없던 시절)가 되살아날
+ * 수도 있다 — **없으면 조회 자체를 걸 수 없으므로** 받는 쪽은 반드시 null 을 다뤄야 한다.
+ * 풀이·결과 두 화면이 같은 판정을 쓰므로 state 계약 옆에 둔다.
+ */
+export function readQuizPageState(state: unknown): QuizPageState | null {
+  if (typeof state !== 'object' || state === null) return null;
+
+  const { gameId, awayTeam, homeTeam } = state as Partial<QuizPageState>;
+  return typeof gameId === 'string' && typeof awayTeam === 'string' && typeof homeTeam === 'string'
+    ? { gameId, awayTeam, homeTeam }
+    : null;
 }

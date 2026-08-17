@@ -8,9 +8,6 @@
 #   - Redis(6379)는 채팅/퀴즈 pub-sub 브로커 + 이메일 TTL 키 전용(서비스용).
 #     배치 전용 임시 Redis는 여기가 아니라 배치 노드(k8s) 소관 — 여기서 만들지 않는다.
 #   - t3.small(2GB)은 빠듯 → innodb_buffer_pool_size + Redis maxmemory 로 상한 분할.
-#
-# ⚠ 이 스크립트는 "의도를 드러내는 뼈대"다. 프로덕션 반영 전 이미지 태그 고정,
-#   MySQL 설정(my.cnf), Redis maxmemory 값, 헬스체크를 검토/보강할 것.
 # =============================================================================
 set -euxo pipefail
 
@@ -25,6 +22,9 @@ AWS_REGION="${aws_region}"
 MYSQL_PW_SSM_PARAM="${mysql_root_password_ssm_parameter_name}"
 INNODB_BUFFER_POOL="${innodb_buffer_pool_size}"
 REDIS_MAXMEMORY="${redis_maxmemory}"
+SWAP_SIZE_MB="${swap_size_mb}"
+MYSQL_CONTAINER_MEMORY="${mysql_container_memory}"
+REDIS_CONTAINER_MEMORY="${redis_container_memory}"
 
 # ---------------------------------------------------------------------------
 # 1) 패키지: docker, awscli, cronie
@@ -37,6 +37,26 @@ dnf install -y docker awscli cronie
 systemctl enable --now docker
 systemctl enable --now crond
 mkdir -p /etc/cron.d
+
+# ---------------------------------------------------------------------------
+# 1-1) 스왑 — 스왑이 없으면 메모리 고갈 시 OOM 킬러가 하나를 정리하는 대신 커널이
+#      실행 페이지를 축출·재적재하는 루프에 빠져 박스 전체가 응답 불능이 된다.
+#      dev DB 가 2026-08-17 에 이 방식으로 8시간 40분 죽었다(저널이 그 사이 한 줄도
+#      못 쓰였고, oom-kill 은 stop 을 걸어 깨운 순간에야 처음 찍혔다).
+#      스왑은 어디까지나 안전망이다 — 원인을 막는 건 4) 의 --memory 상한 쪽이다.
+#      ⚠ swapon 은 xfs 에서 fallocate 가 만든 unwritten extent 를 거부하므로 dd 로 실제 기록할 것.
+#      swappiness 를 낮추는 건 DB 박스에서 상시 스왑아웃을 원하지 않기 때문 —
+#      평소엔 쓰지 않고 고갈 순간에만 도는 안전망으로 둔다.
+# ---------------------------------------------------------------------------
+if ! swapon --show | grep -q '/swapfile'; then
+  dd if=/dev/zero of=/swapfile bs=1M count="$SWAP_SIZE_MB" status=none
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+  grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+fi
+echo 'vm.swappiness=10' > /etc/sysctl.d/99-swappiness.conf
+sysctl -w vm.swappiness=10
 
 # ---------------------------------------------------------------------------
 # 2) EBS 데이터 볼륨 탐지 + 마운트
@@ -75,9 +95,14 @@ MYSQL_ROOT_PASSWORD="$(aws ssm get-parameter \
 # ---------------------------------------------------------------------------
 # 4) MySQL 컨테이너 — 데이터 디렉토리는 EBS 마운트 지점에 바인드.
 #    ⚠ image 태그는 예시. 프로덕션은 불변 태그(예: mysql:8.0.x)로 고정할 것.
+#    ⚠ --memory 는 innodb_buffer_pool_size 와 별개로 반드시 건다. dev DB 의 mysqld 가
+#      buffer_pool 512M 설정에도 3주에 걸쳐 RSS 1.49GB 까지 자라 호스트를 통째로
+#      굶긴 적이 있다(2026-08-17). 설정값은 buffer pool 만 묶을 뿐 프로세스 전체
+#      메모리를 묶지 못하므로, cgroup 상한이 있어야 사고가 컨테이너 안에서 끝난다.
 # ---------------------------------------------------------------------------
 docker run -d --name mysql --restart unless-stopped \
   -p 3306:3306 \
+  --memory "$MYSQL_CONTAINER_MEMORY" \
   -e MYSQL_ROOT_PASSWORD="$MYSQL_ROOT_PASSWORD" \
   -v "$MOUNT_POINT/mysql:/var/lib/mysql" \
   mysql:8.0 \
@@ -89,6 +114,7 @@ docker run -d --name mysql --restart unless-stopped \
 # ---------------------------------------------------------------------------
 docker run -d --name redis --restart unless-stopped \
   -p 6379:6379 \
+  --memory "$REDIS_CONTAINER_MEMORY" \
   redis:7 \
   redis-server --maxmemory "$REDIS_MAXMEMORY" --maxmemory-policy allkeys-lru
 

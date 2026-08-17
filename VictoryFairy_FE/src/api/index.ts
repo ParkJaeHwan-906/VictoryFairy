@@ -28,8 +28,14 @@ export { getMyProfile, withdraw } from './account';
 // 구단(user 모듈) 엔드포인트 함수 — 인증 없이 호출한다
 export { getTeamList } from './team';
 
-// 경기(user 모듈) 엔드포인트 함수 — 인증 없이 호출한다
-export { getGameList, getLineUp, isGameNotFound, GAME_ERROR_MESSAGE } from './game';
+// 경기(user 모듈) 엔드포인트 함수 — `getSupportGameList` 만 인증이 필요하고 나머지는 공개다
+export {
+  getGameList,
+  getSupportGameList,
+  getLineUp,
+  isGameNotFound,
+  GAME_ERROR_MESSAGE,
+} from './game';
 
 // 선수(user 모듈) 엔드포인트 함수 — 인증 없이 호출한다
 export { getPlayerList } from './player';
@@ -77,14 +83,18 @@ export {
   submitQuiz,
   getQuizSubmissions,
   likeQuiz,
+  findOption,
   isQuizNotFound,
   isQuizAlreadySubmitted,
   isQuizSubmitNotAllowed,
   isQuizOptionNotFound,
   isQuizOptionMissing,
   isQuizLikeNotAllowed,
+  isQuizNotServable,
+  isQuizAlreadyServedInInning,
+  isQuizGameNotStarted,
+  isQuizGameNotFound,
   QUIZ_ERROR_MESSAGE,
-  QUIZ_SUBMISSION_PAGE_SIZE,
   OX_OPTION_NO,
 } from './quiz';
 
@@ -123,6 +133,7 @@ export type { Team } from '../types/team';
 export type {
   Game,
   GameState,
+  InningHalf,
   PositionName,
   TeamLineUp,
   LineUpPitcher,
@@ -153,8 +164,9 @@ export type {
   QuizSubmitRequest,
   QuizSubmitResult,
   QuizSubmission,
-  QuizSubmissionSummary,
-  QuizSubmissionPage,
+  QuizInningSummary,
+  QuizGameSummary,
+  QuizInningResult,
   QuizSubmissionHistory,
   QuizLikeResult,
 } from '../types/quiz';

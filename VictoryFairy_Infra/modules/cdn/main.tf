@@ -27,8 +27,6 @@ resource "aws_s3_bucket" "fe" {
   })
 }
 
-# 롤백의 1순위는 KVS 의 current 를 옛 릴리스로 바꾸는 것이다(§3). 버저닝은 그보다 아래,
-# 오브젝트를 실수로 덮어썼을 때의 최후 수단으로 남긴다.
 resource "aws_s3_bucket_versioning" "fe" {
   bucket = aws_s3_bucket.fe.id
 
@@ -57,11 +55,8 @@ resource "aws_s3_bucket_public_access_block" "fe" {
   restrict_public_buckets = true
 }
 
-# ⚠ releases/ 에 만료 규칙을 걸지 않는다. 규칙으로는 "KVS 의 current 가 가리키는 것만 제외" 를
-#   표현할 수 없어서, 배포가 한동안 없으면 '지금 서비스 중인 릴리스' 가 삭제된다 —
-#   그 순간 함수가 없는 접두사를 가리켜 사이트가 통째로 403 이 된다.
+# ⚠ releases/ 에 만료 규칙을 걸지 않는다.
 #   누적량은 배포당 수백 KB 수준이라 필요할 때 수동 정리하는 편이 안전하다.
-#   (루트 사본도 같은 이유로 건드리지 않는다. 그쪽은 KVS 장애 시의 폴백이다.)
 resource "aws_s3_bucket_lifecycle_configuration" "fe" {
   bucket = aws_s3_bucket.fe.id
 

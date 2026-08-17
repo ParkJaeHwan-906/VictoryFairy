@@ -57,9 +57,6 @@ POSITION_GROUPS: dict[str, str] = {
     "외야수": "OUTFIELDER",
 }
 
-# 이동현황(Trade.aspx) 팀 표기 -> team_code. TEAMS.name 과 동일 표기다.
-TEAM_CODE_BY_NAME: dict[str, str] = {t.name: t.team_code for t in TEAMS}
-
 
 def parse_physique(text: str) -> tuple[int | None, int | None]:
     """'184cm, 88kg' -> (184, 88). 값 없으면 None."""

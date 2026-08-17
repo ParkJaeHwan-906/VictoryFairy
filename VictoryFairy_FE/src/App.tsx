@@ -9,6 +9,7 @@ import MyPage from './pages/MyPage';
 import GamePage from './pages/GamePage';
 import PlayerSelectPage from './pages/PlayerSelectPage';
 import CompletePage from './pages/CompletePage';
+import InquiryPage from './pages/InquiryPage';
 import QuizPage from './pages/QuizPage';
 import QuizResultPage from './pages/QuizResultPage';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -32,6 +33,8 @@ export default function App() {
         <Route path={ROUTES.quiz} element={<QuizPage />} />
         {/* 퀴즈 결과도 NavBar 없는 전체 화면이라 풀이 화면과 같은 자리에 둔다 */}
         <Route path={ROUTES.quizResult} element={<QuizResultPage />} />
+        {/* 문의하기도 디자인에 NavBar 가 없다 — 마이페이지에서 들어와 뒤로가기로 돌아간다 */}
+        <Route path={ROUTES.inquiry} element={<InquiryPage />} />
         {/*
           하단 NavBar 가 붙는 화면들.
           레이아웃에 NavBar 를 한 번만 두어, 이 안에서 화면을 옮겨 다녀도

@@ -260,7 +260,6 @@ resource "aws_lambda_permission" "cancel_reasons" {
 #
 # records(03:30) 가 그날 경기를 적재한 뒤라야 의미가 있어 그 다음에 둔다. S3 에 쓰는
 # 잡이지만 원본이 MySQL 이라 -db 함수 소관이다(위 environment 주석의 IAM 근거 참고).
-# quiz_source_jobs_enabled 게이트 이유는 schedules.tf 의 같은 이름 변수 주석 참고.
 resource "aws_cloudwatch_event_rule" "export_game_result" {
   count               = local.db_enabled && var.quiz_source_jobs_enabled ? 1 : 0
   name                = "${var.name}-export-game-result"
@@ -287,9 +286,7 @@ resource "aws_lambda_permission" "export_game_result" {
 
 # --- export(player_profile): players -> S3 envelope (매일 11:30 KST, registrations 11:00 이후) ---
 # 퀴즈 루틴은 question-source/player_profile/ 의 "가장 최신 파티션 하나"만 읽는다
-# (question-gen/ROUTINE.md). 이 export 를 도는 스케줄이 그동안 아예 없어서 파티션이
-# 사람이 손으로 넣은 날짜에 멈춰 있었다 — 2026-08-07 실측 시점 최신이 2026-08-01
-# 이었고 그마저 8/6 에 수동 적재된 것이었다.
+# (question-gen/ROUTINE.md).
 resource "aws_cloudwatch_event_rule" "export_player_profile" {
   count               = local.db_enabled && var.quiz_source_jobs_enabled ? 1 : 0
   name                = "${var.name}-export-player-profile"

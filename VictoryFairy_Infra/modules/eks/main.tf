@@ -1,9 +1,7 @@
-# eks 모듈: EKS 클러스터(1.30) + 관리형 노드그룹 3개 + IRSA(OIDC) + 애드온
-#
 # 경계(ARCHITECTURE §5): Terraform은 클러스터·노드그룹까지. Deployment/HPA/CronJob/
 # 배치 워커, taint↔toleration/nodeSelector 의 파드 측은 앱 레포 k8s 매니페스트 소관.
 #
-# ⚠ 커플링: 노드그룹의 labels(workload=<name>)·taints(workload=quiz|batch:NoSchedule)는
+# ⚠ 커플링: 노드그룹의 labels(workload=<name>)·taints 는
 # 앱 레포의 nodeSelector/toleration 과 정확히 일치해야 파드가 스케줄된다. 한쪽만 바꾸면
 # 파드가 Pending 상태로 남는다.
 
@@ -35,7 +33,7 @@ resource "aws_iam_role_policy_attachment" "cluster_eks" {
 }
 
 # ---------------------------------------------------------------------------
-# IAM: 노드 역할 (3개 노드그룹 공용) — 필수 관리형 정책만(최소 권한, SKILL §4)
+# IAM: 노드 역할 — 필수 관리형 정책만(최소 권한, SKILL §4)
 # ---------------------------------------------------------------------------
 data "aws_iam_policy_document" "node_assume" {
   statement {
@@ -121,7 +119,6 @@ resource "aws_iam_openid_connect_provider" "this" {
 }
 
 # ---------------------------------------------------------------------------
-# 관리형 노드그룹 3개 (user / quiz / batch) — for_each 로 반복(SKILL §8)
 # 노드는 node_subnet_ids(운영 AZ 2a)에만 배치. 2c는 예비(컨트롤플레인만 인지).
 # ---------------------------------------------------------------------------
 resource "aws_eks_node_group" "this" {
@@ -186,7 +183,7 @@ resource "aws_eks_node_group" "this" {
   )
 
   lifecycle {
-    # desired_size 는 Cluster Autoscaler(quiz/batch)나 운영 중 스케일에 의해 바뀔 수 있으므로
+    # desired_size 는 Cluster Autoscaler 나 운영 중 스케일에 의해 바뀔 수 있으므로
     # Terraform이 매번 원복하지 않도록 무시한다. min/max 는 계속 Terraform이 관리.
     ignore_changes = [scaling_config[0].desired_size]
   }
@@ -195,7 +192,7 @@ resource "aws_eks_node_group" "this" {
 }
 
 # ---------------------------------------------------------------------------
-# Cluster Autoscaler 발견 태그 — 노드그룹의 실제 ASG에 직접 부여(quiz/batch)
+# Cluster Autoscaler 발견 태그 — 노드그룹의 실제 ASG에 직접 부여
 # (aws_eks_node_group.tags 는 ASG로 전파되지 않아 CA가 읽지 못하므로 별도 태깅)
 # ---------------------------------------------------------------------------
 resource "aws_autoscaling_group_tag" "ca" {

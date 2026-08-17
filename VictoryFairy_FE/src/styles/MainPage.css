@@ -1,47 +1,53 @@
 /**
  * MainPage(홈 메인) 스타일.
+ * Figma: SWM / [Home] 홈 메인(full) (node 1443:15451), 기준 프레임 402 x 874.
  *
- * ⚠ 임시(MVP)다. 홈 디자인이 아직 없어 다른 화면에서 확정된 값만 다시 쓴다 —
- * 라운지의 아이보리 헤더 카드(둥근 아래 모서리 20 + drop-shadow 2px Gray/200),
- * 경기 화면의 안내문 스타일, 카드 반경 15 · 그림자 2.5px(MatchCard).
- * 새 색·새 반경·새 폰트 크기는 만들지 않았고 전부 tokens.css 값이다.
+ * 디자인 최상단의 iOS 상태 바(47px)는 단말 크롬이라 옮기지 않았다(다른 화면과 동일).
+ * 그래서 세로 좌표는 전부 47 을 뺀 값이다 — 예) 헤더 280 → 233, 캐릭터 top 60 → 13.
  *
- * 높이 · 앱 폭(402px) · 하단 NavBar 자리는 AppLayout 이 잡아 준다.
- * 디자인 최상단의 iOS 상태 바(47px)는 단말 크롬이라 옮기지 않았다(CommunityPage 와 동일).
+ * 아래 세 묶음(승요 카드 · 오늘의 경기 · 승리요정 랭킹)은 각각 위아래 20px 을 갖는다.
+ * 이웃한 두 묶음 사이가 40px 이 되는 것이 디자인의 간격이라, 페이지 쪽에는 gap 을 두지 않는다.
+ *
+ * 화면 높이 · 앱 폭(402px) · 하단 NavBar 자리는 AppLayout 이 잡아 준다.
  */
 
 .main-page {
   display: flex;
   flex-direction: column;
-  gap: 32px;
   padding-bottom: 24px;
   background-color: var(--color-background-basic);
 }
 
 /* ------------------------------------------------------------------ *
- * Header — 아이보리 카드(인사말 + 응원 구단 + 점수 요약)
- * 라운지 헤더와 같은 모양이라 두 탭을 오갈 때 화면이 튀지 않는다.
+ * Hero — 인사말 · 꾸미기 버튼 · 캐릭터 자리
+ *
+ * 높이를 박지 않는다. 캐릭터(200)가 위로 19px 올라앉아 안쪽 높이를 181 로 정하고,
+ * 위아래 여백(32 · 20)을 더하면 디자인의 233 이 그대로 나온다.
  * ------------------------------------------------------------------ */
-.main-page__header {
+.main-page__hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 32px var(--layout-gutter) 20px;
+  background-color: var(--color-gray-100);
+  overflow: hidden;
+}
+
+/* 인사말은 위, 꾸미기 버튼은 아래 — 사이는 캐릭터가 정한 높이만큼 벌어진다 */
+.main-page__hero-body {
   display: flex;
   flex-direction: column;
-  padding: 20px var(--layout-gutter) 24px;
-  border-radius: 0 0 var(--radius-20) var(--radius-20);
-  background-color: var(--color-background-ivory);
-  /* Figma(라운지 헤더): drop-shadow 0 0 2px Gray/200 */
-  filter: drop-shadow(0 0 2px var(--color-gray-200));
+  align-self: stretch;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  min-width: 0;
 }
 
+/* Title/Title1 — SemiBold 24 / 1.4 / -2% */
 .main-page__greeting {
   margin: 0;
-  color: var(--color-label-neutral);
-  font-size: var(--font-size-label1);
-  font-weight: var(--font-weight-medium);
-  line-height: var(--line-height-tight);
-}
-
-.main-page__title {
-  margin: 8px 0 0;
   color: var(--color-label-normal);
   font-size: var(--font-size-title1);
   font-weight: var(--font-weight-semibold);
@@ -49,97 +55,179 @@
   letter-spacing: var(--letter-spacing-title1);
 }
 
-/* 응원 구단 배지 — 흰 알약. 미선택일 때는 같은 자리에 고르러 가는 링크가 온다. */
-.main-page__team {
+/* 흰 알약. 아직 갈 곳이 없어 눌러도 아무 일도 하지 않는다(MainPage.tsx 주석 참고). */
+.main-page__decorate {
   display: flex;
-  align-self: flex-start;
+  flex-shrink: 0;
   align-items: center;
-  gap: 8px;
-  margin: 20px 0 0;
-  padding: 8px 14px;
-  border-radius: var(--radius-full);
-  background-color: var(--color-surface);
-  color: var(--color-label-normal);
-  font-size: var(--font-size-label1);
-  font-weight: var(--font-weight-medium);
-  line-height: var(--line-height-tight);
-}
-
-.main-page__team-logo {
-  width: 24px;
-  height: 24px;
-  object-fit: contain;
-}
-
-.main-page__team--empty {
-  color: var(--color-primary-normal);
-}
-
-/* 포인트 · 승리요정 점수. 두 칸이 화면을 반씩 나눠 갖는다. */
-.main-page__stats {
-  display: flex;
-  gap: 12px;
-  margin: 20px 0 0;
-}
-
-.main-page__stat {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
   gap: 6px;
-  padding: 14px 16px;
-  border-radius: var(--radius-15);
+  padding: 4px 12px;
+  border-radius: var(--radius-20);
   background-color: var(--color-surface);
-}
-
-.main-page__stat-label {
-  color: var(--color-label-alternative);
-  font-size: var(--font-size-caption2);
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-label2);
+  font-weight: var(--font-weight-regular);
   line-height: var(--line-height-tight);
 }
 
-.main-page__stat-value {
-  margin: 0;
-  color: var(--color-primary-normal);
+/* 에셋이 이미 디자인 색(Primary/Light)이라 mask 로 다시 칠하지 않는다 */
+.main-page__decorate-icon {
+  width: 20px;
+  height: 20px;
+}
+
+/*
+ * 캐릭터 자리. 위로 19px 올라앉아 인사말보다 높이 시작한다(디자인 top 13 vs 여백 32).
+ * 좁은 화면에서는 눌려 줄어들되 사라지지는 않게 둔다.
+ */
+.main-page__character {
+  display: grid;
+  flex: 0 1 160px;
+  place-items: center;
+  min-width: 0;
+  height: 200px;
+  margin-top: -19px;
+  background-color: var(--color-surface);
+  color: var(--color-label-assistive);
+  font-size: var(--font-size-title1);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title1);
+}
+
+/* ------------------------------------------------------------------ *
+ * Promo — 나만의 승요 카드 만들기
+ * 아직 갈 곳이 없어 눌러도 아무 일도 하지 않는다.
+ * ------------------------------------------------------------------ */
+.main-page__promo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 20px var(--layout-gutter);
+  padding: 12px;
+  border-radius: var(--radius-15);
+  background-color: var(--color-background-gray);
+  text-align: left;
+}
+
+/*
+ * 디자인에도 "임시 그래픽"으로 잡혀 있는 두 장의 카드. 내보낸 그림이 아니라
+ * 도형 두 개라 그대로 그린다 — 각 22.6 x 30.8, 반경 5, 서로 반대로 기울어 있다.
+ * 위치는 Figma 의 회전 전 중심 좌표에서 되짚은 값이다.
+ */
+.main-page__promo-graphic {
+  position: relative;
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+}
+
+.main-page__promo-graphic::before,
+.main-page__promo-graphic::after {
+  content: '';
+  position: absolute;
+  width: 22.6px;
+  height: 30.8px;
+  border-radius: var(--radius-5);
+}
+
+.main-page__promo-graphic::before {
+  top: 11.7px;
+  left: 6.6px;
+  background-color: var(--color-primary-300);
+  transform: rotate(-10.44deg);
+}
+
+.main-page__promo-graphic::after {
+  top: 6.4px;
+  left: 17.6px;
+  background-color: var(--color-primary-400);
+  transform: rotate(11.38deg);
+}
+
+.main-page__promo-text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* Title/Title3 — SemiBold 18 / 1.4 / -1% */
+.main-page__promo-title {
+  color: var(--color-label-normal);
   font-size: var(--font-size-title3);
   font-weight: var(--font-weight-semibold);
   line-height: var(--line-height-tight);
   letter-spacing: var(--letter-spacing-title3);
 }
 
+/* Caption/Caption2 — Regular 12 / 1.4 */
+.main-page__promo-desc {
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+/* `arrow_r.svg` 의 fill 이 검정이라 mask 로 오려내고 색만 입힌다(MyPage 목록과 같다). */
+.main-page__promo-arrow {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  background-color: var(--color-label-assistive);
+  -webkit-mask: url('../assets/arrow_r.svg') center / contain no-repeat;
+  mask: url('../assets/arrow_r.svg') center / contain no-repeat;
+}
+
 /* ------------------------------------------------------------------ *
- * Section — 오늘의 경기 · 내 응원 선수
+ * Section — 오늘의 경기 · 승리요정 랭킹
+ * 머리말만 거터를 갖고, 카드는 각자 좌우 여백을 갖는다(시상대는 RankingPodium.css).
  * ------------------------------------------------------------------ */
 .main-page__section {
-  padding-inline: var(--layout-gutter);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-block: 20px;
 }
 
 .main-page__section-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 12px;
+  padding-inline: var(--layout-gutter);
 }
 
+/* Title/Title2 — SemiBold 20 / 1.4 / -1% */
 .main-page__section-title {
   margin: 0;
   color: var(--color-label-normal);
-  font-size: var(--font-size-title3);
+  font-size: var(--font-size-title2);
   font-weight: var(--font-weight-semibold);
   line-height: var(--line-height-tight);
-  letter-spacing: var(--letter-spacing-title3);
-  /* 구단명이 길어도 '전체 보기'를 밀어내지 않게 한다 */
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  letter-spacing: var(--letter-spacing-title2);
 }
 
 .main-page__more {
+  display: flex;
   flex-shrink: 0;
+  align-items: center;
+  gap: 2px;
   color: var(--color-label-alternative);
   font-size: var(--font-size-label2);
+  font-weight: var(--font-weight-regular);
   line-height: var(--line-height-tight);
+}
+
+/* 글자와 같은 색이라 따로 칠하지 않고 글자색을 그대로 쓴다 */
+.main-page__more-arrow {
+  width: 16px;
+  height: 16px;
+  background-color: currentcolor;
+  -webkit-mask: url('../assets/arrow_r.svg') center / contain no-repeat;
+  mask: url('../assets/arrow_r.svg') center / contain no-repeat;
 }
 
 /* 경기 카드 목록. 카드 자체 모양은 MatchCard.css 가 갖는다. */
@@ -147,49 +235,14 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
-  margin: 0;
+  margin: 0 var(--layout-gutter);
   padding: 0;
   list-style: none;
-}
-
-/* 응원 선수 — 이름 + (등번호 · 포지션) 한 줄 */
-.main-page__player-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.main-page__player {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px 16px;
-  border-radius: var(--radius-15);
-  background-color: var(--color-surface);
-  /* MatchCard 와 같은 그림자 값 */
-  filter: drop-shadow(0 0 2.5px var(--color-gray-200));
-}
-
-.main-page__player-name {
-  color: var(--color-label-normal);
-  font-size: var(--font-size-body1);
-  font-weight: var(--font-weight-medium);
-  line-height: var(--line-height-body1);
-}
-
-.main-page__player-meta {
-  color: var(--color-label-alternative);
-  font-size: var(--font-size-label2);
-  line-height: var(--line-height-tight);
 }
 
 /* 로딩 · 실패 · 비어 있음 안내. GamePage 의 `.game-page__status` 와 같은 값이다. */
 .main-page__status {
-  margin: 24px 0;
+  margin: 24px var(--layout-gutter);
   color: var(--color-label-alternative);
   font-size: var(--font-size-body2);
   font-weight: var(--font-weight-regular);
@@ -201,15 +254,30 @@
   color: var(--color-error-strong);
 }
 
+/* 구단을 고르러 가는 길. 안내문이 아니라 누를 것임을 색으로 알린다. */
+.main-page__status-link {
+  color: var(--color-primary-normal);
+  text-decoration: underline;
+}
+
 /* ------------------------------------------------------------------ *
  * 반응형 — 402px 미만(소형 단말)에서 좌우 여백을 줄인다(다른 화면과 동일).
  * ------------------------------------------------------------------ */
 @media (max-width: 359px) {
-  .main-page__header {
+  .main-page__hero {
     padding-inline: 16px;
   }
 
-  .main-page__section {
+  .main-page__promo {
+    margin-inline: 16px;
+  }
+
+  .main-page__section-head {
     padding-inline: 16px;
+  }
+
+  .main-page__game-list,
+  .main-page__status {
+    margin-inline: 16px;
   }
 }

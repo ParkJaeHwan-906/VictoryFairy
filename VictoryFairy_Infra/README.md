@@ -17,7 +17,8 @@ Terraform 으로 관리하는 VictoryFairy 의 AWS 인프라 코드입니다.
 - **배포**: BE 는 `deploy-eks.yml`(ECR → EKS 블루-그린), AI 정제 이미지는 `deploy-ai.yml`
   (ECR → Lambda `update-function-code`). 컨테이너 Lambda 는 태그를 digest 로 고정해서
   **push 만으로는 반영되지 않는다** → [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)
-- **외부 접근**: DB·EKS 노드 SSH는 SSM Session Manager 포트포워딩(인바운드 22/3306 개방 없음), EKS API는 퍼블릭 엔드포인트+IAM 인증(`kubectl`) — 절차는 [`scripts/README.md`](scripts/README.md)
+- **외부 접근**: EKS 노드 SSH·DB 셸은 SSM Session Manager(인바운드 22 개방 없음), EKS API는 퍼블릭 엔드포인트+IAM 인증(`kubectl`) — 절차는 [`scripts/README.md`](scripts/README.md)
+  - ⚠ **운영 DB 는 2026-07-27부터 퍼블릭 서브넷 + EIP 로 직접 접속(3306·6379)도 열려 있다.** 인입은 지정 CIDR `/32` 하나뿐이며 **안정화 후 프라이빗 복귀 예정인 임시 구성**이다(되돌리면 인스턴스 재생성). SSM 경로는 그대로 유효 → ARCHITECTURE.md §3
 
 ## 디렉토리 구조
 
@@ -28,8 +29,16 @@ VictoryFairy_Infra/
 ├── modules/                  # 재사용 가능한 빌딩 블록 (환경 독립적)
 │   ├── network/              # VPC, 2 AZ 서브넷(2a 운영/2c 예비), NAT, 라우팅
 │   ├── eks/                  # EKS 클러스터, 노드그룹 2개(app/batch), IRSA
-│   ├── mysql-ec2/            # MySQL+Redis EC2 + EBS + SSM + 일 단위 S3 백업
-│   └── security/             # 공용 IAM/보안그룹
+│   ├── mysql-ec2/            # 운영 MySQL+Redis EC2 + EBS + SSM + 일 단위 S3 백업
+│   ├── dev-db/               # 개발용 DB EC2(퍼블릭·/32) — 운영 백업을 매일 restore 하는 복제본
+│   ├── alb/                  # AWS Load Balancer Controller 용 IRSA (컨트롤러 파드는 Helm)
+│   ├── dns/                  # Route53 존 + ACM 인증서 + ExternalDNS IRSA
+│   ├── cdn/                  # FE 정적 버킷(S3) + CloudFront (nginx 파드 대체)
+│   ├── ecr/                  # 앱 이미지 저장소(IMMUTABLE·scan_on_push)
+│   ├── refine-pipeline/      # 서버리스 정제 — Lambda 2개 + SQS/DLQ + DynamoDB + S3 이벤트
+│   ├── quiz-irsa/            # quiz-app 파드용 IRSA (S3 quiz-candidates 읽기 전용)
+│   ├── fe-watchdog/          # 헬스체크 Lambda + 알람 → FE 자동 롤백 + Slack 알림
+│   └── security/             # 공용 IAM/보안그룹 (CI 배포 권한 포함)
 ├── collector-lambda/         # KBO 수집기(Lambda+ECR) 독립 스택 — 소스는 dev_ai py-collector
 └── environments/             # 환경별 루트 (여기서 terraform 실행)
     ├── dev/
@@ -44,10 +53,9 @@ cd environments/dev
 # 1. 변수 파일 준비
 cp terraform.tfvars.example terraform.tfvars   # 값 채우기 (커밋 금지)
 
-# 2. (최초 1회) 백엔드용 S3 버킷 + DynamoDB 락 테이블 생성 후
-#    terraform.tf 의 backend "s3" 주석 해제
-
-# 3. 초기화 → 미리보기 → 적용
+# 2. 초기화 → 미리보기 → 적용
+#    state 는 S3 원격 백엔드(victoryfairy-tfstate)에 있다. init 이 "전체 신규 생성"
+#    plan 을 내면 백엔드가 안 붙은 것이니 apply 하지 말 것 → docs/STATE.md
 terraform init
 terraform plan
 terraform apply

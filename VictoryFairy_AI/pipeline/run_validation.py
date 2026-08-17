@@ -24,10 +24,6 @@
 `process_post()`/`_finalize_post()` 를 그대로 쓰므로 **판정 기준이 갈리지 않는다.**
 `main()` 은 수동 재처리·디버깅·백필 보조용으로 남긴다.
 
-작업 집합(Redis `pending:*`) 갱신 코드가 있었으나 **Lambda 전환으로 제거**됐다.
-단계 전이를 S3 이벤트와 SQS 가 담당하므로 "다음 단계 대기 목록"을 우리가 셀 이유가
-없어졌다 — 컨트롤러가 `SCARD` 를 폴링하던 구조가 통째로 사라졌기 때문이다.
-
 실행: (프로젝트 루트에서)
     python -m pipeline.run_validation
 """
@@ -62,12 +58,6 @@ SOURCES: list[str] = ["dcinside", "fmkorea"]
 
 
 class PatternRunnerSettings(BaseSettings):
-    """패턴 러너 설정.
-
-    ⚠️ 작업 집합(Redis Set) 설정이 있었으나 **Lambda 전환으로 폐기**됐다. 단계 전이를
-    S3 이벤트와 SQS 가 담당하므로 "다음 단계 대기 목록"을 우리가 셀 이유가 없어졌다.
-    """
-
     # 처리 대상 날짜. 비우면 실행 당일 KST 로 폴백한다.
     #
     # ⚠️ 이 값이 없으면 처리가 자정을 넘길 때 대상 prefix 가 갈린다 — 전날 미처리분이 든
@@ -88,18 +78,10 @@ pattern_runner_settings = PatternRunnerSettings()
 
 
 def today_kst() -> str:
-    """실행 당일 날짜를 KST(Asia/Seoul) 기준 YYYY-MM-DD 로 반환한다(PIPE-S3IO-4)."""
     return datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d")
 
 
 def _validate_unit(text) -> tuple:
-    """단일 검열 단위(본문 또는 댓글 본문)를 판정한다.
-
-    빈 문자열/공백은 검열을 태우지 않고 곧바로 폐기로 간주한다(PIPE-S3IO-20b).
-    그 외에는 텍스트를 분할·변형 없이 그대로 validation_service 에 전달한다(PIPE-S3IO-8).
-
-    반환: (통과여부: bool, 사유: str)
-    """
     if not isinstance(text, str) or not text.strip():
         return False, "빈 본문"
     result = validation_service.validation(ValidationRequest(line=text))
@@ -107,29 +89,6 @@ def _validate_unit(text) -> tuple:
 
 
 def process_post(post: dict) -> tuple:
-    """게시글 하나를 검열해 (success_객체_또는_None, failed_사유_목록) 을 반환한다.
-
-    v2(docs/requirements/pipeline/s3-io.md) 규칙:
-    - 본문 자리 판정 단위는 `body`. `body`가 빈 문자열/공백이면 `title`을 그 자리의
-      판정 단위로 대신 쓴다(PIPE-S3IO-32). `body`가 있으면 `title`은 판정하지 않는다
-      (PIPE-S3IO-35). 이 둘을 합쳐 "본문 판정 단위"라 부른다.
-    - `body`·`title`이 둘 다 비어 있으면 곧바로 fail 확정(PIPE-S3IO-33), 사유는
-      "빈 본문·빈 제목".
-    - 본문 판정 단위가 폐기되면(걸렸거나, 둘 다 비었거나) 통과 댓글이 있어도 게시글
-      전체를 fail 로 확정한다 — success 는 만들지 않는다(PIPE-S3IO-10/19).
-      **댓글도 마저 판정해 그 사유를 failed 에 함께 담는다**(PIPE-S3IO-19b는 "댓글을
-      더 판정하지 않아도 된다"만 허용하고 강제하진 않는다 — 판정하는 쪽을 택했다).
-      이유: (1) 이 단계는 정규식 매칭이라 판정 비용이 사실상 0이라 "비용 절감" 근거가
-      성립하지 않는다, (2) Bedrock 단계는 배칭이라 본문·댓글이 한 호출에 함께 가므로
-      (PIPE-2SB-14) 패턴만 생략하면 두 단계 동작이 어긋난다, (3) 안 남긴 정보는
-      재처리해야 복구되지만 남긴 정보는 그냥 무시하면 되므로 되돌리기 쉬운 쪽을 택한다.
-    - 댓글은 본문 판정 단위 통과 여부와 무관하게 항상 각각 독립 판정한다(PIPE-S3IO-7).
-      통과한 댓글만 남긴 정화 객체를 success 로 삼는다(PIPE-S3IO-10) — 단, 본문 판정
-      단위가 폐기됐으면 이 정화 객체 자체를 success 로 내보내지 않는다(위 규칙).
-      통과 댓글이 0개면 topComments 는 빈 배열로 남는다(PIPE-S3IO-18).
-    - 전건 통과면 failed 사유는 빈 리스트가 되어(호출부에서) failed 를 만들지 않는다
-      (PIPE-S3IO-20).
-    """
     body_text = post.get("body")
     title_text = post.get("title")
     # PIPE-S3IO-39: 크롤러 자동 서명만 남은 본문은 **내용이 없는 것으로 본다**.
@@ -171,9 +130,10 @@ def process_post(post: dict) -> tuple:
         )
 
     passed_comments: list[dict] = []
+    # 본문 자리가 이미 폐기됐어도 댓글을 마저 판정해 사유를 모은다. 이 단계는 정규식
+    # 매칭이라 판정 비용이 사실상 0이고, Bedrock 단계는 배칭이라 본문·댓글이 한 호출에
+    # 함께 가므로(PIPE-2SB-14) 패턴만 생략하면 두 단계 동작이 어긋난다.
     for idx, comment in enumerate(post.get("topComments") or []):
-        # topComments 가 빈 배열/누락이면 이 루프는 아예 돌지 않는다(PIPE-S3IO-20c).
-        # 본문 판정 단위가 이미 폐기됐어도 댓글은 마저 판정한다(PIPE-S3IO-19b, 위 사유).
         comment_body = comment.get("body") if isinstance(comment, dict) else None
         comment_ok, comment_message = _validate_unit(comment_body)
         if comment_ok:
@@ -206,15 +166,12 @@ def process_post(post: dict) -> tuple:
 
 
 def _die(message: str) -> None:
-    """명확한 에러를 남기고 0이 아닌 종료 코드로 중단한다(PIPE-S3IO-26)."""
     print(f"오류: {message}", file=sys.stderr)
     sys.exit(1)
 
 
 def _finalize_post(client, bucket: str, source: str, date: str, post_id: str, success_obj, failed_reasons) -> None:
-    """게시글 하나의 산출물을 확정한다: success/failed 를 쓰거나(해당 없으면) 지우고,
-    마지막에 완결 마커를 쓴다(PIPE-S3IO-25).
-
+    """
     "해당 없으면 지운다"는 처리는 이전 실행이 중간에 죽어 남긴 부분 산출물이 이번 판정
     결과와 어긋난 채로 고착되지 않게 하기 위함이다(예: 이전엔 success 만 쓰고 죽었는데
     이번엔 전건 폐기로 판정 → 묵은 success 를 지운다).
