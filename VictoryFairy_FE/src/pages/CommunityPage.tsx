@@ -1,15 +1,10 @@
 import { useState } from 'react';
 import profilePlaceholder from '../assets/profile_img.svg';
 import LoungeChatSheet from '../components/LoungeChatSheet';
+import RankingPodium from '../components/RankingPodium';
 import { LIST_RANKING, MY_RANKING, PODIUM_RANKING } from '../data/communityRanking';
 import type { RankingEntry } from '../types/community';
 import '../styles/CommunityPage.css';
-
-/**
- * 시상대 노출 순서. 디자인은 2위 - 1위 - 3위 순으로 세운다.
- * 데이터는 순위 오름차순이므로 인덱스로 자리를 바꿔 준다.
- */
-const PODIUM_ORDER = [1, 0, 2] as const;
 
 /** 목록 한 줄. 내 순위 줄은 배경·글자색만 다르고 구조는 같다. */
 function RankingRow({ entry, isMine = false }: { entry: RankingEntry; isMine?: boolean }) {
@@ -51,32 +46,8 @@ export default function CommunityPage() {
           승리요정 랭킹에 도전해보세요!
         </h1>
 
-        <div className="community-page__podium">
-          {PODIUM_ORDER.map((index) => {
-            const entry = PODIUM_RANKING[index];
-
-            return (
-              <div
-                className={`community-page__podium-item community-page__podium-item--rank${entry.rank}`}
-                key={entry.id}
-              >
-                {/* 순위를 알리는 것은 왕관 크기뿐이라 자리 표시가 아니라 뜻이 있는 그림이다 */}
-                <span className="community-page__podium-crown" aria-hidden="true" />
-                <div className="community-page__podium-profile">
-                  <img
-                    className="community-page__podium-avatar"
-                    src={entry.avatarUrl ?? profilePlaceholder}
-                    alt=""
-                  />
-                  <div className="community-page__podium-label">
-                    <p className="community-page__podium-point">{entry.point}p</p>
-                    <p className="community-page__podium-name">{entry.nickname}</p>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        {/* 홈 메인과 같은 시상대라 컴포넌트를 함께 쓴다(`RankingPodium`) */}
+        <RankingPodium entries={PODIUM_RANKING} />
       </header>
 
       <ol className="community-page__ranking">

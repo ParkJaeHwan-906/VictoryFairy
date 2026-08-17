@@ -37,109 +37,6 @@
 }
 
 /* ------------------------------------------------------------------ *
- * Podium — 2위 · 1위 · 3위가 서는 주황 카드
- *
- * 세 칸은 각 100px 고정이라 합이 300 이고, 카드(354) 안에서 가운데로 모인다.
- * Figma 는 좌우 여백을 51 로 잡아 두었지만 칸 합이 안쪽 폭(252)보다 넓어 실제로는
- * 무시된다 — 그래서 같은 결과가 나오는 16 을 주고 가운데 정렬에 맡긴다.
- *
- * 바탕은 가운데가 밝은 타원 그라데이션(Figma 1090:8172, 반지름 692 x 175).
- * Figma 가 뽑아 준 중간 두 스톱은 양 끝을 선형 보간한 값과 같아 생략했다.
- * ------------------------------------------------------------------ */
-.community-page__podium {
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  margin-inline: var(--layout-gutter);
-  padding: 16px;
-  border-radius: var(--radius-20);
-  background-image: radial-gradient(
-    692px 175px at 50% 50%,
-    var(--color-primary-300),
-    var(--color-primary-500)
-  );
-}
-
-.community-page__podium-item {
-  display: flex;
-  flex: 0 1 100px;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-}
-
-/* 왕관 — 1위만 32px, 나머지는 24px. 원본 비율(10:7)은 mask 의 contain 이 지킨다. */
-.community-page__podium-crown {
-  width: 24px;
-  height: 24px;
-  background-color: var(--color-ivory-100);
-  -webkit-mask: url('../assets/crown.svg') center / contain no-repeat;
-  mask: url('../assets/crown.svg') center / contain no-repeat;
-}
-
-.community-page__podium-profile {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  width: 60px;
-}
-
-.community-page__podium-label {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  white-space: nowrap;
-}
-
-/* 주황 바탕 위라 포인트는 아이보리, 이름은 흰색이다 */
-.community-page__podium-point {
-  margin: 0;
-  color: var(--color-ivory-100);
-  font-size: var(--font-size-label2);
-  font-weight: var(--font-weight-regular);
-  line-height: var(--line-height-tight);
-}
-
-.community-page__podium-name {
-  margin: 0;
-  color: var(--color-white);
-  font-size: var(--font-size-body1);
-  font-weight: var(--font-weight-medium);
-  line-height: var(--line-height-body1);
-}
-
-.community-page__podium-avatar {
-  width: 100%;
-  aspect-ratio: 1;
-  border-radius: var(--radius-40);
-  object-fit: cover;
-}
-
-/* 1위 — 왕관·사진·이름이 한 단계씩 크다. 순위 차이를 이 크기만으로 보여 준다. */
-.community-page__podium-item--rank1 .community-page__podium-crown {
-  width: 32px;
-  height: 32px;
-}
-
-.community-page__podium-item--rank1 .community-page__podium-profile {
-  width: 80px;
-}
-
-.community-page__podium-item--rank1 .community-page__podium-point {
-  line-height: var(--line-height-body4);
-}
-
-.community-page__podium-item--rank1 .community-page__podium-name {
-  font-size: var(--font-size-title3);
-  font-weight: var(--font-weight-semibold);
-  line-height: var(--line-height-tight);
-  letter-spacing: var(--letter-spacing-title3);
-}
-
-/* ------------------------------------------------------------------ *
  * Ranking — 4위 이하 목록 + 맨 아래 내 순위
  * ------------------------------------------------------------------ */
 .community-page__ranking {
@@ -259,11 +156,7 @@
  * 반응형 — 402px 미만(소형 단말)에서 좌우 여백을 줄여 레이아웃이 깨지지 않게 한다.
  * ------------------------------------------------------------------ */
 @media (max-width: 359px) {
-  .community-page__podium {
-    margin-inline: 16px;
-    padding-inline: 8px;
-  }
-
+  /* 시상대 카드의 여백은 `RankingPodium.css` 가 같은 기준으로 함께 줄인다 */
   .community-page__ranking {
     padding-inline: 16px;
   }
