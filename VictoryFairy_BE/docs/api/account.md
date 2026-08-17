@@ -157,7 +157,7 @@ curl -i http://localhost:8080/api/users/me \
 
 ⚠ **파생 계약 — 쿨다운 중인 계정이 이미 점유된 닉네임을 요청하면 429가 아니라 409다.** ⑤(쿨다운)가 판정 순서의 마지막이라, ④(타 계정 점유)가 먼저 걸린다. 429는 오직 "형식 통과 + 미점유 + 쿨다운 중"인 요청에만 나온다.
 
-성공 시 `UserAccount.changeNickname(nickname, nowEpochSecond)`가 닉네임 교체와 `nickname_changed_epoch_second` 기록을 한 전이로 묶는다(성공했을 때만 시각이 갱신되고, 실패 경로는 전부 이 호출 앞에서 예외로 끝나 계정 값이 요청 전과 완전히 동일하게 남는다).
+성공 시 `UserAccount.changeNickname(nickname, now)`(`now`는 `LocalDateTime`)가 닉네임 교체와 `nickname_changed_at` 기록을 한 전이로 묶는다(성공했을 때만 시각이 갱신되고, 실패 경로는 전부 이 호출 앞에서 예외로 끝나 계정 값이 요청 전과 완전히 동일하게 남는다).
 
 **실패**
 
@@ -170,7 +170,7 @@ curl -i http://localhost:8080/api/users/me \
 | 409 | DUPLICATE_NICKNAME | 다른 계정(탈퇴 계정 포함)이 이미 점유 → `data:null`, `message:"이미 사용 중인 닉네임입니다."` |
 | 429 | NICKNAME_CHANGE_COOLDOWN | 마지막 변경으로부터 30일(2,592,000초) 미경과 → **`data`에 `nextChangeableAt` 실림**(아래 참고) |
 
-**429 응답은 이 저장소에서 `data`가 `null`이 아닌 몇 안 되는 `BusinessException` 계열 응답이다**(`BusinessDataException` 하위 타입으로 던져 `GlobalExceptionHandler.handleBusinessData`가 처리 — 자세한 내부 규칙은 [README.md](README.md#1-응답-래퍼--도메인엔드포인트마다-다르다) 참고). `data`의 키는 정확히 `nextChangeableAt` 하나이고, 값은 `+09:00` 오프셋을 포함한 ISO-8601 문자열이다(`yyyy-MM-dd'T'HH:mm:ssXXX` — `ISO_OFFSET_DATE_TIME`을 쓰지 않는 이유는 초가 0일 때 `:00`을 생략해 자릿수가 시각마다 달라지기 때문). 판정 자체는 epoch 초 비교라 서버 시간대(운영 파드는 UTC)와 무관하고, 오프셋은 표기에만 쓰인다. 마지막 변경 이력이 없는 계정(`nickname_changed_epoch_second`가 `NULL` — 컬럼 도입 이전 계정 포함)은 쿨다운이 적용되지 않는다.
+**429 응답은 이 저장소에서 `data`가 `null`이 아닌 몇 안 되는 `BusinessException` 계열 응답이다**(`BusinessDataException` 하위 타입으로 던져 `GlobalExceptionHandler.handleBusinessData`가 처리 — 자세한 내부 규칙은 [README.md](README.md#1-응답-래퍼--도메인엔드포인트마다-다르다) 참고). `data`의 키는 정확히 `nextChangeableAt` 하나이고, 값은 `+09:00` 오프셋을 포함한 ISO-8601 문자열이다(`yyyy-MM-dd'T'HH:mm:ssXXX` — `ISO_OFFSET_DATE_TIME`을 쓰지 않는 이유는 초가 0일 때 `:00`을 생략해 자릿수가 시각마다 달라지기 때문). 저장 값(`nickname_changed_at`)은 존 없는 `LocalDateTime`이지만, 기록·판정·표기가 전부 `Clock` 빈(Asia/Seoul 고정) 하나에서만 나오므로 운영 파드의 시스템 시간대(UTC)와는 무관하다 — 오프셋은 표기에만 쓰인다. `password_changed_epoch_second`(JWT `iat`라는 외부 절대 시각과 직접 대조되는 값)와 타입이 다른 것도 이 때문이다: 닉네임 쪽은 "마지막 변경으로부터 30일"이라는 자기 자신과의 간격 계산에만 쓰여 epoch로 둘 필요가 없다. 마지막 변경 이력이 없는 계정(`nickname_changed_at`이 `NULL` — 컬럼 도입 이전 계정 포함)은 쿨다운이 적용되지 않는다.
 
 ```json
 {"success":false,"data":{"nextChangeableAt":"2026-09-16T14:03:21+09:00"},"message":"닉네임은 30일에 한 번만 변경할 수 있습니다."}
