@@ -219,9 +219,15 @@ export default function MyPage() {
           <div className="my-page__avatar-box">
             {/* `GET /users/me` 에 사진 필드가 없어 자리표시 이미지를 쓴다 */}
             <img className="my-page__avatar" src={profilePlaceholder} alt="" />
-            <button className="my-page__avatar-edit" type="button" aria-label="프로필 사진 바꾸기">
+            {/*
+              연필 배지는 사진이 아니라 **프로필 수정 화면**으로 가는 문이다 —
+              지금 그 화면에서 바꾸는 것은 닉네임이고, 사진 변경은 API 가 없어 그쪽에도
+              모양만 있다(`ProfileEditPage`). 버튼이 아니라 링크로 그리는 이유는
+              문의하기 줄과 같다 — 눌러서 어딘가로 가는 것은 링크여야 한다.
+            */}
+            <Link className="my-page__avatar-edit" to={ROUTES.profileEdit} aria-label="프로필 수정">
               <span className="my-page__avatar-edit-icon" aria-hidden="true" />
-            </button>
+            </Link>
           </div>
 
           <div className="my-page__profile">
