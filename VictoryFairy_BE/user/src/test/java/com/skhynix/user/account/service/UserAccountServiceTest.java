@@ -14,13 +14,16 @@ import com.skhynix.common.error.ErrorCode;
 import com.skhynix.domain.user.entity.UserAccount;
 import com.skhynix.domain.user.repository.UserAccountRepository;
 import com.skhynix.domain.user.repository.UserRefreshTokenRepository;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Optional;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -37,8 +40,17 @@ class UserAccountServiceTest {
     @Mock
     private UserRefreshTokenRepository userRefreshTokenRepository;
 
-    @InjectMocks
+    // 서비스가 Clock 을 생성자로 받게 되어 @InjectMocks 대신 직접 생성한다(GameServiceTest 와 같은 방식).
+    // Clock 을 목으로 두면 instant()/getZone() 이 null 을 돌려줘 LocalDateTime.now(clock) 에서 NPE 다.
+    private final Clock clock = Clock.fixed(Instant.parse("2026-08-18T03:00:00Z"), ZoneId.of("Asia/Seoul"));
+
     private UserAccountService userAccountService;
+
+    @BeforeEach
+    void setUp() {
+        userAccountService = new UserAccountService(
+                userAccountRepository, userRefreshTokenRepository, clock);
+    }
 
     private UserAccount newActiveAccount() {
         return UserAccount.builder()

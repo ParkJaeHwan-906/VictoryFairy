@@ -62,10 +62,30 @@ public class QuizLike {
     @Column(name = "id")
     private Long id;
 
-    // CASCADE — 좋아요는 계정에 완전히 종속돼 계정이 사라지면 함께 사라져도 됨
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "user_account_id", nullable = false)
-    @OnDelete(action = OnDeleteAction.CASCADE)
+    /**
+     * 좋아요를 누른 계정. <b>계정이 하드 삭제되면 이 값만 {@code null}이 되고 행은 남는다</b>
+     * ({@code ON DELETE SET NULL}) — 그래서 nullable 이고 {@code optional = false}가 아니다.
+     *
+     * <p>종전에는 CASCADE 였고 근거는 "좋아요는 계정에 완전히 종속돼 계정이 사라지면 함께 사라져도
+     * 된다"였다. <b>그 근거는 더 이상 유효하지 않다</b> — 계정 행이 실제로 지워지기 시작하면서
+     * (만료 데이터 정리 스케줄러, {@code docs/requirements/user/expired-data-cleanup.md})
+     * CASCADE 는 탈퇴자가 누른 만큼 <b>문제별 추천 수를 조용히 깎는</b> 동작이 된다. 추천 수는
+     * {@code liked = true} 행 수라 <b>누가 눌렀는지가 집계에 들어가지 않으므로</b>, 계정 정체성만
+     * 지우고 집계는 보존하는 것이 데이터 의미와 맞는다.
+     *
+     * <p>MySQL UNIQUE 는 NULL 을 서로 다른 값으로 보므로 {@code uk_quizzes_like_account_quiz}가 있어도
+     * {@code (NULL, 같은 quiz_id)} 행이 몇 개든 공존한다 — 탈퇴자가 몇 명이든 추천 수 손실이 없다.
+     *
+     * <p>⚠ 아래 {@code quiz} 쪽 CASCADE 와 혼동하지 말 것. 바뀐 것은 <b>계정 축뿐</b>이다.
+     *
+     * <p>⚠ {@code ddl-auto=update}는 기존 컬럼의 NOT NULL 을 완화하지도, 기존 FK 의 삭제 규칙을
+     * 바꾸지도 않는다 — 이미 테이블이 있는 환경은
+     * {@code infra/sql/migrate-quiz-like-account-set-null.sql}을 1회 수동 적용해야 이 매핑과 실제
+     * 제약이 일치한다. 적용 전에는 스케줄러가 계정 삭제 단계를 스스로 멈춘다(선행 검사).
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_account_id")
+    @OnDelete(action = OnDeleteAction.SET_NULL)
     private UserAccount userAccount;
 
     // CASCADE — 문제가 사라지면 그 문제에 대한 좋아요도 함께 사라져야 함
