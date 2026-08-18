@@ -23,11 +23,40 @@ export const ROUTES = {
   quizResult: '/quiz-result',
   my: '/my',
   /**
+   * 프로필 수정(닉네임). 마이페이지 프로필 사진의 연필 버튼으로 들어온다.
+   * 디자인에 NavBar 가 없어 레이아웃 밖 전체 화면이다.
+   */
+  profileEdit: '/my/profile',
+  /**
+   * 계정 설정(비밀번호 변경). 마이페이지 "설정 > 계정 설정"으로 들어온다.
+   * 디자인에 NavBar 가 없어 레이아웃 밖 전체 화면이다.
+   */
+  accountSetting: '/my/account',
+  /**
    * 문의하기(자주 묻는 질문). 마이페이지 "센터 > 문의하기"로 들어온다.
    * 디자인에 NavBar 가 없어 레이아웃 밖 전체 화면이다.
    */
   inquiry: '/inquiry',
 } as const;
+
+/**
+ * 구단·선수 선택 화면을 **어떤 흐름에서** 열었는지.
+ *
+ * 두 화면(`TeamSelectPage` · `PlayerSelectPage`)은 온보딩과 마이페이지 수정이 함께 쓴다 —
+ * 디자인도 API 도 같고 다른 것은 앞뒤뿐이다.
+ * - `onboarding`(기본): 가입 직후. 저장된 선호가 없어 빈 상태에서 시작하고, 끝나면 완료 화면.
+ * - `edit`: 마이페이지 "○○ 응원중!" 에서 들어온다. **저장된 선호를 채운 채로 시작**하고,
+ *   끝나면 마이페이지로 돌아간다. 선수 화면은 해제까지 반영해야 한다(추가만으로는 못 지운다).
+ *
+ * state 가 비어 있으면(주소 직접 입력·옛 history) `onboarding` 으로 본다 — 온보딩 쪽이
+ * 아무것도 지우지 않는 안전한 기본값이다.
+ */
+export type SupportFlowMode = 'onboarding' | 'edit';
+
+/** 마이페이지 → 구단 선택으로 넘길 값. 흐름 표식뿐이고 선호 값은 스토어에서 읽는다. */
+export interface TeamSelectState {
+  mode: SupportFlowMode;
+}
 
 /**
  * 구단 선택 → 선수 선택으로 넘길 값.
@@ -41,6 +70,15 @@ export const ROUTES = {
 export interface PlayerSelectState {
   teamId: number;
   teamName: string;
+  /** 없으면 `onboarding`. 구단 화면이 자기가 열린 흐름을 그대로 이어 넘긴다. */
+  mode?: SupportFlowMode;
+}
+
+/** 라우터 state 에서 흐름을 읽는다. 형태가 맞지 않으면 안전한 쪽(`onboarding`)으로 본다. */
+export function readSupportFlowMode(state: unknown): SupportFlowMode {
+  if (typeof state !== 'object' || state === null) return 'onboarding';
+
+  return (state as { mode?: unknown }).mode === 'edit' ? 'edit' : 'onboarding';
 }
 
 /**

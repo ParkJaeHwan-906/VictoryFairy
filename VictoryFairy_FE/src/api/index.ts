@@ -22,8 +22,20 @@ export {
   logout,
 } from './auth';
 
-// 계정(user 모듈) 엔드포인트 함수
-export { getMyProfile, withdraw } from './account';
+// 계정(user 모듈) 엔드포인트 함수 — 네 개 전부 인증이 필수다
+export {
+  getMyProfile,
+  changeNickname,
+  changePassword,
+  withdraw,
+  isSameAsCurrentNickname,
+  isDuplicateNickname,
+  isNicknameChangeCooldown,
+  getNicknameChangeableAt,
+  isInvalidCurrentPassword,
+  isSameAsCurrentPassword,
+  ACCOUNT_ERROR_MESSAGE,
+} from './account';
 
 // 구단(user 모듈) 엔드포인트 함수 — 인증 없이 호출한다
 export { getTeamList } from './team';
@@ -128,7 +140,13 @@ export type {
   TokenResponse,
 } from '../types/auth';
 export type { ApiResponse, FieldErrors, ApiErrorResponse } from '../types/api';
-export type { MyProfile, SupportTeam } from '../types/account';
+export type {
+  MyProfile,
+  SupportTeam,
+  ChangeNicknameRequest,
+  ChangePasswordRequest,
+  NicknameChangeCooldown,
+} from '../types/account';
 export type { Team } from '../types/team';
 export type {
   Game,

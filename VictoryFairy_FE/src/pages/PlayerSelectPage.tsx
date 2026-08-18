@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   addSupportPlayers,
   ApiError,
+  cancelSupportPlayers,
   isSupportPlayerNotFound,
   isSupportPlayerTeamMismatch,
   isSupportTeamNotSelected,
@@ -10,17 +11,30 @@ import {
 } from '../api';
 import type { Player } from '../api';
 import PlayerSearchSheet from '../components/PlayerSearchSheet';
-import { ROUTES, type PlayerSelectState } from '../routes';
+import {
+  ROUTES,
+  readSupportFlowMode,
+  type PlayerSelectState,
+  type TeamSelectState,
+} from '../routes';
+import { useAccountStore, useMyProfile } from '../stores/useAccountStore';
 import '../styles/PlayerSelectPage.css';
 
 /**
- * PlayerSelectPage — 온보딩 "선호 선수 선택" 화면.
+ * PlayerSelectPage — "선호 선수 선택" 화면.
  * Figma: SWM / [Onboarding] 선호 선수 선택-기본 (node 296:1566)
  *              [Onboarding] 선호 선수 선택-검색x (node 435:3694 — 바텀시트)
  *              [Onboarding] 선호 선수 선택-최대 (node 929:8021 — 4명 선택 상태)
  *
  * 세 노드는 별개 화면이 아니라 같은 화면의 상태다 — 검색 필드를 누르면 시트가 뜨고,
  * 시트에서 고른 선수가 필드 아래에 쌓이며, 한 명이라도 있으면 하단 CTA 가 활성화된다.
+ *
+ * ── 온보딩과 수정이 같은 화면을 쓴다 ──────────────────────────────────
+ * 마이페이지에서 구단 화면을 거쳐 여기로도 들어온다(`mode: 'edit'`). 화면은 같지만
+ * 저장이 다르다 — 온보딩은 서버에 저장된 선수가 없어 고른 것을 그냥 보내면 되지만,
+ * 수정은 **해제한 선수를 따로 지워야 한다**(`POST /support/players` 는 전체 교체가 아니라
+ * 추가라서, 빼는 것은 `PUT /support/players/oppose` 몫이다).
+ * ──────────────────────────────────────────────────────────────────────
  */
 
 /**
@@ -65,13 +79,39 @@ function toSubmitMessage(error: unknown): string {
 
 export default function PlayerSelectPage() {
   const navigate = useNavigate();
-  const supportTeam = readTeamState(useLocation().state);
+  const routerState = useLocation().state;
+  const supportTeam = readTeamState(routerState);
+  const isEdit = readSupportFlowMode(routerState) === 'edit';
+  const profile = useMyProfile();
+  const fetchProfile = useAccountStore((state) => state.fetchProfile);
 
   const [selected, setSelected] = useState<Player[]>([]);
+  /**
+   * 이 화면에 들어왔을 때 서버에 저장돼 있던 응원 선수.
+   *
+   * 저장할 때 **무엇을 뺐는지**를 알려면 시작점이 필요하다 — 지금 선택만 봐서는
+   * 해제한 선수가 보이지 않는다. 온보딩은 저장된 선수가 없어 항상 빈 배열이다.
+   */
+  const [initialPlayers, setInitialPlayers] = useState<Player[]>([]);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   /** 저장 실패 사유. CTA 바로 위에 띄운다. */
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  /*
+   * 수정 흐름은 지금 응원 중인 선수가 채워진 채로 시작한다.
+   * 앞 화면(구단 선택)이 저장 직후 프로필을 다시 받아 두므로, 구단을 바꿔서 선수가
+   * 전원 취소된 경우에는 여기서도 빈 목록으로 시작한다 — 그게 서버의 현재 상태다.
+   * 사용자가 이미 고르기 시작했다면 늦게 온 응답이 덮지 않도록 한 번만 넣는다.
+   */
+  const [isSeeded, setIsSeeded] = useState(false);
+  useEffect(() => {
+    if (!isEdit || isSeeded || profile === null) return;
+
+    setSelected(profile.supportPlayers);
+    setInitialPlayers(profile.supportPlayers);
+    setIsSeeded(true);
+  }, [isEdit, isSeeded, profile]);
 
   /** 시트에서 행을 누를 때. 이미 고른 선수면 해제, 아니면 정원 안에서 추가한다. */
   const handleToggle = (player: Player) => {
@@ -88,29 +128,66 @@ export default function PlayerSelectPage() {
     setSelected((prev) => prev.filter((item) => item.playerId !== playerId));
   };
 
+  /*
+   * 들어왔을 때와 지금의 차이. 온보딩은 시작점이 비어 있어 `addedIds` 가 곧 선택 전체이고
+   * `removedIds` 는 항상 비어 있다 — 그래서 두 흐름이 같은 저장 코드를 쓴다.
+   */
+  const initialIds = new Set(initialPlayers.map((player) => player.playerId));
+  const selectedIds = new Set(selected.map((player) => player.playerId));
+  const addedIds = selected
+    .filter((player) => !initialIds.has(player.playerId))
+    .map((player) => player.playerId);
+  const removedIds = initialPlayers
+    .filter((player) => !selectedIds.has(player.playerId))
+    .map((player) => player.playerId);
+
   /**
-   * 응원 선수 저장 → 온보딩 종료.
+   * 저장할 수 있는 상태인지.
    *
-   * `POST /support/players` 는 전체 교체가 아니라 **추가**다. 이 화면은 온보딩이라
-   * 서버에 이미 저장된 선수가 없어 화면의 선택을 그대로 보내면 된다. 나중에 이 화면을
-   * 수정용으로도 쓰게 되면 해제한 선수를 `cancelSupportPlayers` 로 따로 지워야 한다.
+   * 수정 흐름은 **바뀐 것이 있으면** 저장할 수 있다 — 전원 해제(선택 0명)도 유효한 수정이라
+   * "한 명 이상"을 요구하면 마지막 한 명을 뺄 방법이 없어진다.
+   * 온보딩은 종전대로 한 명 이상 골라야 다음으로 넘어간다.
+   */
+  const canSubmit = isEdit ? addedIds.length > 0 || removedIds.length > 0 : selected.length > 0;
+
+  /**
+   * 응원 선수 저장 → 온보딩 종료(수정 흐름이면 마이페이지).
    *
-   * 저장이 끝나면 완료 화면으로 넘긴다. 이력을 교체하는 이유는, 뒤로 가기로 이 화면에
-   * 돌아오면 이미 저장된 선수가 화면에는 비어 보여 지운 것처럼 읽히기 때문이다.
+   * `POST /support/players` 는 전체 교체가 아니라 **추가**다. 온보딩은 서버에 저장된
+   * 선수가 없어 화면의 선택을 그대로 보내면 되지만, 수정 흐름은 해제한 선수를
+   * `cancelSupportPlayers` 로 따로 지워야 한다.
+   *
+   * **취소를 먼저 보낸다.** 4명을 통째로 바꾸는 경우 추가를 먼저 보내면 그 순간
+   * 활성 선수가 8명이 되어 상한(4)에 걸려 요청 전체가 거부된다(docs/support.md).
+   * 반대 순서에는 그런 창이 없다.
+   *
+   * 저장이 끝나면 다음 화면으로 넘기며 이력을 교체한다 — 뒤로 가기로 이 화면에 돌아오면
+   * 이미 저장된 선수가 화면에는 비어 보여 지운 것처럼 읽히기 때문이다.
    */
   const handleSubmit = async () => {
-    if (selected.length === 0 || isSubmitting) return;
+    if (!canSubmit || isSubmitting) return;
 
     setIsSubmitting(true);
     setSubmitError(null);
 
     try {
-      await addSupportPlayers(selected.map((player) => player.playerId));
+      if (removedIds.length > 0) await cancelSupportPlayers(removedIds);
+      if (addedIds.length > 0) await addSupportPlayers(addedIds);
+
+      if (isEdit) {
+        // 마이페이지가 곧바로 바뀐 선호를 보여줘야 한다 — 스토어를 다시 채우고 돌아간다.
+        await fetchProfile();
+        navigate(ROUTES.my, { replace: true });
+        return;
+      }
+
       navigate(ROUTES.complete, { replace: true });
     } catch (error: unknown) {
       // 구단 미선택은 이 화면에서 풀 수 없다 — 앞 단계로 돌려보내는 것이 유일한 해결이다.
       if (isSupportTeamNotSelected(error)) {
-        navigate(ROUTES.teamSelect, { replace: true });
+        // 어느 흐름으로 왔는지는 그대로 이어 준다 — 구단을 고르고 나면 다시 여기로 온다.
+        const state: TeamSelectState = { mode: isEdit ? 'edit' : 'onboarding' };
+        navigate(ROUTES.teamSelect, { replace: true, state });
         return;
       }
 
@@ -198,10 +275,11 @@ export default function PlayerSelectPage() {
         className="player-select-page__submit"
         type="button"
         onClick={handleSubmit}
-        disabled={selected.length === 0 || isSubmitting}
+        disabled={!canSubmit || isSubmitting}
         aria-busy={isSubmitting}
       >
-        {isSubmitting ? '저장 중...' : '다음으로'}
+        {/* 수정 흐름은 여기가 마지막이라 "다음으로"가 가리킬 다음이 없다 */}
+        {isSubmitting ? '저장 중...' : isEdit ? '저장하기' : '다음으로'}
       </button>
 
       {isSheetOpen && (
