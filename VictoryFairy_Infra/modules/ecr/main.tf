@@ -1,10 +1,5 @@
 # ecr 모듈: 앱 컨테이너 이미지 저장소 (EKS 파드가 pull 하는 원천)
 #
-# 설계:
-#   - 리포지토리는 모듈(user/quiz 등)당 1개, for_each 로 반복(SKILL §8).
-#   - 태그 불변(IMMUTABLE): 커밋 SHA 태그 재사용 금지(SKILL §4 "latest 금지" 규약의 강제 장치).
-#   - push 시 취약점 스캔 자동 실행.
-#   - 수명주기: 최근 이미지 N개만 보관(오래된 이미지 자동 삭제 — 스토리지 비용 통제).
 #   - EKS 노드는 AmazonEC2ContainerRegistryReadOnly(eks 모듈)로 pull 권한을 이미 가진다.
 
 resource "aws_ecr_repository" "this" {

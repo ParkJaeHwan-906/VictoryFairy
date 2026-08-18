@@ -15,6 +15,7 @@ class FakeCursor:
 
     def __init__(self, conn):
         self.conn = conn
+        self.rowcount = 0
 
     def __enter__(self):
         return self
@@ -29,6 +30,8 @@ class FakeCursor:
         else:
             self._rows = []
             self.conn.last_id += 1
+            # UPDATE 갱신 행 수를 읽는 호출자(set_cancel_reason)용. 큐가 비면 1건 갱신.
+            self.rowcount = self.conn.rowcounts.pop(0) if self.conn.rowcounts else 1
 
     def executemany(self, sql, rows):
         self.conn.log.append(("executemany", sql, rows))
@@ -45,10 +48,11 @@ class FakeCursor:
 
 
 class FakeConn:
-    def __init__(self, fetch_results=None):
+    def __init__(self, fetch_results=None, rowcounts=None):
         self.log = []
         self.commits = 0
         self.fetch_results = list(fetch_results or [])
+        self.rowcounts = list(rowcounts or [])
         self.last_id = 100  # INSERT 마다 1씩 증가
 
     def cursor(self):
@@ -363,22 +367,62 @@ def test_empty_rows_noop():
 # --------------------------------------------------------------------------- games_sync (Task 8)
 # GAME_SYNC_UPSERT / sync_game don't exist yet -> imported lazily inside each test
 # so the rest of this file still collects cleanly while these are RED.
-def test_game_sync_upsert_sql_inserts_null_stadium_and_coalesces_scores():
+def test_game_sync_upsert_sql_binds_stadium_and_coalesces_scores():
     from kbo_collector.db import GAME_SYNC_UPSERT
-    assert "VALUES (%s, %s, %s, %s, NULL, %s, %s, %s, NOW(6), NOW(6))" in GAME_SYNC_UPSERT
+    # 경기 전에는 records 잡이 아직 안 돌아 구장이 비므로, 일정 선적재가 채울 수
+    # 있도록 stadium_id 도 바인딩 파라미터로 받는다(예전엔 NULL 리터럴이었다).
+    assert "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(6), NOW(6))" in GAME_SYNC_UPSERT
     assert "home_score=COALESCE(VALUES(home_score), home_score)" in GAME_SYNC_UPSERT
     assert "away_score=COALESCE(VALUES(away_score), away_score)" in GAME_SYNC_UPSERT
 
 
-def test_game_sync_upsert_sql_excludes_stadium_id_from_update_clause():
+def test_game_sync_upsert_overwrites_inning_instead_of_coalescing():
     from kbo_collector.db import GAME_SYNC_UPSERT
-    # stadium_id 는 records 잡 소유 — games_sync 의 UPDATE 목록에 있으면 records가
-    # 적재한 구장을 games_sync가 NULL로 덮어써버린다.
+    # 이닝만 COALESCE 가 아니다. 점수·구장은 "한 번 알면 계속 참"이지만 이닝은
+    # 진행 중일 때만 참이라 경기가 끝나면 지워져야 한다(BE 계약: IN_PROGRESS 가
+    # 아니면 항상 null). COALESCE 를 붙이면 종료 경기에 마지막 이닝이 영원히 남는다.
     update_clause = GAME_SYNC_UPSERT.split("ON DUPLICATE KEY UPDATE", 1)[1]
-    assert "stadium_id" not in update_clause
+    assert "current_inning=VALUES(current_inning)" in update_clause
+    assert "inning_half=VALUES(inning_half)" in update_clause
+    assert "COALESCE(VALUES(current_inning)" not in update_clause
+    assert "COALESCE(VALUES(inning_half)" not in update_clause
 
 
-def test_sync_game_upserts_with_null_stadium_and_commits():
+def test_game_sync_upsert_column_order_is_pinned():
+    """INSERT 컬럼 **순서**를 통째로 고정한다.
+
+    개수만 세는 단언으로는 순서 회귀를 못 잡는다 — 예컨대 last_inning 을 컬럼
+    목록에서 current_inning 앞으로 옮기면 테스트는 전부 통과하고 **운영에서만
+    엉뚱한 컬럼에 값이 들어간다**(파라미터 튜플은 그대로이므로). 문자열을 통째로
+    비교해 그 창을 닫는다.
+    """
+    from kbo_collector.db import GAME_SYNC_UPSERT
+    assert (
+        "INSERT INTO games (naver_game_id, game_date, home_team_id, away_team_id, "
+        " stadium_id, home_score, away_score, game_status_id, current_inning, inning_half, "
+        " last_inning, created_at, updated_at) "
+    ) in GAME_SYNC_UPSERT
+
+
+def test_game_sync_upsert_keeps_last_inning_when_not_provided():
+    from kbo_collector.db import GAME_SYNC_UPSERT
+    # last_inning 은 current_inning 과 정반대다 — "몇 회에 끝난 경기인가"는 종료 후에도
+    # 남아야 하므로 COALESCE 로 지킨다. VALUES() 로 덮으면 다음 폴링(예정·취소 경기의
+    # statusInfo 는 이닝이 아니다)에서 곧바로 NULL 로 지워진다.
+    update_clause = GAME_SYNC_UPSERT.split("ON DUPLICATE KEY UPDATE", 1)[1]
+    assert "last_inning=COALESCE(VALUES(last_inning), last_inning)" in update_clause
+
+
+def test_game_sync_upsert_never_nulls_out_a_stadium_records_already_landed():
+    from kbo_collector.db import GAME_SYNC_UPSERT
+    # stadium_id 의 최종 진실은 여전히 records 잡이다. games_sync 가 구장을 못 얻어
+    # NULL 을 넘겨도 COALESCE 가 기존 값을 지켜야 한다 — 무조건 VALUES() 로 덮으면
+    # 박스스코어로 확정된 구장이 매 동기화마다 지워진다.
+    update_clause = GAME_SYNC_UPSERT.split("ON DUPLICATE KEY UPDATE", 1)[1]
+    assert "stadium_id=COALESCE(VALUES(stadium_id), stadium_id)" in update_clause
+
+
+def test_sync_game_upserts_and_commits():
     from kbo_collector.db import GAME_SYNC_UPSERT
     conn = FakeConn()
     pk = DbSink(None, connection=conn).sync_game(
@@ -386,9 +430,60 @@ def test_sync_game_upserts_with_null_stadium_and_commits():
         home_team_id=3, away_team_id=2, home_score=5, away_score=3, status_id=7)
     kind, sql, params = conn.log[0]
     assert kind == "execute" and sql == GAME_SYNC_UPSERT
-    assert params == ("20260708LGSS02026", "2026-07-08 18:30:00", 3, 2, 5, 3, 7)
+    # stadium_id 미지정 -> None (INSERT 시 NULL, UPDATE 시 COALESCE 로 기존 값 유지)
+    # 이닝 미지정 -> None (current/half 는 NULL 로 덮이고, last_inning 은 COALESCE 로 보존)
+    assert params == ("20260708LGSS02026", "2026-07-08 18:30:00", 3, 2, None, 5, 3, 7,
+                      None, None, None)
     assert pk == 101
     assert conn.commits == 1
+
+
+def test_cancel_reason_update_uses_half_open_day_interval_not_equality():
+    from kbo_collector.db import CANCEL_REASON_UPDATE
+    # games.game_date 는 시각을 포함하는 DATETIME 이라 등치 비교는 항상 0건이고
+    # BETWEEN 은 상한 포함이라 자정 경계가 어긋난다(domain 규약).
+    assert "game_date >= %s AND game_date < DATE_ADD(%s, INTERVAL 1 DAY)" in CANCEL_REASON_UPDATE
+    assert "game_date = %s" not in CANCEL_REASON_UPDATE
+    assert "BETWEEN" not in CANCEL_REASON_UPDATE.upper()
+
+
+def test_cancel_reason_update_skips_rows_that_already_have_the_same_reason():
+    from kbo_collector.db import CANCEL_REASON_UPDATE
+    # 이 조건이 없으면 updated_at=NOW(6) 탓에 값이 같아도 행이 매번 "변경"되어
+    # (1) 매일 같은 행을 다시 쓰고 (2) rowcount 가 "바뀐 행"이 아니라 "매칭된 행"이 된다.
+    assert "cancel_reason IS NULL OR cancel_reason <> %s" in CANCEL_REASON_UPDATE
+
+
+def test_set_cancel_reason_matches_by_date_and_matchup_and_returns_changed():
+    from kbo_collector.db import CANCEL_REASON_UPDATE
+    conn = FakeConn(rowcounts=[1])
+    changed = DbSink(None, connection=conn).set_cancel_reason(
+        date="2026-08-09", home_team_id=3, away_team_id=7, reason="폭염취소")
+    kind, sql, params = conn.log[0]
+    assert kind == "execute" and sql == CANCEL_REASON_UPDATE
+    # 날짜가 두 번(하한·DATE_ADD 상한), 사유도 두 번(SET·동일값 스킵 조건) 들어간다
+    assert params == ("폭염취소", "2026-08-09", "2026-08-09", 3, 7, "폭염취소")
+    assert changed == 1
+    assert conn.commits == 1
+
+
+def test_set_cancel_reason_zero_changed_is_not_an_error():
+    # 0 이 정상인 경우가 둘이다 — 이미 같은 사유가 적혀 있거나(재실행), 매칭될
+    # 행이 아직 없거나(games_sync 미적재). 어느 쪽도 실패가 아니다.
+    conn = FakeConn(rowcounts=[0])
+    changed = DbSink(None, connection=conn).set_cancel_reason(
+        date="2026-09-01", home_team_id=1, away_team_id=2, reason="우천취소")
+    assert changed == 0
+
+
+def test_sync_game_binds_stadium_when_given():
+    conn = FakeConn()
+    DbSink(None, connection=conn).sync_game(
+        naver_game_id="20260811HHOB02026", game_dt="2026-08-11 19:00:00",
+        home_team_id=1, away_team_id=9, home_score=None, away_score=None,
+        status_id=1, stadium_id=42)
+    _, _, params = conn.log[0]
+    assert params[4] == 42
 
 
 def test_sync_game_passes_none_scores_through_for_scheduled_or_cancelled():
@@ -397,4 +492,76 @@ def test_sync_game_passes_none_scores_through_for_scheduled_or_cancelled():
         naver_game_id="g1", game_dt="2026-07-08 00:00:00",
         home_team_id=3, away_team_id=2, home_score=None, away_score=None, status_id=1)
     _, _, params = conn.log[0]
-    assert params[4] is None and params[5] is None  # home_score, away_score
+    assert params[5] is None and params[6] is None  # home_score, away_score
+
+
+def test_sync_game_binds_inning_pair():
+    conn = FakeConn()
+    DbSink(None, connection=conn).sync_game(
+        naver_game_id="20260812SSHT02026", game_dt="2026-08-12 19:00:00",
+        home_team_id=1, away_team_id=9, home_score=1, away_score=2, status_id=2,
+        current_inning=1, inning_half=1, last_inning=1)
+    _, _, params = conn.log[0]
+    assert (params[8], params[9], params[10]) == (1, 1, 1)  # current, half, last
+
+
+def test_sync_game_binds_last_inning_for_a_finished_game():
+    # 종료 경기: current/half 는 NULL 이고 last_inning 만 값이 있다.
+    conn = FakeConn()
+    DbSink(None, connection=conn).sync_game(
+        naver_game_id="20260812KTNC02026", game_dt="2026-08-12 19:00:00",
+        home_team_id=1, away_team_id=9, home_score=3, away_score=0, status_id=3,
+        current_inning=None, inning_half=None, last_inning=9)
+    _, _, params = conn.log[0]
+    assert (params[8], params[9], params[10]) == (None, None, 9)
+
+
+# --------------------------------------------------------------------------- preview 라인업 정리
+def test_lineup_done_games_returns_pks_from_query():
+    conn = FakeConn(fetch_results=[[(11,), (13,)]])
+    assert DbSink(None, connection=conn).lineup_done_games([11, 12, 13]) == {11, 13}
+    kind, sql, params = conn.log[0]
+    # 완성 판정은 '두 팀 × 타순 9' — 한 팀만 공시된 경기를 완료로 보면 나머지 팀이
+    # 영영 안 들어온다.
+    assert "COUNT(DISTINCT team_id) = 2" in sql and "COUNT(*) >= 18" in sql
+    assert params == [11, 12, 13]
+
+
+def test_lineup_done_games_skips_query_when_no_pks():
+    conn = FakeConn()
+    assert DbSink(None, connection=conn).lineup_done_games([]) == set()
+    assert DbSink(None, connection=conn).lineup_done_games([None]) == set()
+    assert conn.log == []
+
+
+def test_delete_lineups_except_keeps_only_boxscore_players():
+    conn = FakeConn(rowcounts=[2])
+    assert DbSink(None, connection=conn).delete_lineups_except(77, [5, 9, 5]) == 2
+    kind, sql, params = conn.log[0]
+    assert "NOT IN" in sql and params[0] == 77 and sorted(params[1:]) == [5, 9]
+    assert conn.commits == 1
+
+
+def test_delete_lineups_except_is_a_noop_without_player_ids():
+    # 파싱 실패로 빈 목록이 오면 NOT IN () 가 그 경기 라인업을 통째로 날린다 — 막아야 한다.
+    conn = FakeConn()
+    assert DbSink(None, connection=conn).delete_lineups_except(77, []) == 0
+    assert DbSink(None, connection=conn).delete_lineups_except(77, [None]) == 0
+    assert conn.log == [] and conn.commits == 0
+
+
+def test_delete_lineups_if_unplayed_guards_on_missing_boxscore():
+    # 서스펜디드처럼 '치렀는데 나중에 취소로 표시'된 경기의 확정 라인업까지 날리면 안 된다.
+    conn = FakeConn(rowcounts=[20])
+    assert DbSink(None, connection=conn).delete_lineups_if_unplayed(77) == 20
+    kind, sql, params = conn.log[0]
+    assert "NOT EXISTS" in sql and "batter_records" in sql
+    assert params == (77, 77)
+
+
+def test_games_with_stadium_returns_known_ids():
+    conn = FakeConn(fetch_results=[[("g1",)]])
+    got = DbSink(None, connection=conn).games_with_stadium(["g1", "g2"])
+    assert got == {"g1"}
+    kind, sql, params = conn.log[0]
+    assert "stadium_id IS NOT NULL" in sql and params == ["g1", "g2"]

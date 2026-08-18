@@ -7,10 +7,6 @@ import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Component;
 
-/**
- * 운영용 SMTP 실발송 구현. {@code prod} 프로파일에서만 로딩되며, JavaMailSender는
- * {@code spring.mail.*} 설정이 있을 때 Boot가 자동 구성한다(운영 설정은 application-prod.yaml).
- */
 @Component
 @Profile("prod")
 @RequiredArgsConstructor

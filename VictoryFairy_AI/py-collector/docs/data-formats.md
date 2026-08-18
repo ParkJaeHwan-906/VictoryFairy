@@ -68,7 +68,7 @@
 | `winner` | string | `"AWAY"` | `HOME` / `AWAY` / `DRAW` |
 | `statusCode` | string | `"RESULT"` | 경기 상태 (아래 표) |
 | `statusNum` | int | `4` | 0=예정, 4=완료 (숫자 코드) |
-| `statusInfo` | string | `"9회말"` / `"경기취소"` | 상태 한글 텍스트 |
+| `statusInfo` | string | `"9회말"` / `"경기전"` / `"경기취소"` | 상태 한글 텍스트. **진행 이닝의 원천**([진행 이닝 판정](#진행-이닝-판정)) |
 | `cancel` | bool | `false` | 취소 여부 |
 | `suspended` | bool | `false` | 서스펜디드(정지) 여부 |
 | `reversedHomeAway` | bool | `true` | 홈/원정 표기 뒤집힘 플래그 |
@@ -79,17 +79,61 @@
 | 상태 | 판정 (우선순위 순) | DB `game_statuses.name` |
 |---|---|---|
 | 취소 | `cancel == true` — **최우선.** `statusCode`는 `"BEFORE"`, `winner`는 `"DRAW"` 껍데기로 옴(2026-07-08 `20260708NCHH02026` 실측) | `CANCELED` |
-| 예정 | `statusCode == "BEFORE"` | `SCHEDULED` |
-| 진행중 | `statusCode == "LIVE"` | `IN_PROGRESS` |
+| 예정 | `statusCode in ("BEFORE", "READY")` — **코드가 둘이다.** 먼 날짜는 `BEFORE`(statusNum=0), **경기 당일은 첫 투구 전까지 `READY`**(statusNum=1, statusInfo=`"경기전"`). 2026-08-12 18:25 KST, 19:00 시작 5경기 전수 실측 | `SCHEDULED` |
+| 진행중 | `statusCode in ("STARTED", "LIVE")` — 실측값은 `STARTED`(2026-08-04 실황 3경기). `LIVE`는 초기 가정값이나 반례가 없어 호환 유지 | `IN_PROGRESS` |
 | 완료 | `statusCode == "RESULT"`, 양팀 동점이면 무승부 | `FINISHED` / `DRAW` |
 
 > ⚠️ **판정 시 함정 4가지** (`game_records.py`의 `map_status`, `run.py`의 `job_games_sync` 실측 근거)
 > ① **`winner` 필드로 무승부·취소를 판정하지 말 것** — 취소 경기도 `winner:"DRAW"` 껍데기로 옴.
 > ② **schedule API 광범위 조회 금지** — `fromDate`~`toDate`를 2개월로 걸어 조회한 실측에서 경기 **4건만** 반환됨. 하루 단위(`fromDate=toDate=date`) 조회가 정석.
 > ③ `suspended`(서스펜디드)는 아직 `map_status`에 미반영 — 관측되면 상태 판정 실패로 **skip + warning 로그**.
+> ⑤ **미지 상태는 조용히 실패한다** — `map_status`가 `None`을 내면 `_sync_games_for_date`가 그 경기를 통째로 `continue` 한다. 상태 동기화도, 선발 라인업 적재도 일어나지 않고 warning 로그만 남는다. 실제로 `READY`가 미반영이던 동안 **경기 당일 낮~경기 직전 구간의 경기가 전부 스킵**되고 있었다(2026-08-12 발견). 새 `statusCode`를 관측하면 표에 추가할 것.
 > ④ 취소·예정 경기의 점수는 0-0 **껍데기**이므로 `games_sync` 적재 시 DB에는 `NULL`로 넣는다(점수는 진행중/완료일 때만 채움).
 
 일정 없음(`result.games == []`, 그날 경기 없음)은 위 표와 별개로 스케줄 자체가 비는 경우다.
+
+### 진행 이닝 판정
+
+`games.current_inning`/`inning_half`/`last_inning`의 원천은 **schedule API의 `statusInfo`** 하나다(`game_records.parse_inning`). 진행 중에는 `"3회말"` 한 가지 형태로만 오고 아웃카운트·주자 같은 접미사가 붙지 않는다 — 2026-08-12 19:00 시작 5경기를 15초 간격으로 관측한 실측이다.
+
+**같은 값이 정반대 정책의 두 곳으로 갈라져 들어간다.**
+
+| 컬럼 | 언제 채우나 | upsert 정책 | 뜻 |
+|---|---|---|---|
+| `current_inning` · `inning_half` | `IN_PROGRESS`일 때만 | `VALUES()` 덮어쓰기 | **지금** 몇 회인가 |
+| `last_inning` | 상태 무관(파싱되면 언제나) | `COALESCE` 보존 | 몇 회에 **끝났나** |
+
+| `statusInfo` | `current_inning` | `inning_half` | `last_inning` |
+|---|---|---|---|
+| `"1회초"` (IN_PROGRESS) | 1 | 0 (`TOP`) | 1 |
+| `"3회말"` (IN_PROGRESS) | 3 | 1 (`BOTTOM`) | 3 |
+| `"9회말"` (FINISHED) | `NULL` | `NULL` | 9 |
+| `"경기전"` · `"경기취소"` · `""` · 미지 포맷 | `NULL` | `NULL` | 기존 값 유지 |
+| `"12회초"` 이상 | `NULL` (+ warning) | `NULL` | **12** (상한 없음) |
+
+**상한이 두 컬럼에 다르게 걸린다.** `current_inning`은 CHECK `ck_games_current_inning`(1~11) 때문에 `INNING_MAX`로 막지만, `last_inning`에는 **CHECK가 없어**(prod 제약 조회 결과 `ck_games_current_inning`·`ck_games_inning_half` 둘뿐) `parse_inning(..., max_inning=None)`으로 읽은 그대로 넣는다. 같이 막으면 12회 경기에서 파싱이 `None`이 되고 `COALESCE`가 직전 폴링의 11을 보존해 **"12회에 끝난 경기"가 `last_inning=11`로 틀리게 기록된다** — `NULL`은 "모른다"지만 11은 "틀린 답"이라 더 나쁘다.
+
+종료 경기의 `statusInfo`가 마지막 이닝을 그대로 들고 있다는 성질(아래 함정 ①)이 여기서는 **버그가 아니라 정답의 출처**가 된다. 덕분에 라이브 구간을 놓친 경기도 `last_inning`이 회수된다 — 단 **`games_sync`가 그 날짜를 다시 훑을 때만**이다(live 룰은 당일, morning/nightly는 오늘~+N일). 그보다 과거 날짜는 `--from`/`--to` 수동 백필이 필요하다.
+>
+> 진행 중 취소(노게임)면 취소 직전 이닝이 `last_inning`에 남는다 — `COALESCE`라 지우는 경로가 없다. 점수·구장과 같은 성질이며, "몇 회까지 하고 취소됐나"로 읽으면 오히려 정보다.
+
+`inning_half`는 domain `InningHalf`의 **ORDINAL**(`TOP=0`/`BOTTOM=1`)이다. 네이버 relay의 `homeOrAway`(`"0"`=원정 공격=초, `"1"`=홈 공격=말)와도 값이 같다.
+
+> ⚠️ **이닝 함정 4가지**
+> ① **`IN_PROGRESS`가 아니면 무조건 `NULL`이다**(BE 계약: `GET /api/games`의 `inning`/`inningHalf`는 진행 중에만 값). `statusInfo`는 **경기가 끝나도 마지막 이닝을 그대로 들고 있어서**(2026-08-11 전 경기 `"9회초"`/`"9회말"`, 강우콜드는 `"6회말"`) 상태로 거르지 않으면 종료 경기에 이닝이 박힌다.
+> ② **`GAME_SYNC_UPSERT`에서 이닝 세 컬럼의 정책이 서로 다르다.** `current_inning`/`inning_half`는 점수·구장과 반대로 `COALESCE` 없이 `VALUES()` 직접 대입이고(종료 시 `NULL`로 덮여야 하므로 — 붙이면 ①이 깨진다), `last_inning`은 다시 반대로 `COALESCE`다(종료 후에도 남아야 하므로 — 빼면 다음 폴링에 지워진다). **셋 다 다른 이유로 지금 모양이니 일관성 명목으로 어느 한쪽에 맞추지 말 것.**
+> ③ **detail API(`/schedule/games/{gameId}`)의 `currentInning`을 원천으로 쓰지 말 것.** 경기 시작 **20분 전**(`statusCode="READY"`)부터 이미 `"1회초"`로 앞서 나간다(2026-08-12 18:41 실측). 같은 시각 `statusInfo`는 정확히 `"경기전"`이었다. 더 이른 `BEFORE` 구간에서는 `currentInning`이 빈 문자열 `""`이다.
+> ④ **`INNING_MAX`(11)를 넘으면 값을 버리고 warning을 남긴다.** 11은 KBO 현행 규정의 이닝 한도(정규 9 + 연장 2)이고, `games`의 CHECK `ck_games_current_inning`(1~11)과 같은 값이다 — **진짜 상한은 우리 코드가 아니라 DB**이며 prod에 실제로 걸려 있다(실측). 2026 정규시즌 전수 스캔(3/22~8/11)도 11회 18경기·12회 0경기로 일치한다.
+>
+> 규정 한도와 같은 값이므로 **이 가드가 실제로 발동하면 그건 연장이 아니라 파싱 이상**이다(네이버 포맷 변경 등). 규정이 바뀌어 올려야 한다면 순서가 고정돼 있다 — ① BE 엔티티 `@CheckConstraint` → ② 관리자 계정으로 prod·devdb에 `ALTER TABLE games DROP CHECK ...` + `ADD CONSTRAINT ...` → ③ 수집기 `INNING_MAX`. `ddl-auto=update`는 기존 CHECK를 바꾸지 않아 ②를 건너뛸 수 없고, ③만 먼저 하면 DB가 거부한다.
+
+### 경기 단위 격리
+
+`_sync_games_for_date`는 경기 하나의 적재 실패를 **그 경기에 가둔다**(warning + `failed` 집계, 나머지 경기는 계속). 격리가 없으면 예외가 `job_games_sync_range`의 **날짜 단위** 핸들러까지 올라가, 실패한 경기 뒤에 오는 경기가 통째로 빠진다.
+
+발동 조건은 DB 제약 위반(위 ④), 커넥션 끊김, 예상 못 한 응답 형태 등이다. 이 잡은 1분마다 도는 멱등 upsert라, 격리된 경기는 원인이 해소되면 다음 폴링에서 저절로 회수된다.
+
+이닝별 득점(스코어보드)이 필요하면 원천이 다르다 — schedule에는 없고 detail의 `homeTeamScoreByInning`/`awayTeamScoreByInning`(경기당 1콜, ~2.4KB)이나 relay의 `inningScore`를 봐야 한다. relay는 한 경기 9이닝 합계가 **1.46MB**(이닝당 118~358KB)라 라이브 폴링에는 쓰지 않는다.
 
 > **gameId 포맷**: `YYYYMMDD(8) + away(2) + home(2) + dh(1) + year(4)`
 > 예) `20260708 LG SS 0 2026` → `20260708LGSS02026`. 더블헤더 순번은 13번째 문자(index 12).

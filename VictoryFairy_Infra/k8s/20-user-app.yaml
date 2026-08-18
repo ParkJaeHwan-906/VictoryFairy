@@ -1,4 +1,4 @@
-# user-app: 인증/유저 Spring 모듈(:user, 컨테이너 포트 8080, 경로 /api/member)
+# user-app: 인증/유저 Spring 모듈(:user, 컨테이너 포트 8080, 경로 /api)
 #
 # 인프라 커플링(설계 변경 2026-07 — user·quiz 공용 app 노드풀):
 #   app 노드그룹 = label workload=app, taint 없음. user·quiz 파드가 같은 노드에 동거.
@@ -6,6 +6,14 @@
 # 파드 규모: 기본 1 → 트래픽 증가 시 HPA 가 최대 2 (파일 하단 HPA 참조).
 #   ⚠ 단일 파드 구간에서는 파드 재시작 시 잠깐 중단될 수 있음(dev 감수, 운영 시 min 2 권장).
 # 노드 자원이 차면 Cluster Autoscaler 가 app 노드풀을 수평 확장(min1/max4).
+#
+# 배포 방식(이 파일이 단일 진실 공급원):
+#   CI(deploy-eks.yml)가 아래 image 라인의 <ACCOUNT_ID>/<commit-sha> 플레이스홀더를 실제 값으로
+#   치환한 뒤 `kubectl apply -f` 로 이 파일 전체를 적용한다. 더 이상 `kubectl set image` 로
+#   이미지만 바꾸지 않는다 — 매니페스트에 적은 모든 필드가 매 배포마다 클러스터에 반영된다.
+#   ⚠ 그래서 이 파일을 그대로(치환 없이) 손으로 apply 하면 안 된다. 플레이스홀더 문자열이
+#     이미지 태그로 들어가 파드가 ImagePullBackOff 로 죽는다. 변경은 커밋 → CI 로만.
+#   ⚠ 플레이스홀더 문자열 형식은 CI 치환 규칙과 짝이다. 형식을 바꾸려면 CI 도 같이 고쳐야 한다.
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -15,7 +23,10 @@ metadata:
   labels:
     app: user-app
 spec:
-  replicas: 1 # HPA minReplicas 와 정합(기본 1)
+  # replicas 는 의도적으로 없다(지운 게 아니다 — 되돌리지 말 것).
+  #   레플리카 수의 소유권은 하단 HPA(min1/max2)에 있다. CI 가 매 배포마다 이 파일을 apply 하므로
+  #   replicas 를 여기 두면 HPA 가 2로 올려둔 것을 배포가 1로 되돌리고 HPA 가 다시 올리는 싸움이 난다.
+  #   생략 시 최초 생성만 기본값 1로 뜨고, 이후 스케일은 HPA 가 결정한다.
   # 블루-그린식 업데이트: 신버전 파드 '전체'를 먼저 띄우고(maxSurge 100%),
   # 구버전은 신버전이 Ready 될 때까지 하나도 내리지 않는다(maxUnavailable 0).
   # readiness 프로브 통과 → 트래픽 전환 → 구버전 종료. 실패 시 구버전이 그대로 서비스.
@@ -39,12 +50,22 @@ spec:
       containers:
         - name: user
           # ⚠ 불변 태그(커밋 SHA). latest 금지.
-          # TODO: <ACCOUNT_ID>.dkr.ecr.ap-northeast-2.amazonaws.com/victoryfairy-user 로 교체
           image: "<ACCOUNT_ID>.dkr.ecr.ap-northeast-2.amazonaws.com/victoryfairy-user:<commit-sha>"
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 8080
+          # ⚠ 파드 시간대. 미설정이면 JVM 이 UTC 로 돌고, @CreationTimestamp 계열이 찍는
+          #   LocalDateTime 컬럼(전 테이블 52개)이 UTC 벽시계로 저장된다 — 응답에 오프셋이 없어
+          #   FE 가 로컬로 읽으면 9시간 과거로 보인다(채팅 시간 오표시의 원인).
+          #   envFrom(app-config) 이 아니라 여기 두는 이유: app-config 는 클러스터에서 수기로
+          #   관리돼 git 에 실물이 없다 — 시간대는 코드로 고정돼야 재현된다.
+          #   베이스 이미지 eclipse-temurin:21-jre 에 tzdata 가 있어 이 값이 실제로 먹는다(실측).
+          #   ⚠ 롤링 중에는 UTC 파드와 KST 파드가 공존한다 — 그 사이 쓰인 행은 존이 섞이므로
+          #   데이터 백필과 같은 점검 창에서 함께 전환해야 한다.
+          env:
+            - name: TZ
+              value: "Asia/Seoul"
           envFrom:
             - configMapRef:
                 name: app-config
@@ -57,10 +78,7 @@ spec:
               memory: "512Mi"
             limits:
               cpu: "500m"
-              memory: "768Mi"   # compose mem_limit 500m 대비 여유. MaxRAMPercentage=70 로 힙 산정.
-          # 프로브: 현재 :user 모듈에 actuator 의존성이 없어 HTTP health 엔드포인트가 없다.
-          #   -> TCP 소켓 프로브로 대체. TODO: spring-boot-starter-actuator 추가 후
-          #      /actuator/health/{liveness,readiness} 로 승격 권장.
+              memory: "768Mi"   # MaxRAMPercentage=70 로 힙 산정.
           startupProbe:
             tcpSocket: { port: 8080 }
             failureThreshold: 30

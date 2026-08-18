@@ -22,32 +22,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 
-/**
- * S3 후보({@link QuizCandidate}) 한 건을 {@code quizzes} + {@code quiz_options}로 적재한다.
- *
- * <p><b>멱등성</b>: {@code externalId}(= 후보의 {@code quizId}) 선검사 + {@code uk_quizzes_external_id}
- * UNIQUE 의 2중 방어다. 선검사는 낭비를 줄일 뿐이고, 파드 동시 실행의 race 를 실제로 막는 것은
- * UNIQUE 제약이다 — 그래서 호출자는 제약 위반({@code DataIntegrityViolationException})을 실패가
- * 아니라 "다른 파드가 먼저 넣었음"으로 해석해야 한다({@link QuizIngestScheduler} 참고).
- *
- * <p><b>KNOWLEDGE 만 적재한다.</b> PREDICTION 은 정답이 경기 종료 후에야 확정되는 별개 기능이라
- * (answer nullable 화 + 정산 잡 + 마감 처리까지 한 세트) 지금은 스킵하고 로그만 남긴다 — 조용히
- * 잘못 적재되는 것보다 명시적으로 안 하는 편이 낫다.
- *
- * <p><b>대상 FK 매핑</b>은 후보의 {@code subject}(주제)를 따르고, 정답 유출 방지 규칙(전제만 담고
- * 정답 엔티티는 비움 — {@code Quiz} javadoc)을 존중해 <b>여기서 임의로 보강하지 않는다</b>. 예외는
- * 경기 문항 하나: {@code game}이 해석되면 홈/원정으로 {@code team}/{@code opponentTeam}을 채운다
- * (엔티티 불변식 — "내 응원팀 문제" 조회가 조인 없이 성립하는 근거). 코드·ID 해석 실패는 후보
- * 전체를 버리지 않고 <b>그 FK 만 비운 채</b> 적재한다 — 분류가 빠진 문제가 문제 자체가 없는 것보다
- * 낫고, S3 원본이 남아 있어 나중에 백필할 수 있다.
- *
- * <p><b>{@code quiz_date}는 게임 귀속 여부가 가른다</b>(생성일이 아니라 출제일 — {@code Quiz}
- * javadoc). 후보에 naverGameId({@code subject.gameId}, 없으면 top-level {@code gameId})가 명시돼
- * 있으면 특정 경기에 묶인 시효성 문항이므로 파티션 날짜를 바로 스탬프한다 — <b>game FK 해석에
- * 실패해도 마찬가지다</b>: "오늘 경기" 문구를 품은 문제가 풀에 들어가면 몇 주 뒤 스테일한 채로
- * 튀어나온다. 명시가 없으면(역대기록형 등 시효성 없음) {@code quiz_date=null} 미편성 풀로 쌓고,
- * 매일 편성 잡({@code QuizPublishService})이 부족분만큼 꺼내 쓴다.
- */
 @Service
 @RequiredArgsConstructor
 public class QuizIngestService {
@@ -82,7 +56,7 @@ public class QuizIngestService {
         int answerIndex = resolveAnswerIndex(candidate);
 
         // 게임 귀속(naverGameId 명시) 여부가 quiz_date 를 가른다 — game FK 해석 성공 여부와 무관하다
-        // (클래스 javadoc: 해석 실패 문항도 시효성은 그대로라 풀에 넣으면 안 된다)
+        // (해석 실패 문항도 시효성은 그대로라 풀에 넣으면 안 된다)
         String naverGameId = resolveNaverGameId(candidate);
         boolean gameBound = naverGameId != null;
 
@@ -146,7 +120,6 @@ public class QuizIngestService {
                 "quiz_type 시드 없음: " + typeName + " — quiz-type-init.sql 적용 여부를 확인할 것"));
     }
 
-    /** 후보의 answer("A"~"D")를 보기 번호(0-기반)로. 보기 배열 위치가 곧 번호라는 계약(스펙 4.3). */
     private int resolveAnswerIndex(QuizCandidate candidate) {
         if (candidate.options() == null || candidate.options().isEmpty()) {
             throw new IllegalArgumentException(
@@ -165,8 +138,6 @@ public class QuizIngestService {
         return index;
     }
 
-    /** 후보에 명시된 naverGameId. 주제(subject.gameId)가 우선, 없으면 귀속(top-level gameId) —
-     * 오늘 계약에선 보통 한쪽만 온다. 명시가 없으면 null(= 시효성 없음 → 풀 대기). */
     private String resolveNaverGameId(QuizCandidate candidate) {
         String naverGameId = candidate.subject() != null && candidate.subject().gameId() != null
                 ? candidate.subject().gameId()

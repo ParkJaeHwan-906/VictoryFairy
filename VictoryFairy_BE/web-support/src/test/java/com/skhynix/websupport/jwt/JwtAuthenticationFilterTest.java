@@ -8,6 +8,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
+import com.skhynix.domain.user.repository.ActiveAccountView;
 import com.skhynix.domain.user.repository.UserAccountRepository;
 import jakarta.servlet.FilterChain;
 import java.util.Optional;
@@ -61,7 +62,8 @@ class JwtAuthenticationFilterTest {
         // given
         String uid = UUID.randomUUID().toString();
         Long accountId = 42L;
-        given(userAccountRepository.findActiveIdByUid(uid)).willReturn(Optional.of(accountId));
+        given(userAccountRepository.findActiveAuthByUid(uid))
+                .willReturn(Optional.of(new ActiveAccountView(accountId, null)));
         String token = tokenProvider.createAccessToken(uid);
         MockHttpServletRequest request = requestWithBearerToken(token);
         MockHttpServletResponse response = new MockHttpServletResponse();
@@ -81,13 +83,13 @@ class JwtAuthenticationFilterTest {
 
     @Test
     @DisplayName("[USER-WD-6, USER-WD-9] uid에 해당하는 활성 계정을 찾지 못하면(탈퇴 등) 예외 없이 "
-            + "SecurityContext를 비운 채 체인을 통과시킨다 — findActiveIdByUid가 탈퇴 계정을 "
+            + "SecurityContext를 비운 채 체인을 통과시킨다 — findActiveAuthByUid가 탈퇴 계정을 "
             + "\"찾지 못함\"으로 흡수하는 지점이라, 탈퇴 전에 발급된 access 토큰이라도 이후 요청은 "
             + "인증되지 않는다(anyRequest().authenticated()에 걸려 최종적으로 401)")
     void validAccessToken_unknownUid_leavesContextEmptyWithoutException() throws Exception {
         // given
         String uid = UUID.randomUUID().toString();
-        given(userAccountRepository.findActiveIdByUid(uid)).willReturn(Optional.empty());
+        given(userAccountRepository.findActiveAuthByUid(uid)).willReturn(Optional.empty());
         String token = tokenProvider.createAccessToken(uid);
         MockHttpServletRequest request = requestWithBearerToken(token);
         MockHttpServletResponse response = new MockHttpServletResponse();
@@ -148,7 +150,82 @@ class JwtAuthenticationFilterTest {
         filter.doFilterInternal(request, response, filterChain);
 
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
-        verify(userAccountRepository, never()).findActiveIdByUid(anyString());
+        verify(userAccountRepository, never()).findActiveAuthByUid(anyString());
+        verify(filterChain).doFilter(request, response);
+    }
+
+    // ---------- 토큰 무효화 대조 (USER-ATI-4, 5, 7, 8, 9) ----------
+
+    @Test
+    @DisplayName("[USER-ATI-4] 계정을 찾았어도 토큰의 iat가 기준 시각(passwordChangedEpochSecond)보다 앞선 "
+            + "초이면 예외 없이 SecurityContext를 비운 채 체인을 통과시킨다(principal 미설정) — "
+            + "필터가 응답을 직접 쓰지 않으므로 최종 401은 anyRequest().authenticated() 몫이다")
+    void validAccessToken_issuedBeforeBaseline_leavesContextEmptyWithoutException() throws Exception {
+        // given
+        String uid = UUID.randomUUID().toString();
+        Long accountId = 42L;
+        String token = tokenProvider.createAccessToken(uid);
+        long actualIssuedAt = tokenProvider.getIssuedAtEpochSecond(token);
+        // 기준 시각을 실제 iat보다 1초 뒤로 둬 "비밀번호 변경 이전에 발급된 토큰"을 재현한다
+        given(userAccountRepository.findActiveAuthByUid(uid))
+                .willReturn(Optional.of(new ActiveAccountView(accountId, actualIssuedAt + 1)));
+        MockHttpServletRequest request = requestWithBearerToken(token);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        FilterChain filterChain = mock(FilterChain.class);
+
+        // when
+        filter.doFilterInternal(request, response, filterChain);
+
+        // then
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+        verify(filterChain).doFilter(request, response);
+    }
+
+    @Test
+    @DisplayName("[USER-ATI-7, USER-ATI-8] 토큰의 iat가 기준 시각과 정확히 같은 초이면 인증된다(같은 초는 "
+            + "유효 — 비밀번호 변경 응답으로 방금 받은 토큰이 자기 자신에게 거부되지 않는다는 계약)")
+    void validAccessToken_issuedExactlyAtBaseline_setsAuthentication() throws Exception {
+        // given
+        String uid = UUID.randomUUID().toString();
+        Long accountId = 42L;
+        String token = tokenProvider.createAccessToken(uid);
+        long actualIssuedAt = tokenProvider.getIssuedAtEpochSecond(token);
+        given(userAccountRepository.findActiveAuthByUid(uid))
+                .willReturn(Optional.of(new ActiveAccountView(accountId, actualIssuedAt)));
+        MockHttpServletRequest request = requestWithBearerToken(token);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        FilterChain filterChain = mock(FilterChain.class);
+
+        // when
+        filter.doFilterInternal(request, response, filterChain);
+
+        // then
+        var authentication = SecurityContextHolder.getContext().getAuthentication();
+        assertThat(authentication).isNotNull();
+        assertThat(authentication.getPrincipal()).isEqualTo(accountId);
+        verify(filterChain).doFilter(request, response);
+    }
+
+    @Test
+    @DisplayName("[USER-ATI-9] 기준 시각이 NULL인 계정(스키마 투입 이전 가입자)은 오래된 토큰이어도 통과한다")
+    void validAccessToken_nullBaseline_setsAuthenticationRegardlessOfIssuedAt() throws Exception {
+        // given
+        String uid = UUID.randomUUID().toString();
+        Long accountId = 7L;
+        given(userAccountRepository.findActiveAuthByUid(uid))
+                .willReturn(Optional.of(new ActiveAccountView(accountId, null)));
+        String token = tokenProvider.createAccessToken(uid);
+        MockHttpServletRequest request = requestWithBearerToken(token);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        FilterChain filterChain = mock(FilterChain.class);
+
+        // when
+        filter.doFilterInternal(request, response, filterChain);
+
+        // then
+        var authentication = SecurityContextHolder.getContext().getAuthentication();
+        assertThat(authentication).isNotNull();
+        assertThat(authentication.getPrincipal()).isEqualTo(accountId);
         verify(filterChain).doFilter(request, response);
     }
 

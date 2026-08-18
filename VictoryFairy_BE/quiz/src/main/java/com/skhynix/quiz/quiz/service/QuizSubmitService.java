@@ -2,6 +2,8 @@ package com.skhynix.quiz.quiz.service;
 
 import com.skhynix.common.error.BusinessException;
 import com.skhynix.common.error.ErrorCode;
+import com.skhynix.domain.game.entity.Game;
+import com.skhynix.domain.game.repository.GameRepository;
 import com.skhynix.domain.quiz.entity.Quiz;
 import com.skhynix.domain.quiz.entity.QuizOption;
 import com.skhynix.domain.quiz.entity.QuizUserSubmit;
@@ -10,59 +12,53 @@ import com.skhynix.domain.quiz.repository.QuizRepository;
 import com.skhynix.domain.quiz.repository.QuizUserSubmitRepository;
 import com.skhynix.domain.user.entity.UserAccount;
 import com.skhynix.domain.user.repository.UserAccountRepository;
-import com.skhynix.quiz.chat.dto.PageResponse;
+import com.skhynix.quiz.quiz.dto.QuizLikeResponse;
 import com.skhynix.quiz.quiz.dto.QuizSubmissionHistoryResponse;
+import com.skhynix.quiz.quiz.dto.QuizSubmissionHistoryResponse.InningResponse;
 import com.skhynix.quiz.quiz.dto.QuizSubmissionItemResponse;
 import com.skhynix.quiz.quiz.dto.QuizSubmitResponse;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import lombok.RequiredArgsConstructor;
-import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * 퀴즈 제출(서버 채점 + 포인트 적립)과 풀이 이력 조회.
- *
- * <p><b>채점은 이 서버 트랜잭션 안에서만 한다</b> — 정답({@code Quiz.answer})은 조회 응답
- * ({@code QuizResponse})에 싣지 않는 것이 계약이라, 판정 근거가 클라이언트로 나가는 순간이 없다.
- *
- * <p>중복 제출 차단은 이중이다: 선제 {@code existsBy} 검사(친절한 409)와
- * {@code uk_quiz_users_submit_account_quiz} UNIQUE(동시 요청 2건이 둘 다 검사를 통과하는 race 의
- * 최종 중재자). UNIQUE 위반도 실패가 아니라 "이미 제출됨"이므로 같은 409 로 접는다.
- */
 @Service
 @RequiredArgsConstructor
 public class QuizSubmitService {
 
-    private static final int PAGE_SIZE = 20;
+    // ⚠ 경기 상태 판정은 game_statuses 의 id 가 아니라 name 문자열로 한다(QuizService 와 같은 규칙) —
+    //   id 는 py-collector 가 만난 순서대로 부여돼 환경마다 다를 수 있어 리터럴을 박으면 조용히 틀린다.
+    //   두 이름만 분기하고 나머지(FINISHED·DRAW·CANCELED 와 아직 없는 이름)는 전부 기본 경로로
+    //   떨어뜨린다 — 상태 정의역은 앱 배포 없이 늘어날 수 있다(시드가 "UNION ALL 한 줄"로 예고).
+    private static final String SCHEDULED = "SCHEDULED";
+    private static final String IN_PROGRESS = "IN_PROGRESS";
 
     private final QuizRepository quizRepository;
     private final QuizOptionRepository quizOptionRepository;
     private final QuizUserSubmitRepository quizUserSubmitRepository;
     private final UserAccountRepository userAccountRepository;
+    private final GameRepository gameRepository;
+    private final QuizLikeService quizLikeService;
 
-    /**
-     * 제출 → 채점 → 정답이면 포인트 적립 → 기록 저장.
-     *
-     * <p>미편성 문제({@code quizDate == null})는 행이 있어도 404 다 — 편성 전 문제의 존재 자체를
-     * 밖에 알리지 않는다(400/403 으로 구분해 주면 "행은 있다"가 새어 나간다).
-     *
-     * <p>계정 행 잠금({@code findWithLockById})은 적립 유실 방지용이다 — 락 없는 두 트랜잭션이 같은
-     * 잔액에서 각자 더하면 한쪽이 사라진다. 잠근 뒤 {@code addPoint}가 규약이다(뮤테이터 javadoc).
-     * 검사들(404/409/400)을 락 앞에 두어, 실패할 요청이 계정 행을 잠그고 시작하지 않게 한다.
-     */
     @Transactional
     public QuizSubmitResponse submit(Long userAccountId, Long quizId, int optionNo) {
         Quiz quiz = quizRepository.findById(quizId)
                 .filter(found -> found.getQuizDate() != null)
                 .orElseThrow(() -> new BusinessException(ErrorCode.QUIZ_NOT_FOUND));
-        if (quizUserSubmitRepository.existsByUserAccount_IdAndQuiz_Id(userAccountId, quizId)) {
-            throw new BusinessException(ErrorCode.QUIZ_ALREADY_SUBMITTED);
+        // ⚠ 시한 기준 시각은 kstClock 이 아니다 — created_at 이 JVM 기본 존으로 찍히기 때문이다
+        //   (QuizSubmitWindow javadoc). 아래 조건부 UPDATE 도 같은 값을 쓴다.
+        LocalDateTime now = QuizSubmitWindow.now();
+        QuizUserSubmit served = quizUserSubmitRepository
+                .findByUserAccount_IdAndQuiz_Id(userAccountId, quizId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.QUIZ_SUBMIT_NOT_ALLOWED));
+        if (served.getSubmitOption() == null
+                && QuizSubmitWindow.isExpired(served.getCreatedAt(), now)) {
+            throw new BusinessException(ErrorCode.QUIZ_SUBMIT_NOT_ALLOWED);
         }
         QuizOption option = quizOptionRepository
                 .findFirstByQuiz_IdAndOptionOrderByIdAsc(quizId, optionNo)
@@ -77,57 +73,84 @@ public class QuizSubmitService {
             account.addPoint(earnedPoint);
         }
 
-        try {
-            quizUserSubmitRepository.save(QuizUserSubmit.builder()
-                    .userAccount(account)
-                    .quiz(quiz)
-                    .submitOption(option)
-                    .isAnswer(correct)
-                    .build());
-        } catch (DataIntegrityViolationException e) {
-            // existsBy 검사를 동시에 통과한 두 요청 중 진 쪽 — 시스템 오류(500)가 아니라 중복(409)이다.
-            // BusinessException 도 런타임 예외라 트랜잭션이 롤백돼 위의 적립도 함께 되돌아간다.
+        // 조건부 UPDATE 한 방이 원자적 판정이다 — 동시에 들어온 두 제출 중 하나만 1 을 받는다.
+        // 시한 조건을 여기서도 거는 이유: 위 검사와 이 문장 사이에 시한이 지나는 경우까지 닫는다.
+        // 0 이면 BusinessException(런타임)이 트랜잭션을 롤백시켜 위의 적립도 함께 되돌아간다.
+        int filled = quizUserSubmitRepository.fillAnswer(userAccountId, quizId, option, correct,
+                QuizSubmitWindow.earliestValidCreatedAt(now), now);
+        if (filled == 0) {
             throw new BusinessException(ErrorCode.QUIZ_ALREADY_SUBMITTED);
         }
         return new QuizSubmitResponse(correct, quiz.getAnswer(), optionNo, earnedPoint,
                 account.getPoint());
     }
 
-    /**
-     * 풀이 이력 한 페이지 + 전체 요약. 페이지 크기는 서버 고정(채팅 이력과 같은 규약 — 클라이언트가
-     * size 를 키워 전체 덤프하는 경로를 막는다).
-     *
-     * <p>정답 보기 텍스트는 페이지의 quizId 들을 모아 {@code quiz_id IN (...)} 한 방으로 받아 메모리에서
-     * 매핑한다 — 행마다 단건 조회하면 그대로 N+1 이다({@code QuizOptionRepository} javadoc 의 2쿼리 방식).
-     * 같은 번호 중복 행이 있으면 첫 행(id 최소 아님에 유의 — (quizId, option) 정렬의 첫 행)을 쓴다.
-     */
     @Transactional(readOnly = true)
-    public QuizSubmissionHistoryResponse getHistory(Long userAccountId, int page) {
-        Page<QuizUserSubmit> submits = quizUserSubmitRepository
-                .findHistoryByUserAccountId(userAccountId, PageRequest.of(page, PAGE_SIZE));
+    public QuizSubmissionHistoryResponse getHistory(Long userAccountId, String gameId) {
+        // 상태 이름까지 함께 실어 오는 조회(/today 와 공용) — 상태는 FK 값이 아니라 game_statuses 행의
+        // 컬럼이라 LAZY 로 두면 판정 순간 SELECT 가 한 번 더 나간다.
+        Game game = gameRepository.findWithStatusByNaverGameId(gameId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.GAME_NOT_FOUND));
+        // 예정 경기는 이닝 컬럼을 아예 읽지 않고 상태만으로 접는다 — /today 가 IN_PROGRESS 에서만
+        // 세트를 주므로 시작 전 경기에는 대상 행이 존재할 수 없고 앞으로 생길 수도 없다.
+        if (SCHEDULED.equals(game.getGameStatus().getName())) {
+            throw new BusinessException(ErrorCode.GAME_NOT_STARTED);
+        }
 
-        List<Long> quizIds = submits.getContent().stream()
+        List<QuizUserSubmit> submits =
+                quizUserSubmitRepository.findGameSubmissions(userAccountId, game.getId());
+        int lastInning = enumeratedLastInning(game);
+        // 경기 단위 접기: 범위가 1..8 로 계산됐어도 그 경기에 내 행이 0건이면 0/0 원소 8개가 아니라
+        // 빈 배열이다. 판정 모집단은 "그 경기의 내 행" 전부이며 범위 안팎을 가리지 않는다.
+        if (submits.isEmpty() || lastInning < 1) {
+            return QuizSubmissionHistoryResponse.of(List.of());
+        }
+
+        // 범위 밖(진행 중인 현재 이닝 등)과 개정 이전의 inning IS NULL 행은 여기서 빠진다 — 목록과
+        // 요약이 같은 모집단을 쓰도록 필터를 한 번만 건다.
+        List<QuizUserSubmit> enumerated = submits.stream()
+                .filter(submit -> submit.getInning() != null
+                        && submit.getInning() >= 1 && submit.getInning() <= lastInning)
+                .toList();
+        List<Long> quizIds = enumerated.stream()
                 .map(submit -> submit.getQuiz().getId())
                 .distinct()
                 .toList();
-        Map<Long, Map<Integer, String>> optionTextByQuizId = quizIds.isEmpty()
+        Map<Long, List<QuizOption>> optionsByQuizId = quizIds.isEmpty()
                 ? Map.of()
                 : quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(quizIds).stream()
-                        .collect(Collectors.groupingBy(option -> option.getQuiz().getId(),
-                                Collectors.toMap(QuizOption::getOption, QuizOption::getContents,
-                                        (first, dup) -> first)));
+                        .collect(Collectors.groupingBy(option -> option.getQuiz().getId()));
+        Map<Long, QuizLikeResponse> likeByQuizId = quizLikeService.likesOf(userAccountId, quizIds);
+        // 이닝 그룹핑은 메모리에서 한다(이닝마다 쿼리를 돌면 이닝 N+1). 조회가 id 오름차순이라
+        // 그룹 안의 순서가 곧 받은 순서다.
+        Map<Integer, List<QuizUserSubmit>> byInning = enumerated.stream()
+                .collect(Collectors.groupingBy(QuizUserSubmit::getInning));
 
-        Page<QuizSubmissionItemResponse> items = submits.map(submit ->
-                QuizSubmissionItemResponse.from(submit,
-                        optionTextByQuizId
-                                .getOrDefault(submit.getQuiz().getId(), Map.of())
-                                .get(submit.getQuiz().getAnswer())));
+        LocalDateTime now = QuizSubmitWindow.now();
+        List<InningResponse> innings = IntStream.rangeClosed(1, lastInning)
+                .mapToObj(inning -> InningResponse.of(inning,
+                        byInning.getOrDefault(inning, List.of()).stream()
+                                .map(submit -> QuizSubmissionItemResponse.from(submit,
+                                        optionsByQuizId.getOrDefault(submit.getQuiz().getId(),
+                                                List.of()),
+                                        // 좋아요 0인 문제는 집계에서 빠져 있을 수 있다 — 0으로 채운다
+                                        likeByQuizId.getOrDefault(submit.getQuiz().getId(),
+                                                QuizLikeResponse.none()),
+                                        // 답한 항목은 시한을 따지지 않는다(항상 false) — 이미 소진했다
+                                        submit.getSubmitOption() == null
+                                                && QuizSubmitWindow.isExpired(
+                                                        submit.getCreatedAt(), now)))
+                                .toList()))
+                .toList();
+        return QuizSubmissionHistoryResponse.of(innings);
+    }
 
-        long total = quizUserSubmitRepository.countByUserAccount_Id(userAccountId);
-        long correctCount = quizUserSubmitRepository.countByUserAccount_IdAndIsAnswerTrue(userAccountId);
-        double accuracy = total == 0 ? 0.0 : (double) correctCount / total;
-        return new QuizSubmissionHistoryResponse(
-                new QuizSubmissionHistoryResponse.Summary(total, correctCount, accuracy),
-                PageResponse.from(items));
+    private int enumeratedLastInning(Game game) {
+        if (IN_PROGRESS.equals(game.getGameStatus().getName())) {
+            Integer currentInning = game.getCurrentInning();
+            return currentInning == null ? 0 : currentInning - 1;
+        }
+        Integer lastInning = game.getLastInning();
+        return lastInning == null ? 0 : lastInning;
     }
 }

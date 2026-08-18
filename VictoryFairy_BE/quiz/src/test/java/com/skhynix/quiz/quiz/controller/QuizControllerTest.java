@@ -3,6 +3,7 @@ package com.skhynix.quiz.quiz.controller;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -14,6 +15,7 @@ import com.skhynix.domain.user.repository.UserAccountRepository;
 import com.skhynix.quiz.global.config.SecurityConfig;
 import com.skhynix.quiz.quiz.dto.QuizDetailResponse;
 import com.skhynix.quiz.quiz.dto.QuizResponse;
+import com.skhynix.quiz.quiz.service.QuizLikeService;
 import com.skhynix.quiz.quiz.service.QuizService;
 import com.skhynix.websupport.error.GlobalExceptionHandler;
 import java.nio.charset.StandardCharsets;
@@ -49,12 +51,16 @@ class QuizControllerTest {
 
     private static final Long USER_ID = 1L;
     private static final LocalDate TODAY = LocalDate.of(2026, 8, 7);
+    private static final String GAME_ID = "20260807HHKT02026";
 
     @Autowired
     private MockMvc mockMvc;
 
     @MockitoBean
     private QuizService quizService;
+
+    @MockitoBean
+    private QuizLikeService quizLikeService;
 
     @MockitoBean
     private UserAccountRepository userAccountRepository;
@@ -76,10 +82,77 @@ class QuizControllerTest {
     }
 
     @Test
-    @DisplayName("인증 사용자가 요청하면 200과 문제 목록을 반환하고, 응답 JSON 어디에도 "
-            + "answer 키가 없다(정답 미노출 계약)")
+    @DisplayName("[AC-INN-110-1,2,3] gameId 파라미터 없이 요청하면 400과 공통 ApiResponse 래퍼로 응답하고 "
+            + "서비스는 호출되지 않는다(필수 파라미터 누락을 기본값으로 흡수하지 않는다)")
+    void getTodayQuizzes_missingGameIdParam_returns400WithApiResponseWrapper() throws Exception {
+        mockMvc.perform(get("/quizzes/today").with(authenticatedAs(USER_ID)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").exists());
+
+        verifyNoInteractions(quizService);
+    }
+
+    @Test
+    @DisplayName("[AC-INN-97-1,97-2,97-3] 서비스가 QUIZ_NOT_SERVABLE을 던지면 403과 그 메시지를 반환한다")
+    void getTodayQuizzes_notServable_returns403() throws Exception {
+        given(quizService.getTodayQuizzes(USER_ID, GAME_ID, false))
+                .willThrow(new BusinessException(ErrorCode.QUIZ_NOT_SERVABLE));
+
+        mockMvc.perform(get("/quizzes/today").param("gameId", GAME_ID)
+                        .with(authenticatedAs(USER_ID)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value(ErrorCode.QUIZ_NOT_SERVABLE.getMessage()));
+    }
+
+    @Test
+    @DisplayName("[AC-INN-97-1,97-2,97-3] 서비스가 QUIZ_ALREADY_SERVED_IN_INNING을 던지면 409와 그 "
+            + "메시지를 반환한다")
+    void getTodayQuizzes_alreadyServedInInning_returns409() throws Exception {
+        given(quizService.getTodayQuizzes(USER_ID, GAME_ID, false))
+                .willThrow(new BusinessException(ErrorCode.QUIZ_ALREADY_SERVED_IN_INNING));
+
+        mockMvc.perform(get("/quizzes/today").param("gameId", GAME_ID)
+                        .with(authenticatedAs(USER_ID)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message")
+                        .value(ErrorCode.QUIZ_ALREADY_SERVED_IN_INNING.getMessage()));
+    }
+
+    @Test
+    @DisplayName("[AC-INN-105-1] gameId 값은 그대로 서비스에 문자열로 전달된다(naver_game_id, 내부 PK "
+            + "아님)")
+    void getTodayQuizzes_gameIdParam_passedToServiceAsIs() throws Exception {
+        given(quizService.getTodayQuizzes(USER_ID, GAME_ID, false)).willReturn(List.of());
+
+        mockMvc.perform(get("/quizzes/today").param("gameId", GAME_ID)
+                        .with(authenticatedAs(USER_ID)))
+                .andExpect(status().isOk());
+
+        verify(quizService).getTodayQuizzes(USER_ID, GAME_ID, false);
+    }
+
+    @Test
+    @DisplayName("[AC-INN-111-1] inning은 요청 파라미터로 받지 않는다 — 알 수 없는 쿼리 파라미터로 "
+            + "보내도 무시되고 200이다(서버가 읽어 채우는 값이라 입력 경로가 없다는 것의 방증)")
+    void getTodayQuizzes_strayInningParam_isIgnored() throws Exception {
+        given(quizService.getTodayQuizzes(USER_ID, GAME_ID, false)).willReturn(List.of());
+
+        mockMvc.perform(get("/quizzes/today").param("gameId", GAME_ID).param("inning", "5")
+                        .with(authenticatedAs(USER_ID)))
+                .andExpect(status().isOk());
+
+        verify(quizService).getTodayQuizzes(USER_ID, GAME_ID, false);
+    }
+
+    @Test
+    @DisplayName("[AC-LIKE-31-1,2] 인증 사용자가 요청하면 200과 문제 목록을 반환하고, 응답 JSON 어디에도 "
+            + "answer·liked·likeCount 키가 없으며 QuizLikeService는 전혀 호출되지 않는다"
+            + "(정답 미노출 계약 + /today 좋아요 집계 비용 없음)")
     void getTodayQuizzes_authenticated_returns200WithoutAnswerKey() throws Exception {
-        given(quizService.getTodayQuizzes(USER_ID, false)).willReturn(List.of(
+        given(quizService.getTodayQuizzes(USER_ID, GAME_ID, false)).willReturn(List.of(
                 new QuizResponse(1L, "객관식", "2025 정규시즌 우승 구단은?", "MEDIUM", 30.0, true,
                         List.of(new QuizResponse.OptionResponse(0, "LG"),
                                 new QuizResponse.OptionResponse(1, "한화"),
@@ -89,7 +162,8 @@ class QuizControllerTest {
                         List.of(new QuizResponse.OptionResponse(0, "O"),
                                 new QuizResponse.OptionResponse(1, "X")))));
 
-        MvcResult result = mockMvc.perform(get("/quizzes/today").with(authenticatedAs(USER_ID)))
+        MvcResult result = mockMvc.perform(get("/quizzes/today").param("gameId", GAME_ID)
+                        .with(authenticatedAs(USER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.length()").value(2))
@@ -107,19 +181,29 @@ class QuizControllerTest {
                 .andExpect(jsonPath("$.data[1].options.length()").value(2))
                 .andExpect(jsonPath("$.data[0].answer").doesNotExist())
                 .andExpect(jsonPath("$.data[1].answer").doesNotExist())
+                .andExpect(jsonPath("$.data[0].liked").doesNotExist())
+                .andExpect(jsonPath("$.data[0].likeCount").doesNotExist())
+                .andExpect(jsonPath("$.data[1].liked").doesNotExist())
+                .andExpect(jsonPath("$.data[1].likeCount").doesNotExist())
+                // [AC-INN-15-1] /today 응답 필드 집합은 이닝 기능 도입 후에도 바뀌지 않는다 — inning 키가 없다
+                .andExpect(jsonPath("$.data[0].inning").doesNotExist())
+                .andExpect(jsonPath("$.data[1].inning").doesNotExist())
                 .andReturn();
 
         // "answer" 라는 문자열 자체가 응답 본문 어디에도 없어야 한다(isAnswer·answerRate 류까지 차단)
         String body = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertThat(body).doesNotContain("answer");
+        // AC-LIKE-31-2: /today 처리 중 QuizLikeService 를 아예 호출하지 않는다(집계 쿼리도 발생 안 함)
+        verifyNoInteractions(quizLikeService);
     }
 
     @Test
     @DisplayName("오늘 출제분이 없으면 200과 빈 배열을 반환한다(404·에러 아님)")
     void getTodayQuizzes_emptyDay_returns200WithEmptyArray() throws Exception {
-        given(quizService.getTodayQuizzes(USER_ID, false)).willReturn(List.of());
+        given(quizService.getTodayQuizzes(USER_ID, GAME_ID, false)).willReturn(List.of());
 
-        mockMvc.perform(get("/quizzes/today").with(authenticatedAs(USER_ID)))
+        mockMvc.perform(get("/quizzes/today").param("gameId", GAME_ID)
+                        .with(authenticatedAs(USER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data").isArray())
                 .andExpect(jsonPath("$.data.length()").value(0))
@@ -129,20 +213,21 @@ class QuizControllerTest {
     @Test
     @DisplayName("preferredOnly=true 쿼리 파라미터가 서비스까지 true로 바인딩된다(기본값은 false)")
     void getTodayQuizzes_preferredOnlyParam_bindsToService() throws Exception {
-        given(quizService.getTodayQuizzes(USER_ID, true)).willReturn(List.of());
+        given(quizService.getTodayQuizzes(USER_ID, GAME_ID, true)).willReturn(List.of());
 
-        mockMvc.perform(get("/quizzes/today").param("preferredOnly", "true")
+        mockMvc.perform(get("/quizzes/today").param("gameId", GAME_ID)
+                        .param("preferredOnly", "true")
                         .with(authenticatedAs(USER_ID)))
                 .andExpect(status().isOk());
 
-        verify(quizService).getTodayQuizzes(USER_ID, true);
+        verify(quizService).getTodayQuizzes(USER_ID, GAME_ID, true);
     }
 
     // ---------- GET /quizzes/{quizId} ----------
 
     @Test
-    @DisplayName("미제출 문제 상세는 200이되, 응답 본문에 \"answer\" 문자열 자체가 없다"
-            + "(NON_NULL 직렬화 — 키가 null 값으로도 실리면 안 된다)")
+    @DisplayName("[AC-LIKE-33-1] 미제출 문제 상세는 200이되, 응답 본문에 \"answer\" 문자열 자체가 없고 "
+            + "liked·likeCount 키도 부재다(NON_NULL 직렬화 — 키가 null 값으로도 실리면 안 된다)")
     void getQuiz_notSubmitted_returns200WithoutAnswerKeyAnywhere() throws Exception {
         given(quizService.getQuiz(USER_ID, 1L)).willReturn(QuizDetailResponseFixture.unsubmitted());
 
@@ -153,10 +238,15 @@ class QuizControllerTest {
                 .andExpect(jsonPath("$.data.type").value("객관식"))
                 .andExpect(jsonPath("$.data.quizDate").value(TODAY.toString()))
                 .andExpect(jsonPath("$.data.submitted").value(false))
+                .andExpect(jsonPath("$.data.expired").value(false))
                 .andExpect(jsonPath("$.data.options.length()").value(2))
                 .andExpect(jsonPath("$.data.myOption").doesNotExist())
                 .andExpect(jsonPath("$.data.correct").doesNotExist())
                 .andExpect(jsonPath("$.data.answer").doesNotExist())
+                .andExpect(jsonPath("$.data.liked").doesNotExist())
+                .andExpect(jsonPath("$.data.likeCount").doesNotExist())
+                // [AC-INN-25-2] 상세 응답도 이닝 기능과 무관 — inning 키가 없다
+                .andExpect(jsonPath("$.data.inning").doesNotExist())
                 .andReturn();
 
         String body = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
@@ -164,16 +254,37 @@ class QuizControllerTest {
     }
 
     @Test
-    @DisplayName("제출한 문제 상세는 myOption·correct·answer를 함께 싣는다")
+    @DisplayName("[AC-LIKE-32-1] 제출한 문제 상세는 myOption·correct·answer·liked·likeCount를 함께 싣는다")
     void getQuiz_submitted_returns200WithAnswerFields() throws Exception {
         given(quizService.getQuiz(USER_ID, 1L)).willReturn(QuizDetailResponseFixture.submitted());
 
         mockMvc.perform(get("/quizzes/1").with(authenticatedAs(USER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.submitted").value(true))
+                .andExpect(jsonPath("$.data.expired").value(false))
                 .andExpect(jsonPath("$.data.myOption").value(1))
                 .andExpect(jsonPath("$.data.correct").value(false))
-                .andExpect(jsonPath("$.data.answer").value(0));
+                .andExpect(jsonPath("$.data.answer").value(0))
+                .andExpect(jsonPath("$.data.liked").value(true))
+                .andExpect(jsonPath("$.data.likeCount").value(5))
+                // [AC-INN-25-2] 제출한 문제 상세도 마찬가지로 inning 키가 없다
+                .andExpect(jsonPath("$.data.inning").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("[AC-INN-79-3] 미답이고 시한이 지난 문제 상세는 submitted=false·expired=true다"
+            + "(제출하면 403이 되는 상태 — FE가 (submitted,expired) 조합으로 읽는 세 상태 중 하나)")
+    void getQuiz_unansweredAndExpired_returns200WithExpiredTrue() throws Exception {
+        given(quizService.getQuiz(USER_ID, 1L))
+                .willReturn(QuizDetailResponseFixture.unsubmittedExpired());
+
+        mockMvc.perform(get("/quizzes/1").with(authenticatedAs(USER_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.submitted").value(false))
+                .andExpect(jsonPath("$.data.expired").value(true))
+                .andExpect(jsonPath("$.data.myOption").doesNotExist())
+                .andExpect(jsonPath("$.data.correct").doesNotExist())
+                .andExpect(jsonPath("$.data.answer").doesNotExist());
     }
 
     @Test
@@ -205,12 +316,17 @@ class QuizControllerTest {
 
         static QuizDetailResponse unsubmitted() {
             return new QuizDetailResponse(1L, "객관식", "2025 정규시즌 우승 구단은?", "MEDIUM",
-                    30.0, TODAY, OPTIONS, false, null, null, null);
+                    30.0, TODAY, OPTIONS, false, false, null, null, null, null, null);
+        }
+
+        static QuizDetailResponse unsubmittedExpired() {
+            return new QuizDetailResponse(1L, "객관식", "2025 정규시즌 우승 구단은?", "MEDIUM",
+                    30.0, TODAY, OPTIONS, false, true, null, null, null, null, null);
         }
 
         static QuizDetailResponse submitted() {
             return new QuizDetailResponse(1L, "객관식", "2025 정규시즌 우승 구단은?", "MEDIUM",
-                    30.0, TODAY, OPTIONS, true, 1, false, 0);
+                    30.0, TODAY, OPTIONS, true, false, 1, false, 0, true, 5L);
         }
     }
 }

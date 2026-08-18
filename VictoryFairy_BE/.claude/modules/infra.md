@@ -1,7 +1,7 @@
 # infra 모듈 (배포 · 인프라)
 
 > 이 파일은 infra/배포 작업 시에만 로드되는 슬림 컨텍스트다.
-> 최종 업데이트: 2026-08-01
+> 최종 업데이트: 2026-08-12
 >
 > **서빙은 EKS다.** EC2+docker-compose 배포 경로는 2026-07-27 폐기됐다 — 대상 인스턴스가 이미
 > 사라져 있었고 워크플로도 실패만 하고 있었다. `deploy.yml`·`docker-compose.prod.yml`·`nginx.conf`를
@@ -70,8 +70,33 @@ AWS Load Balancer Controller + ExternalDNS(`k8s/23-external-dns.yaml`, apex A(AL
 
 **`deploy-eks.yml` 하나뿐이다**(저장소 루트 `.github/workflows/`).
 push(main) + `workflow_dispatch` → 변경 모듈 감지 → Docker 빌드 → ECR push(**커밋 SHA 7자리**, 태그 IMMUTABLE)
-→ `kubectl set image` → 블루-그린 롤아웃(`maxSurge 100%/maxUnavailable 0`) → **실패 시 자동 `rollout undo`**.
+→ 매니페스트(`k8s/20-user-app.yaml`·`21-quiz-app.yaml`) 렌더+치환 검증 → **`kubectl apply -f`**(파일 전체)
+→ 블루-그린 롤아웃(`maxSurge 100%/maxUnavailable 0`) → **실패 시 자동 `rollout undo`**.
 인증은 OIDC AssumeRole(`victoryfairy-dev-github-actions`)이라 액세스 키 시크릿이 없다.
+
+- **매니페스트가 단일 진실 공급원이다.** 종전 `kubectl set image`는 이미지만 갈아끼워 매니페스트에 정의를
+  넣어도 클러스터에 반영되지 않았다(IRSA ServiceAccount를 사람이 손으로 apply+patch 해야 했던 원인).
+  이제 매 배포마다 파일 전체를 apply하므로 Deployment 외 Service·HPA·ServiceAccount까지 함께 수렴한다.
+  **역으로 클러스터에만 손으로 넣어둔 설정은 다음 배포 때 되돌아간다.**
+- 두 Deployment 모두 `replicas`를 두지 않는다 — HPA(user min1/max2, quiz min1/max4)가 레플리카 소유권을
+  갖는다. 넣으면 apply마다 1로 되돌아가 HPA와 싸운다. **되돌리지 말 것.**
+- 워크플로 안에서 렌더/검증(`id: render`, 클러스터 미변경)과 apply+rollout(`id: deploy`)이 **분리된 스텝**이다.
+  `Rollback on failure`는 `steps.deploy.outcome == 'failure'` 조건이라, 합치면 클러스터를 건드리지도 않은
+  실패(매니페스트 누락·치환 실패)에서도 `rollout undo`가 돌아 멀쩡한 파드를 되돌린다. **합치지 말 것.**
+- `rollout undo`는 **Deployment만** 되돌린다. 같은 커밋에서 Service·HPA·SA를 함께 바꿨다면 그 변경은
+  클러스터에 남으므로 직전 커밋 매니페스트를 수동 재apply해야 한다.
+- ⚠ **`VictoryFairy_Infra/k8s/**`만 바꾼 커밋은 이 워크플로를 트리거하지 않는다** — push 경로 필터가
+  `VictoryFairy_BE/**`와 워크플로 자신뿐이다. BE 변경이 뒤따를 때까지 매니페스트만 고쳐서는 반영 안 됨.
+- 로컬 수동 배포 `VictoryFairy_Infra/scripts/deploy-app.sh`도 같은 `sed | kubectl apply -f -` 방식.
+
+## DB 마이그레이션 선행 조건 (수동 적용, `infra/sql/migrate-*.sql`)
+
+**`deploy-eks.yml`엔 SQL 실행 단계가 없다** — 위 CI/CD가 하는 일은 `kubectl apply -f`뿐이라, 마이그레이션은 항상 사람이 devdb·운영 DB에 직접 돌려야 한다. 순서를 지키지 않으면(SQL 나중, 배포 먼저) **앱이 아예 기동하지 못하는 사례가 실제로 있다.**
+
+- ~~**`infra/sql/migrate-reserved-uids-to-uuid.sql`**~~ — 해소(2026-08-18 신설, 같은 날 devdb·운영 DB 양쪽 적용 완료). 예약 계정 2건(SYSTEM · `(알수없음)` 더미 계정)과 구단 공용 채팅방 10건의 `uid`를 손으로 지어낸 순차값(`00000000-0000-0000-0000-00000000000X`)에서 실제 UUID로 바꾸는 12건의 `UPDATE`(id는 안 건드려 자식 참조는 온전, 재실행 시 0행 매칭 no-op).
+  ⚠ 적용은 끝났지만 **왜 순서가 강제였는지는 남긴다**(같은 형태의 시드+부트스트랩 조합이 또 나오면 그대로 재현된다) — 코드를 먼저 배포하고 SQL을 나중에 돌리면 `chat-init.sql`의 멱등성 가드가 새 uid로 `WHERE NOT EXISTS`를 걸게 바뀌는데 DB엔 아직 옛 uid 행만 있어 SYSTEM 계정·구단 채팅방 10건이 **중복 생성**되고, `UnknownAccountBootstrapper`(`ApplicationRunner`라 **기동 경로**에 있다)는 새 uid로 `(알수없음)` 계정을 못 찾아 새로 만들려다 `users.email`/`users.tel` UNIQUE 충돌로 **INSERT가 실패해 앱이 아예 뜨지 않는다.** "SQL 먼저, 배포 나중"이 순서다. 상세는 `.claude/modules/user.md`(`UnknownAccountPolicy`)·`.claude/modules/domain.md`.
+  참고: 채팅방 uid는 SSE 구독 URL 등 외부 노출 식별자라 적용 순간 그 값을 물고 있던 클라이언트 연결이 끊긴다(방 목록을 다시 받으면 새 uid로 복구되나 무중단은 아니다 — 트래픽 적은 시간대 권장). 계정 쪽 uid 2건은 로그인이 성립하지 않는 예약 계정(BCrypt 패턴이 아닌 placeholder 비밀번호)이라 발급된 토큰이 없고, 무효화되는 실사용자 토큰도 없다.
+- ~~**`infra/sql/migrate-quiz-like-account-set-null.sql`**~~ — 해소(2026-08-18, devdb·운영 DB 양쪽 적용 완료). `quizzes_like`의 계정 FK를 `ON DELETE CASCADE`→`SET NULL`로 바꾼다(만료 데이터 정리 스케줄러가 계정을 하드 삭제할 때 추천 수가 조용히 깎이지 않게 하는 선행 조건). 상세는 `.claude/modules/domain.md`.
 
 ## 로컬 개발
 
@@ -81,10 +106,12 @@ push(main) + `workflow_dispatch` → 변경 모듈 감지 → Docker 빌드 → 
   함부로 바꾸면 운영 빌드가 깨진다.
 - ⚠ `docker compose down -v`는 `mysql-data` 볼륨을 지운다. 사용자가 로컬 개발 DB로 쓰고 있다.
 
-## redis (이메일 인증 상태 저장, user 전용)
+## redis
 
-TTL 기반 휘발성 데이터라 영속 볼륨이 필요 없다. `user`에 `SPRING_DATA_REDIS_HOST`/`PORT`가 주입되고
-`quiz`는 redis를 쓰지 않는다.
+`user`: 이메일 인증 상태 저장(TTL 휘발성, 영속 볼륨 불필요). `quiz`: prod 프로파일 실시간 fan-out
+(`RedisPubSubPublisher`, 상세는 `.claude/modules/quiz.md`). ⚠ **`quiz`도 redis를 쓴다**(종전 "quiz는
+안 씀" 서술 정정 — `docker-compose.yml` 확인 결과 `user`·`quiz` 둘 다 `SPRING_DATA_REDIS_HOST`/`PORT`가
+주입되고, 같은 `redis:7.2-alpine` 컨테이너를 공유한다).
 
 ## 이메일 발송 (Mailjet SMTP, user 전용, prod 프로파일)
 
@@ -106,8 +133,9 @@ TTL 기반 휘발성 데이터라 영속 볼륨이 필요 없다. `user`에 `SPR
 - ~~**`game_statuses` 시드 0행**~~ — 해소(2026-08-05). `infra/sql/game-statuses-init.sql`을 `user` 앱이 dev·prod 모두
   기동 시 실행한다(`spring.sql.init`). 배포 전 수동 SQL 불필요. 상세는 `.claude/modules/domain.md`.
 - **CI에 테스트 단계가 없다** — 빌드만 하고 배포한다. 테스트는 32개 있으므로 넣을 명분이 있다.
+- **`deploy-eks.yml`에 concurrency 설정이 없다** — 연속 push 시 두 워크플로 실행이 겹쳐 롤아웃이 경합할 수 있다.
 - **EKS 1.30 연장 지원 과금 구간** — 버전 업그레이드 필요.
-- **`docker-compose.yml`의 `user`/`quiz` `environment:`에 `JWT_SECRET`이 없다**(2026-08-06 실측) — `.env`에 값이 있어도 컨테이너로 전달되지 않고 `application.yaml`의 하드코드 기본값(65바이트, jjwt가 HS512 선택)으로 조용히 폴백한다. 그 결과 로컬 `docker compose --profile prod`에서 발급된 refresh 토큰이 `users_refreshtoken.refreshtoken`(`length=255`)를 넘겨 `POST /auth/login`이 항상 500(`Data too long for column`)이 난다. EKS는 Secret 주입 경로가 달라 이 증상이 있는지 미확인.
+- ~~**`docker-compose.yml`의 `user`/`quiz` `environment:`에 `JWT_SECRET`이 없다**~~ — 해소(#342, 2026-08-11). 두 서비스 모두 `JWT_SECRET: ${JWT_SECRET}`이 주입되며(2026-08-12 재확인), 종전 증상(로컬 `docker compose --profile prod` 로그인이 refresh 토큰 길이 초과로 500)은 재현되지 않는다 — 로그인 200 실측 확인.
 
 ## 미결정 사항
 - [x] 클러스터 방식: **EKS 채택** (managed control plane, `victoryfairy-dev`)

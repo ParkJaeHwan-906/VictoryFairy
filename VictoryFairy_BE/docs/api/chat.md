@@ -3,7 +3,7 @@
 > **도메인** `chat` — 구단별 채팅방, 메시지 전송·히스토리·신고, SSE 실시간 구독.
 > **모듈** quiz (포트 8081) · **경로 접두사** `/rt/chat` · **엔드포인트** 7개
 > **컨트롤러** `quiz/src/main/java/com/skhynix/quiz/chat/controller/ChatController.java` (`@RequestMapping("/chat")` — `/rt`는 context-path가 붙인다) — 현재 quiz 모듈의 유일한 컨트롤러.
-> **최종 갱신** 2026-08-04 — **구단 접근 제어 도입**: 방 목록 `teamId` 필터·403 구단 가드(신규 `CHATROOM_TEAM_MISMATCH`)를 6개 기존 경로에 추가하고, 명시적 퇴장 `DELETE /rooms/{roomUid}/subscribe`를 신설(직전 변경: 2026-08-01 `RoomResponse`에서 `participants` 필드 제거)
+> **최종 갱신** 2026-08-17 — **비밀번호 변경 이전에 발급된 토큰이 이 도메인 7개 엔드포인트 전부에서 401로 거절되게 됨**(user 모듈의 `PATCH /api/users/me/password`, `main` 84f6f4a 머지 완료 — 공유 인증 필터라 chat 쪽 코드 변경 없이 적용됨). 응답·요청 계약은 그 외 불변. (직전: 2026-08-04 **구단 접근 제어 도입**: 방 목록 `teamId` 필터·403 구단 가드(신규 `CHATROOM_TEAM_MISMATCH`)를 6개 기존 경로에 추가하고, 명시적 퇴장 `DELETE /rooms/{roomUid}/subscribe`를 신설(직전 변경: 2026-08-01 `RoomResponse`에서 `participants` 필드 제거))
 > **요구사항** `docs/requirements/quiz/chat.md`(QUIZ-CHAT, 도입 시점 계약) · `docs/requirements/quiz/chat-team-access-control.md`(QUIZ-CTAC-1~29, 이번 변경의 단일 출처)
 > 공통 규약(응답 래퍼·JWT payload·401 정책)은 [README.md](README.md)를 먼저 볼 것.
 
@@ -21,9 +21,11 @@
 
 ## 이 도메인의 특이사항
 
-**7개 전부 인증 필수.** quiz의 `SecurityConfig`는 `/`, `/error`, `GET /health`만 permitAll이고 그 외 `anyRequest().authenticated()`다. user 모듈처럼 GET 한정으로 열린 공개 경로가 없다. 신규 `DELETE .../subscribe`도 이 규칙 그대로 걸린다 — `SecurityConfig` 수정 없이 기존 `anyRequest().authenticated()`에 자연히 포함된다.
+**7개 전부 인증 필수.** quiz의 `SecurityConfig`는 `/`, `/error`, `GET /actuator/health/**`만 permitAll이고 그 외 `anyRequest().authenticated()`다(과거 기록, 정정됨 — 이전 버전 문서는 `GET /health`로 적었으나 그 경로엔 핸들러가 없어 항상 404였다; 이 permitAll 범위 자체는 바뀐 적 없고 표기만 틀려 있었다). user 모듈처럼 GET 한정으로 열린 공개 경로가 없다. 신규 `DELETE .../subscribe`도 이 규칙 그대로 걸린다 — `SecurityConfig` 수정 없이 기존 `anyRequest().authenticated()`에 자연히 포함된다.
 
 **응답 래퍼는 7개 모두 `ApiResponse<T>`이나 SSE 구독(GET)만 예외**로 `SseEmitter`를 반환한다(이벤트 스트림이라 JSON 래핑 대상이 아님).
+
+**비밀번호 변경 이전에 발급된 토큰도 401로 거절된다(2026-08-17부터).** user 모듈과 같은 `JwtAuthenticationFilter`(`web-support` 공유)를 물려받아, `PATCH /api/users/me/password`(user, 8080) 이전에 발급된 access 토큰은 이 도메인 요청에서도 401 `UNAUTHENTICATED`(토큰이 아예 없을 때와 응답 동일)로 거절된다. chat 쪽 코드 변경은 없다 — 자세한 내용은 [README.md](README.md#2-인증-방식-jwt) 참고.
 
 ### 채팅방은 응원 구단 단위 폐쇄 공간이다 (2026-08-04 도입)
 
@@ -172,7 +174,7 @@ curl -i http://localhost:8081/rt/chat/rooms/3f9c2e10-... \
 | 404 | CHATROOM_NOT_FOUND | `roomUid`에 해당하는 활성 방이 없음(스트림을 열지 않는다) |
 | 400 | SUPPORT_TEAM_REQUIRED | 방은 존재하지만 요청자에게 현재 응원 중인 구단이 없음(스트림을 열지 않는다) |
 | 403 | CHATROOM_TEAM_MISMATCH | 방의 구단이 요청자의 응원 구단과 다름(스트림을 열지 않는다). 응답 `Content-Type`이 `text/event-stream`이 아니며 `SseEmitterRegistry`에 등록되지 않는다 |
-| 401 | UNAUTHENTICATED | 인증 헤더 없음/무효(엔트리포인트 단계, 스트림 열기 전) |
+| 401 | UNAUTHENTICATED | 인증 헤더 없음/무효/비밀번호 변경 이전에 발급된 토큰(2026-08-17부터 — 응답 동일, 위 "이 도메인의 특이사항" 참고, 엔트리포인트 단계, 스트림 열기 전) |
 
 **예시(fetch 기반 폴리필 개념 — 실제 라이브러리는 프로젝트마다 다름)**
 ```bash

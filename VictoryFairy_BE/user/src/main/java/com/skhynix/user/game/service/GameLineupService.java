@@ -17,12 +17,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * 경기별 선발 라인업 조회 전용 서비스. 라인업 데이터는 py-collector 가 소유하므로 쓰기 경로는 두지 않는다.
- *
- * <p>{@code GameService} 와 같은 이유로 클래스 레벨 트랜잭션이 필수다 — prod 는 {@code open-in-view: false}
- * 라 트랜잭션 밖에서 LAZY 연관을 건드리면 {@code LazyInitializationException}(500)이 난다.
- */
+// GameService 와 같은 이유로 클래스 레벨 트랜잭션이 필수다 — prod 는 open-in-view: false 라
+// 트랜잭션 밖에서 LAZY 연관을 건드리면 LazyInitializationException(500)이 난다.
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -31,20 +27,7 @@ public class GameLineupService {
     private final GameRepository gameRepository;
     private final GameLineupRepository gameLineupRepository;
 
-    /**
-     * 해당 경기의 선발 라인업을 팀 그룹 배열로 반환한다.
-     *
-     * <p>{@code gameId} 는 내부 PK 가 아니라 {@code Game.naverGameId} 다(경기 목록이 이미 노출하는 유일한
-     * 경기 식별자). 이 해석 때문에 경기 조회는 어차피 1회 필요하고, 그 결과가 비었는지 보는 것이 곧 존재
-     * 검증이라 404 판정에 추가 비용이 없다. 빈/공백 문자열도 일치하는 {@code naver_game_id} 가 없으므로
-     * 별도 분기 없이 같은 404 로 흡수된다.
-     *
-     * <p>경기는 있는데 라인업이 0건인 상태는 오류가 아니다 — KBO 선발은 경기 직전에야 공시되므로 대부분의
-     * 시간이 이 상태다. "없는 경기"(404)와 "아직 공시 전"(200 + 빈 배열)은 프론트가 다르게 처리한다.
-     *
-     * @param gameId {@code Game.naverGameId}
-     * @throws BusinessException 일치하는 경기가 없으면 {@code GAME_NOT_FOUND}(404)
-     */
+    // gameId 는 내부 PK 가 아니라 Game.naverGameId 다 — 내부 PK 를 넘기면 매칭이 안 돼 404 가 난다.
     public List<GameLineupResponse> getLineup(String gameId) {
         Game game = gameRepository.findByNaverGameId(gameId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.GAME_NOT_FOUND));

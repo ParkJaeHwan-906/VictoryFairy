@@ -25,8 +25,7 @@ import org.hibernate.annotations.UpdateTimestamp;
  * <p>{@code option}은 화면에 보여줄 <b>보기 번호</b>다. 정렬·표기의 근거가 행의 생성 순서나 PK가 아니라
  * 이 값이라는 뜻이라, 보기를 다시 만들어도 번호만 유지하면 {@link Quiz#getAnswer()}가 가리키는 정답이
  * 따라 깨지지 않는다. O/X 유형은 {@code 0}(O)/{@code 1}(X) 두 행으로 표현한다 — S3 후보 계약의
- * 보기 순서(A=O→0, B=X→1)를 그대로 따른 것이다. 종전 "0=X, 1=O" 서술은 계약과 반대라 정정했다
- * ({@link Quiz#getAnswer()} javadoc·응답 DTO 와 표기 통일).
+ * 보기 순서(A=O→0, B=X→1)를 그대로 따른 것이다.
  *
  * <p>⚠ 컬럼명 {@code option}은 <b>MySQL 예약어</b>라 백틱으로 감싸야 한다(실측: 백틱 없이
  * {@code CREATE TABLE t (option TINYINT)} 는 ERROR 1064). {@code @Column(name = "`option`")}의 백틱은

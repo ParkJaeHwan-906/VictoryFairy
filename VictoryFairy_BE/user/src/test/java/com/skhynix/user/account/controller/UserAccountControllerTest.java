@@ -11,8 +11,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.skhynix.domain.user.repository.ActiveAccountView;
 import com.skhynix.domain.user.repository.UserAccountRepository;
 import com.skhynix.user.account.service.UserAccountService;
+import com.skhynix.user.account.service.UserProfileEditService;
 import com.skhynix.user.account.service.UserProfileService;
 import com.skhynix.user.global.config.SecurityConfig;
 import com.skhynix.websupport.error.GlobalExceptionHandler;
@@ -53,10 +55,13 @@ class UserAccountControllerTest {
     @MockitoBean
     private UserAccountService userAccountService;
 
-    // 컨트롤러가 GET /me용 UserProfileService도 생성자로 받아, 없으면 컨텍스트 로딩이 실패한다
-    // (이 클래스 테스트는 withdraw만 다뤄 상호작용은 없음).
+    // 컨트롤러가 GET /me용 UserProfileService, 닉네임·비밀번호 수정용 UserProfileEditService도
+    // 생성자로 받아, 없으면 컨텍스트 로딩이 실패한다(이 클래스 테스트는 withdraw만 다뤄 상호작용은 없음).
     @MockitoBean
     private UserProfileService userProfileService;
+
+    @MockitoBean
+    private UserProfileEditService userProfileEditService;
 
     @MockitoBean
     private JwtTokenProvider jwtTokenProvider;
@@ -80,7 +85,8 @@ class UserAccountControllerTest {
         String uid = UUID.randomUUID().toString();
         Long accountId = 1L;
         String token = stubValidAccessToken(uid);
-        given(userAccountRepository.findActiveIdByUid(uid)).willReturn(Optional.of(accountId));
+        given(userAccountRepository.findActiveAuthByUid(uid))
+                .willReturn(Optional.of(new ActiveAccountView(accountId, null)));
 
         // when & then
         mockMvc.perform(delete("/users/me").header("Authorization", "Bearer " + token))
@@ -108,12 +114,12 @@ class UserAccountControllerTest {
     @DisplayName("[USER-WD-6] 탈퇴 전에 발급받은 access 토큰(uid가 더 이상 활성 계정을 가리키지 않음)으로 "
             + "DELETE /users/me를 호출하면 401을 반환하고 서비스는 호출되지 않는다")
     void withdraw_accessTokenIssuedBeforeWithdrawal_isRejectedWith401() throws Exception {
-        // given: 토큰 자체는 유효하지만(만료 전) findActiveIdByUid가 빈 값을 반환한다 —
-        // JwtAuthenticationFilter가 findIdByUid에서 findActiveIdByUid로 대체되며 탈퇴 계정을
+        // given: 토큰 자체는 유효하지만(만료 전) findActiveAuthByUid가 빈 값을 반환한다 —
+        // JwtAuthenticationFilter가 findIdByUid에서 findActiveAuthByUid로 대체되며 탈퇴 계정을
         // "찾지 못함"으로 흡수하는 지점이다.
         String uid = UUID.randomUUID().toString();
         String token = stubValidAccessToken(uid);
-        given(userAccountRepository.findActiveIdByUid(uid)).willReturn(Optional.empty());
+        given(userAccountRepository.findActiveAuthByUid(uid)).willReturn(Optional.empty());
 
         // when & then
         mockMvc.perform(delete("/users/me").header("Authorization", "Bearer " + token))
@@ -133,8 +139,8 @@ class UserAccountControllerTest {
         Long accountId = 1L;
         String token = stubValidAccessToken(uid);
         // 1회차 호출 시점엔 활성 계정이 조회되고, 탈퇴가 반영된 뒤인 2회차엔 더 이상 조회되지 않는다.
-        given(userAccountRepository.findActiveIdByUid(uid))
-                .willReturn(Optional.of(accountId), Optional.empty());
+        given(userAccountRepository.findActiveAuthByUid(uid))
+                .willReturn(Optional.of(new ActiveAccountView(accountId, null)), Optional.empty());
 
         // when & then: 1회차 204
         mockMvc.perform(delete("/users/me").header("Authorization", "Bearer " + token))

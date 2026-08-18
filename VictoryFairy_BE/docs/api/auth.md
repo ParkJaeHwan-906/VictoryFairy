@@ -3,8 +3,8 @@
 > **도메인** `auth` — 회원가입 전 사전 검사, 이메일 소유 확인, 가입, 로그인/토큰 수명 관리.
 > **모듈** user (포트 8080) · **경로 접두사** `/api/auth` · **엔드포인트** 9개
 > **컨트롤러** `user/src/main/java/com/skhynix/user/auth/controller/AuthController.java` (`@RequestMapping("/auth")`)
-> **최종 갱신** 2026-08-04 — `POST /api/auth/signup`에 `users_bq` 행 생성 부수 효과 반영(요청·응답 계약은 변경 없음).
-> 공통 규약(응답 래퍼·JWT payload·401 4종·403 부재)은 [README.md](README.md)를 먼저 볼 것.
+> **최종 갱신** 2026-08-17 — `POST /api/auth/refresh`가 **비밀번호 변경 이전에 발급된 refresh 토큰도 거절**하게 됨(`main` 84f6f4a 머지 완료, PR #425 — 응답은 기존 401 `EXPIRED_REFRESH_TOKEN`과 동일, 신규 코드 없음). (직전: 2026-08-04 `POST /api/auth/signup`에 `users_bq` 행 생성 부수 효과 반영, 요청·응답 계약은 변경 없음.)
+> 공통 규약(응답 래퍼·JWT payload·401 4종·403 부재·**토큰 무효화**)은 [README.md](README.md)를 먼저 볼 것.
 
 ## 엔드포인트 목록
 
@@ -318,7 +318,7 @@ curl -i -X POST http://localhost:8080/api/auth/email/verify \
 ```json
 true
 ```
-참고: `AuthService.signup()`은 생성된 `userAccountId`(Long)를 반환하지만 컨트롤러는 이를 쓰지 않고 항상 `true`만 응답한다. `SignupResponse` DTO(`userAccountId` 필드)는 `AuthController`에 import만 되어 있고 실제로 응답에 쓰이지 않는다(미사용 DTO).
+참고: `AuthService.signup()`은 생성된 `userAccountId`(Long)를 반환하지만 컨트롤러는 이를 받지 않고(`authService.signup(request);`, 반환값 미저장) 항상 `true`만 응답한다. 이 값을 실어 나르던 미사용 DTO `SignupResponse`(`userAccountId` 필드)는 2026-08-13 삭제됐다(#388, 저장소 전체 참조 0건 확인 후 제거) — 애초에 응답에 쓰인 적이 없어 이 삭제로 엔드포인트 계약은 바뀌지 않는다.
 
 **닉네임 정책** (`com.skhynix.user.auth.policy.NicknamePolicy` — 단일 출처, 위 `POST /api/auth/nickname/validate` 절의 정책 단계와 완전히 동일한 규칙·메시지를 공유. **변경 이력: 과거 `@Size(max=100)`만으로 느슨했던 제약이 아래 정책으로 강화됨**)
 
@@ -439,7 +439,7 @@ curl -i -X POST http://localhost:8080/api/auth/login \
 ---
 
 ## POST /api/auth/refresh
-> 최종 변경: 2026-07-27 (추정) — 도메인 분리 이전 이력이 없어 `AuthController` 마지막 커밋 기준
+> 최종 변경: 2026-08-17 — **비밀번호 변경 이전에 발급된 refresh 토큰도 401로 거절**됨(`AuthService.reissue()`가 탈퇴 검사 다음 단계에서 `iat`를 계정의 `passwordChangedEpochSecond`와 대조, 추가 조회 없음). 응답은 기존 `EXPIRED_REFRESH_TOKEN`과 문자 그대로 동일 — 신규 코드·문구 없음. (직전: 2026-07-27 (추정) — 도메인 분리 이전 이력이 없어 `AuthController` 마지막 커밋 기준)
 
 refresh 토큰으로 access/refresh 토큰 쌍을 재발급한다(refresh 토큰도 함께 갱신됨 — rotate).
 
@@ -459,9 +459,11 @@ refresh 토큰으로 access/refresh 토큰 쌍을 재발급한다(refresh 토큰
 |---|---|---|
 | 400 | (검증 실패, ErrorCode 없음) | `refreshToken` 공백 |
 | 401 | INVALID_REFRESH_TOKEN | `tokenProvider.validateToken()` 실패(서명/만료 무효) 또는 `isRefreshToken()`이 false(즉 access 토큰을 넣은 경우) |
-| 401 | EXPIRED_REFRESH_TOKEN | DB에 저장된 토큰 레코드가 없음(`findByRefreshToken` 실패 — 이미 사용/무효화됨) 또는 `expiredAt`이 현재 시각 이전, 또는 **토큰은 유효하지만 그 계정이 탈퇴함**(`account.isWithdrawn()`) |
+| 401 | EXPIRED_REFRESH_TOKEN | DB에 저장된 토큰 레코드가 없음(`findByRefreshToken` 실패 — 이미 사용/무효화됨) 또는 `expiredAt`이 현재 시각 이전, 또는 **토큰은 유효하지만 그 계정이 탈퇴함**(`account.isWithdrawn()`), 또는 **토큰의 `iat`가 그 계정의 마지막 비밀번호 변경 시각보다 앞선 초**(2026-08-17부터, `account.acceptsTokenIssuedAt()`) |
 
 재발급 시에도 계정당 유효 refresh 토큰 1개 정책이 적용되어, 재발급 직전 해당 계정의 기존 유효 토큰이 모두 만료 처리된다(전달받은 토큰 자신 포함). **탈퇴는 탈퇴 즉시 해당 계정의 유효 refresh 토큰을 전부 만료시키므로** 보통은 위 "만료된 토큰" 경로로 먼저 걸리지만, 탈퇴와 로그인이 정확히 동시에 일어나 만료 처리 직후 새 토큰이 발급되는 극히 드문 경우를 대비해 `AuthService.reissue()`가 계정의 `isWithdrawn()`도 별도로 확인한다. 두 경우 모두 같은 `EXPIRED_REFRESH_TOKEN`으로 응답해 계정 상태를 노출하지 않는다.
+
+**비밀번호 변경(2026-08-17부터, [account](account.md#patch-apiusersmepassword)의 `PATCH /api/users/me/password`)도 같은 이유로 검사가 하나 더 붙는다.** 비밀번호 변경은 그 계정의 유효 refresh 토큰을 전량 만료시키므로 대부분 위 만료 검사에 먼저 걸리지만, 옛 비밀번호로 진행 중이던 로그인이 그 만료 처리 직후 새 refresh 행을 INSERT하는 레이스가 있으면 만료 검사를 피해 갈 수 있다 — 탈퇴 레이스 방어와 정확히 같은 종류라 `isWithdrawn()` 검사 바로 다음 줄에서 `account.acceptsTokenIssuedAt(iat)`로 한 번 더 막는다(계정은 이미 로딩돼 있어 추가 조회 없음). `reissue()`는 이제 **만료 → 탈퇴 → `iat` 대조** 3단계를 통과해야 새 토큰을 내준다. 세 사유 모두 같은 `EXPIRED_REFRESH_TOKEN`으로 응답한다 — 계정 상태(탈퇴 여부·최근 비밀번호 변경 여부)를 노출하지 않기 위해서다. 자세한 계약은 [README.md](README.md#2-인증-방식-jwt) 참고.
 
 **예시**
 ```bash
@@ -507,11 +509,11 @@ curl -i -X POST http://localhost:8080/api/auth/logout \
 
 ## 확인 필요 / 코드 미확인
 
-- `SignupResponse` DTO(`userAccountId` 필드)는 코드상 정의되어 있으나 `AuthController.signup()`에서 실제로 사용되지 않는 죽은 코드로 확인됨(import만 존재). `AuthService.signup()`이 반환하는 `userAccountId`도 컨트롤러가 버리고 항상 `true`만 응답한다.
+- (과거 기록, 정정됨) 이전 버전 문서는 `SignupResponse` DTO(`userAccountId` 필드)가 "코드상 정의되어 있으나 미사용"이라고 적었다 — 2026-08-13(#388) `chore(be)` 정리로 그 클래스 파일 자체가 삭제됐다(저장소 전체 참조 0건 확인 후 제거). `AuthService.signup()`이 반환하는 `userAccountId`는 여전히 컨트롤러가 받지 않고 버리며, 응답은 여전히 `ResponseEntity<Boolean>`(항상 `true`)이라 엔드포인트 계약 자체는 이 삭제와 무관하게 불변이다.
 - 가입 성공 응답이 `Boolean`뿐이라 클라이언트는 방금 만든 계정의 식별자를 얻을 수 없다. 이후 `login`으로 토큰을 받아야 하며, 그 토큰의 `sub`(uid)도 응답 body에는 드러나지 않는다([README.md](README.md)의 인증 방식 절 참고).
 - (과거 기록, 정정됨) 이전 버전 문서에는 미인증 응답이 "401이 아니라 403"이라고 적혀 있었다 — `formLogin`/`httpBasic`을 disable하면 커스텀 엔트리포인트가 없는 한 Spring Security 기본값(`Http403ForbiddenEntryPoint`)으로 떨어지기 때문에 나온 실측이었다. 이후 `RestAuthenticationEntryPoint`가 도입되며 401로 고정됐다. 과거 그 문서 기준 코드를 그대로 쓰고 있는 클라이언트가 있다면 401/403 처리 로직을 다시 확인할 것.
 
 ## 관련 문서
 
-- [계정(account)](account.md) — 회원탈퇴, 그리고 `GET /api/users/me`(내 프로필 요약 조회 — signup이 만든 `users_bq` 행의 `bq_score`를 `bqScore`로 노출). 탈퇴가 이 도메인의 login/refresh/signup 응답에 미치는 영향도 정리돼 있다.
-- 요구사항: `docs/requirements/user/email-verification.md`, `docs/requirements/user/nickname-policy.md`, `docs/requirements/user/withdraw.md`, `docs/requirements/user/me-profile.md`(USER-ME-23~25·30 — signup의 `users_bq` 생성 계약)
+- [계정(account)](account.md) — 회원탈퇴, 그리고 `GET /api/users/me`(내 프로필 요약 조회 — signup이 만든 `users_bq` 행의 `bq_score`를 `bqScore`로 노출). 탈퇴가 이 도메인의 login/refresh/signup 응답에 미치는 영향, 그리고 `PATCH /api/users/me/password`가 `POST /api/auth/refresh`의 실패 조건에 미치는 영향(2026-08-17)도 정리돼 있다.
+- 요구사항: `docs/requirements/user/email-verification.md`, `docs/requirements/user/nickname-policy.md`, `docs/requirements/user/withdraw.md`, `docs/requirements/user/me-profile.md`(USER-ME-23~25·30 — signup의 `users_bq` 생성 계약), `docs/requirements/user/access-token-invalidation.md`(USER-ATI-20·22 — `POST /api/auth/refresh`가 비밀번호 변경 이전 `iat`를 거절하는 계약의 출처)

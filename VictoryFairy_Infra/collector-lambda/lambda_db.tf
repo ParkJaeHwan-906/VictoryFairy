@@ -164,33 +164,44 @@ resource "aws_lambda_permission" "registrations" {
   source_arn    = aws_cloudwatch_event_rule.registrations[0].arn
 }
 
-# --- games_sync: 당일 경기 상태 -> games (아침 1회 + 경기 시간대 폴링) ---
+# --- games_sync: 경기 일정·상태 -> games ---
 #
-# records(완료 경기 박스스코어)와 달리 취소·예정·진행 상태를 따라간다. 한 잡에
-# 스케줄이 둘이라 for_each 로 묶었다 — 룰/타깃/권한 3종을 두 벌 복붙하면 한쪽만
-# 고치는 사고가 난다.
+# records(완료 경기 박스스코어)와 달리 취소·예정·진행 상태를 따라간다. 같은 잡을
+# 세 주기로 부르되 훑는 구간이 다르다 — days 가 붙은 룰은 "일정 선적재"(오늘~+N일),
+# 붙지 않은 룰은 "상태 추적"(당일). 룰/타깃/권한 3종을 여러 벌 복붙하면 한쪽만
+# 고치는 사고가 나므로 for_each 로 묶는다.
+#
+# ⚠ days 를 모르는 이미지(핸들러에 games_sync 구간 분기가 없는 버전)로 롤백해도
+#   안전하다 — 모르는 이벤트 키는 무시되어 당일치 동기화로 조용히 내려앉는다.
 locals {
-  games_sync_schedules = local.db_enabled ? {
-    # 당일 SCHEDULED 를 미리 깔아둔다.
-    morning = var.games_sync_morning_schedule
-    # 경기 시간대에 LIVE/종료/취소를 따라간다.
-    live = var.games_sync_live_schedule
+  games_sync_rules = local.db_enabled ? {
+    # 아침에 앞으로의 일정을 미리 깔아둔다(구장 포함).
+    morning = { schedule = var.games_sync_morning_schedule, days = var.games_sync_lookahead_days }
+    # 경기 시간대에 LIVE/종료/취소를 따라간다 — 당일만.
+    live = { schedule = var.games_sync_live_schedule, days = 0 }
+    # 라이브 윈도가 닫힌 직후 일정을 다시 받는다(순연·편성 변경 반영).
+    nightly = { schedule = var.games_sync_nightly_schedule, days = var.games_sync_lookahead_days }
   } : {}
 }
 
 resource "aws_cloudwatch_event_rule" "games_sync" {
-  for_each            = local.games_sync_schedules
+  for_each            = local.games_sync_rules
   name                = "${var.name}-games-sync-${each.key}"
-  description         = "당일(KST) 경기 상태 -> prod MySQL games (${each.key})"
-  schedule_expression = each.value
+  description         = "KBO 경기 일정·상태 -> prod MySQL games (${each.key})"
+  schedule_expression = each.value.schedule
   tags                = var.tags
 }
 
 resource "aws_cloudwatch_event_target" "games_sync" {
-  for_each = aws_cloudwatch_event_rule.games_sync
-  rule     = each.value.name
+  for_each = local.games_sync_rules
+  rule     = aws_cloudwatch_event_rule.games_sync[each.key].name
   arn      = aws_lambda_function.db[0].arn
-  input    = jsonencode({ job = "games_sync" })
+  # days 를 아예 빼야 핸들러의 당일치 기본 경로를 탄다 (days=0 을 실어 보내도 결과는
+  # 같지만, 라이브 룰의 이벤트에 선적재용 키가 보이면 읽는 사람이 오해한다).
+  input = jsonencode(merge(
+    { job = "games_sync" },
+    each.value.days > 0 ? { days = each.value.days } : {},
+  ))
 }
 
 resource "aws_lambda_permission" "games_sync" {
@@ -202,11 +213,53 @@ resource "aws_lambda_permission" "games_sync" {
   source_arn    = each.value.arn
 }
 
+# --- cancel_reasons: KBO 일정표 취소 사유 -> games.cancel_reason (매일 01:00 KST) ---
+#
+# games_sync 가 상태(CANCELED)까지만 알려주는 걸 보완한다 — 네이버는 취소를
+# "경기취소" 로만 주고 사유가 없어서, 이 잡만 KBO 공식 일정표를 긁는다.
+#
+# 시각이 01:00 KST 인 이유: 00:30 의 games_sync(일정 선적재)가 그날 경기 행을
+# 만들어 둔 뒤라야 UPDATE 가 걸릴 행이 있다. 그 전에 돌면 갱신 0건으로 헛돈다.
+#
+# ⚠ cancel_reasons_enabled 기본값이 false 인 이유는 선행 조건이 둘이기 때문이다:
+#   1. games.cancel_reason 컬럼 (dev_be) — 없으면 UPDATE 가 Unknown column 으로
+#      실패한다. 컬럼은 user 앱의 ddl-auto=update 가 기동 시 만든다.
+#   2. 배포 이미지의 handler.py 가 cancel_reasons 잡을 알아야 한다 (dev_ai).
+#      모르는 job 은 예외 없이 빈 summary 만 내고 끝나 실패로도 안 드러난다.
+# 둘 다 확인한 뒤 tfvars 에서 true 로 올린다 — quiz_source_jobs_enabled 와 같은 절차.
+locals {
+  cancel_reasons_enabled = local.db_enabled && var.cancel_reasons_enabled
+}
+
+resource "aws_cloudwatch_event_rule" "cancel_reasons" {
+  count               = local.cancel_reasons_enabled ? 1 : 0
+  name                = "${var.name}-cancel-reasons"
+  description         = "KBO 일정표 취소 사유 -> prod MySQL games.cancel_reason (01:00 KST)"
+  schedule_expression = var.cancel_reasons_schedule
+  tags                = var.tags
+}
+
+resource "aws_cloudwatch_event_target" "cancel_reasons" {
+  count = local.cancel_reasons_enabled ? 1 : 0
+  rule  = aws_cloudwatch_event_rule.cancel_reasons[0].name
+  arn   = aws_lambda_function.db[0].arn
+  # months 를 주지 않으면 잡이 KST 오늘 기준으로 고른다(그 달 + 사흘 전의 달).
+  input = jsonencode({ job = "cancel_reasons" })
+}
+
+resource "aws_lambda_permission" "cancel_reasons" {
+  count         = local.cancel_reasons_enabled ? 1 : 0
+  statement_id  = "AllowEventBridgeCancelReasons"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.db[0].function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.cancel_reasons[0].arn
+}
+
 # --- export(game_result): games/game_lineups -> S3 question-source/ (매일 04:00 KST) ---
 #
 # records(03:30) 가 그날 경기를 적재한 뒤라야 의미가 있어 그 다음에 둔다. S3 에 쓰는
 # 잡이지만 원본이 MySQL 이라 -db 함수 소관이다(위 environment 주석의 IAM 근거 참고).
-# quiz_source_jobs_enabled 게이트 이유는 schedules.tf 의 같은 이름 변수 주석 참고.
 resource "aws_cloudwatch_event_rule" "export_game_result" {
   count               = local.db_enabled && var.quiz_source_jobs_enabled ? 1 : 0
   name                = "${var.name}-export-game-result"
@@ -233,9 +286,7 @@ resource "aws_lambda_permission" "export_game_result" {
 
 # --- export(player_profile): players -> S3 envelope (매일 11:30 KST, registrations 11:00 이후) ---
 # 퀴즈 루틴은 question-source/player_profile/ 의 "가장 최신 파티션 하나"만 읽는다
-# (question-gen/ROUTINE.md). 이 export 를 도는 스케줄이 그동안 아예 없어서 파티션이
-# 사람이 손으로 넣은 날짜에 멈춰 있었다 — 2026-08-07 실측 시점 최신이 2026-08-01
-# 이었고 그마저 8/6 에 수동 적재된 것이었다.
+# (question-gen/ROUTINE.md).
 resource "aws_cloudwatch_event_rule" "export_player_profile" {
   count               = local.db_enabled && var.quiz_source_jobs_enabled ? 1 : 0
   name                = "${var.name}-export-player-profile"

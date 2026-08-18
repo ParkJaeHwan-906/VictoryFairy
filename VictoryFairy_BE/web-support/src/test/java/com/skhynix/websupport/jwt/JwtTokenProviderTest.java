@@ -4,11 +4,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.jsonwebtoken.JwtException;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.Map;
 import java.util.UUID;
+import javax.crypto.SecretKey;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
@@ -147,6 +151,49 @@ class JwtTokenProviderTest {
         // then
         assertThat(expiration).isAfter(LocalDateTime.now());
         assertThat(expiration).isBefore(LocalDateTime.now().plusHours(4));
+    }
+
+    // ---------- getIssuedAtEpochSecond (USER-ATI-8, 14, 21) ----------
+
+    @Test
+    @DisplayName("[USER-ATI-14] access 토큰의 getIssuedAtEpochSecond()는 payload의 iat(초 단위 NumericDate) "
+            + "값과 정확히 일치한다 — createToken이 이미 issuedAt을 싣고 있어 claim 집합을 바꾸지 않는다")
+    void getIssuedAtEpochSecond_matchesIatClaimInPayload() throws Exception {
+        // given
+        String uid = UUID.randomUUID().toString();
+
+        // when
+        String token = tokenProvider.createAccessToken(uid);
+        long issuedAtEpochSecond = tokenProvider.getIssuedAtEpochSecond(token);
+        Map<String, Object> payload = decodePayload(token);
+
+        // then: JJWT의 iat claim은 초 단위 epoch(long)로 직렬화된다
+        assertThat(issuedAtEpochSecond).isEqualTo(((Number) payload.get("iat")).longValue());
+        // 실측 시각과도 몇 초 오차 이내로 일치해야 한다(플레이키 방지를 위한 느슨한 허용 범위)
+        assertThat(issuedAtEpochSecond)
+                .isCloseTo(Instant.now().getEpochSecond(), org.assertj.core.data.Offset.offset(5L));
+    }
+
+    @Test
+    @DisplayName("[USER-ATI-21 관련 fail-closed] iat claim이 없는(그러나 서명은 유효한) 토큰이면 "
+            + "getIssuedAtEpochSecond()는 Long.MIN_VALUE를 반환한다 — \"가장 오래된 토큰\"으로 취급해 "
+            + "무효화 대조에서 항상 거절되게 하는 fail-closed 동작이다")
+    void getIssuedAtEpochSecond_missingIatClaim_returnsLongMinValue() {
+        // given: JwtTokenProvider의 createToken을 거치지 않고 같은 시크릿으로 iat 없는 토큰을 직접 만든다
+        SecretKey key = Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8));
+        String tokenWithoutIat = Jwts.builder()
+                .id(UUID.randomUUID().toString())
+                .subject(UUID.randomUUID().toString())
+                .claim("type", "access")
+                .expiration(new java.util.Date(System.currentTimeMillis() + ACCESS_VALIDITY_MS))
+                .signWith(key)
+                .compact();
+
+        // sanity check: 서명은 유효하되 iat만 빠졌다는 전제
+        assertThat(tokenProvider.validateToken(tokenWithoutIat)).isTrue();
+
+        // when & then
+        assertThat(tokenProvider.getIssuedAtEpochSecond(tokenWithoutIat)).isEqualTo(Long.MIN_VALUE);
     }
 
     @SuppressWarnings("unchecked")

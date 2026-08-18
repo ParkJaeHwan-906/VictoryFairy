@@ -2,6 +2,8 @@ package com.skhynix.quiz.quiz.service;
 
 import com.skhynix.common.error.BusinessException;
 import com.skhynix.common.error.ErrorCode;
+import com.skhynix.domain.game.entity.Game;
+import com.skhynix.domain.game.repository.GameRepository;
 import com.skhynix.domain.quiz.entity.Quiz;
 import com.skhynix.domain.quiz.entity.QuizOption;
 import com.skhynix.domain.quiz.repository.QuizOptionRepository;
@@ -13,81 +15,96 @@ import com.skhynix.quiz.quiz.dto.QuizDetailResponse;
 import com.skhynix.quiz.quiz.dto.QuizResponse;
 import java.time.Clock;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import lombok.RequiredArgsConstructor;
 
-/**
- * 퀴즈 조회. '오늘'은 KST 다({@code kstClock} — 파드 JVM 은 UTC 라 기본 클록이면 자정~09시에
- * 하루가 어긋난다).
- *
- * <p>보기는 {@code quiz_id IN (...)} 한 방으로 받아 메모리에서 묶는 <b>2쿼리 방식</b>이다 —
- * 문제마다 단건 조회하면 N+1 이고, {@code Quiz}에 {@code @OneToMany options}가 없어
- * {@code @EntityGraph}로는 못 막는다({@code QuizOptionRepository} javadoc 의 지시).
- *
- * <p><b>선호(preferred) 판정은 SQL 이 아니라 메모리에서 한다</b> — 세트가 하루 최대 십수 건이라
- * 전체를 이미 다 읽는데, 응원팀·응원선수 조건을 쿼리에 넣으면 "선호 먼저" 정렬을 위해 결국
- * 두 번 읽거나 CASE 정렬이 필요해진다. 대상 FK 는 목록 {@code @EntityGraph}가 함께 실어 와
- * id 비교에 LAZY 초기화가 없다.
- */
 @Service
-@RequiredArgsConstructor
 public class QuizService {
+
+    // ⚠ 경기 상태 판정은 game_statuses 의 id 가 아니라 이 name 문자열로 한다. id 는 py-collector 가
+    //   만난 순서대로 부여돼 환경마다 다를 수 있어(infra/sql/game-statuses-init.sql), 리터럴 4 를
+    //   코드에 박으면 다른 환경에서 조용히 틀린다.
+    private static final String IN_PROGRESS = "IN_PROGRESS";
 
     private final QuizRepository quizRepository;
     private final QuizOptionRepository quizOptionRepository;
     private final UserSupportTeamRepository userSupportTeamRepository;
     private final UserSupportPlayerRepository userSupportPlayerRepository;
     private final QuizUserSubmitRepository quizUserSubmitRepository;
+    private final GameRepository gameRepository;
+    private final QuizLikeService quizLikeService;
     private final Clock clock;
+    private final int maxTodayCount;
 
-    /**
-     * 오늘(KST) 세트를 선호 먼저(그 안에서는 id ASC) 정렬해 반환한다. 선호 = 내 응원팀이 문제의
-     * 대상·상대 구단이거나, 문제의 대상 선수가 내 응원 선수인 것.
-     *
-     * <p><b>이미 푼 문제는 노출하지 않는다(정책)</b> — 재제출은 어차피 409지만, 목록에 남겨두는
-     * 것 자체가 정책 위반이라 서버가 거른다. 선호 조회보다 먼저 거르는 이유: 다 푼 사용자는 응원
-     * 정보 조회 없이 빈 배열로 끝난다. 그래서 빈 배열은 "오늘 세트 없음"과 "오늘 다 품" 두 경우를
-     * 모두 뜻한다 — 구분이 필요하면 풀이 이력 API 가 담당한다.
-     *
-     * <p>{@code preferredOnly=true}는 선호 문제만 남긴다. 단 <b>응원팀도 응원 선수도 없으면 필터
-     * 기준 자체가 없으므로 전체를 반환</b>한다(no-op) — 빈 배열을 주면 위의 두 경우와 구분이
-     * 안 되는데, 실제로는 취향을 아직 안 정했을 뿐이다.
-     */
-    @Transactional(readOnly = true)
-    public List<QuizResponse> getTodayQuizzes(Long userAccountId, boolean preferredOnly) {
+    public QuizService(QuizRepository quizRepository, QuizOptionRepository quizOptionRepository,
+            UserSupportTeamRepository userSupportTeamRepository,
+            UserSupportPlayerRepository userSupportPlayerRepository,
+            QuizUserSubmitRepository quizUserSubmitRepository, GameRepository gameRepository,
+            QuizLikeService quizLikeService,
+            Clock clock, @Value("${quiz.serve.max-today-count:20}") int maxTodayCount) {
+        this.quizRepository = quizRepository;
+        this.quizOptionRepository = quizOptionRepository;
+        this.userSupportTeamRepository = userSupportTeamRepository;
+        this.userSupportPlayerRepository = userSupportPlayerRepository;
+        this.quizUserSubmitRepository = quizUserSubmitRepository;
+        this.gameRepository = gameRepository;
+        this.quizLikeService = quizLikeService;
+        this.clock = clock;
+        this.maxTodayCount = maxTodayCount;
+    }
+
+    @Transactional
+    public List<QuizResponse> getTodayQuizzes(Long userAccountId, String gameId,
+            boolean preferredOnly) {
+        // 응원 구단은 이제 "경기를 찾는 근거"가 아니라 "넘어온 경기를 검증하는 기준"이다. 조회는
+        // 요청당 1회이고, 아래 선호 판정도 이 값을 그대로 재사용한다.
+        Long supportTeamId = userSupportTeamRepository
+                .findWithTeamByUserAccount_IdAndOpposeIsNull(userAccountId)
+                .map(supportTeam -> supportTeam.getTeam().getId())
+                .orElse(null);
+        Game game = servableGame(gameId, supportTeamId);
+        int inning = servableInning(game);
+        // 한 이닝에 한 세트. 판정 키에 경기가 들어 있어 날짜 조건이 필요 없다(어제 9회는 game_id 가
+        // 달라 오늘 9회를 막지 않는다). 다 풀었든 안 풀었든 "그 이닝에 받았다"는 사실은 같다.
+        if (quizUserSubmitRepository.existsByUserAccount_IdAndGame_IdAndInning(
+                userAccountId, game.getId(), inning)) {
+            throw new BusinessException(ErrorCode.QUIZ_ALREADY_SERVED_IN_INNING);
+        }
+
         List<Quiz> published = quizRepository.findAllByQuizDateOrderByIdAsc(LocalDate.now(clock));
         if (published.isEmpty()) {
             return List.of();
         }
-
-        Set<Long> submittedIds = Set.copyOf(quizUserSubmitRepository.findSubmittedQuizIds(
+        // 행이 있는 문제는 전부 제외한다 — 답 여부도 시한도 보지 않으므로 판정이 조회 시각에
+        // 의존하지 않는다. 남은 문제는 정의상 행이 없으니 이 결과가 곧 INSERT 대상이기도 하다.
+        Set<Long> servedIds = new HashSet<>(quizUserSubmitRepository.findServedQuizIds(
                 userAccountId, published.stream().map(Quiz::getId).toList()));
         List<Quiz> quizzes = published.stream()
-                .filter(quiz -> !submittedIds.contains(quiz.getId()))
+                .filter(quiz -> !servedIds.contains(quiz.getId()))
                 .toList();
         if (quizzes.isEmpty()) {
             return List.of();
         }
 
-        Long supportTeamId = userSupportTeamRepository
-                .findWithTeamByUserAccount_IdAndOpposeIsNull(userAccountId)
-                .map(supportTeam -> supportTeam.getTeam().getId())
-                .orElse(null);
         Set<Long> supportPlayerIds = userSupportPlayerRepository
                 .findAllActiveWithPlayerAndTeam(userAccountId).stream()
                 .map(supportPlayer -> supportPlayer.getPlayer().getId())
                 .collect(Collectors.toSet());
         boolean hasPreference = supportTeamId != null || !supportPlayerIds.isEmpty();
 
-        // 리포지토리가 id ASC 로 주므로 안정 정렬(sorted)이 그룹 내 순서를 그대로 보존한다
         List<Quiz> ordered = quizzes.stream()
-                .sorted(Comparator.comparing(quiz -> !isPreferred(quiz, supportTeamId, supportPlayerIds)))
+                .sorted(Comparator
+                        .comparing((Quiz quiz) -> !isPreferred(quiz, supportTeamId, supportPlayerIds))
+                        .thenComparingLong(quiz -> shuffleKey(userAccountId, quiz.getId()))
+                        .thenComparing(Quiz::getId))
                 .filter(quiz -> !preferredOnly || !hasPreference
                         || isPreferred(quiz, supportTeamId, supportPlayerIds))
                 .toList();
@@ -95,36 +112,88 @@ public class QuizService {
             return List.of();
         }
 
-        List<Long> quizIds = ordered.stream().map(Quiz::getId).toList();
+        // 상한은 정렬·필터가 모두 끝난 목록을 앞에서 자르는 연산이다 — 그래야 "선호 먼저 + 사용자별
+        // 고정 랜덤"이 그대로 유지되고, 같은 사용자·같은 세트라면 매번 같은 문제가 잘려 나간다.
+        // 먼저 자르면 정렬 대상이 달라져 부분집합 안정성이 깨진다.
+        List<Quiz> served = ordered.size() > maxTodayCount
+                ? List.copyOf(ordered.subList(0, maxTodayCount))
+                : ordered;
+
+        List<Long> quizIds = served.stream().map(Quiz::getId).toList();
+        // 실을 문제는 전부 행이 없는 것들이라(위 제외 필터) 차집합을 다시 구할 필요가 없다. 왕복은
+        // 문제 수와 무관하게 1회이고, 동시 요청이 같은 행을 만들려 해도 UNIQUE 가 중재해 기존 행의
+        // created_at·inning 은 덮이지 않는다(시한이 뒤로 밀리지 않는다).
+        // ⚠ servedAt 기준은 kstClock 이 아니다 — 비교 대상 created_at 이 JVM 기본 존으로 찍히므로
+        //   시한 판정도 같은 존을 써야 한다(QuizSubmitWindow javadoc). kstClock 은 위 quiz_date 조회와
+        //   '오늘 경기' 판정처럼 "며칠인가"에만 쓴다.
+        quizUserSubmitRepository.insertUnansweredRows(userAccountId, quizIds, game.getId(), inning,
+                QuizSubmitWindow.now());
+
         Map<Long, List<QuizOption>> optionsByQuizId = quizOptionRepository
                 .findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(quizIds).stream()
                 .collect(Collectors.groupingBy(option -> option.getQuiz().getId()));
-        return ordered.stream()
+        return served.stream()
                 .map(quiz -> QuizResponse.of(quiz,
                         optionsByQuizId.getOrDefault(quiz.getId(), List.of()),
                         isPreferred(quiz, supportTeamId, supportPlayerIds)))
                 .toList();
     }
 
-    /**
-     * 단건 상세. <b>미편성 풀({@code quizDate == null}) 문제는 미존재와 똑같이 404</b>다 — 편성 전
-     * 문제의 존재가 새어 나가면 id 순회로 내일 이후 출제분을 미리 볼 수 있게 된다.
-     *
-     * <p>내가 이미 제출한 문제면 내 선택·정오·정답을 함께 싣는다(복기 화면). 미제출이면 세 필드는
-     * 응답 본문에서 <b>키 자체가 빠진다</b>({@link QuizDetailResponse} — 정답 유출 방지).
-     */
+    private Game servableGame(String naverGameId, Long supportTeamId) {
+        Game game = gameRepository.findWithStatusByNaverGameId(naverGameId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.QUIZ_NOT_SERVABLE));
+
+        LocalDateTime todayStart = LocalDate.now(clock).atStartOfDay();
+        LocalDateTime gameDate = game.getGameDate();
+        if (gameDate.isBefore(todayStart) || !gameDate.isBefore(todayStart.plusDays(1))) {
+            throw new BusinessException(ErrorCode.QUIZ_NOT_SERVABLE);
+        }
+        if (supportTeamId == null
+                || (!supportTeamId.equals(game.getHomeTeam().getId())
+                        && !supportTeamId.equals(game.getAwayTeam().getId()))) {
+            throw new BusinessException(ErrorCode.QUIZ_NOT_SERVABLE);
+        }
+        // 상태는 이름으로 판정한다(위 IN_PROGRESS 상수 주석). 취소 경기도 여기서 함께 걸리므로
+        // cancel_reason 을 읽는 별도 분기를 만들지 않는다.
+        if (!IN_PROGRESS.equals(game.getGameStatus().getName())) {
+            throw new BusinessException(ErrorCode.QUIZ_NOT_SERVABLE);
+        }
+        return game;
+    }
+
+    private int servableInning(Game game) {
+        Integer inning = game.getCurrentInning();
+        if (inning == null) {
+            throw new BusinessException(ErrorCode.QUIZ_NOT_SERVABLE);
+        }
+        return inning;
+    }
+
     @Transactional(readOnly = true)
     public QuizDetailResponse getQuiz(Long userAccountId, Long quizId) {
         Quiz quiz = quizRepository.findById(quizId)
                 .filter(found -> found.getQuizDate() != null)
                 .orElseThrow(() -> new BusinessException(ErrorCode.QUIZ_NOT_FOUND));
         List<QuizOption> options = quizOptionRepository.findAllByQuiz_IdOrderByOptionAsc(quizId);
+        LocalDateTime now = QuizSubmitWindow.now();
         return quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(userAccountId, quizId)
-                .map(submit -> QuizDetailResponse.submitted(quiz, options, submit))
-                .orElseGet(() -> QuizDetailResponse.unsubmitted(quiz, options));
+                .map(submit -> submit.getSubmitOption() == null
+                        ? QuizDetailResponse.unsubmitted(quiz, options,
+                                QuizSubmitWindow.isExpired(submit.getCreatedAt(), now))
+                        : QuizDetailResponse.submitted(quiz, options, submit,
+                                quizLikeService.likeOf(userAccountId, quizId)))
+                // 행이 아예 없으면(받은 적 없음) 진행 중과 같은 모양이다 — "지금 풀 수 있는가"는
+                // 이 응답이 아니라 /today 목록이 답한다
+                .orElseGet(() -> QuizDetailResponse.unsubmitted(quiz, options, false));
     }
 
-    /** 응원팀이 문제의 대상·상대 구단이거나 대상 선수가 내 응원 선수면 선호 문제다. */
+    private static long shuffleKey(long userAccountId, long quizId) {
+        long mixed = userAccountId * 0x9E3779B97F4A7C15L + quizId;
+        mixed = (mixed ^ (mixed >>> 30)) * 0xBF58476D1CE4E5B9L;
+        mixed = (mixed ^ (mixed >>> 27)) * 0x94D049BB133111EBL;
+        return mixed ^ (mixed >>> 31);
+    }
+
     private boolean isPreferred(Quiz quiz, Long supportTeamId, Set<Long> supportPlayerIds) {
         if (supportTeamId != null
                 && ((quiz.getTeam() != null && supportTeamId.equals(quiz.getTeam().getId()))

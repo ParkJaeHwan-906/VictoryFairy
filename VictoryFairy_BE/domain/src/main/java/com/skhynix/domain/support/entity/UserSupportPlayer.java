@@ -25,8 +25,6 @@ import org.hibernate.annotations.UpdateTimestamp;
 /**
  * 사용자가 특정 선수를 응원한다는 사실을 나타내는 엔티티. 구조는 {@link UserSupportTeam}과 같고 대상만
  * 구단 대신 선수다(단수형 테이블명 예외, oppose 토글 설계, UNIQUE에 oppose 미포함 이유 모두 동일).
- *
- * <p>구단과 달리 선수는 복수 응원을 허용하고 상한도 없다 — 리포지토리가 {@code List}를 반환하는 이유다.
  */
 @Entity
 @Table(name = "user_support_player", uniqueConstraints = {

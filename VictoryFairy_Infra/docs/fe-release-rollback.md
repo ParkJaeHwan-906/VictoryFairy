@@ -20,7 +20,8 @@ aws s3 ls s3://$B/releases/
 aws s3 cp s3://$B/releases/20260807T120000Z-aecc7b1/index.html s3://$B/index.html
 
 # 3) 확인 — 번들 파일명이 바뀌었는지 본다
-curl -s https://victoryfairy.com/ | grep -o 'assets/index-[A-Za-z0-9]*\.js'
+# 해시 문자 클래스에 '_' 와 '-' 가 있어야 한다 — Vite 해시는 base64url 이다.
+curl -s https://victoryfairy.com/ | grep -o 'assets/index-[A-Za-z0-9_-]*\.js'
 ```
 
 `index.html` 은 엣지 TTL 이 0 이라 **즉시 반영**된다. 무효화가 필요 없다.

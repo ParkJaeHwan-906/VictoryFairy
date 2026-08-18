@@ -1,10 +1,15 @@
 spring:
   datasource:
-    # ⚠ serverTimezone(=connectionTimeZone) 을 다시 넣지 말 것. MySQL 서버는 실제로 UTC 로 도는데
-    #   Asia/Seoul 로 선언하면 preserveInstants 기본값(true) 탓에 드라이버가 DATETIME 을 KST 로
-    #   해석했다가 JVM 기본 TZ 로 변환한다 — 파드는 TZ 미설정(UTC)이라 game_date 18:30 이 09:30 으로
-    #   9시간 밀려 나갔다(로컬 JVM 은 KST 라 변환이 no-op 이 되어 재현되지 않는다).
-    #   preserveInstants=false 는 벽시계 값을 변환 없이 주고받게 해 로컬과 파드를 같게 만든다.
+    # ⚠ serverTimezone(=connectionTimeZone) 을 다시 넣지 말 것. preserveInstants 기본값(true) 이면
+    #   드라이버가 DATETIME 을 선언한 존으로 해석했다가 JVM 기본 존으로 변환한다. 과거엔 이 옵션을
+    #   Asia/Seoul 로 선언했는데 MySQL 서버는 UTC, 파드도 TZ 미설정(UTC)이라 game_date 18:30 이
+    #   09:30 으로 9시간 밀려 나갔다(로컬 JVM 은 KST 라 변환이 no-op 이 되어 재현되지 않았다).
+    #   preserveInstants=false 는 이 변환 자체를 꺼서 벽시계 값을 그대로 주고받는다 — 파드 TZ 와
+    #   MySQL 서버 TZ 를 둘 다 Asia/Seoul 로 맞추는 지금도, 둘 중 하나라도 다시 어긋나면(설정 누락·
+    #   되돌림) serverTimezone 을 켰을 때와 같은 사고가 재발하므로, 그 의존 자체를 없애는 이 옵션을
+    #   그대로 둔다.
+    #   과거에 저장된 값은 infra/sql/migrate-timestamps-utc-to-kst.sql 로 한 번 UTC 벽시계 →
+    #   KST 벽시계로 옮긴다(파드·MySQL 서버 TZ 전환과 같은 점검 창에서 도는 1회성 스크립트).
     url: jdbc:mysql://${DB_HOST}:${DB_PORT}/${DB_NAME}?preserveInstants=false&characterEncoding=UTF-8
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}

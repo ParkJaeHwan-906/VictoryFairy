@@ -12,6 +12,12 @@ def relay_url(settings, game_id: str, inning: int) -> str:
     )
 
 
+def preview_url(settings, game_id: str) -> str:
+    return settings.preview_url_template.format(
+        base=settings.naver_base_url, gameId=game_id
+    )
+
+
 def extract_game_ids(schedule_json: dict) -> list[str]:
     """gameIds of finished, non-cancelled KBO first-team games.
 
@@ -31,8 +37,7 @@ def relay_is_empty(relay_json: dict) -> bool:
     """True when this inning is out of the game's range (no at-bats).
 
     Heuristic: empty when `result` is falsy or `result.textRelayData.textRelays`
-    is absent/empty. VERIFY this path against a live capture in the notebook
-    smoke test (Task 15) and adjust if Naver's schema differs.
+    is absent/empty.
     """
     result = relay_json.get("result")
     if not result:

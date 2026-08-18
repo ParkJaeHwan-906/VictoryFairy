@@ -3,10 +3,12 @@
 --
 -- 대상: `quizzes` 4개 테이블이 **이미 만들어져 있는** 환경만. 실측으로 dev·prod 둘 다다:
 --   - dev(52.78.153.242): 2026-08-07 실측 — 4개 테이블 존재·전부 0행.
---   - prod: 2026-08-08 실측 — 이 파일 실행이 external_id 부재로 실패했다 = 구 스키마
---     테이블이 존재한다. #187(퀴즈 도메인 엔티티)이 main 에 포함돼 있어 prod user 앱
---     기동이 구모양 테이블을 이미 만들어 둔 것. "prod 는 테이블이 없어 재기동만으로
---     생성된다"는 종전 전제는 틀렸다.
+--   - prod: **2026-08-10 실측 — 이 파일의 Step 2~5 는 이미 전부 반영돼 있다.** 6개 컬럼·FK 2개·
+--     idx_quizzes_quiz_date·uk_quizzes_external_id·uk_quiz_users_submit_account_quiz 모두 존재하고
+--     구 idx_quiz_users_submit_account_quiz 는 제거돼 있다. 그래서 지금 prod 에서 이 파일을 돌리면
+--     Step 2 가 `Duplicate column name 'external_id'` 로 죽는다 — **고장이 아니라 "이미 적용됨"의
+--     신호다.** prod 에 남아 있던 갭은 quiz_date 의 NOT NULL 뿐이었고 migrate-quiz-serve.sql 로
+--     해소했다. (2026-08-08 에 external_id 부재로 실패했다는 종전 기록은 그 사이 해소되어 낡았다.)
 --   - 진짜 신규 환경(테이블 생성 전)만 이 파일이 불필요하다 — 엔티티 선언대로 Hibernate 가
 --     컬럼·UNIQUE·FK 를 전부 갖춰 만든다.
 --   (0행인 환경은 4개 테이블을 DROP 하고 user 앱을 재기동해 재생성하는 지름길도 동등하게

@@ -2,7 +2,11 @@ package com.skhynix.domain.quiz.entity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.skhynix.domain.game.entity.Game;
+import com.skhynix.domain.game.entity.GameStatus;
+import com.skhynix.domain.team.entity.Team;
 import com.skhynix.domain.user.entity.UserAccount;
+import java.time.LocalDateTime;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -67,5 +71,98 @@ class QuizUserSubmitTest {
         // then: 엔티티가 재계산하지 않으므로 저장된 판정이 유지된다
         assertThat(submit.getSubmitOption().getOption()).isNotEqualTo(quiz.getAnswer());
         assertThat(submit.isAnswer()).isTrue();
+    }
+
+    @Test
+    @DisplayName("Builder로 inning을 지정하면 그 값이 그대로 배선된다(QUIZ-INN-1 — 제출한 이닝은 이 "
+            + "컬럼 하나에만 보관)")
+    void builder_wiresInningField() {
+        // given
+        Quiz quiz = newQuiz();
+        QuizOption option = QuizOption.builder().quiz(quiz).contents("2번 보기").option(2).build();
+
+        // when
+        QuizUserSubmit submit = QuizUserSubmit.builder()
+                .userAccount(newUserAccount("응시자3"))
+                .quiz(quiz)
+                .submitOption(option)
+                .isAnswer(true)
+                .inning(6)
+                .build();
+
+        // then
+        assertThat(submit.getInning()).isEqualTo(6);
+    }
+
+    @Test
+    @DisplayName("inning을 지정하지 않으면 null로 남는다(QUIZ-INN-2 — 통계용이라 누락 허용, score "
+            + "미지정 시 null인 Quiz와 같은 계열이며 0 등으로 보정되지 않는다)")
+    void inning_isNullWhenNotGiven() {
+        // given
+        Quiz quiz = newQuiz();
+        QuizOption option = QuizOption.builder().quiz(quiz).contents("2번 보기").option(2).build();
+
+        // when
+        QuizUserSubmit submit = QuizUserSubmit.builder()
+                .userAccount(newUserAccount("응시자4"))
+                .quiz(quiz)
+                .submitOption(option)
+                .isAnswer(true)
+                .build();
+
+        // then
+        assertThat(submit.getInning()).isNull();
+    }
+
+    @Test
+    @DisplayName("Builder로 game을 지정하면 그 인스턴스가 그대로 배선된다(QUIZ-INN-103 — \"그 행을 받은 "
+            + "경기\", quizzes.game_id와는 뜻이 다른 별개 FK)")
+    void builder_wiresGameField() {
+        // given
+        Team home = Team.builder().code("HH").name("한화").build();
+        Team away = Team.builder().code("KT").name("KT").build();
+        Game game = Game.builder()
+                .gameDate(LocalDateTime.of(2026, 8, 7, 18, 30))
+                .homeTeam(home)
+                .awayTeam(away)
+                .gameStatus(GameStatus.builder().name("IN_PROGRESS").build())
+                .naverGameId("20260807HHKT02026")
+                .currentInning(5)
+                .build();
+        Quiz quiz = newQuiz();
+        QuizOption option = QuizOption.builder().quiz(quiz).contents("2번 보기").option(2).build();
+
+        // when
+        QuizUserSubmit submit = QuizUserSubmit.builder()
+                .userAccount(newUserAccount("응시자5"))
+                .quiz(quiz)
+                .submitOption(option)
+                .isAnswer(true)
+                .game(game)
+                .inning(5)
+                .build();
+
+        // then
+        assertThat(submit.getGame()).isSameAs(game);
+    }
+
+    @Test
+    @DisplayName("game을 지정하지 않으면 null로 남는다(개정 이전 행·이닝 확보 실패로 세트 자체를 못 준 "
+            + "행 등 — nullable인 이유는 옛 행 때문이다)")
+    void game_isNullWhenNotGiven() {
+        // given
+        Quiz quiz = newQuiz();
+        QuizOption option = QuizOption.builder().quiz(quiz).contents("2번 보기").option(2).build();
+
+        // when
+        QuizUserSubmit submit = QuizUserSubmit.builder()
+                .userAccount(newUserAccount("응시자6"))
+                .quiz(quiz)
+                .submitOption(option)
+                .isAnswer(true)
+                .build();
+
+        // then
+        assertThat(submit.getGame()).isNull();
     }
 }

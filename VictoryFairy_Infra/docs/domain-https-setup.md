@@ -41,16 +41,6 @@ terraform output route53_name_servers
 dig NS victoryfairy.com +short
 ```
 
-### 2. 이메일 DNS(Mailjet) 이관 — ⚠ 빠뜨리면 인증메일이 죽는다
-`victoryfairy.com` 은 Mailjet 발신 도메인(`no-reply@victoryfairy.com`)이기도 하다.
-네임서버를 Route53 로 옮겼으므로 Mailjet 의 **SPF/DKIM(TXT) 레코드를 Route53 존에 다시 넣어야**
-이메일 인증 메일 도달률이 유지된다. Mailjet 콘솔의 도메인 인증 화면에 표시된 값으로:
-```bash
-# 예시 — 실제 값은 Mailjet 콘솔에서 확인
-aws route53 change-resource-record-sets ...   # SPF(TXT) / DKIM(TXT) 레코드 추가
-```
-(또는 Route53 콘솔에서 TXT 레코드로 추가)
-
 ### 3. 전체 apply — ACM 검증 + IRSA 역할 생성
 NS 전파가 끝난 뒤 실행한다. `aws_acm_certificate_validation` 이 검증 완료까지 대기한다.
 ```bash
@@ -106,11 +96,6 @@ kubectl get ingressclass
 kubectl apply -f k8s/00-namespaces.yaml
 # (앱/설정 매니페스트: 10·20·21 등 기존 순서대로)
 kubectl apply -f k8s/23-external-dns.yaml
-
-# ⚠ 종전 단일 Ingress 가 남아 있으면 먼저 지운다. 22-ingress.yaml 은 이름이 다른
-#   Ingress 2개(victoryfairy-user / -quiz)라 apply 로 대체되지 않고, 옛 규칙이 같은 ALB
-#   그룹에 계속 붙어 /healthz 헬스체크를 물고 있게 된다.
-kubectl -n victoryfairy delete ingress victoryfairy --ignore-not-found
 kubectl apply -f k8s/22-ingress.yaml
 ```
 
@@ -124,7 +109,7 @@ kubectl -n kube-system logs deploy/external-dns | tail
 dig victoryfairy.com +short          # ALB 주소로 해석되면 성공
 
 # HTTPS 종단 확인
-curl -I https://victoryfairy.com/api/member   # TLS 핸드셰이크 + 응답
+curl -I https://victoryfairy.com/api   # TLS 핸드셰이크 + 응답
 ```
 
 ---
@@ -139,8 +124,8 @@ curl -I https://victoryfairy.com/api/member   # TLS 핸드셰이크 + 응답
 
    | Ingress | healthcheck-path |
    |---|---|
-   | `victoryfairy-user` | `/api/member/actuator/health/readiness` |
-   | `victoryfairy-quiz` | `/api/game/actuator/health/readiness` |
+   | `victoryfairy-user` | `/api/actuator/health/readiness` |
+   | `victoryfairy-quiz` | `/rt/actuator/health/readiness` |
 
    `/actuator/health` 전체가 아니라 **readiness 그룹**인 것이 중요하다. 전체 health 는 db·redis
    인디케이터를 합산해 DOWN 을 내므로, MySQL EC2 가 잠깐 흔들리면 멀쩡한 파드까지 타깃에서 빠져

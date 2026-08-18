@@ -1,5 +1,6 @@
 package com.skhynix.domain.quiz.entity;
 
+import com.skhynix.domain.game.entity.Game;
 import com.skhynix.domain.user.entity.UserAccount;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -7,6 +8,7 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
@@ -22,11 +24,20 @@ import org.hibernate.annotations.OnDeleteAction;
 import org.hibernate.annotations.UpdateTimestamp;
 
 /**
- * 사용자가 어떤 {@link Quiz}에 어떤 보기를 제출했고 그게 정답이었는지를 남기는 기록.
+ * 사용자가 어떤 {@link Quiz}를 <b>받았고</b>, 어떤 보기를 제출했으며 그게 정답이었는지를 남기는 기록.
  *
- * <p>{@code isAnswer}는 제출 시점에 <b>확정해 저장하는 값</b>이다. {@code submitOption.option}과
+ * <p><b>행은 제출 시점이 아니라 출제 시점에 생긴다</b>({@code GET /today}가 만든다). 그래서 한 행이
+ * 세 상태를 갖는다: ① <b>미답</b>({@code submit_option_id IS NULL}, 받았고 아직 답이 안 옴)
+ * ② <b>답한 행</b>({@code submit_option_id IS NOT NULL}) ③ <b>시한 초과 미답</b>(미답인데
+ * {@code created_at} + 8분이 지남). ②와 ③을 가르는 컬럼·플래그는 없다 — <b>③은 조회 시각으로
+ * 계산되므로 같은 행이 시간이 지나면 상태가 바뀐다.</b> 이 구분을 모르는 조회 코드는 조용히 틀린다
+ * (미답 행을 빼먹은 이력 목록·정답 없는 행의 NPE 가 실제로 있었다).
+ *
+ * <p>{@code isAnswer}는 <b>답이 채워지는 시점에 확정해 저장하는 값</b>이다. {@code submitOption.option}과
  * {@code quiz.answer}를 비교하면 매번 다시 구할 수는 있지만, 문제의 정답이 나중에 정정되면 과거 채점
- * 결과까지 소급해 뒤집힌다 — 이미 준 점수와 어긋나므로 제출 당시의 판정을 그대로 보존한다.
+ * 결과까지 소급해 뒤집힌다 — 이미 준 점수와 어긋나므로 채점 당시의 판정을 그대로 보존한다.
+ * 미답 행의 {@code isAnswer = false}는 "틀렸다"가 아니라 <b>"아직 채점되지 않았다"</b>이지만,
+ * 통계는 둘을 구분하지 않는다(내지 않으면 틀린 것 — 제품 결정).
  *
  * <p>테이블명이 단수형 어미({@code quiz_users_submit})인 것은 사용자가 제공한 스키마 그대로다
  * ({@code user_support_team}과 같은 명시적 예외). 사용자 초안의 컬럼명 {@code Field}는 의미가 드러나지
@@ -50,10 +61,20 @@ import org.hibernate.annotations.UpdateTimestamp;
 // FK 자동 인덱스가 이미 받는다.
 // ⚠ ddl-auto=update 는 기존 테이블에 UNIQUE 를 추가하지 않는다(game_statuses 실측) — 테이블이 이미
 //   생성된 환경(dev)은 infra/sql/migrate-quiz-ingest.sql 을 1회 수동 실행해야 한다.
+//
+// idx_quiz_users_submit_account_game_inning(user_account_id, game_id, inning): "이 사용자가 그 경기의
+// 그 이닝에 이미 세트를 받았는가"(회차 제한)를 커버링 존재 검사로 끝내기 위한 인덱스다.
+// ⚠ UNIQUE 가 아니다 — 한 이닝에 세트(최대 20문제)가 통째로 들어오므로 같은 세 값의 행이 여러 건인
+//   것이 정상이다. UNIQUE 로 승격하면 두 번째 문제의 INSERT 부터 실패한다.
+// FK 자동 인덱스(game_id 단독)로는 부족하다 — 그 인덱스로 진입하면 "그 경기를 받은 모든 사용자"를
+// 훑게 되고, uk_quiz_users_submit_account_quiz 로 진입하면 "그 사용자의 모든 제출"을 훑는다.
 @Entity
 @Table(name = "quiz_users_submit", uniqueConstraints = {
         @UniqueConstraint(name = "uk_quiz_users_submit_account_quiz",
                 columnNames = {"user_account_id", "quiz_id"})
+}, indexes = {
+        @Index(name = "idx_quiz_users_submit_account_game_inning",
+                columnList = "user_account_id, game_id, inning")
 })
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -77,7 +98,22 @@ public class QuizUserSubmit {
     private Quiz quiz;
 
     /**
-     * 제출한 보기.
+     * 제출한 보기. <b>NULL 은 "아직 답하지 않았다"</b>는 뜻이다(클래스 javadoc 의 세 상태 참고) —
+     * 임의의 보기(0번 등)로 대체하지 않는다.
+     *
+     * <p>⚠ <b>{@code nullable = true} 는 {@code optional = true}(기본값)와 반드시 함께여야 한다.</b>
+     * 한쪽만 풀면 DDL 은 NULL 을 허용하는데 Hibernate 가 flush 직전 검증에서
+     * {@code PropertyValueException: not-null property references a null} 로 막거나(반대의 경우)
+     * 컬럼이 NOT NULL 로 남아 INSERT 자체가 실패한다.
+     *
+     * <p>⚠ <b>{@code ddl-auto=update} 는 기존 컬럼의 NOT NULL 을 완화하지 않는다</b>
+     * ({@code quizzes.quiz_date} 선례) — 테이블이 이미 있는 환경은
+     * {@code infra/sql/migrate-quiz-submit-nullable.sql} 을 1회 수동 적용해야 하고,
+     * 빠뜨리면 {@code GET /today} 가 미답 행 INSERT 에서 통째로 실패한다.
+     *
+     * <p>⚠ <b>{@code @OnDelete(CASCADE)} 는 그대로 둔다.</b> 여기서 {@code SET_NULL} 로 바꾸면
+     * "보기가 지워진 제출"과 "미제출"이 스키마상 구분 불가능해진다 — 아래가 열어 둔 재검토 선택지는
+     * 미답 행 도입 이후 그 하나가 사실상 닫혔다는 뜻이다.
      *
      * <p>⚠ <b>이 CASCADE 는 {@link QuizOption} 문서가 열어둔 "보기 세트 통째 교체(전체 삭제 후 재삽입)"
      * 편집 방식과 정면으로 충돌한다.</b> 문제는 그대로 두고 {@code quiz_options} 행만 지우면 그 문제의
@@ -104,14 +140,61 @@ public class QuizUserSubmit {
      * {@code @OneToMany(orphanRemoval = true)} 에 새 리스트를 넣는 흔한 구현이 내부적으로 DELETE+INSERT 라
      * 의식하지 않으면 그냥 밟는다. 보기 개수를 줄이는 편집은 UPDATE 로 해결되지도 않는다.
      */
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "submit_option_id", nullable = false)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "submit_option_id", nullable = true)
     @OnDelete(action = OnDeleteAction.CASCADE)
     private QuizOption submitOption;
 
-    // 제출 시점에 확정한 정답 여부(클래스 javadoc 참고 — 사후 재계산하지 않는다)
+    // 답이 채워지는 시점에 확정한 정답 여부(클래스 javadoc 참고 — 사후 재계산하지 않는다).
+    // 미답 행에서는 false 이고 그건 "아직 채점 전"이라는 뜻이다.
     @Column(name = "is_answer", columnDefinition = "TINYINT", nullable = false)
     private boolean isAnswer;
+
+    /**
+     * 그 행을 <b>받은 경기</b> — 요청자가 {@code GET /today}의 {@code gameId}로 지목한, 자기 응원 구단이
+     * 뛰는 진행 중인 경기다. 아래 {@code inning}의 출처이며 둘이 함께 <b>회차 판정 키
+     * {@code (user_account_id, game_id, inning)}</b>를 이룬다.
+     *
+     * <p>⚠ <b>{@code quizzes.game_id} 와 이름만 같고 뜻이 다르다.</b> 그쪽은 "문제가 다루는 경기",
+     * 이쪽은 "사용자가 그 문제를 받은 경기"다 — 두 값이 서로 달라도 정상이고 앱이 일치를 검사하지
+     * 않는다. 이닝은 <b>문제의 속성이 아니라 요청자의 관전 시점</b>이라, 한 번의 {@code /today}로
+     * 만들어진 행은 문제와 무관하게 전부 같은 {@code (game, inning)} 을 갖는다.
+     *
+     * <p><b>nullable 인 것은 개정 이전에 쌓인 행 때문이다</b> — 새로 만들어지는 행은 반드시 값을 갖는다
+     * (경기를 특정하지 못하면 세트 자체를 주지 않는다). 값이 NULL 인 옛 행은 {@code NULL = ?} 가 참이
+     * 아니라 회차 판정에 자연히 걸리지 않으며, 백필하지 않는다.
+     *
+     * <p>{@code @OnDelete} 를 걸지 않는다 — 경기는 마스터 데이터라 경기 행이 사라졌다고 제출 기록이
+     * 함께 지워지면 안 된다({@code Quiz.game}·{@code Game.homeTeam} 과 같은 판단).
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "game_id", nullable = true)
+    private Game game;
+
+    /**
+     * 그 문제를 <b>받은 시점</b>의 위 {@code game} 이닝 — {@code games.current_inning}을 <b>그대로 복사한
+     * 값</b>이며 앱이 보정·반올림하지 않는다. 정의역도 원천과 같은 1~11
+     * ({@code ck_games_current_inning}). 초/말({@code inning_half})은 담지 않는다.
+     *
+     * <p><b>nullable 이고 {@code @ColumnDefault}를 두지 않는다.</b> 용도가 통계·분석이라 값 누락이
+     * 허용되는데, "이미 행이 있는 테이블에 NOT NULL 컬럼 추가"( {@code UserAccount.point} 선례)가
+     * 요구하는 초기값 {@code 0} 은 이닝 정의역 밖이라 기존 제출 전부에 "0회에 풀었다"는 거짓을
+     * 남긴다. 이닝 정의역에는 "모름"을 표현할 숫자가 없으므로 NULL 로 표현한다.
+     *
+     * <p>CHECK 제약도 걸지 않는다 — 값의 출처가 이미 CHECK 로 닫힌 컬럼이고, {@code ddl-auto=update}
+     * 가 기존 테이블에 CHECK 를 거는지는 환경마다 갈렸다(2026-08-11 prod/devdb 실측).
+     *
+     * <p>{@code isAnswer}와 같은 계열의 스냅샷이되 <b>찍는 시점이 다르다</b> — 이닝은 행이 생기는
+     * <b>서빙 시점</b>에 확정되고, 그 뒤 경기가 진행돼도(또는 제출이 한참 뒤에 와도) 변하지 않는다.
+     * 제출 처리는 {@code games}를 다시 읽지 않는다: 남기려는 값이 "받아서 푼 시점의 이닝"이라,
+     * 오래 붙들었다 낸 제출에 지금 이닝을 적으면 사실이 아닌 값을 남기게 된다.
+     *
+     * <p>⚠ 새 행에서 이 값이 NULL 이 되는 경로는 없다 — 이닝을 못 읽으면 세트를 주지 않는다. NULL 이
+     * 쌓이면 회차 판정({@code NULL = ?} 가 참이 아니다)이 그 행을 못 봐 <b>그 사용자만 이닝당 1회
+     * 제한을 무제한으로 우회</b>하게 되기 때문이다.
+     */
+    @Column(name = "inning", columnDefinition = "TINYINT", nullable = true)
+    private Integer inning;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -121,12 +204,18 @@ public class QuizUserSubmit {
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 
+    // game·inning 은 빌더 파라미터로 받는다 — uid·타임스탬프처럼 "항상 정해진 초기값에서 시작하는 값"이
+    // 아니라 행이 생기는 시점에 정해지는 관측값이라, 만드는 쪽이 알고 있는 값을 넣어야 한다(모르면 null).
+    // ⚠ 서빙 경로(GET /today)의 미답 행 생성은 이 빌더를 쓰지 않는다 — 항목 수만큼 왕복이 생기지
+    //   않게 한 문장으로 넣는 QuizUserSubmitRepository.insertUnansweredRows 가 그 자리다.
     @Builder
     private QuizUserSubmit(UserAccount userAccount, Quiz quiz, QuizOption submitOption,
-            boolean isAnswer) {
+            boolean isAnswer, Game game, Integer inning) {
         this.userAccount = userAccount;
         this.quiz = quiz;
         this.submitOption = submitOption;
         this.isAnswer = isAnswer;
+        this.game = game;
+        this.inning = inning;
     }
 }

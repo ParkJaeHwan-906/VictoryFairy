@@ -12,8 +12,11 @@ Events:
   {"job": "records", "from": .., "to": ..}  -> date-range backfill
   {"job": "registrations"}                  -> KBO 1-gun roster -> prod MySQL (11:00 KST)
   {"job": "games_sync"}                     -> today's games' status -> prod MySQL
-                                                (schedule proposal, infra pending — see README)
   {"job": "games_sync", "date": ..}         -> a specific date (backfill)
+  {"job": "games_sync", "days": 7}          -> 오늘~+7일 일정 선적재 (하루 1회 룰)
+  {"job": "games_sync", "from": .., "to": ..} -> date-range backfill
+  {"job": "cancel_reasons"}                 -> KBO 일정표 취소 사유 -> games.cancel_reason
+  {"job": "cancel_reasons", "months": ["2026-07", "2026-08"]}  -> 특정 달 백필
   {"job": "kbo_records"}                    -> KBO 기록실 스냅샷 -> S3 (07:00 KST)
   {"job": "game_schedule"}                  -> 당일(KST) 예정경기 -> S3 export (08:30 KST)
   {"job": "game_schedule", "date": ..}      -> 특정 날짜 백필
@@ -49,6 +52,17 @@ def _kst_today() -> str:
     return kst.strftime("%Y-%m-%d")
 
 
+# games_sync 가 한 번에 훑는 날짜 수의 천장. days/from/to 는 EventBridge 룰의 input
+# (Terraform)에서 오는 값이라, 라이브 10분 주기 룰에 실수로 붙으면 하루 42회 발화 x
+# 날짜 수만큼 원천을 두드리게 된다. 코드에서 잘라 그 사고를 구조적으로 막는다.
+MAX_SYNC_DAYS = 14
+
+
+def _plus_days(date_str: str, days: int) -> str:
+    d = datetime.date.fromisoformat(date_str) + datetime.timedelta(days=days)
+    return d.isoformat()
+
+
 def handler(event, context):
     setup_logging()
     settings = get_settings()
@@ -58,7 +72,7 @@ def handler(event, context):
     # game_schedule("당일 예정경기")·games_sync("당일 경기 상태")는 오늘을 내다보는
     # 잡이라 KST-오늘 기준이어야 한다 — 03:00 KST game 잡의 UTC-오늘(=KST-어제 완료
     # 경기용) 기준과는 반대.
-    kst_anchored = is_community or job in ("game_schedule", "games_sync")
+    kst_anchored = is_community or job in ("game_schedule", "games_sync", "cancel_reasons")
     date = event.get("date") or (_kst_today() if kst_anchored else _today())
     run_id = (getattr(context, "aws_request_id", None) or uuid.uuid4().hex)[:16]
 
@@ -67,13 +81,23 @@ def handler(event, context):
     # DB 잡: -db 함수(VPC 안)에서만 도달한다. export 는 docType에 따라 DB 를 읽거나
     # (game_result 등) S3 만 쓰기도 하지만(exporter.DB_FREE), 어느 쪽이든 이 함수가
     # 맡는다 — S3 전용 함수엔 COLLECTOR_DB_* 자격증명이 없다.
-    if job in ("records", "registrations", "export", "games_sync"):
+    if job in ("records", "registrations", "export", "games_sync", "cancel_reasons"):
         db = DbSink(settings)
         try:
-            if job == "games_sync":
-                # job_games_sync 는 fetch 클라이언트를 자체 관리한다(CLI main()과 동일
-                # 경로) — 다른 DB 잡처럼 여기서 별도 client 를 만들 필요가 없다.
-                summary["gamesSynced"] = run.job_games_sync(settings, db, date)
+            if job == "cancel_reasons":
+                # months 를 주면 그 달들만(백필), 아니면 KST 오늘 기준으로 고른다.
+                summary["cancelReasons"] = run.job_cancel_reasons(
+                    settings, db, date=date, months=event.get("months"))
+            elif job == "games_sync":
+                # job_games_sync_range 는 fetch 클라이언트를 자체 관리한다(CLI main()과
+                # 동일 경로) — 다른 DB 잡처럼 여기서 별도 client 를 만들 필요가 없다.
+                # days 없이 부르면 start==end 라 당일치 그대로다(라이브 10분 룰).
+                start = event.get("from") or date
+                end = event.get("to") or _plus_days(
+                    start, min(int(event.get("days") or 0), MAX_SYNC_DAYS))
+                end = min(end, _plus_days(start, MAX_SYNC_DAYS))  # ISO 문자열 비교 = 날짜 비교
+                summary["from"], summary["to"] = start, end
+                summary["gamesSynced"] = run.job_games_sync_range(settings, db, start, end)
             else:
                 with fetch.build_client(settings) as client:
                     if job == "registrations":

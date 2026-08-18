@@ -29,7 +29,7 @@ public interface QuizRepository extends JpaRepository<Quiz, Long> {
      * ({@code Quiz}에 {@code @OneToMany options}가 없음) — {@code QuizOptionRepository}의 IN 조회로
      * 묶는 2쿼리 방식이 정석이다.
      */
-    @EntityGraph(attributePaths = {"quizType", "team", "opponentTeam", "player"})
+    @EntityGraph(attributePaths = {"quizType", "team", "opponentTeam", "player", "game"})
     List<Quiz> findAllByQuizDateOrderByIdAsc(LocalDate quizDate);
 
     /** 그날 세트의 현재 크기 — 편성 잡이 부족분 계산에 쓴다. */

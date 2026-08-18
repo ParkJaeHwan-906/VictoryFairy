@@ -37,8 +37,8 @@ public class JwtTokenProvider {
     }
 
     /**
-     * subject에는 외부 노출용 {@code uid}만 담는다. JWT payload는 서명될 뿐 암호화되지 않아
-     * base64 디코드만으로 누구나 읽을 수 있으므로, 내부 PK({@code id})는 claim에 절대 넣지 않는다.
+     * JWT payload는 서명될 뿐 암호화되지 않아 base64 디코드만으로 누구나 읽을 수 있으므로,
+     * 내부 PK({@code id})는 claim에 절대 넣지 않는다.
      */
     private String createToken(String uid, String type, long validityMillis) {
         long now = System.currentTimeMillis();
@@ -63,6 +63,20 @@ public class JwtTokenProvider {
 
     public String getUid(String token) {
         return parse(token).getSubject();
+    }
+
+    /**
+     * 발급 시각(`iat`)을 epoch 초로 돌려준다 — 계정별 토큰 무효화 기준 시각과 대조하는 값이다.
+     * {@code Date}·{@code LocalDateTime}이 아니라 epoch 초인 이유는 비교 상대가 존 개념 없는 값이라
+     * 어느 쪽에서도 시간대를 고를 일이 없어야 하기 때문이다(고를 수 있으면 언젠가 서로 다르게 고른다).
+     *
+     * <p>이 저장소가 발급하는 토큰에는 {@code createToken}이 항상 {@code iat}를 싣는다. 그럼에도 빠진
+     * 토큰을 만나면 "가장 오래된 토큰"으로 취급해 fail-closed 로 떨어뜨린다 — 인증 필터 한가운데서
+     * NPE 로 500 을 내는 것보다 인증을 안 해 주는 쪽이 낫다.
+     */
+    public long getIssuedAtEpochSecond(String token) {
+        Date issuedAt = parse(token).getIssuedAt();
+        return issuedAt == null ? Long.MIN_VALUE : issuedAt.toInstant().getEpochSecond();
     }
 
     public boolean isRefreshToken(String token) {

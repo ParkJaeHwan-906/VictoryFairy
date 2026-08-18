@@ -9,8 +9,6 @@ resource "aws_ecr_repository" "this" {
   }
 }
 
-# 이미지는 이 스택이 만들지 않는다 — dev_ai 의 collector-image.yml CI 가 py-collector
-# 소스를 빌드해 :latest 로 푸시하고 Lambda 코드까지 갱신한다(크롤러 코드 소유 = dev_ai).
 # 여기서는 그 시점의 :latest 다이제스트를 읽어 함수 정의에 핀할 뿐이라, 이 스택의
 # plan/apply 에 py-collector 소스가 필요 없다(dev_infra 단독 체크아웃에서 동작).
 #

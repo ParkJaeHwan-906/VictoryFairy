@@ -1,20 +1,11 @@
 # mysql-ec2 모듈: 단일 고정 EC2에 MySQL + 서비스 Redis 컨테이너 자체 호스팅
 # (RDS 미사용, 비용 사유 — ARCHITECTURE.md §3 데이터 티어)
 #
-# 설계 요지:
-#   - 앱과 격리된 비 EKS EC2 1대(운영 AZ 2a 프라이빗 서브넷). 오토스케일 없음(수직 승급).
-#   - 데이터는 별도 EBS(gp3)에 영속(prevent_destroy). 인스턴스와 라이프사이클 분리.
-#   - 접근은 SSM 뿐(22/3306 개발자 인입 없음, SKILL §6). 클러스터 내부만 3306/6379 허용.
-#   - 백업: user_data 의 mysqldump→S3 크론 + 병행 EBS DLM 스냅샷(SKILL §5).
-#
 # ⚠ 커플링/주의: 6379(서비스 Redis)는 user·quiz 노드만 접근하고 batch 는 접근 못 한다.
 #   현재 eks 노드 SG가 공용 하나라 물리적으로는 같은 SG가 3306/6379 양쪽에 들어갈 수 있으나,
 #   "배치는 6379 불가"라는 의도를 변수(mysql_ingress_sg_ids vs redis_ingress_sg_ids)로 분리해
 #   드러낸다. 노드그룹이 전용 SG로 분리되면 redis 목록에서 batch SG를 빼면 실효를 갖는다.
 
-# ---------------------------------------------------------------------------
-# Data sources
-# ---------------------------------------------------------------------------
 data "aws_caller_identity" "current" {}
 
 data "aws_region" "current" {}
@@ -220,6 +211,9 @@ resource "aws_instance" "this" {
     mysql_root_password_ssm_parameter_name = var.mysql_root_password_ssm_parameter_name
     innodb_buffer_pool_size                = var.innodb_buffer_pool_size
     redis_maxmemory                        = var.redis_maxmemory
+    swap_size_mb                           = var.swap_size_mb
+    mysql_container_memory                 = var.mysql_container_memory
+    redis_container_memory                 = var.redis_container_memory
   })
 
   root_block_device {
@@ -307,11 +301,6 @@ resource "aws_eip" "this" {
 # ---------------------------------------------------------------------------
 # 백업 병행책: DLM 라이프사이클 정책으로 데이터 EBS 일 단위 스냅샷 자동화(SKILL §5).
 # enable_dlm_snapshot 로 토글. (조건부 생성이므로 count 사용 — SKILL §8)
-#
-# 미결정 처리: ARCHITECTURE 상 'DLM 스냅샷용 공유 IAM 정책'은 security 모듈 소관으로
-#   언급되나 security 모듈이 아직 미구현이다. 모듈 자립성을 위해 DLM 서비스 역할을
-#   여기서 생성한다. 향후 security 모듈로 옮기면 execution_role_arn 을 입력 변수로
-#   주입받도록 리팩터링(그때 moved/변수화)할 것.
 # ---------------------------------------------------------------------------
 data "aws_iam_policy_document" "dlm_assume" {
   statement {

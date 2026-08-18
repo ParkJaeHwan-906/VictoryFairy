@@ -3,7 +3,7 @@
 ## 개요
 
 VictoryFairy_AI는 KBO 커뮤니티 텍스트를 **패턴 검열 → LLM 2차 검열**하는 배치 파이프라인이다.
-**S3를 스테이지 간 저장소**로 쓰고, 작업 상태만 `batch-redis`로 주고받는다.
+**S3를 스테이지 간 저장소**로 쓴다.
 
 > ⚠️ **형태소·개체명 추출(analysis)은 코드가 남아 있으나 배선에서 빠져 있다.** 아래 "유산" 절 참고.
 > 이 문서에서 `data/*.txt` 기반으로 서술된 부분은 그 유산 경로에만 해당한다.
@@ -22,10 +22,6 @@ VictoryFairy_AI는 KBO 커뮤니티 텍스트를 **패턴 검열 → LLM 2차 �
                   └──▶ validation/bedrock/_manifest/...
 ```
 
-세 프로세스가 서로를 **직접 호출하지 않는다.** 연결 고리는 Redis 작업 집합의 크기뿐이다
-(`pending:pattern`·`pending:bedrock` 각 1000건 게이트). **S3가 진실의 원천이고 Redis는
-최적화 수단**이라, Spot 회수로 Redis가 통째로 사라져도 마커를 보고 이어서 처리한다.
-
 ## 구성 요소
 
 | 모듈 | 역할 | 진입점 |
@@ -34,6 +30,11 @@ VictoryFairy_AI는 KBO 커뮤니티 텍스트를 **패턴 검열 → LLM 2차 �
 | `bedrock/` | 2차 검열(AWS Bedrock LLM). **라우트 없는 서비스 모듈** | `bedrock.services.judge` |
 | `analysis/` | 형태소 + NER 추출 FastAPI 앱 (**배선에서 빠짐**) | `analysis.main:app` |
 | `pipeline/` | S3 기반 배치 러너 | `python -m pipeline.run_*` |
+| `py-collector/` | KBO 경기·기록 수집기 (BE MySQL 적재). 별도 이미지·별도 스택 | `deploy/lambda/handler.py` |
+| `question-gen/` | 퀴즈 생성 루틴의 지침·프롬프트·설정 | `ROUTINE.md` |
+| `runner/` | 퀴즈 생성의 **결정적** 단계 — 템플릿 선택·바인딩·최종화 (LLM 없음) | `runner.catalog` · `binding` · `finalize` |
+| `wiki-builder/` | 선수 위키 그래프·시드 빌드 (LLM 병합은 루틴 세션이 직접 수행) | `ROUTINE.md` · `scripts/compile_graph.py` |
+| `deploy/routines/` | Claude Code 클라우드 루틴 정의(퀴즈 생성·위키 빌더)와 IAM 정책 | — |
 | `data/` | 유산 경로(분석·집계)의 파일 저장소 | (러너가 읽고 씀) |
 | `docs/` | 구조·전략·모듈·요구사항 문서 | — |
 | `.claude/` | 하네스 설정(Hook·에이전트·권한) | — |

@@ -2,15 +2,6 @@
 #
 #   크롤(Lambda, 이 모듈 밖) → S3 community/ → [S3 이벤트] → pattern Lambda
 #     → SQS → [이벤트 소스 매핑 batch_size=N] → bedrock Lambda → S3 validation/bedrock/
-#
-# 설계 요지:
-#   - **트리거가 인프라 부품이다.** 폴링 컨트롤러를 직접 짜지 않는다 — S3 이벤트 알림과
-#     SQS 이벤트 소스 매핑이 단계 전이를 담당한다.
-#   - **SQS 는 선택이 아니라 필수다.** 게시글 1건씩 Bedrock 을 부르면 시스템 프롬프트
-#     2,470토큰이 호출마다 붙어 하루 $44.8 로 상한 $30 을 넘긴다. 묶어야 $8.97 이다.
-#   - **예산 상한은 DynamoDB 원자적 카운터 + 예약 동시성 1** 두 겹이다. 카운터만으로는
-#     동시에 뜬 Lambda 들이 각자 "아직 여유 있음"을 읽고 함께 넘긴다.
-#   - **멱등은 S3 `_manifest` 마커**가 담당한다(앱 코드). Lambda 재시도·SQS 재전달에도 안전.
 
 data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
@@ -245,7 +236,6 @@ resource "aws_lambda_function" "pattern" {
   architectures = ["arm64"]
 
   image_config {
-    # TODO(앱): 핸들러 경로 확정 후 맞출 것. 러너를 이벤트 핸들러 구조로 바꾸는 작업이 선행된다.
     command = ["pipeline.lambda_pattern.handler"]
   }
 
@@ -289,7 +279,6 @@ resource "aws_lambda_function" "bedrock" {
   reserved_concurrent_executions = 1
 
   image_config {
-    # TODO(앱): 핸들러 경로 확정 후 맞출 것.
     command = ["pipeline.lambda_bedrock.handler"]
   }
 

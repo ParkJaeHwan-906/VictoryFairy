@@ -1,5 +1,6 @@
 package com.skhynix.user.account.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
@@ -8,9 +9,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.skhynix.domain.user.repository.ActiveAccountView;
 import com.skhynix.domain.user.repository.UserAccountRepository;
 import com.skhynix.user.account.dto.UserAccountResponse;
 import com.skhynix.user.account.service.UserAccountService;
+import com.skhynix.user.account.service.UserProfileEditService;
 import com.skhynix.user.account.service.UserProfileService;
 import com.skhynix.user.global.config.SecurityConfig;
 import com.skhynix.user.player.dto.PlayerResponse;
@@ -62,6 +65,11 @@ class UserAccountControllerMeTest {
     @MockitoBean
     private UserAccountService userAccountService;
 
+    // 컨트롤러가 닉네임·비밀번호 수정용 UserProfileEditService도 생성자로 받아, 없으면 컨텍스트
+    // 로딩이 실패한다(이 클래스 테스트는 GET /me만 다뤄 상호작용은 없음).
+    @MockitoBean
+    private UserProfileEditService userProfileEditService;
+
     @MockitoBean
     private JwtTokenProvider jwtTokenProvider;
 
@@ -95,7 +103,8 @@ class UserAccountControllerMeTest {
         String uid = UUID.randomUUID().toString();
         Long accountId = 1L;
         String token = stubValidAccessToken(uid);
-        given(userAccountRepository.findActiveIdByUid(uid)).willReturn(Optional.of(accountId));
+        given(userAccountRepository.findActiveAuthByUid(uid))
+                .willReturn(Optional.of(new ActiveAccountView(accountId, null)));
         given(userProfileService.getMyProfile(accountId)).willReturn(fullProfile());
 
         // when & then
@@ -119,7 +128,8 @@ class UserAccountControllerMeTest {
         String uid = UUID.randomUUID().toString();
         Long accountId = 1L;
         String token = stubValidAccessToken(uid);
-        given(userAccountRepository.findActiveIdByUid(uid)).willReturn(Optional.of(accountId));
+        given(userAccountRepository.findActiveAuthByUid(uid))
+                .willReturn(Optional.of(new ActiveAccountView(accountId, null)));
         given(userProfileService.getMyProfile(accountId)).willReturn(fullProfile());
 
         // when & then
@@ -143,7 +153,8 @@ class UserAccountControllerMeTest {
         String uid = UUID.randomUUID().toString();
         Long accountId = 1L;
         String token = stubValidAccessToken(uid);
-        given(userAccountRepository.findActiveIdByUid(uid)).willReturn(Optional.of(accountId));
+        given(userAccountRepository.findActiveAuthByUid(uid))
+                .willReturn(Optional.of(new ActiveAccountView(accountId, null)));
         given(userProfileService.getMyProfile(accountId))
                 .willReturn(new UserAccountResponse("nick", new TeamResponse(6L, "KIA"), List.of(), 1200L, 340L));
 
@@ -161,7 +172,8 @@ class UserAccountControllerMeTest {
         String uid = UUID.randomUUID().toString();
         Long accountId = 1L;
         String token = stubValidAccessToken(uid);
-        given(userAccountRepository.findActiveIdByUid(uid)).willReturn(Optional.of(accountId));
+        given(userAccountRepository.findActiveAuthByUid(uid))
+                .willReturn(Optional.of(new ActiveAccountView(accountId, null)));
         given(userProfileService.getMyProfile(accountId)).willReturn(fullProfile());
 
         // when & then
@@ -184,7 +196,8 @@ class UserAccountControllerMeTest {
         String uid = UUID.randomUUID().toString();
         Long accountId = 1L;
         String token = stubValidAccessToken(uid);
-        given(userAccountRepository.findActiveIdByUid(uid)).willReturn(Optional.of(accountId));
+        given(userAccountRepository.findActiveAuthByUid(uid))
+                .willReturn(Optional.of(new ActiveAccountView(accountId, null)));
         given(userProfileService.getMyProfile(accountId))
                 .willReturn(new UserAccountResponse("nick", null, List.of(), 0L, 0L));
 
@@ -202,7 +215,8 @@ class UserAccountControllerMeTest {
         String uid = UUID.randomUUID().toString();
         Long accountId = 1L;
         String token = stubValidAccessToken(uid);
-        given(userAccountRepository.findActiveIdByUid(uid)).willReturn(Optional.of(accountId));
+        given(userAccountRepository.findActiveAuthByUid(uid))
+                .willReturn(Optional.of(new ActiveAccountView(accountId, null)));
         given(userProfileService.getMyProfile(accountId))
                 .willReturn(new UserAccountResponse("nick", null, List.of(), 1200L, 0L));
 
@@ -220,7 +234,8 @@ class UserAccountControllerMeTest {
         String uid = UUID.randomUUID().toString();
         Long accountId = 1L;
         String token = stubValidAccessToken(uid);
-        given(userAccountRepository.findActiveIdByUid(uid)).willReturn(Optional.of(accountId));
+        given(userAccountRepository.findActiveAuthByUid(uid))
+                .willReturn(Optional.of(new ActiveAccountView(accountId, null)));
         given(userProfileService.getMyProfile(accountId)).willReturn(fullProfile());
 
         // when & then
@@ -289,7 +304,7 @@ class UserAccountControllerMeTest {
         // given
         String uid = UUID.randomUUID().toString();
         String token = stubValidAccessToken(uid);
-        given(userAccountRepository.findActiveIdByUid(uid)).willReturn(Optional.empty());
+        given(userAccountRepository.findActiveAuthByUid(uid)).willReturn(Optional.empty());
 
         // when & then
         mockMvc.perform(get("/users/me").header("Authorization", "Bearer " + token))
@@ -299,5 +314,58 @@ class UserAccountControllerMeTest {
                 .andExpect(jsonPath("$.message").value(UNAUTHENTICATED_MESSAGE));
 
         verifyNoInteractions(userProfileService);
+    }
+
+    // ---------- 토큰 무효화 (USER-ATI-4, 5) ----------
+
+    @Test
+    @DisplayName("[USER-ATI-4, USER-ATI-5] 비밀번호 변경 전에 발급된(iat가 기준 시각보다 앞선 초) access "
+            + "토큰으로 요청하면 401을 반환하고, 그 응답 본문이 Authorization 헤더 없이 호출한 401 본문과 "
+            + "문자 그대로 동일하다(신규 에러 코드·메시지 없음)")
+    void getMyProfile_tokenIssuedBeforePasswordChangeBaseline_returns401IdenticalToNoHeader()
+            throws Exception {
+        // given
+        String uid = UUID.randomUUID().toString();
+        String token = stubValidAccessToken(uid);
+        long issuedAt = 1_755_400_000L;
+        given(jwtTokenProvider.getIssuedAtEpochSecond(token)).willReturn(issuedAt);
+        given(userAccountRepository.findActiveAuthByUid(uid))
+                .willReturn(Optional.of(new ActiveAccountView(1L, issuedAt + 1)));
+
+        // when
+        var invalidatedResult = mockMvc.perform(get("/users/me").header("Authorization", "Bearer " + token))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.data").doesNotExist())
+                .andExpect(jsonPath("$.message").value(UNAUTHENTICATED_MESSAGE))
+                .andReturn();
+        var noHeaderResult = mockMvc.perform(get("/users/me"))
+                .andExpect(status().isUnauthorized())
+                .andReturn();
+
+        // then: 두 401 응답 본문이 문자 그대로 동일하다
+        assertThat(invalidatedResult.getResponse().getContentAsString())
+                .isEqualTo(noHeaderResult.getResponse().getContentAsString());
+        verifyNoInteractions(userProfileService);
+    }
+
+    @Test
+    @DisplayName("[USER-ATI-8] 비밀번호 변경 응답으로 방금 받은 access 토큰(iat가 기준 시각과 정확히 같은 초)은 "
+            + "즉시 인증된다 — 자기 자신에게 거부되지 않는다")
+    void getMyProfile_tokenIssuedExactlyAtBaseline_returns200() throws Exception {
+        // given
+        String uid = UUID.randomUUID().toString();
+        Long accountId = 1L;
+        String token = stubValidAccessToken(uid);
+        long issuedAt = 1_755_400_000L;
+        given(jwtTokenProvider.getIssuedAtEpochSecond(token)).willReturn(issuedAt);
+        given(userAccountRepository.findActiveAuthByUid(uid))
+                .willReturn(Optional.of(new ActiveAccountView(accountId, issuedAt)));
+        given(userProfileService.getMyProfile(accountId)).willReturn(fullProfile());
+
+        // when & then
+        mockMvc.perform(get("/users/me").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.nickname").value("nick"));
     }
 }

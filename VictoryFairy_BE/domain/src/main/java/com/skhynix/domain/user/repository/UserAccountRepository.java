@@ -2,6 +2,8 @@ package com.skhynix.domain.user.repository;
 
 import com.skhynix.domain.user.entity.UserAccount;
 import jakarta.persistence.LockModeType;
+import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -13,11 +15,60 @@ public interface UserAccountRepository extends JpaRepository<UserAccount, Long> 
     // 탈퇴 계정을 "못 찾음"으로 흡수 — login이 미가입 이메일과 동일한 응답(INVALID_CREDENTIALS)이 되도록 한다.
     Optional<UserAccount> findByUser_EmailAndExitAtIsNull(String email);
 
-    // 파생 쿼리명으로는 id 프로젝션을 표현 못 해 @Query로 명시. exit_at 조건 때문에 uid 인덱스만으로
-    // 커버링되지 않지만, access 토큰이 stateless(3h)라 이 조회가 탈퇴 즉시 차단의 유일한 지점이라 감수한다
-    // (트레이드오프 근거: docs/requirements/user/withdraw.md "결정 근거 2").
-    @Query("select ua.id from UserAccount ua where ua.uid = :uid and ua.exitAt is null")
-    Optional<Long> findActiveIdByUid(@Param("uid") String uid);
+    /**
+     * 요청 인증용 계정 조회 — uid→내부 PK 해석과 토큰 무효화 기준 시각을 <b>한 번의 조회</b>로 함께
+     * 가져온다. {@code JwtAuthenticationFilter}가 요청마다 부르는 유일한 운영 호출자다.
+     *
+     * <p>파생 쿼리명으로는 프로젝션을 표현하지 못해 {@code @Query}로 명시한다. {@code exit_at} 조건
+     * 때문에 uid 인덱스만으로 커버링되지 않지만, access 토큰이 stateless(3h)라 이 조회가 탈퇴 즉시
+     * 차단의 유일한 지점이라 감수한다(근거: {@code docs/requirements/user/withdraw.md} "결정 근거 2").
+     *
+     * <p>⚠ 기준 시각을 <b>여기서 함께 싣는 것</b>이 계약이다. 별도 조회로 빼면 요청당 SELECT 가 늘어
+     * "무효화 검사는 조회를 늘리지 않는다"(USER-ATI-13)가 깨진다. 반대로 엔티티 전체를 반환하도록
+     * 바꾸는 것도 안 된다 — 요청마다 쓰지도 않는 컬럼을 전부 읽게 된다.
+     */
+    @Query("""
+            select new com.skhynix.domain.user.repository.ActiveAccountView(
+                       ua.id, ua.passwordChangedEpochSecond)
+            from UserAccount ua
+            where ua.uid = :uid and ua.exitAt is null
+            """)
+    Optional<ActiveAccountView> findActiveAuthByUid(@Param("uid") String uid);
+
+    /**
+     * uid 로 계정 1행을 있는 그대로 가져온다 — 탈퇴 여부를 <b>거르지 않는다</b>는 점에서
+     * {@link #findActiveAuthByUid(String)} 와 다르다.
+     *
+     * <p>운영 호출자는 예약 계정({@code (알수없음)} 더미 계정)의 부트스트랩과 조회뿐이다. 그 계정은
+     * 요청 인증에 쓰이지 않으므로 활성 조건이 필요 없고, 반대로 <b>엔티티가 필요하다</b> — 채팅방·채팅
+     * 소유자를 이 계정으로 바꾸는 벌크 UPDATE 의 파라미터로 들어간다.
+     *
+     * <p>인증 경로에서 이 메서드를 쓰지 말 것. 탈퇴 계정이 그대로 나와 차단 지점이 뚫린다.
+     */
+    Optional<UserAccount> findByUid(String uid);
+
+    /**
+     * 하드 삭제 대상 — 탈퇴({@code exit_at IS NOT NULL}) 후 보존 기간이 지난 계정.
+     *
+     * <p>경계는 {@code exit_at <= :threshold} 이며, 호출자가 넘기는 {@code threshold} 는
+     * "기준 시각 - 보존 기간"이다(= {@code exit_at + 보존기간 <= 기준 시각}). <b>경과 순간을 포함</b>하는
+     * {@code <=} 가 계약이라 {@code <} 로 바꾸지 말 것.
+     *
+     * <p>{@code excludedUid} 는 예약 계정을 대상에서 빼기 위한 안전장치다. 그 계정은 {@code exit_at} 이
+     * NULL 이라 위 조건만으로도 자연히 빠지지만, 누군가 실수로 예약 계정을 탈퇴시키면 그 계정이 보관 중인
+     * <b>남의 채팅방·메시지가 통째로 사라진다</b> — 조건 하나로 그 사고를 원천 차단한다.
+     *
+     * <p>{@code ua.user.id} 는 to-one 의 식별자라 {@code users} 조인 없이 FK 컬럼으로 풀린다.
+     * 정렬을 두지 않는 이유: 처리 순서가 결과에 영향을 주지 않고(계정 1건 = 트랜잭션 1개) 상한도 없다.
+     */
+    @Query("""
+            select new com.skhynix.domain.user.repository.ExpiredAccountView(
+                       ua.id, ua.uid, ua.user.id)
+            from UserAccount ua
+            where ua.exitAt is not null and ua.exitAt <= :threshold and ua.uid <> :excludedUid
+            """)
+    List<ExpiredAccountView> findExpiredAccounts(@Param("threshold") LocalDateTime threshold,
+            @Param("excludedUid") String excludedUid);
 
     boolean existsByNickname(String nickname);
 
