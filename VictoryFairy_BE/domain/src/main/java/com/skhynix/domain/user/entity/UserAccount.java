@@ -115,6 +115,30 @@ public class UserAccount {
     }
 
     /**
+     * <b>예약 계정</b> 전용 생성 — uid 를 호출자가 고정한다. 일반 가입 경로({@code @Builder})는 uid 를
+     * 스스로 만들지만, 시드/시스템 계정은 코드가 다시 찾아낼 수 있어야 해서 값이 고정이어야 한다
+     * (닉네임으로 찾지 않는다 — {@code nickname} 에는 DB UNIQUE 가 없어 같은 값의 행이 둘이 되면 어느
+     * 쪽을 고를지 비결정적이다).
+     *
+     * <p>⚠ <b>회원가입 경로에서 부르지 말 것.</b> 이 길로 만든 계정은 사람이 쓰는 계정이 아니라
+     * "데이터를 넘겨받는 자리"이며, {@code password} 에는 BCrypt 패턴이 아닌 placeholder 를 넣어
+     * 어떤 원문으로도 로그인이 성립하지 않게 한다({@code BCryptPasswordEncoder.matches()} 는 인코딩된
+     * 값이 BCrypt 패턴이 아니면 예외 없이 항상 false — {@code chat-init.sql} 의 SYSTEM 계정 선례).
+     *
+     * <p>{@code exitAt} 은 채우지 않는다(활성). 예약 계정은 탈퇴 상태로 태어나서는 안 된다 —
+     * 만료 데이터 정리가 탈퇴 계정을 대상으로 삼기 때문이다.
+     */
+    public static UserAccount reserved(String uid, User user, String nickname, String lockedPassword) {
+        UserAccount account = new UserAccount();
+        account.uid = uid;
+        account.user = user;
+        account.nickname = nickname;
+        account.password = lockedPassword;
+        account.point = 0L;
+        return account;
+    }
+
+    /**
      * 포인트 적립 — 퀴즈 정답 보상이 이 뮤테이터를 쓰는 유일한 경로다.
      *
      * <p>⚠ 호출자는 반드시 {@code UserAccountRepository.findWithLockById}로 이 행을 잠근 뒤 불러야
