@@ -31,6 +31,21 @@ server:
     #   이 값이 문자 그대로 일치해야 한다.
     context-path: /api
 
+# 만료 데이터 정리 스케줄러(탈퇴 30일 경과 계정 하드 삭제 + 만료 refresh 토큰 삭제).
+#
+# ⚠ 기본값이 꺼짐인 것은 취향이 아니라 안전장치다. 로컬 bootRun 은 .env 의 원격 IP 를 따라
+#   '원격 개발 DB' 를 직접 본다 — 켜 둔 채 새벽 3시를 넘기면 원격 DB 의 계정이 실제로 지워지고,
+#   하드 삭제라 되돌릴 방법이 백업뿐이다. prod 프로파일만 기본값을 켬으로 덮는다
+#   (application-prod.yaml). dev 에서 검증이 필요하면 이 값을 명시적으로 켤 것.
+# ⚠ enabled 는 실행 여부만이 아니라 '스케줄링 활성화(@EnableScheduling)' 자체의 조건이다
+#   (CleanupSchedulingConfig).
+# cron 은 zone = Asia/Seoul 기준으로 해석된다(스케줄러 애노테이션에 고정) — 파드 TZ 와 무관하다.
+user:
+  cleanup:
+    expired-data:
+      enabled: ${USER_CLEANUP_EXPIRED_DATA_ENABLED:false}
+      cron: "${USER_CLEANUP_EXPIRED_DATA_CRON:0 0 3 * * *}"
+
 # 인증번호 메일 발신자 주소. 실제 SMTP 발송은 prod 프로파일에서만 일어난다(dev/test는 mock 로그).
 app:
   mail:
