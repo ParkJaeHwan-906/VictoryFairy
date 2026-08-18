@@ -38,8 +38,15 @@ const APP_VERSION = 'v 1.0.0';
  */
 const SUPPORT_EDIT_STATE: TeamSelectState = { mode: 'edit' };
 
-/** 아직 갈 곳이 정해지지 않은 목록 항목. 화살표만 그리고 눌러도 아무 일도 없다. */
-const SETTING_ITEMS = ['계정 설정', '알림 설정', 'SNS 연동'] as const;
+/**
+ * 설정 묶음. 계정 설정만 갈 곳이 있고(비밀번호 변경 — `AccountSettingPage`),
+ * 나머지 둘은 아직 화면이 없어 화살표만 그리고 눌러도 아무 일도 없다.
+ */
+const SETTING_ITEMS: readonly { label: string; to?: string }[] = [
+  { label: '계정 설정', to: ROUTES.accountSetting },
+  { label: '알림 설정' },
+  { label: 'SNS 연동' },
+];
 
 /**
  * 센터 묶음.
@@ -286,8 +293,8 @@ export default function MyPage() {
         <section className="my-page__section">
           <h2 className="my-page__section-title">설정</h2>
           <ul className="my-page__rows">
-            {SETTING_ITEMS.map((label) => (
-              <MenuRow key={label} label={label} />
+            {SETTING_ITEMS.map((item) => (
+              <MenuRow key={item.label} label={item.label} to={item.to} />
             ))}
           </ul>
         </section>

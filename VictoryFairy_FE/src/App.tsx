@@ -11,6 +11,7 @@ import PlayerSelectPage from './pages/PlayerSelectPage';
 import CompletePage from './pages/CompletePage';
 import InquiryPage from './pages/InquiryPage';
 import ProfileEditPage from './pages/ProfileEditPage';
+import AccountSettingPage from './pages/AccountSettingPage';
 import QuizPage from './pages/QuizPage';
 import QuizResultPage from './pages/QuizResultPage';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -38,6 +39,8 @@ export default function App() {
         <Route path={ROUTES.inquiry} element={<InquiryPage />} />
         {/* 프로필 수정도 마찬가지로 NavBar 없는 전체 화면이다 */}
         <Route path={ROUTES.profileEdit} element={<ProfileEditPage />} />
+        {/* 계정 설정(비밀번호 변경)도 같은 자리 — 마이페이지에서 들어와 뒤로가기로 돌아간다 */}
+        <Route path={ROUTES.accountSetting} element={<AccountSettingPage />} />
         {/*
           하단 NavBar 가 붙는 화면들.
           레이아웃에 NavBar 를 한 번만 두어, 이 안에서 화면을 옮겨 다녀도

@@ -28,6 +28,11 @@ export const ROUTES = {
    */
   profileEdit: '/my/profile',
   /**
+   * 계정 설정(비밀번호 변경). 마이페이지 "설정 > 계정 설정"으로 들어온다.
+   * 디자인에 NavBar 가 없어 레이아웃 밖 전체 화면이다.
+   */
+  accountSetting: '/my/account',
+  /**
    * 문의하기(자주 묻는 질문). 마이페이지 "센터 > 문의하기"로 들어온다.
    * 디자인에 NavBar 가 없어 레이아웃 밖 전체 화면이다.
    */
