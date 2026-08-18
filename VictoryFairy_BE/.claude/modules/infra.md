@@ -89,6 +89,15 @@ push(main) + `workflow_dispatch` → 변경 모듈 감지 → Docker 빌드 → 
   `VictoryFairy_BE/**`와 워크플로 자신뿐이다. BE 변경이 뒤따를 때까지 매니페스트만 고쳐서는 반영 안 됨.
 - 로컬 수동 배포 `VictoryFairy_Infra/scripts/deploy-app.sh`도 같은 `sed | kubectl apply -f -` 방식.
 
+## DB 마이그레이션 선행 조건 (수동 적용, `infra/sql/migrate-*.sql`)
+
+**`deploy-eks.yml`엔 SQL 실행 단계가 없다** — 위 CI/CD가 하는 일은 `kubectl apply -f`뿐이라, 마이그레이션은 항상 사람이 devdb·운영 DB에 직접 돌려야 한다. 순서를 지키지 않으면(SQL 나중, 배포 먼저) **앱이 아예 기동하지 못하는 사례가 실제로 있다.**
+
+- **`infra/sql/migrate-reserved-uids-to-uuid.sql`(2026-08-18 신설, 미적용 — 다음 배포 전 필수)**: 예약 계정 2건(SYSTEM · `(알수없음)` 더미 계정)과 구단 공용 채팅방 10건의 `uid`를 손으로 지어낸 순차값(`00000000-0000-0000-0000-00000000000X`)에서 실제 UUID로 바꾸는 12건의 `UPDATE`(id는 안 건드려 자식 참조는 온전, 재실행 시 0행 매칭 no-op). **devdb·운영 DB 양쪽 적용 필요.**
+  ⚠ **순서가 뒤집히면(코드 먼저 배포, SQL 나중) 앱이 기동하지 못한다** — `chat-init.sql`의 멱등성 가드가 새 uid로 `WHERE NOT EXISTS`를 걸게 바뀌는데 DB엔 아직 옛 uid 행만 있어 SYSTEM 계정·구단 채팅방 10건이 **중복 생성**되고, `UnknownAccountBootstrapper`(`ApplicationRunner`라 **기동 경로**에 있다)는 새 uid로 `(알수없음)` 계정을 못 찾아 새로 만들려다 `users.email`/`users.tel` UNIQUE 충돌로 **INSERT가 실패해 앱이 아예 뜨지 않는다.** "SQL 먼저, 배포 나중"이 순서다. 상세는 `.claude/modules/user.md`(`UnknownAccountPolicy`)·`.claude/modules/domain.md`.
+  참고: 채팅방 uid는 SSE 구독 URL 등 외부 노출 식별자라 적용 순간 그 값을 물고 있던 클라이언트 연결이 끊긴다(방 목록을 다시 받으면 새 uid로 복구되나 무중단은 아니다 — 트래픽 적은 시간대 권장). 계정 쪽 uid 2건은 로그인이 성립하지 않는 예약 계정(BCrypt 패턴이 아닌 placeholder 비밀번호)이라 발급된 토큰이 없고, 무효화되는 실사용자 토큰도 없다.
+- ~~**`infra/sql/migrate-quiz-like-account-set-null.sql`**~~ — 해소(2026-08-18, devdb·운영 DB 양쪽 적용 완료). `quizzes_like`의 계정 FK를 `ON DELETE CASCADE`→`SET NULL`로 바꾼다(만료 데이터 정리 스케줄러가 계정을 하드 삭제할 때 추천 수가 조용히 깎이지 않게 하는 선행 조건). 상세는 `.claude/modules/domain.md`.
+
 ## 로컬 개발
 
 - `docker-compose.yml` — `mysql:8.0`(3306, `mysql-data` 볼륨) + `redis:7.2-alpine`(6379). 둘 다 healthcheck 있음.
