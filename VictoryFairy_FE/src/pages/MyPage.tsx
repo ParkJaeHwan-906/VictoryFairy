@@ -4,7 +4,7 @@ import { logout, withdraw } from '../api';
 import profilePlaceholder from '../assets/profile_img.svg';
 import ConfirmSheet from '../components/ConfirmSheet';
 import { getTeamDisplay } from '../data/kboTeams';
-import { ROUTES } from '../routes';
+import { ROUTES, type TeamSelectState } from '../routes';
 import { useAccountStore, useMyProfile } from '../stores/useAccountStore';
 import { useAuthStore } from '../stores/useAuthStore';
 import '../styles/MyPage.css';
@@ -31,6 +31,12 @@ import '../styles/MyPage.css';
 
 /** 앱 버전. 배포 파이프라인이 주입하기 전까지는 화면에 고정값으로 둔다. */
 const APP_VERSION = 'v 1.0.0';
+
+/**
+ * 선호(구단 · 선수) 수정 흐름으로 들어간다는 표식.
+ * 렌더마다 새 객체를 만들지 않도록 밖에 둔다 — 라우터 state 는 값만 실어 보내면 된다.
+ */
+const SUPPORT_EDIT_STATE: TeamSelectState = { mode: 'edit' };
 
 /** 아직 갈 곳이 정해지지 않은 목록 항목. 화살표만 그리고 눌러도 아무 일도 없다. */
 const SETTING_ITEMS = ['계정 설정', '알림 설정', 'SNS 연동'] as const;
@@ -233,7 +239,13 @@ export default function MyPage() {
           <div className="my-page__profile">
             <p className="my-page__nickname">{profile?.nickname ?? '-'} 님</p>
 
-            <button className="my-page__team" type="button">
+            {/*
+              응원 구단 줄은 **선호(구단 · 선수) 수정으로 가는 문**이다.
+              온보딩이 쓰던 화면을 그대로 다시 쓰고, `mode: 'edit'` 만 넘겨
+              "저장된 선호를 채운 채로 시작해 마이페이지로 돌아오라"고 알린다
+              (`TeamSelectPage` · `PlayerSelectPage` 머리말 참고).
+            */}
+            <Link className="my-page__team" to={ROUTES.teamSelect} state={SUPPORT_EDIT_STATE}>
               {teamName === null ? (
                 <span className="my-page__team-empty">응원 구단을 골라주세요</span>
               ) : (
@@ -243,7 +255,7 @@ export default function MyPage() {
                 </>
               )}
               <span className="my-page__team-arrow" aria-hidden="true" />
-            </button>
+            </Link>
           </div>
         </div>
 
