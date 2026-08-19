@@ -10,6 +10,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.skhynix.common.error.BusinessException;
 import com.skhynix.common.error.ErrorCode;
@@ -29,6 +30,7 @@ import com.skhynix.quiz.quiz.dto.QuizLikeResponse;
 import com.skhynix.quiz.quiz.dto.QuizSubmissionHistoryResponse;
 import com.skhynix.quiz.quiz.dto.QuizSubmissionItemResponse;
 import com.skhynix.quiz.quiz.dto.QuizSubmitResponse;
+import com.skhynix.quiz.quiz.vote.QuizVoteTally;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -44,6 +46,8 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * {@link QuizSubmitService} 단위 테스트 — 협력 객체 전부 Mockito 목, DB·Spring 컨텍스트 없음.
@@ -82,6 +86,9 @@ class QuizSubmitServiceTest {
 
     @Mock
     private QuizLikeService quizLikeService;
+
+    @Mock
+    private QuizVoteTally quizVoteTally;
 
     @InjectMocks
     private QuizSubmitService quizSubmitService;
@@ -1199,5 +1206,203 @@ class QuizSubmitServiceTest {
                 .findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(any());
         verify(quizLikeService, times(2))
                 .likesOf(org.mockito.ArgumentMatchers.eq(USER_ID), any());
+    }
+
+    // ---------- 투표 집계(docs/requirements/quiz/quiz-vote-tally.md) ----------
+
+    @Test
+    @DisplayName("[AC-VOTE-6-1,6-2] 오답 제출도 정답 제출과 마찬가지로 그 문제·보기에 대해 increment()를 "
+            + "호출한다 — 동기화가 활성화되지 않은 이 단위 테스트에서는 즉시 호출된다(정답 여부와 무관)")
+    void submit_wrongAnswer_stillIncrementsVoteTally() {
+        Quiz quiz = publishedQuiz(0, 10.0);
+        QuizOption wrong = option(quiz, 1, "오답 보기");
+        QuizUserSubmit served = unansweredRow(quiz, QuizSubmitWindow.now().minusMinutes(1));
+        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(quiz));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
+                .willReturn(Optional.of(served));
+        given(quizOptionRepository.findFirstByQuiz_IdAndOptionOrderByIdAsc(QUIZ_ID, 1))
+                .willReturn(Optional.of(wrong));
+        given(userAccountRepository.findWithLockById(USER_ID)).willReturn(Optional.of(account(0L)));
+        given(quizUserSubmitRepository.fillAnswer(anyLong(), anyLong(), any(), anyBoolean(),
+                any(), any())).willReturn(1);
+
+        QuizSubmitResponse response = quizSubmitService.submit(USER_ID, QUIZ_ID, 1);
+
+        assertThat(response.correct()).isFalse();
+        verify(quizVoteTally).increment(QUIZ_ID, 1);
+    }
+
+    @Test
+    @DisplayName("[AC-VOTE-6-1] 정답 제출은 그 문제·정답 보기 번호로 increment()가 호출된다")
+    void submit_correctAnswer_incrementsVoteTallyWithChosenOption() {
+        Quiz quiz = publishedQuiz(0, 10.0);
+        QuizOption correct = option(quiz, 0, "정답 보기");
+        QuizUserSubmit served = unansweredRow(quiz, QuizSubmitWindow.now().minusMinutes(1));
+        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(quiz));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
+                .willReturn(Optional.of(served));
+        given(quizOptionRepository.findFirstByQuiz_IdAndOptionOrderByIdAsc(QUIZ_ID, 0))
+                .willReturn(Optional.of(correct));
+        given(userAccountRepository.findWithLockById(USER_ID)).willReturn(Optional.of(account(0L)));
+        given(quizUserSubmitRepository.fillAnswer(anyLong(), anyLong(), any(), anyBoolean(),
+                any(), any())).willReturn(1);
+
+        quizSubmitService.submit(USER_ID, QUIZ_ID, 0);
+
+        verify(quizVoteTally).increment(QUIZ_ID, 0);
+    }
+
+    @Test
+    @DisplayName("[AC-VOTE-7-1,7-2] fillAnswer가 0행을 반환해 409로 거절되면(중복 제출) 집계가 증가하지 "
+            + "않는다")
+    void submit_fillAnswerReturnsZero_neverIncrementsVoteTally() {
+        Quiz quiz = publishedQuiz(0, 10.0);
+        QuizOption option = option(quiz, 0, "정답 보기");
+        QuizUserSubmit served = unansweredRow(quiz, QuizSubmitWindow.now().minusMinutes(1));
+        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(quiz));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
+                .willReturn(Optional.of(served));
+        given(quizOptionRepository.findFirstByQuiz_IdAndOptionOrderByIdAsc(QUIZ_ID, 0))
+                .willReturn(Optional.of(option));
+        given(userAccountRepository.findWithLockById(USER_ID)).willReturn(Optional.of(account(0L)));
+        given(quizUserSubmitRepository.fillAnswer(anyLong(), anyLong(), any(), anyBoolean(),
+                any(), any())).willReturn(0);
+
+        assertThatThrownBy(() -> quizSubmitService.submit(USER_ID, QUIZ_ID, 0))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.QUIZ_ALREADY_SUBMITTED));
+
+        verifyNoInteractions(quizVoteTally);
+    }
+
+    @Test
+    @DisplayName("[AC-VOTE-8-1] 404 QUIZ_NOT_FOUND로 거절되면 집계에 손대지 않는다")
+    void submit_notFound_neverInteractsWithVoteTally() {
+        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> quizSubmitService.submit(USER_ID, QUIZ_ID, 0))
+                .isInstanceOf(BusinessException.class);
+
+        verifyNoInteractions(quizVoteTally);
+    }
+
+    @Test
+    @DisplayName("[AC-VOTE-8-1,9-1] 403 QUIZ_SUBMIT_NOT_ALLOWED(행 없음 또는 미답+시한초과)로 거절되면 "
+            + "집계에 손대지 않는다 — 시한 초과로 인한 미제출 확정도 이 경로다")
+    void submit_submitNotAllowed_neverInteractsWithVoteTally() {
+        Quiz quiz = publishedQuiz(0, 10.0);
+        QuizUserSubmit expired = unansweredRow(quiz, QuizSubmitWindow.now().minusMinutes(9));
+        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(quiz));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
+                .willReturn(Optional.of(expired));
+
+        assertThatThrownBy(() -> quizSubmitService.submit(USER_ID, QUIZ_ID, 0))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.QUIZ_SUBMIT_NOT_ALLOWED));
+
+        verifyNoInteractions(quizVoteTally);
+    }
+
+    @Test
+    @DisplayName("[AC-VOTE-8-1] 400 QUIZ_OPTION_NOT_FOUND(없는 보기)로 거절되면 집계에 손대지 않는다")
+    void submit_optionNotFound_neverInteractsWithVoteTally() {
+        Quiz quiz = publishedQuiz(0, 10.0);
+        QuizUserSubmit served = unansweredRow(quiz, QuizSubmitWindow.now().minusMinutes(1));
+        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(quiz));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
+                .willReturn(Optional.of(served));
+        given(quizOptionRepository.findFirstByQuiz_IdAndOptionOrderByIdAsc(QUIZ_ID, 9))
+                .willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> quizSubmitService.submit(USER_ID, QUIZ_ID, 9))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.QUIZ_OPTION_NOT_FOUND));
+
+        verifyNoInteractions(quizVoteTally);
+    }
+
+    @Test
+    @DisplayName("[AC-VOTE-27-1,27-2] 트랜잭션 동기화가 활성 상태면 증가는 즉시 일어나지 않고, 커밋 콜백"
+            + "(afterCommit)이 실행돼야 비로소 일어난다 — 등록은 계정 락 획득·조건부 UPDATE(fillAnswer) "
+            + "이후, 메서드의 마지막 단계에서 이뤄진다")
+    void submit_withActiveTransactionSynchronization_incrementsOnlyAfterCommitCallback() {
+        Quiz quiz = publishedQuiz(0, 10.0);
+        QuizOption option = option(quiz, 0, "정답 보기");
+        QuizUserSubmit served = unansweredRow(quiz, QuizSubmitWindow.now().minusMinutes(1));
+        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(quiz));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
+                .willReturn(Optional.of(served));
+        given(quizOptionRepository.findFirstByQuiz_IdAndOptionOrderByIdAsc(QUIZ_ID, 0))
+                .willReturn(Optional.of(option));
+        given(userAccountRepository.findWithLockById(USER_ID)).willReturn(Optional.of(account(0L)));
+        given(quizUserSubmitRepository.fillAnswer(anyLong(), anyLong(), any(), anyBoolean(),
+                any(), any())).willReturn(1);
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            quizSubmitService.submit(USER_ID, QUIZ_ID, 0);
+
+            // 커밋 전에는 아직 어떤 필드도 증가하지 않았다
+            verifyNoInteractions(quizVoteTally);
+
+            List<TransactionSynchronization> syncs =
+                    TransactionSynchronizationManager.getSynchronizations();
+            assertThat(syncs).hasSize(1);
+            syncs.forEach(TransactionSynchronization::afterCommit);
+
+            verify(quizVoteTally).increment(QUIZ_ID, 0);
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
+    @DisplayName("[AC-VOTE-27-1] 등록된 커밋 콜백을 끝까지 실행하지 않으면(=커밋되지 않고 롤백된 것과 같은 "
+            + "상황) 그 제출은 끝까지 증가를 일으키지 않는다")
+    void submit_registeredSynchronizationNeverCommitted_neverIncrementsVoteTally() {
+        Quiz quiz = publishedQuiz(0, 10.0);
+        QuizOption option = option(quiz, 0, "정답 보기");
+        QuizUserSubmit served = unansweredRow(quiz, QuizSubmitWindow.now().minusMinutes(1));
+        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(quiz));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
+                .willReturn(Optional.of(served));
+        given(quizOptionRepository.findFirstByQuiz_IdAndOptionOrderByIdAsc(QUIZ_ID, 0))
+                .willReturn(Optional.of(option));
+        given(userAccountRepository.findWithLockById(USER_ID)).willReturn(Optional.of(account(0L)));
+        given(quizUserSubmitRepository.fillAnswer(anyLong(), anyLong(), any(), anyBoolean(),
+                any(), any())).willReturn(1);
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            quizSubmitService.submit(USER_ID, QUIZ_ID, 0);
+            // afterCommit을 의도적으로 부르지 않는다 — 실제 롤백 시 Spring은 afterCommit을 부르지 않는다
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+
+        verifyNoInteractions(quizVoteTally);
+    }
+
+    @Test
+    @DisplayName("[AC-VOTE-31-1] QuizSubmitService는 StringRedisTemplate을 직접 필드로 갖지 않는다 — "
+            + "집계는 포트(QuizVoteTally) 하나로만 접근한다")
+    void quizSubmitService_hasNoDirectStringRedisTemplateField() {
+        boolean hasDirectRedisField = java.util.Arrays
+                .stream(QuizSubmitService.class.getDeclaredFields())
+                .anyMatch(field -> field.getType().getSimpleName().equals("StringRedisTemplate"));
+        assertThat(hasDirectRedisField).isFalse();
+    }
+
+    @Test
+    @DisplayName("[AC-VOTE-5-1] 풀이 이력 조회(getHistory)는 집계 포트를 전혀 호출하지 않는다 — 이 조회 "
+            + "응답은 Redis 상태와 무관하다")
+    void getHistory_neverInteractsWithVoteTally() {
+        Game finished = game("FINISHED", null, 1);
+        given(gameRepository.findWithStatusByNaverGameId(GAME_ID)).willReturn(Optional.of(finished));
+        given(quizUserSubmitRepository.findGameSubmissions(USER_ID, GAME_PK)).willReturn(List.of());
+
+        quizSubmitService.getHistory(USER_ID, GAME_ID);
+
+        verifyNoInteractions(quizVoteTally);
     }
 }

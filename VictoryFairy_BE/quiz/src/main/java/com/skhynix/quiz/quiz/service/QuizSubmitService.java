@@ -17,6 +17,7 @@ import com.skhynix.quiz.quiz.dto.QuizSubmissionHistoryResponse;
 import com.skhynix.quiz.quiz.dto.QuizSubmissionHistoryResponse.InningResponse;
 import com.skhynix.quiz.quiz.dto.QuizSubmissionItemResponse;
 import com.skhynix.quiz.quiz.dto.QuizSubmitResponse;
+import com.skhynix.quiz.quiz.vote.QuizVoteTally;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -26,6 +27,8 @@ import java.util.stream.IntStream;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Service
 @RequiredArgsConstructor
@@ -44,6 +47,7 @@ public class QuizSubmitService {
     private final UserAccountRepository userAccountRepository;
     private final GameRepository gameRepository;
     private final QuizLikeService quizLikeService;
+    private final QuizVoteTally quizVoteTally;
 
     @Transactional
     public QuizSubmitResponse submit(Long userAccountId, Long quizId, int optionNo) {
@@ -81,8 +85,35 @@ public class QuizSubmitService {
         if (filled == 0) {
             throw new BusinessException(ErrorCode.QUIZ_ALREADY_SUBMITTED);
         }
+        // 여기까지 왔다는 건 이 제출이 그 문제의 유일한 확정이라는 뜻이다(409 로 갈린 쪽은 위에서
+        // 롤백된다) — 표를 더할 자격은 이 지점에서만 생긴다.
+        incrementVoteAfterCommit(quizId, optionNo);
         return new QuizSubmitResponse(correct, quiz.getAnswer(), optionNo, earnedPoint,
                 account.getPoint());
+    }
+
+    /**
+     * 집계 증가를 <b>커밋 이후</b>로 미룬다. 이유는 두 가지다 — ① 이 트랜잭션은 포인트 적립 때문에
+     * {@code findWithLockById} 로 계정 행 락을 쥐고 있어, 여기서 Redis 왕복을 하면 락 보유 구간이
+     * 네트워크 지연만큼 늘어난다 ② 커밋에 실패한 제출은 정의상 표를 만들지 않는다.
+     *
+     * <p>남는 실패 창은 "커밋 성공 직후 ~ 훅 실행 전 인스턴스 종료" 하나이고, 그때 잃는 한 표는
+     * 보정하지 않는다(정본은 {@code quiz_users_submit}).
+     *
+     * <p>동기화가 없는 호출 경로(트랜잭션 밖 직접 호출·단위 테스트)에서는 미룰 곳이 없으므로 그대로
+     * 실행한다 — 등록 가능 여부를 확인하지 않으면 {@code IllegalStateException} 이 난다.
+     */
+    private void incrementVoteAfterCommit(long quizId, int optionNo) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            quizVoteTally.increment(quizId, optionNo);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                quizVoteTally.increment(quizId, optionNo);
+            }
+        });
     }
 
     @Transactional(readOnly = true)
