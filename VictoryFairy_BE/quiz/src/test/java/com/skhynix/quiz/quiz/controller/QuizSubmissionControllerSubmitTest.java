@@ -88,7 +88,9 @@ class QuizSubmissionControllerSubmitTest {
                 .andExpect(jsonPath("$.data.earnedPoint").value(10))
                 .andExpect(jsonPath("$.data.totalPoint").value(110))
                 // [AC-INN-25-1] 제출 응답 필드 집합은 이닝 기능 도입 후에도 바뀌지 않는다 — inning 키가 없다
-                .andExpect(jsonPath("$.data.inning").doesNotExist());
+                .andExpect(jsonPath("$.data.inning").doesNotExist())
+                // [AC-VOTEVIEW-28-1] 제출 직후 응답에도 분포를 돌려주지 않는다 — voteCount 키가 없다
+                .andExpect(jsonPath("$.data.voteCount").doesNotExist());
 
         verify(quizSubmitService).submit(USER_ID, QUIZ_ID, 0);
     }

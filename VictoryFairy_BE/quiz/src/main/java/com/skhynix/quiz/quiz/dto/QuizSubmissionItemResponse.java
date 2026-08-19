@@ -3,7 +3,6 @@ package com.skhynix.quiz.quiz.dto;
 import com.skhynix.domain.quiz.entity.Quiz;
 import com.skhynix.domain.quiz.entity.QuizOption;
 import com.skhynix.domain.quiz.entity.QuizUserSubmit;
-import com.skhynix.quiz.quiz.dto.QuizResponse.OptionResponse;
 import java.time.LocalDateTime;
 import java.util.List;
 

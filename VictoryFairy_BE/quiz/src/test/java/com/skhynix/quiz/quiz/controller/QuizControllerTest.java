@@ -13,8 +13,10 @@ import com.skhynix.common.error.BusinessException;
 import com.skhynix.common.error.ErrorCode;
 import com.skhynix.domain.user.repository.UserAccountRepository;
 import com.skhynix.quiz.global.config.SecurityConfig;
+import com.skhynix.quiz.quiz.dto.OptionResponse;
 import com.skhynix.quiz.quiz.dto.QuizDetailResponse;
 import com.skhynix.quiz.quiz.dto.QuizResponse;
+import com.skhynix.quiz.quiz.dto.QuizResponse.TodayOptionResponse;
 import com.skhynix.quiz.quiz.service.QuizLikeService;
 import com.skhynix.quiz.quiz.service.QuizService;
 import com.skhynix.websupport.error.GlobalExceptionHandler;
@@ -154,13 +156,13 @@ class QuizControllerTest {
     void getTodayQuizzes_authenticated_returns200WithoutAnswerKey() throws Exception {
         given(quizService.getTodayQuizzes(USER_ID, GAME_ID, false)).willReturn(List.of(
                 new QuizResponse(1L, "객관식", "2025 정규시즌 우승 구단은?", "MEDIUM", 30.0, true,
-                        List.of(new QuizResponse.OptionResponse(0, "LG"),
-                                new QuizResponse.OptionResponse(1, "한화"),
-                                new QuizResponse.OptionResponse(2, "삼성"),
-                                new QuizResponse.OptionResponse(3, "KT"))),
+                        List.of(new TodayOptionResponse(0, "LG", 3L),
+                                new TodayOptionResponse(1, "한화", 0L),
+                                new TodayOptionResponse(2, "삼성", 0L),
+                                new TodayOptionResponse(3, "KT", 0L))),
                 new QuizResponse(2L, "O/X", "문동주는 한화 소속이다?", "EASY", 10.0, false,
-                        List.of(new QuizResponse.OptionResponse(0, "O"),
-                                new QuizResponse.OptionResponse(1, "X")))));
+                        List.of(new TodayOptionResponse(0, "O", 0L),
+                                new TodayOptionResponse(1, "X", 0L)))));
 
         MvcResult result = mockMvc.perform(get("/quizzes/today").param("gameId", GAME_ID)
                         .with(authenticatedAs(USER_ID)))
@@ -176,15 +178,24 @@ class QuizControllerTest {
                 .andExpect(jsonPath("$.data[0].options.length()").value(4))
                 .andExpect(jsonPath("$.data[0].options[0].no").value(0))
                 .andExpect(jsonPath("$.data[0].options[0].text").value("LG"))
+                // [AC-VOTEVIEW-1-1,1-2,2-1] voteCount는 값이 0이어도 키가 생략되지 않고, 문자열이 아닌
+                // JSON 정수로 실린다
+                .andExpect(jsonPath("$.data[0].options[0].voteCount").value(3))
+                .andExpect(jsonPath("$.data[0].options[1].voteCount").value(0))
                 .andExpect(jsonPath("$.data[1].type").value("O/X"))
                 .andExpect(jsonPath("$.data[1].preferred").value(false))
                 .andExpect(jsonPath("$.data[1].options.length()").value(2))
+                .andExpect(jsonPath("$.data[1].options[0].voteCount").value(0))
+                .andExpect(jsonPath("$.data[1].options[1].voteCount").value(0))
                 .andExpect(jsonPath("$.data[0].answer").doesNotExist())
                 .andExpect(jsonPath("$.data[1].answer").doesNotExist())
                 .andExpect(jsonPath("$.data[0].liked").doesNotExist())
                 .andExpect(jsonPath("$.data[0].likeCount").doesNotExist())
                 .andExpect(jsonPath("$.data[1].liked").doesNotExist())
                 .andExpect(jsonPath("$.data[1].likeCount").doesNotExist())
+                // [AC-VOTEVIEW-5-1] 이번 변경으로 추가된 필드는 voteCount 하나뿐 — 총합·비율 필드가 없다
+                .andExpect(jsonPath("$.data[0].totalVotes").doesNotExist())
+                .andExpect(jsonPath("$.data[0].voteRatio").doesNotExist())
                 // [AC-INN-15-1] /today 응답 필드 집합은 이닝 기능 도입 후에도 바뀌지 않는다 — inning 키가 없다
                 .andExpect(jsonPath("$.data[0].inning").doesNotExist())
                 .andExpect(jsonPath("$.data[1].inning").doesNotExist())
@@ -193,6 +204,9 @@ class QuizControllerTest {
         // "answer" 라는 문자열 자체가 응답 본문 어디에도 없어야 한다(isAnswer·answerRate 류까지 차단)
         String body = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertThat(body).doesNotContain("answer");
+        // "voteCount":3 형태로 실려야 한다(문자열 "3"이 아니다) — AC-VOTEVIEW-2-1
+        assertThat(body).contains("\"voteCount\":3");
+        assertThat(body).doesNotContain("\"voteCount\":\"3\"");
         // AC-LIKE-31-2: /today 처리 중 QuizLikeService 를 아예 호출하지 않는다(집계 쿼리도 발생 안 함)
         verifyNoInteractions(quizLikeService);
     }
@@ -247,10 +261,14 @@ class QuizControllerTest {
                 .andExpect(jsonPath("$.data.likeCount").doesNotExist())
                 // [AC-INN-25-2] 상세 응답도 이닝 기능과 무관 — inning 키가 없다
                 .andExpect(jsonPath("$.data.inning").doesNotExist())
+                // [AC-VOTEVIEW-27-1] 상세 응답 필드 집합은 투표 수 노출과 무관 — voteCount 계열 키가 없다
+                .andExpect(jsonPath("$.data.options[0].voteCount").doesNotExist())
+                .andExpect(jsonPath("$.data.options[1].voteCount").doesNotExist())
                 .andReturn();
 
         String body = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertThat(body).doesNotContain("answer");
+        assertThat(body).doesNotContain("voteCount");
     }
 
     @Test
@@ -268,7 +286,10 @@ class QuizControllerTest {
                 .andExpect(jsonPath("$.data.liked").value(true))
                 .andExpect(jsonPath("$.data.likeCount").value(5))
                 // [AC-INN-25-2] 제출한 문제 상세도 마찬가지로 inning 키가 없다
-                .andExpect(jsonPath("$.data.inning").doesNotExist());
+                .andExpect(jsonPath("$.data.inning").doesNotExist())
+                // [AC-VOTEVIEW-27-1] 제출한 문제 상세도 voteCount 계열 키가 없다
+                .andExpect(jsonPath("$.data.options[0].voteCount").doesNotExist())
+                .andExpect(jsonPath("$.data.options[1].voteCount").doesNotExist());
     }
 
     @Test
@@ -310,9 +331,9 @@ class QuizControllerTest {
     /** 상세 응답 픽스처 — 미제출/제출의 차이(마지막 세 필드)만 다르게 재사용한다. */
     private static class QuizDetailResponseFixture {
 
-        private static final List<QuizResponse.OptionResponse> OPTIONS = List.of(
-                new QuizResponse.OptionResponse(0, "LG"),
-                new QuizResponse.OptionResponse(1, "한화"));
+        private static final List<OptionResponse> OPTIONS = List.of(
+                new OptionResponse(0, "LG"),
+                new OptionResponse(1, "한화"));
 
         static QuizDetailResponse unsubmitted() {
             return new QuizDetailResponse(1L, "객관식", "2025 정규시즌 우승 구단은?", "MEDIUM",

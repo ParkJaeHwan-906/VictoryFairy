@@ -2,8 +2,12 @@ package com.skhynix.quiz.quiz.vote;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.connection.ExpirationOptions;
@@ -13,7 +17,8 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 /**
- * 보기별 투표 수를 문제당 Redis Hash 한 키(<code>quiz:votes:{quizId}</code>)에 쌓는다.
+ * 보기별 투표 수를 문제당 Redis Hash 한 키(<code>quiz:votes:{quizId}</code>)에 쌓고, 서빙 시점 분포를
+ * 그 키에서 읽어 준다.
  *
  * <p><b>프로파일 분기가 없다(의도).</b> 같은 앱의 실시간 fan-out 은 기동 시 구독 연결을 여는 리스너
  * 컨테이너 때문에 {@code @Profile("prod")} 지만, 집계는 dev·prod 모두 실제 Redis 에 쓴다 — 이 저장소의
@@ -72,31 +77,119 @@ public class RedisQuizVoteTally implements QuizVoteTally {
     }
 
     @Override
-    public void initialize(Map<Long, List<Integer>> optionNosByQuizId) {
-        if (optionNosByQuizId == null || optionNosByQuizId.isEmpty()) {
-            return;
+    public Map<Long, Map<Integer, Long>> initializeAndRead(
+            Map<Long, List<Integer>> optionNosByQuizId) {
+        Map<Long, List<Integer>> targets = normalize(optionNosByQuizId);
+        if (targets.isEmpty()) {
+            return Map.of();
         }
         try {
-            redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
-                optionNosByQuizId.forEach((quizId, optionNos) -> {
-                    if (quizId == null || optionNos == null || optionNos.isEmpty()) {
-                        return;
-                    }
+            List<Object> results = redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
+                targets.forEach((quizId, optionNos) -> {
                     byte[] key = key(quizId);
                     for (Integer optionNo : optionNos) {
-                        if (optionNo == null) {
-                            continue;
-                        }
                         // HSETNX 여야 한다 — 조회 후 분기하거나 HSET 으로 덮으면 이미 쌓인 표가
                         // 뒤늦은 /today 호출 한 번에 0 으로 밀린다.
                         connection.hashCommands().hSetNX(key, field(optionNo), ZERO);
                     }
                     applyTtlIfAbsent(connection, key);
+                    // 한 파이프라인 안에서 HSETNX -> EXPIRE NX -> HGETALL 순으로 흘려보낸다. Redis 는
+                    // 받은 순서대로 실행하므로 "초기화가 끝난 뒤 읽는다"가 구조적으로 보장되고,
+                    // 왕복은 문제 수·보기 수와 무관하게 1 회로 유지된다.
+                    connection.hashCommands().hGetAll(key);
                 });
                 return null;
             });
+            return collect(targets.keySet(), results);
         } catch (Exception e) {
-            log.warn("퀴즈 투표 집계 초기화 실패 optionNosByQuizId={}", optionNosByQuizId, e);
+            // 읽기 실패는 서빙을 막지 않는다 — 호출부가 빈 결과를 전 보기 0 으로 채운다.
+            // 로그는 문제마다가 아니라 요청당 1 건이다(호출이 요청당 1 회라 이 catch 도 1 회).
+            log.warn("퀴즈 투표 집계 초기화·조회 실패 quizIds={}", targets.keySet(), e);
+            return Map.of();
+        }
+    }
+
+    /** null·빈 항목을 걸러 낸다. 순서를 고정해야 아래 파이프라인 결과와 문제를 짝지을 수 있다. */
+    private static Map<Long, List<Integer>> normalize(Map<Long, List<Integer>> optionNosByQuizId) {
+        if (optionNosByQuizId == null || optionNosByQuizId.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, List<Integer>> targets = new LinkedHashMap<>();
+        optionNosByQuizId.forEach((quizId, optionNos) -> {
+            if (quizId == null || optionNos == null) {
+                return;
+            }
+            List<Integer> valid = optionNos.stream().filter(Objects::nonNull).toList();
+            if (!valid.isEmpty()) {
+                targets.put(quizId, valid);
+            }
+        });
+        return targets;
+    }
+
+    /**
+     * 파이프라인 결과에서 HGETALL 응답만 골라 문제와 짝짓는다. 결과에 담기는 Map 은 HGETALL 뿐이고
+     * 순서는 명령을 쌓은 순서 그대로다.
+     *
+     * <p>개수가 어긋나면 <b>짝짓지 않고 통째로 포기한다</b> — 한 칸 밀린 채 짝지으면 다른 문제의 표가
+     * 그 문제의 것인 양 200 으로 나가고, 그건 전부 0 으로 나가는 것보다 나쁘다.
+     */
+    private Map<Long, Map<Integer, Long>> collect(Set<Long> quizIds, List<Object> results) {
+        List<Object> hashes = results == null ? List.of()
+                : results.stream().filter(Map.class::isInstance).toList();
+        if (hashes.size() != quizIds.size()) {
+            log.warn("퀴즈 투표 집계 조회 결과 수 불일치 quizzes={} hashes={}", quizIds.size(), hashes.size());
+            return Map.of();
+        }
+        Map<Long, Map<Integer, Long>> counts = new HashMap<>();
+        int index = 0;
+        for (Long quizId : quizIds) {
+            Map<Integer, Long> parsed = parseCounts((Map<?, ?>) hashes.get(index++));
+            if (!parsed.isEmpty()) {
+                counts.put(quizId, parsed);
+            }
+        }
+        return counts;
+    }
+
+    /**
+     * 필드·값이 0 이상의 정수로 해석되지 않으면 그 항목을 버린다(호출부가 0 으로 채운다).
+     * 항목마다 로그를 남기지 않는 것은 의도다 — 깨진 키 하나가 로그 폭주가 되면 안 된다.
+     */
+    private static Map<Integer, Long> parseCounts(Map<?, ?> hash) {
+        Map<Integer, Long> parsed = new HashMap<>();
+        hash.forEach((field, value) -> {
+            Integer optionNo = toInt(asString(field));
+            Long count = toCount(asString(value));
+            if (optionNo != null && count != null) {
+                parsed.put(optionNo, count);
+            }
+        });
+        return parsed;
+    }
+
+    /** 파이프라인 결과는 템플릿 직렬화기를 타 보통 String 이지만, 원시 byte[] 로 올 여지도 남긴다. */
+    private static String asString(Object raw) {
+        if (raw instanceof byte[] bytes) {
+            return new String(bytes, StandardCharsets.UTF_8);
+        }
+        return raw == null ? null : raw.toString();
+    }
+
+    private static Integer toInt(String raw) {
+        try {
+            return raw == null ? null : Integer.valueOf(raw.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private static Long toCount(String raw) {
+        try {
+            long count = raw == null ? -1L : Long.parseLong(raw.trim());
+            return count < 0 ? null : count;
+        } catch (NumberFormatException e) {
+            return null;
         }
     }
 

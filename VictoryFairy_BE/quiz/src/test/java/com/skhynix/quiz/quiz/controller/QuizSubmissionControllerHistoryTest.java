@@ -13,7 +13,7 @@ import com.skhynix.common.error.BusinessException;
 import com.skhynix.common.error.ErrorCode;
 import com.skhynix.domain.user.repository.UserAccountRepository;
 import com.skhynix.quiz.global.config.SecurityConfig;
-import com.skhynix.quiz.quiz.dto.QuizResponse.OptionResponse;
+import com.skhynix.quiz.quiz.dto.OptionResponse;
 import com.skhynix.quiz.quiz.dto.QuizSubmissionHistoryResponse;
 import com.skhynix.quiz.quiz.dto.QuizSubmissionHistoryResponse.InningResponse;
 import com.skhynix.quiz.quiz.dto.QuizSubmissionItemResponse;
@@ -245,6 +245,10 @@ class QuizSubmissionControllerHistoryTest {
                 .andExpect(jsonPath("$.data.innings[0].quizzes[0].options[0].text").value("O"))
                 .andExpect(jsonPath("$.data.innings[0].quizzes[0].options[1].no").value(1))
                 .andExpect(jsonPath("$.data.innings[0].quizzes[0].options[1].text").value("X"))
+                // [AC-VOTEVIEW-29-1] 이닝별 결산의 보기 항목에는 voteCount가 붙지 않는다(투표 수 노출은
+                // /today 하나뿐이라는 계약)
+                .andExpect(jsonPath("$.data.innings[0].quizzes[0].options[0].voteCount").doesNotExist())
+                .andExpect(jsonPath("$.data.innings[0].quizzes[0].options[1].voteCount").doesNotExist())
                 .andExpect(jsonPath("$.data.innings[0].quizzes[0].myOption").value(0))
                 .andExpect(jsonPath("$.data.innings[0].quizzes[0].correct").value(true))
                 .andExpect(jsonPath("$.data.innings[0].quizzes[0].expired").value(false))
