@@ -275,13 +275,13 @@ class QuizServiceTest {
         assertThat(byId.get(1L).difficulty()).isEqualTo("EASY");
         assertThat(byId.get(1L).point()).isEqualTo(10.0);
         assertThat(byId.get(1L).options())
-                .extracting(QuizResponse.OptionResponse::no, QuizResponse.OptionResponse::text)
+                .extracting(QuizResponse.TodayOptionResponse::no, QuizResponse.TodayOptionResponse::text)
                 .containsExactly(
                         org.assertj.core.groups.Tuple.tuple(0, "O"),
                         org.assertj.core.groups.Tuple.tuple(1, "X"));
         assertThat(byId.get(2L).type()).isEqualTo("객관식");
         assertThat(byId.get(2L).options())
-                .extracting(QuizResponse.OptionResponse::no)
+                .extracting(QuizResponse.TodayOptionResponse::no)
                 .containsExactly(0, 1, 2, 3);
 
         ArgumentCaptor<List<Long>> quizIdsCaptor = ArgumentCaptor.forClass(List.class);
@@ -1103,7 +1103,7 @@ class QuizServiceTest {
 
     @Test
     @DisplayName("[AC-VOTE-11-1,2-1] /today가 문제를 실으면 그 문제의 보기 번호를 0-based 그대로 "
-            + "initialize()에 넘긴다 — {1,2,3,4}가 아니라 {0,1,2,3}")
+            + "initializeAndRead()에 넘긴다 — {1,2,3,4}가 아니라 {0,1,2,3}")
     void getTodayQuizzes_servesQuizzes_initializesVoteTallyWithZeroBasedOptionNumbers() {
         Quiz oxQuiz = quiz(1L, "O/X", "문동주는 한화 소속이다?", "EASY", 10.0);
         Quiz multiQuiz = quiz(2L, "객관식", "우승 구단은?", "MEDIUM", 30.0);
@@ -1122,15 +1122,15 @@ class QuizServiceTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<Long, List<Integer>>> captor = ArgumentCaptor.forClass(Map.class);
-        verify(quizVoteTally).initialize(captor.capture());
+        verify(quizVoteTally).initializeAndRead(captor.capture());
         Map<Long, List<Integer>> initialized = captor.getValue();
         assertThat(initialized.get(1L)).containsExactlyInAnyOrder(0, 1);
         assertThat(initialized.get(2L)).containsExactlyInAnyOrder(0, 1, 2, 3);
     }
 
     @Test
-    @DisplayName("[AC-VOTE-11-2] 상한(20)에 잘려 응답에 실리지 않은 문제는 initialize()에도 실리지 "
-            + "않는다 — initialize() 대상은 실제 응답 목록과 정확히 같다")
+    @DisplayName("[AC-VOTE-11-2] 상한(20)에 잘려 응답에 실리지 않은 문제는 initializeAndRead()에도 실리지 "
+            + "않는다 — initializeAndRead() 대상은 실제 응답 목록과 정확히 같다")
     void getTodayQuizzes_truncatedByCap_excludesUnservedQuizzesFromInitialize() {
         QuizService cappedService = newQuizService(6);
         List<Quiz> quizzes = manyQuizzes(); // 10건
@@ -1146,7 +1146,7 @@ class QuizServiceTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<Long, List<Integer>>> captor = ArgumentCaptor.forClass(Map.class);
-        verify(quizVoteTally).initialize(captor.capture());
+        verify(quizVoteTally).initializeAndRead(captor.capture());
         assertThat(captor.getValue().keySet())
                 .containsExactlyInAnyOrderElementsOf(result.stream().map(QuizResponse::id).toList());
         assertThat(captor.getValue()).hasSize(6);
@@ -1213,5 +1213,124 @@ class QuizServiceTest {
         quizService.getQuiz(USER_ID, 1L);
 
         verifyNoInteractions(quizVoteTally);
+    }
+
+    // ---------- 보기별 투표 수 노출(docs/requirements/quiz/quiz-vote-exposure.md) ----------
+
+    @Test
+    @DisplayName("[AC-VOTEVIEW-1-1,1-2,9-1,9-2] initializeAndRead()가 돌려준 맵의 값이 응답 options의 "
+            + "voteCount로 0-based 그대로(밀리지 않고) 실린다 — 보기마다 서로 다른 값을 심어 한 칸이라도 "
+            + "밀리면 잡히게 한다")
+    void getTodayQuizzes_populatesVoteCountFromTallyWithoutShiftingOptionAxis() {
+        Quiz multiQuiz = quiz(2L, "객관식", "우승 구단은?", "MEDIUM", 30.0);
+        givenServable(DEFAULT_INNING);
+        given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY)).willReturn(List.of(multiQuiz));
+        givenNoExistingRows(List.of(2L));
+        givenSupportPlayers();
+        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(anyList()))
+                .willReturn(List.of(
+                        option(multiQuiz, 0, "LG"), option(multiQuiz, 1, "한화"),
+                        option(multiQuiz, 2, "삼성"), option(multiQuiz, 3, "KT")));
+        given(quizVoteTally.initializeAndRead(any())).willReturn(
+                Map.of(2L, Map.of(0, 10L, 1, 20L, 2, 30L, 3, 40L)));
+
+        List<QuizResponse> result = quizService.getTodayQuizzes(USER_ID, GAME_ID, false);
+
+        Map<Integer, Long> voteCountByNo = result.get(0).options().stream()
+                .collect(Collectors.toMap(QuizResponse.TodayOptionResponse::no,
+                        QuizResponse.TodayOptionResponse::voteCount));
+        assertThat(voteCountByNo).containsExactlyInAnyOrderEntriesOf(
+                Map.of(0, 10L, 1, 20L, 2, 30L, 3, 40L));
+    }
+
+    @Test
+    @DisplayName("[AC-VOTEVIEW-10-1,20-1,21-1] 집계 포트가 빈 맵을 돌려주면(첫 서빙·Redis 장애 둘 다 "
+            + "이 모양) 모든 보기의 voteCount가 0이고 응답은 여전히 200 목록이다")
+    void getTodayQuizzes_emptyVoteTallyResult_fillsAllOptionsWithZeroVoteCount() {
+        Quiz oxQuiz = quiz(1L, "O/X", "문동주는 한화 소속이다?", "EASY", 10.0);
+        givenServable(DEFAULT_INNING);
+        given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY)).willReturn(List.of(oxQuiz));
+        givenNoExistingRows(List.of(1L));
+        givenSupportPlayers();
+        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(anyList()))
+                .willReturn(List.of(option(oxQuiz, 0, "O"), option(oxQuiz, 1, "X")));
+        given(quizVoteTally.initializeAndRead(any())).willReturn(Map.of());
+
+        List<QuizResponse> result = quizService.getTodayQuizzes(USER_ID, GAME_ID, false);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).options())
+                .extracting(QuizResponse.TodayOptionResponse::voteCount)
+                .containsExactly(0L, 0L);
+    }
+
+    @Test
+    @DisplayName("[AC-VOTEVIEW-23-1] 집계 포트가 일부 보기 필드만 돌려주면 없는 필드에 해당하는 보기만 "
+            + "voteCount 0이고 있는 필드는 그 값 그대로다")
+    void getTodayQuizzes_partialVoteTallyResult_fillsOnlyMissingFieldsWithZero() {
+        Quiz multiQuiz = quiz(2L, "객관식", "우승 구단은?", "MEDIUM", 30.0);
+        givenServable(DEFAULT_INNING);
+        given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY)).willReturn(List.of(multiQuiz));
+        givenNoExistingRows(List.of(2L));
+        givenSupportPlayers();
+        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(anyList()))
+                .willReturn(List.of(
+                        option(multiQuiz, 0, "LG"), option(multiQuiz, 1, "한화"),
+                        option(multiQuiz, 2, "삼성"), option(multiQuiz, 3, "KT")));
+        // no=1 필드만 존재하는 상태(TTL 만료 후 재생성·부분 결손 등을 흉내)
+        given(quizVoteTally.initializeAndRead(any())).willReturn(Map.of(2L, Map.of(1, 7L)));
+
+        List<QuizResponse> result = quizService.getTodayQuizzes(USER_ID, GAME_ID, false);
+
+        Map<Integer, Long> voteCountByNo = result.get(0).options().stream()
+                .collect(Collectors.toMap(QuizResponse.TodayOptionResponse::no,
+                        QuizResponse.TodayOptionResponse::voteCount));
+        assertThat(voteCountByNo).containsExactlyInAnyOrderEntriesOf(
+                Map.of(0, 0L, 1, 7L, 2, 0L, 3, 0L));
+    }
+
+    @Test
+    @DisplayName("[AC-VOTEVIEW-14-1] preferredOnly로 필터링돼 응답에서 빠진 문제는 "
+            + "initializeAndRead() 대상에도 포함되지 않는다 — 분포도 실리지 않은 문제와 함께 빠진다")
+    void getTodayQuizzes_preferredOnlyFiltered_excludesUnmatchedQuizFromVoteTallyTarget() {
+        Quiz general = quiz(1L, "객관식", "일반 문제", "EASY", 10.0);
+        Quiz teamQuiz = quiz(2L, "객관식", "한화 문제", "EASY", 10.0, homeTeam, null, null);
+        givenServable(DEFAULT_INNING);
+        given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY))
+                .willReturn(List.of(general, teamQuiz));
+        givenSupportPlayers();
+        givenNoExistingRows(List.of(1L, 2L));
+        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(List.of(2L)))
+                .willReturn(List.of(option(teamQuiz, 0, "O")));
+
+        quizService.getTodayQuizzes(USER_ID, GAME_ID, true);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<Long, List<Integer>>> captor = ArgumentCaptor.forClass(Map.class);
+        verify(quizVoteTally).initializeAndRead(captor.capture());
+        assertThat(captor.getValue()).containsOnlyKeys(2L);
+    }
+
+    @Test
+    @DisplayName("[AC-VOTEVIEW-4-1,5-1] /today 응답 문제 항목의 필드 집합은 기존 그대로다(id·type·"
+            + "question·difficulty·point·preferred·options) — answer·liked·likeCount·totalVotes·"
+            + "voteRatio 같은 필드는 record에 아예 존재하지 않는다")
+    void quizResponse_recordComponents_matchExactFieldSet() {
+        List<String> componentNames = java.util.Arrays.stream(QuizResponse.class.getRecordComponents())
+                .map(java.lang.reflect.RecordComponent::getName)
+                .toList();
+        assertThat(componentNames).containsExactlyInAnyOrder(
+                "id", "type", "question", "difficulty", "point", "preferred", "options");
+    }
+
+    @Test
+    @DisplayName("[AC-VOTEVIEW-1-1] 보기 항목(TodayOptionResponse)의 필드 집합은 no·text·voteCount "
+            + "셋뿐이다")
+    void todayOptionResponse_recordComponents_areNoTextVoteCountOnly() {
+        List<String> componentNames = java.util.Arrays
+                .stream(QuizResponse.TodayOptionResponse.class.getRecordComponents())
+                .map(java.lang.reflect.RecordComponent::getName)
+                .toList();
+        assertThat(componentNames).containsExactlyInAnyOrder("no", "text", "voteCount");
     }
 }

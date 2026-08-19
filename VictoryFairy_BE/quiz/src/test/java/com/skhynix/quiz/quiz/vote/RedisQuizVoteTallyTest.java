@@ -13,10 +13,16 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import java.time.Duration;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -24,6 +30,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
 import org.springframework.data.redis.connection.ExpirationOptions;
 import org.springframework.data.redis.connection.RedisConnection;
@@ -33,10 +40,13 @@ import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
 /**
- * {@link RedisQuizVoteTally}의 명령 형태를 검증한다. {@link StringRedisTemplate}을 목으로 두고
- * {@code executePipelined}에 넘어온 {@link RedisCallback}을 목 {@link RedisConnection}으로 직접 실행시켜
- * 실제로 어떤 Redis 명령이 나가는지 확인한다 — 실제 Redis를 띄우는 통합 검증은 여기서 하지 않는다
- * (docker-runner 소관, {@code docs/requirements/quiz/quiz-vote-tally.md}).
+ * {@link RedisQuizVoteTally}의 명령 형태·응답 조립을 검증한다. {@link StringRedisTemplate}을 목으로 두고
+ * 두 갈래로 확인한다 — ① {@code executePipelined}에 넘어온 {@link RedisCallback}을 목
+ * {@link RedisConnection}으로 직접 실행시켜 실제로 어떤 Redis 명령이 나가는지(HSETNX·HINCRBY·EXPIRE) ②
+ * {@code executePipelined}의 반환값을 직접 스텁해 {@code initializeAndRead}가 그 결과를 어떻게 문제별
+ * 분포로 조립하는지(0-based 매핑·부분 결손·개수 불일치 포기·파싱 실패). 실제 Redis를 띄우는 통합 검증은
+ * 여기서 하지 않는다(docker-runner 소관, {@code docs/requirements/quiz/quiz-vote-tally.md}·
+ * {@code quiz-vote-exposure.md}).
  */
 @ExtendWith(MockitoExtension.class)
 class RedisQuizVoteTallyTest {
@@ -56,10 +66,19 @@ class RedisQuizVoteTallyTest {
     private RedisKeyCommands keyCommands;
 
     private RedisQuizVoteTally tally;
+    private ListAppender<ILoggingEvent> logAppender;
 
     @BeforeEach
     void setUp() {
         tally = new RedisQuizVoteTally(redisTemplate, Duration.ofHours(12));
+        logAppender = new ListAppender<>();
+        logAppender.start();
+        ((Logger) LoggerFactory.getLogger(RedisQuizVoteTally.class)).addAppender(logAppender);
+    }
+
+    @AfterEach
+    void tearDown() {
+        ((Logger) LoggerFactory.getLogger(RedisQuizVoteTally.class)).detachAppender(logAppender);
     }
 
     private static byte[] bytes(String value) {
@@ -83,6 +102,10 @@ class RedisQuizVoteTallyTest {
     private void runPipelinedCallback() {
         stubConnectionCommands();
         capturePipelinedCallback().doInRedis(connection);
+    }
+
+    private long warnCount() {
+        return logAppender.list.stream().filter(event -> event.getLevel() == Level.WARN).count();
     }
 
     // ---------- 생성자: TTL 방어 ----------
@@ -157,13 +180,13 @@ class RedisQuizVoteTallyTest {
         verify(hashCommands, never()).hSetNX(any(), any(), any());
     }
 
-    // ---------- initialize(): "없을 때만 쓰기"(HSETNX) ----------
+    // ---------- initializeAndRead(): 명령 형태("없을 때만 쓰기" — HSETNX) ----------
 
     @Test
-    @DisplayName("[AC-VOTE-12-1,12-2] initialize()는 HSETNX만 쓰고, 무조건 덮어쓰는 HSET·HMSET은 전혀 "
-            + "부르지 않는다 — 조회 후 분기(read-modify-write)가 아니라 단일 원자 명령이다")
-    void initialize_usesOnlyHSetNXNeverHSetOrHMSet() {
-        tally.initialize(Map.of(42L, List.of(0, 1, 2, 3)));
+    @DisplayName("[AC-VOTE-12-1,12-2] initializeAndRead()는 HSETNX만 쓰고, 무조건 덮어쓰는 HSET·HMSET은 "
+            + "전혀 부르지 않는다 — 조회 후 분기(read-modify-write)가 아니라 단일 원자 명령이다")
+    void initializeAndRead_usesOnlyHSetNXNeverHSetOrHMSet() {
+        tally.initializeAndRead(Map.of(42L, List.of(0, 1, 2, 3)));
 
         runPipelinedCallback();
 
@@ -175,8 +198,8 @@ class RedisQuizVoteTallyTest {
     @Test
     @DisplayName("[AC-VOTE-2-1] 보기 4개짜리 문제의 필드 집합은 {\"0\",\"1\",\"2\",\"3\"}이다"
             + "(\"1\"~\"4\"가 아니다)")
-    void initialize_fourOptions_usesZeroBasedFieldNames() {
-        tally.initialize(Map.of(42L, List.of(0, 1, 2, 3)));
+    void initializeAndRead_fourOptions_usesZeroBasedFieldNames() {
+        tally.initializeAndRead(Map.of(42L, List.of(0, 1, 2, 3)));
 
         runPipelinedCallback();
 
@@ -188,9 +211,9 @@ class RedisQuizVoteTallyTest {
     }
 
     @Test
-    @DisplayName("initialize()가 심는 값은 항상 문자열 \"0\"이다")
-    void initialize_seedsFieldValueZero() {
-        tally.initialize(Map.of(42L, List.of(0)));
+    @DisplayName("initializeAndRead()가 심는 값은 항상 문자열 \"0\"이다")
+    void initializeAndRead_seedsFieldValueZero() {
+        tally.initializeAndRead(Map.of(42L, List.of(0)));
 
         runPipelinedCallback();
 
@@ -200,9 +223,10 @@ class RedisQuizVoteTallyTest {
     }
 
     @Test
-    @DisplayName("[AC-VOTE-29-1,20-1] initialize()도 EXPIRE ... NX로 TTL을 건다(증가 경로와 동일 시맨틱)")
-    void initialize_appliesTtlWithNxCondition() {
-        tally.initialize(Map.of(42L, List.of(0, 1)));
+    @DisplayName("[AC-VOTE-29-1,20-1] initializeAndRead()도 EXPIRE ... NX로 TTL을 건다(증가 경로와 동일 "
+            + "시맨틱)")
+    void initializeAndRead_appliesTtlWithNxCondition() {
+        tally.initializeAndRead(Map.of(42L, List.of(0, 1)));
 
         runPipelinedCallback();
 
@@ -211,44 +235,74 @@ class RedisQuizVoteTallyTest {
     }
 
     @Test
+    @DisplayName("[AC-VOTEVIEW-10-1] HSETNX -> EXPIRE NX -> HGETALL 순서로 명령을 쌓는다 — 초기화가 끝난 "
+            + "뒤에 읽어야 아무도 안 고른 보기도 0으로 실리는 계약이 구조적으로 보장된다")
+    void initializeAndRead_queuesHGetAllAfterInitializationAndExpire() {
+        tally.initializeAndRead(Map.of(42L, List.of(0, 1)));
+
+        runPipelinedCallback();
+
+        org.mockito.InOrder inOrder = org.mockito.Mockito.inOrder(hashCommands, keyCommands);
+        inOrder.verify(hashCommands, times(2)).hSetNX(any(), any(), any());
+        inOrder.verify(keyCommands).expire(any(), eq(DEFAULT_TTL_SECONDS), any());
+        inOrder.verify(hashCommands).hGetAll(aryEq(bytes("quiz:votes:42")));
+    }
+
+    @Test
     @DisplayName("[AC-VOTE-14-1] 문제 3건(보기 4개=12필드)이든 20건(보기 4개=80필드)이든 executePipelined "
             + "호출은 각각 1회다 — 명령 수는 늘어도 왕복(RTT)은 상수")
-    void initialize_manyQuizzes_stillOneRoundTripPerCall() {
+    void initializeAndRead_manyQuizzes_stillOneRoundTripPerCall() {
         Map<Long, List<Integer>> threeQuizzes = Map.of(
                 1L, List.of(0, 1, 2, 3), 2L, List.of(0, 1, 2, 3), 3L, List.of(0, 1, 2, 3));
-        tally.initialize(threeQuizzes);
+        tally.initializeAndRead(threeQuizzes);
         verify(redisTemplate, times(1)).executePipelined(any(RedisCallback.class));
 
         Map<Long, List<Integer>> twentyQuizzes = new HashMap<>();
         for (long id = 100; id < 120; id++) {
             twentyQuizzes.put(id, List.of(0, 1, 2, 3));
         }
-        tally.initialize(twentyQuizzes);
+        tally.initializeAndRead(twentyQuizzes);
         verify(redisTemplate, times(2)).executePipelined(any(RedisCallback.class));
     }
 
     @Test
-    @DisplayName("빈 맵이나 null이면 executePipelined 자체를 부르지 않는다(왕복 0)")
-    void initialize_emptyOrNullMap_skipsRoundTripEntirely() {
-        tally.initialize(Map.of());
-        tally.initialize(null);
+    @DisplayName("빈 맵이나 null이면 executePipelined 자체를 부르지 않는다(왕복 0) — 반환값도 빈 맵이다")
+    void initializeAndRead_emptyOrNullMap_skipsRoundTripEntirely() {
+        assertThat(tally.initializeAndRead(Map.of())).isEmpty();
+        assertThat(tally.initializeAndRead(null)).isEmpty();
 
         verifyNoInteractions(redisTemplate);
     }
 
     @Test
-    @DisplayName("보기 목록이 비었거나 null인 문제는 필드를 만들지 않는다(방어적 스킵)")
-    void initialize_emptyOrNullOptionList_skipsThatQuiz() {
+    @DisplayName("보기 목록이 전부 비었거나 null인 문제뿐이면 정규화 후 대상이 없어 왕복 자체가 발생하지 "
+            + "않는다(방어적 스킵)")
+    void initializeAndRead_allEmptyOrNullOptionLists_skipsRoundTripEntirely() {
         Map<Long, List<Integer>> map = new HashMap<>();
         map.put(42L, List.of());
         map.put(43L, null);
 
-        tally.initialize(map);
-        // 두 문제 모두 조기 스킵돼 connection.hashCommands()/keyCommands() 자체가 호출되지 않는다 —
-        // 그 목을 스텁해 두면 "쓰이지 않는 스텁"으로 strict stubbing 이 실패하므로 여기서는 스텁하지 않는다.
-        capturePipelinedCallback().doInRedis(connection);
+        Map<Long, Map<Integer, Long>> result = tally.initializeAndRead(map);
 
-        verify(hashCommands, never()).hSetNX(any(), any(), any());
+        assertThat(result).isEmpty();
+        verifyNoInteractions(redisTemplate);
+    }
+
+    @Test
+    @DisplayName("보기 목록이 비었거나 null인 문제가 섞여 있으면 그 문제만 걸러지고 유효한 문제만 "
+            + "명령이 나간다")
+    void initializeAndRead_mixedValidAndInvalidOptionLists_skipsOnlyInvalidQuiz() {
+        Map<Long, List<Integer>> map = new LinkedHashMap<>();
+        map.put(42L, List.of()); // 스킵 대상
+        map.put(43L, null); // 스킵 대상
+        map.put(44L, List.of(0, 1)); // 유효
+
+        tally.initializeAndRead(map);
+
+        runPipelinedCallback();
+
+        verify(hashCommands, times(2)).hSetNX(aryEq(bytes("quiz:votes:44")), any(), any());
+        verify(hashCommands, never()).hSetNX(aryEq(bytes("quiz:votes:42")), any(), any());
     }
 
     // ---------- 프로파일 무관(QUIZ-VOTE-30) ----------
@@ -260,7 +314,7 @@ class RedisQuizVoteTallyTest {
         assertThat(RedisQuizVoteTally.class.getAnnotation(Profile.class)).isNull();
     }
 
-    // ---------- Redis 장애 삼킴(QUIZ-VOTE-23/24/25) ----------
+    // ---------- Redis 장애 삼킴(QUIZ-VOTE-23/24/25, QUIZ-VOTEVIEW-20/21/25) ----------
 
     @Test
     @DisplayName("[AC-VOTE-23-1,25-2] increment()는 executePipelined가 던지는 예외를 삼키고 호출자에게 "
@@ -273,12 +327,141 @@ class RedisQuizVoteTallyTest {
     }
 
     @Test
-    @DisplayName("[AC-VOTE-24-1,25-2] initialize()도 executePipelined가 던지는 예외를 삼킨다")
-    void initialize_swallowsRedisFailureWithoutPropagating() {
+    @DisplayName("[AC-VOTEVIEW-20-1,21-1,25-1,25-2] initializeAndRead()가 예외를 삼키면 빈 맵을 반환하고 "
+            + "WARN 로그가 정확히 1건 남는다(호출자에게 전파되지 않는다) — 호출부는 이 빈 맵을 전 보기 0으로 "
+            + "채운다")
+    void initializeAndRead_swallowsRedisFailure_returnsEmptyMapAndLogsWarnOnce() {
         willThrow(new RuntimeException("redis down"))
                 .given(redisTemplate).executePipelined(any(RedisCallback.class));
 
-        assertThatCode(() -> tally.initialize(Map.of(42L, List.of(0, 1))))
-                .doesNotThrowAnyException();
+        Map<Long, Map<Integer, Long>> result = tally.initializeAndRead(Map.of(42L, List.of(0, 1)));
+
+        assertThat(result).isEmpty();
+        assertThat(warnCount()).isEqualTo(1);
+    }
+
+    // ---------- 응답 조립(QUIZ-VOTEVIEW-9/22/23/24) — executePipelined 반환값을 직접 스텁 ----------
+
+    @Test
+    @DisplayName("[AC-VOTEVIEW-9-1,9-2] 필드 이름은 no와 같은 0-based 축으로 그대로 매핑된다 — 문제 둘의 "
+            + "필드에 서로 다른 값을 심어 한 칸이라도 밀리면 잡히게 한다")
+    void initializeAndRead_mapsFieldsToZeroBasedOptionNumbersWithoutShifting() {
+        Map<Long, List<Integer>> targets = new LinkedHashMap<>();
+        targets.put(1L, List.of(0, 1));
+        targets.put(2L, List.of(0, 1, 2, 3));
+        given(redisTemplate.executePipelined(any(RedisCallback.class))).willReturn(List.of(
+                Map.of("0", "5", "1", "9"),
+                Map.of("0", "1", "1", "2", "2", "3", "3", "4")));
+
+        Map<Long, Map<Integer, Long>> result = tally.initializeAndRead(targets);
+
+        assertThat(result.get(1L)).containsEntry(0, 5L).containsEntry(1, 9L);
+        // quiz2의 필드 "3"이 값 4를 갖는다 — 밀렸다면 quiz1의 값(5,9)이나 엉뚱한 no에 붙는다
+        assertThat(result.get(2L)).containsEntry(0, 1L).containsEntry(1, 2L)
+                .containsEntry(2, 3L).containsEntry(3, 4L);
+    }
+
+    @Test
+    @DisplayName("[AC-VOTEVIEW-9-2] O/X 문제의 필드 \"0\"은 text=\"O\" 보기(no=0)에 대응한다는 축 자체는 "
+            + "응답 조립 쪽(QuizResponse) 책임이지만, 여기서는 필드 \"0\"이 no=0으로 매핑됨을 고정한다")
+    void initializeAndRead_oxQuiz_fieldZeroMapsToOptionZero() {
+        given(redisTemplate.executePipelined(any(RedisCallback.class)))
+                .willReturn(List.of(Map.of("0", "3", "1", "1")));
+
+        Map<Long, Map<Integer, Long>> result = tally.initializeAndRead(Map.of(1L, List.of(0, 1)));
+
+        assertThat(result.get(1L)).containsEntry(0, 3L).containsEntry(1, 1L);
+    }
+
+    @Test
+    @DisplayName("[AC-VOTEVIEW-23-1] 보기 4개 문제의 해시에 필드 \"1\"만 있으면 반환 맵에도 \"1\"만 담긴다 "
+            + "— no=0,2,3의 0 채움은 호출부(QuizService)의 몫이라 여기서는 없는 필드를 만들어 채우지 않는다")
+    void initializeAndRead_partialHashFields_returnsOnlyPresentFields() {
+        given(redisTemplate.executePipelined(any(RedisCallback.class)))
+                .willReturn(List.of(Map.of("1", "7")));
+
+        Map<Long, Map<Integer, Long>> result = tally.initializeAndRead(Map.of(42L, List.of(0, 1, 2, 3)));
+
+        assertThat(result.get(42L)).containsOnly(java.util.Map.entry(1, 7L));
+    }
+
+    @Test
+    @DisplayName("[AC-VOTEVIEW-24-1] 값이 정수로 해석되지 않으면(예: \"abc\") 그 항목만 버리고 나머지는 "
+            + "정상 값을 유지한다")
+    void initializeAndRead_nonNumericValue_dropsThatFieldOnly() {
+        given(redisTemplate.executePipelined(any(RedisCallback.class)))
+                .willReturn(List.of(Map.of("0", "abc", "1", "5")));
+
+        Map<Long, Map<Integer, Long>> result = tally.initializeAndRead(Map.of(1L, List.of(0, 1)));
+
+        assertThat(result.get(1L)).containsOnly(java.util.Map.entry(1, 5L));
+    }
+
+    @Test
+    @DisplayName("음수 값도 0 이상의 정수로 해석되지 않는 것으로 취급해 그 항목을 버린다")
+    void initializeAndRead_negativeValue_dropsThatFieldOnly() {
+        given(redisTemplate.executePipelined(any(RedisCallback.class)))
+                .willReturn(List.of(Map.of("0", "-3", "1", "5")));
+
+        Map<Long, Map<Integer, Long>> result = tally.initializeAndRead(Map.of(1L, List.of(0, 1)));
+
+        assertThat(result.get(1L)).containsOnly(java.util.Map.entry(1, 5L));
+    }
+
+    @Test
+    @DisplayName("필드 이름이 정수로 해석되지 않으면(오염된 데이터) 그 필드를 버린다")
+    void initializeAndRead_nonNumericFieldName_dropsThatField() {
+        given(redisTemplate.executePipelined(any(RedisCallback.class)))
+                .willReturn(List.of(Map.of("x", "5", "1", "7")));
+
+        Map<Long, Map<Integer, Long>> result = tally.initializeAndRead(Map.of(1L, List.of(0, 1)));
+
+        assertThat(result.get(1L)).containsOnly(java.util.Map.entry(1, 7L));
+    }
+
+    @Test
+    @DisplayName("[AC-VOTEVIEW-quiz-count-mismatch] 파이프라인 결과의 해시 개수가 요청한 문제 수와 다르면 "
+            + "부분 매핑하지 않고 통째로 포기한다(빈 맵) — WARN 로그도 1건 남는다")
+    void initializeAndRead_resultCountMismatch_givesUpEntirelyAndLogsWarnOnce() {
+        Map<Long, List<Integer>> targets = new LinkedHashMap<>();
+        targets.put(1L, List.of(0, 1));
+        targets.put(2L, List.of(0, 1));
+        // 문제 2건을 요청했는데 해시가 1개만 온다(개수 불일치)
+        given(redisTemplate.executePipelined(any(RedisCallback.class)))
+                .willReturn(List.of(Map.of("0", "5", "1", "9")));
+
+        Map<Long, Map<Integer, Long>> result = tally.initializeAndRead(targets);
+
+        assertThat(result).isEmpty();
+        assertThat(warnCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("파이프라인 결과에 Map이 아닌 원소(HSETNX·EXPIRE의 Boolean 응답 등)가 섞여 있어도 Map만 "
+            + "골라 순서대로 문제와 짝짓는다")
+    void initializeAndRead_ignoresNonMapResultsAndPicksHashesInOrder() {
+        Map<Long, List<Integer>> targets = new LinkedHashMap<>();
+        targets.put(1L, List.of(0, 1));
+        targets.put(2L, List.of(0, 1));
+        given(redisTemplate.executePipelined(any(RedisCallback.class))).willReturn(List.of(
+                true, true, Map.of("0", "1", "1", "2"),
+                true, true, Map.of("0", "3", "1", "4")));
+
+        Map<Long, Map<Integer, Long>> result = tally.initializeAndRead(targets);
+
+        assertThat(result.get(1L)).containsEntry(0, 1L).containsEntry(1, 2L);
+        assertThat(result.get(2L)).containsEntry(0, 3L).containsEntry(1, 4L);
+    }
+
+    @Test
+    @DisplayName("완전히 비어 있는(누구도 안 고른) 해시는 빈 맵으로 반환된다 — 호출부가 없는 값을 0으로 "
+            + "채운다(첫 서빙 시나리오, AC-VOTEVIEW-10-1)")
+    void initializeAndRead_emptyHash_returnsEmptyMapForThatQuiz() {
+        given(redisTemplate.executePipelined(any(RedisCallback.class)))
+                .willReturn(List.of(Map.of()));
+
+        Map<Long, Map<Integer, Long>> result = tally.initializeAndRead(Map.of(1L, List.of(0, 1)));
+
+        assertThat(result).doesNotContainKey(1L);
     }
 }
