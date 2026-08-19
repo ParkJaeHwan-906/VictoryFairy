@@ -13,6 +13,8 @@ import { WebView } from 'react-native-webview';
 import type { WebViewNavigation } from 'react-native-webview';
 
 import { WEB_URL } from './config';
+import PermissionSheet from './notifications/PermissionSheet';
+import useGameReminders from './notifications/useGameReminders';
 import { COLORS } from './theme';
 
 /**
@@ -27,13 +29,17 @@ const EXIT_CONFIRM_INTERVAL_MS = 2000;
  * 배포된 React 웹을 감싸는 앱의 본문.
  *
  * 화면·라우팅·상태는 전부 웹이 들고 있고, 앱은 (1) 웹이 뜨기 전 흰 화면을 가리는
- * 로딩 표시와 (2) 아예 뜨지 못했을 때의 재시도 경로만 책임진다.
+ * 로딩 표시, (2) 아예 뜨지 못했을 때의 재시도 경로, 그리고 (3) 웹이 만들 수 없는
+ * 경기 알림(`src/notifications`)만 책임진다.
  */
 export default function WebAppView() {
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
 
   const webViewRef = useRef<WebView>(null);
+  // 알림 예약은 웹이 아는 것(응원 구단)과 앱만 할 수 있는 것(예약)을 잇는 일이라
+  // WebView의 생명주기에 얹혀 있다. 배선만 여기서 하고 판단은 훅 안에서 한다.
+  const reminders = useGameReminders(webViewRef);
   // 백 버튼 리스너는 한 번만 등록하고 싶은데, state로 두면 값이 바뀔 때마다 리스너를
   // 떼었다 붙여야 한다. 리스너 안에서 최신 값만 읽으면 되므로 ref로 들고 있는다.
   const canGoBackRef = useRef(false);
@@ -83,9 +89,18 @@ export default function WebAppView() {
     return () => subscription.remove();
   }, []);
 
-  const handleNavigationStateChange = useCallback((navState: WebViewNavigation) => {
-    canGoBackRef.current = navState.canGoBack;
-  }, []);
+  const handleNavigationStateChange = useCallback(
+    (navState: WebViewNavigation) => {
+      canGoBackRef.current = navState.canGoBack;
+      reminders.handleWebNavigated();
+    },
+    [reminders],
+  );
+
+  const handleLoadEnd = useCallback(() => {
+    setIsLoading(false);
+    reminders.handleWebLoaded();
+  }, [reminders]);
 
   if (hasError) {
     return <ConnectionErrorView onRetry={handleRetry} />;
@@ -98,7 +113,9 @@ export default function WebAppView() {
         source={{ uri: WEB_URL }}
         style={styles.webView}
         // 로드 성공·실패 모두에서 호출된다. 실패면 아래 onError가 오류 화면으로 덮는다.
-        onLoadEnd={() => setIsLoading(false)}
+        onLoadEnd={handleLoadEnd}
+        // 알림 예약에 필요한 정보를 웹에서 받는 통로. 주입한 스크립트만 이리로 보낸다.
+        onMessage={reminders.handleWebMessage}
         // DNS 실패·오프라인 등 문서를 아예 받지 못한 경우. HTTP 4xx/5xx를 잡는
         // onHttpError는 하위 리소스에도 발생하는지가 문서에 명시돼 있지 않아,
         // 이미지 하나 404에 전체 오류 화면이 뜨는 오탐을 피하려고 쓰지 않는다.
@@ -115,6 +132,9 @@ export default function WebAppView() {
         <View style={styles.loadingOverlay}>
           <ActivityIndicator size="large" color={COLORS.primary} />
         </View>
+      )}
+      {reminders.isPromptVisible && (
+        <PermissionSheet onAllow={reminders.allowReminders} onSnooze={reminders.snoozePrompt} />
       )}
     </View>
   );
