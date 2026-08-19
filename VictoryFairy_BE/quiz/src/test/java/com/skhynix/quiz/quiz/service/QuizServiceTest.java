@@ -31,6 +31,7 @@ import com.skhynix.domain.team.entity.Team;
 import com.skhynix.quiz.quiz.dto.QuizDetailResponse;
 import com.skhynix.quiz.quiz.dto.QuizLikeResponse;
 import com.skhynix.quiz.quiz.dto.QuizResponse;
+import com.skhynix.quiz.quiz.vote.QuizVoteTally;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -100,6 +101,9 @@ class QuizServiceTest {
     @Mock
     private QuizLikeService quizLikeService;
 
+    @Mock
+    private QuizVoteTally quizVoteTally;
+
     private QuizService quizService;
     private Clock clock;
     private Team homeTeam;
@@ -116,7 +120,7 @@ class QuizServiceTest {
     private QuizService newQuizService(int maxTodayCount) {
         return new QuizService(quizRepository, quizOptionRepository,
                 userSupportTeamRepository, userSupportPlayerRepository, quizUserSubmitRepository,
-                gameRepository, quizLikeService, clock, maxTodayCount);
+                gameRepository, quizLikeService, quizVoteTally, clock, maxTodayCount);
     }
 
     // ---------- 픽스처 ----------
@@ -1093,5 +1097,121 @@ class QuizServiceTest {
         assertThat(result.liked()).isTrue();
         assertThat(result.likeCount()).isEqualTo(3L);
         assertThat(result.answer()).isEqualTo(0); // quiz() 픽스처의 정답 보기 번호
+    }
+
+    // ---------- 투표 집계 초기화(docs/requirements/quiz/quiz-vote-tally.md) ----------
+
+    @Test
+    @DisplayName("[AC-VOTE-11-1,2-1] /today가 문제를 실으면 그 문제의 보기 번호를 0-based 그대로 "
+            + "initialize()에 넘긴다 — {1,2,3,4}가 아니라 {0,1,2,3}")
+    void getTodayQuizzes_servesQuizzes_initializesVoteTallyWithZeroBasedOptionNumbers() {
+        Quiz oxQuiz = quiz(1L, "O/X", "문동주는 한화 소속이다?", "EASY", 10.0);
+        Quiz multiQuiz = quiz(2L, "객관식", "우승 구단은?", "MEDIUM", 30.0);
+        givenServable(DEFAULT_INNING);
+        given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY))
+                .willReturn(List.of(oxQuiz, multiQuiz));
+        givenNoExistingRows(List.of(1L, 2L));
+        givenSupportPlayers();
+        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(anyList()))
+                .willReturn(List.of(
+                        option(oxQuiz, 0, "O"), option(oxQuiz, 1, "X"),
+                        option(multiQuiz, 0, "LG"), option(multiQuiz, 1, "한화"),
+                        option(multiQuiz, 2, "삼성"), option(multiQuiz, 3, "KT")));
+
+        quizService.getTodayQuizzes(USER_ID, GAME_ID, false);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<Long, List<Integer>>> captor = ArgumentCaptor.forClass(Map.class);
+        verify(quizVoteTally).initialize(captor.capture());
+        Map<Long, List<Integer>> initialized = captor.getValue();
+        assertThat(initialized.get(1L)).containsExactlyInAnyOrder(0, 1);
+        assertThat(initialized.get(2L)).containsExactlyInAnyOrder(0, 1, 2, 3);
+    }
+
+    @Test
+    @DisplayName("[AC-VOTE-11-2] 상한(20)에 잘려 응답에 실리지 않은 문제는 initialize()에도 실리지 "
+            + "않는다 — initialize() 대상은 실제 응답 목록과 정확히 같다")
+    void getTodayQuizzes_truncatedByCap_excludesUnservedQuizzesFromInitialize() {
+        QuizService cappedService = newQuizService(6);
+        List<Quiz> quizzes = manyQuizzes(); // 10건
+        List<Long> ids = quizzes.stream().map(Quiz::getId).toList();
+        givenServable(DEFAULT_INNING);
+        given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY)).willReturn(quizzes);
+        given(quizUserSubmitRepository.findServedQuizIds(USER_ID, ids)).willReturn(List.of());
+        givenSupportPlayers();
+        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(anyList()))
+                .willReturn(quizzes.stream().map(q -> option(q, 0, "보기")).toList());
+
+        List<QuizResponse> result = cappedService.getTodayQuizzes(USER_ID, GAME_ID, false);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<Long, List<Integer>>> captor = ArgumentCaptor.forClass(Map.class);
+        verify(quizVoteTally).initialize(captor.capture());
+        assertThat(captor.getValue().keySet())
+                .containsExactlyInAnyOrderElementsOf(result.stream().map(QuizResponse::id).toList());
+        assertThat(captor.getValue()).hasSize(6);
+    }
+
+    @Test
+    @DisplayName("[AC-VOTE-13-1] 403 QUIZ_NOT_SERVABLE로 거절되면 집계 초기화 자체가 호출되지 않는다")
+    void getTodayQuizzes_notServable_neverInitializesVoteTally() {
+        Game game = game(GAME_PK, GAME_ID, TODAY.atTime(18, 30), homeTeam, awayTeam, "SCHEDULED", null);
+        givenGame(game);
+        givenSupportTeam(homeTeam);
+
+        assertThatThrownBy(() -> quizService.getTodayQuizzes(USER_ID, GAME_ID, false))
+                .isInstanceOf(BusinessException.class);
+        verifyNoInteractions(quizVoteTally);
+    }
+
+    @Test
+    @DisplayName("[AC-VOTE-13-1] 409 QUIZ_ALREADY_SERVED_IN_INNING으로 거절되면 집계 초기화가 호출되지 "
+            + "않는다")
+    void getTodayQuizzes_alreadyServedInInning_neverInitializesVoteTally() {
+        Game game = defaultServableGame(DEFAULT_INNING);
+        givenGame(game);
+        givenSupportTeam(homeTeam);
+        givenAlreadyServedThisInning(game, DEFAULT_INNING);
+
+        assertThatThrownBy(() -> quizService.getTodayQuizzes(USER_ID, GAME_ID, false))
+                .isInstanceOf(BusinessException.class);
+        verifyNoInteractions(quizVoteTally);
+    }
+
+    @Test
+    @DisplayName("[AC-VOTE-13-1] 제공 가능하지만 오늘 세트가 비어 빈 배열을 반환하면 집계 초기화가 "
+            + "호출되지 않는다")
+    void getTodayQuizzes_emptyResult_neverInitializesVoteTally() {
+        givenServable(DEFAULT_INNING);
+        given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY)).willReturn(List.of());
+
+        List<QuizResponse> result = quizService.getTodayQuizzes(USER_ID, GAME_ID, false);
+
+        assertThat(result).isEmpty();
+        verifyNoInteractions(quizVoteTally);
+    }
+
+    @Test
+    @DisplayName("[AC-VOTE-31-1] QuizService는 StringRedisTemplate을 직접 필드로 갖지 않는다 — 집계는 "
+            + "포트(QuizVoteTally) 하나로만 접근한다")
+    void quizService_hasNoDirectStringRedisTemplateField() {
+        boolean hasDirectRedisField = java.util.Arrays.stream(QuizService.class.getDeclaredFields())
+                .anyMatch(field -> field.getType().getSimpleName().equals("StringRedisTemplate"));
+        assertThat(hasDirectRedisField).isFalse();
+    }
+
+    @Test
+    @DisplayName("[AC-VOTE-5-1] 단건 상세 조회(getQuiz)는 집계 포트를 전혀 호출하지 않는다 — 조회 응답은 "
+            + "Redis 상태와 무관하다")
+    void getQuiz_neverInteractsWithVoteTally() {
+        Quiz quiz = quiz(1L, "객관식", "2025 정규시즌 우승 구단은?", "MEDIUM", 30.0);
+        given(quizRepository.findById(1L)).willReturn(Optional.of(quiz));
+        given(quizOptionRepository.findAllByQuiz_IdOrderByOptionAsc(1L)).willReturn(List.of());
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, 1L))
+                .willReturn(Optional.empty());
+
+        quizService.getQuiz(USER_ID, 1L);
+
+        verifyNoInteractions(quizVoteTally);
     }
 }
