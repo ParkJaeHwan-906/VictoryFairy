@@ -13,6 +13,7 @@ import com.skhynix.domain.support.repository.UserSupportPlayerRepository;
 import com.skhynix.domain.support.repository.UserSupportTeamRepository;
 import com.skhynix.quiz.quiz.dto.QuizDetailResponse;
 import com.skhynix.quiz.quiz.dto.QuizResponse;
+import com.skhynix.quiz.quiz.vote.QuizVoteTally;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -41,6 +42,7 @@ public class QuizService {
     private final QuizUserSubmitRepository quizUserSubmitRepository;
     private final GameRepository gameRepository;
     private final QuizLikeService quizLikeService;
+    private final QuizVoteTally quizVoteTally;
     private final Clock clock;
     private final int maxTodayCount;
 
@@ -48,7 +50,7 @@ public class QuizService {
             UserSupportTeamRepository userSupportTeamRepository,
             UserSupportPlayerRepository userSupportPlayerRepository,
             QuizUserSubmitRepository quizUserSubmitRepository, GameRepository gameRepository,
-            QuizLikeService quizLikeService,
+            QuizLikeService quizLikeService, QuizVoteTally quizVoteTally,
             Clock clock, @Value("${quiz.serve.max-today-count:20}") int maxTodayCount) {
         this.quizRepository = quizRepository;
         this.quizOptionRepository = quizOptionRepository;
@@ -57,6 +59,7 @@ public class QuizService {
         this.quizUserSubmitRepository = quizUserSubmitRepository;
         this.gameRepository = gameRepository;
         this.quizLikeService = quizLikeService;
+        this.quizVoteTally = quizVoteTally;
         this.clock = clock;
         this.maxTodayCount = maxTodayCount;
     }
@@ -132,6 +135,19 @@ public class QuizService {
         Map<Long, List<QuizOption>> optionsByQuizId = quizOptionRepository
                 .findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(quizIds).stream()
                 .collect(Collectors.groupingBy(option -> option.getQuiz().getId()));
+
+        // 응답에 실린 문제만 초기화한다 — 상한(20)에 잘려 나간 문제는 키조차 만들지 않는다(위 403·409·
+        // 빈 목록 경로도 여기까지 오지 않는다). 카운트를 위한 게 아니라 "아무도 안 고른 보기도 0 으로
+        // 존재하게" 만들려는 것이므로, 이 호출을 통째로 건너뛰어도 최종 집계값은 같다.
+        // ⚠ Redis 는 이 트랜잭션에 참여하지 않는다 — 뒤에 롤백이 나면 값 0 짜리 필드만 남는데 그건
+        //   무해하다(표를 왜곡하지 않는다). 제출 경로와 달리 커밋 이후로 미루지 않는 이유다.
+        quizVoteTally.initialize(quizIds.stream()
+                .filter(quizId -> !optionsByQuizId.getOrDefault(quizId, List.of()).isEmpty())
+                .collect(Collectors.toMap(quizId -> quizId,
+                        quizId -> optionsByQuizId.get(quizId).stream()
+                                .map(QuizOption::getOption)
+                                .toList())));
+
         return served.stream()
                 .map(quiz -> QuizResponse.of(quiz,
                         optionsByQuizId.getOrDefault(quiz.getId(), List.of()),
