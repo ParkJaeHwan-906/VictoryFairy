@@ -1,0 +1,19 @@
+{
+  "description": "FE Harness context imported from Claude Code.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cat \"$(git -c safe.directory=* rev-parse --show-toplevel)/VictoryFairy_FE/.codex/harness/session-start.md\"",
+            "commandWindows": "powershell -NoProfile -Command \"Get-Content -Raw -Encoding utf8 (Join-Path (git -c safe.directory=* rev-parse --show-toplevel) 'VictoryFairy_FE/.codex/harness/session-start.md')\"",
+            "statusMessage": "FE Harness 컨텍스트 로드",
+            "additionalContextLimit": 12000
+          }
+        ]
+      }
+    ]
+  }
+}
