@@ -17,9 +17,8 @@
     "android": {
       "package": "com.victoryfairy.app",
       "adaptiveIcon": {
-        "backgroundColor": "#F04E23",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "backgroundColor": "#FFFFFF",
+        "foregroundImage": "./assets/android-icon-foreground.png"
       },
       "predictiveBackGestureEnabled": false,
       "blockedPermissions": [
@@ -36,9 +35,12 @@
         "expo-splash-screen",
         {
           "image": "./assets/splash-icon.png",
-          "imageWidth": 200,
+          "imageWidth": 280,
           "resizeMode": "contain",
-          "backgroundColor": "#F04E23"
+          "backgroundColor": "#FFFFFF",
+          "android": {
+            "imageWidth": 192
+          }
         }
       ],
       [
