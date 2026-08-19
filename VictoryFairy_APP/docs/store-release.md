@@ -121,12 +121,16 @@ API가 이미 있으니 FE에 UI만 붙이면 된다.
     아니고 데이터 안전 양식에도 나오지 않는데, 20여 줄을 `blockedPermissions`에
     적어 두면 나중에 배지를 켤 때 조용히 실패하는 함정만 남는다. 심사에서 지적받으면
     그때 목록에 넣으면 된다(전부 `blockedPermissions`로 제거 가능하다).
-- **`package.json`** — `eas-cli`를 devDependency로 고정하고 빌드·제출 스크립트 추가.
-  `npx expo-doctor`는 이걸 지적한다("EAS CLI should not be installed in your project").
-  전역이나 `npx`로 쓰고 버전은 `eas.json`의 `cli.version`으로 묶으라는 뜻인데, 그 필드는
-  이미 `>= 21.0.0`으로 잡혀 있다. 지금 상태의 이점은 `npm install` 한 번이면 팀원 모두
-  같은 버전을 쓴다는 것이고, 대가는 설치 용량과 doctor 경고 하나다. 걷어내려면
-  devDependency에서 지우고 `package.json`의 스크립트를 `npx eas-cli ...`로 바꾸면 된다.
+- **`package.json`** — 빌드·제출 스크립트는 `npx eas-cli ...`로 부른다.
+  **`eas-cli`를 의존성에 두지 않는다.** `npx expo-doctor`가 지적하는 항목이기도 하고
+  ("EAS CLI should not be installed in your project"), 실제로 EAS 빌드에 부담이 된다 —
+  빌더는 `npm ci --include=dev`로 devDependency까지 설치하므로 `eas-cli`의 의존성
+  트리(약 200개, 그중 `dtrace-provider`는 node-gyp로 네이티브를 빌드한다)가 빌드
+  머신에서 매번 설치된다. 앱이 쓰지도 않는 것이다. 버전은 `eas.json`의
+  `cli.version`(`>= 21.0.0`)이 묶어 준다.
+
+  명령을 `npx eas`가 아니라 **`npx eas-cli`**로 써야 한다. 패키지 이름이 `eas-cli`라
+  `npx eas`는 npm에 있는 다른 `eas` 패키지를 받아 온다.
 - **`.gitignore`** — Play 서비스 계정 키를 제외.
 
 `targetSdk`는 36이다(Expo SDK 57 기본값). Play가 2026년 8월 31일부터 신규 앱·업데이트에
@@ -135,9 +139,9 @@ API 36을 요구하는데, 이미 충족한다.
 ## 빌드와 제출
 
 ```powershell
-npm install                    # eas-cli 설치
-npx eas login
-npx eas init                   # Expo 프로젝트 생성 · app.json에 projectId를 심는다
+npm install
+npx eas-cli login
+npx eas-cli init                   # Expo 프로젝트 생성 · app.json에 projectId를 심는다
 ```
 
 `eas init`은 `app.json`에 `extra.eas.projectId`와 `owner`를 추가한다. 커밋한다.
@@ -149,7 +153,7 @@ npm run build:android          # AAB. keystore가 없으면 EAS가 만들어 보
 ```
 
 첫 빌드에서 keystore 생성 여부를 묻는다. EAS에 맡기면
-`npx eas credentials`로 언제든 내려받을 수 있다.
+`npx eas-cli credentials`로 언제든 내려받을 수 있다.
 
 **첫 릴리스는 Play Console에 손으로 올려야 한다.** Play Developer API는 앱이
 콘솔에 이미 존재해야 동작하므로, 1회차는 빌드 결과 AAB를 내려받아 직접 업로드한다.
@@ -173,13 +177,13 @@ TestFlight에 올라간 뒤 실기기에서 먼저 확인하고 심사에 제출
 없어도 된다. `production`은 프로필 최상단의 `distribution: "store"`만으로 App Store용
 IPA가 나오고, 인증서·프로비저닝 프로파일은 `credentialsSource: "remote"`(기본값)로
 EAS가 만들어 보관한다. `autoIncrement`도 안드로이드의 `versionCode`와 iOS의
-`buildNumber`를 함께 올린다. 실제로 `npx eas config --platform ios --profile production`이
+`buildNumber`를 함께 올린다. 실제로 `npx eas-cli config --platform ios --profile production`이
 해석해 주는 값이 그렇다.
 
 다만 두 가지는 알고 있어야 한다.
 
 - **`preview`를 iOS로 돌리면 ad hoc 빌드가 된다.** `distribution: "internal"`이라
-  설치할 기기의 UDID를 미리 등록해야 한다(`npx eas device:create`). 등록하지 않으면
+  설치할 기기의 UDID를 미리 등록해야 한다(`npx eas-cli device:create`). 등록하지 않으면
   빌드는 되지만 어느 기기에도 설치되지 않는다. Mac 없이 iOS를 테스트하는 현실적인
   경로는 **TestFlight**(= `production` 빌드 → `submit`)이므로, 이 프로필은 안드로이드
   전용으로 두고 있다(`npm run build:preview`도 `--platform android`다).
