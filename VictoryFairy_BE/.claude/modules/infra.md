@@ -108,10 +108,13 @@ push(main) + `workflow_dispatch` → 변경 모듈 감지 → Docker 빌드 → 
 
 ## redis
 
-`user`: 이메일 인증 상태 저장(TTL 휘발성, 영속 볼륨 불필요). `quiz`: prod 프로파일 실시간 fan-out
-(`RedisPubSubPublisher`, 상세는 `.claude/modules/quiz.md`). ⚠ **`quiz`도 redis를 쓴다**(종전 "quiz는
-안 씀" 서술 정정 — `docker-compose.yml` 확인 결과 `user`·`quiz` 둘 다 `SPRING_DATA_REDIS_HOST`/`PORT`가
-주입되고, 같은 `redis:7.2-alpine` 컨테이너를 공유한다).
+`user`: 이메일 인증 상태 저장(TTL 휘발성, 영속 볼륨 불필요). `quiz`: 용도가 둘이다 —
+prod 프로파일 실시간 fan-out(`RedisPubSubPublisher`) + **프로파일 무관**(2026-08-19) 보기별 투표 집계
+(`RedisQuizVoteTally`, dev도 실제 Redis에 쓴다. 상세는 `.claude/modules/quiz.md`).
+`user`·`quiz` 둘 다 `docker-compose.yml`에서 `SPRING_DATA_REDIS_HOST`/`PORT`가 주입되고, 같은
+`redis:7.2-alpine` 컨테이너를 공유한다. ⚠ **투표 집계는 Redis 7.0 이상을 전제**한다(`EXPIRE ... NX`로
+TTL 연장을 막는데, 그 옵션이 6.x엔 없다 — 운영 `redis:7`, 로컬 compose·배치 `redis:7.2-alpine` 모두 충족,
+로컬은 `redis_version:7.2.15`로 실측 확인).
 
 ## 이메일 발송 (Mailjet SMTP, user 전용, prod 프로파일)
 
