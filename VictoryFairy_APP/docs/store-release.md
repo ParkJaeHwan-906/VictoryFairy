@@ -7,22 +7,24 @@ Windows에서 iOS를 빌드해야 하고, keystore·인증서를 직접 보관�
 
 코드보다 이쪽이 일정을 지배한다. 순서대로 걷어내야 한다.
 
-### 1. 아이콘·스플래시가 아직 Expo 기본 이미지다
+### 1. ~~아이콘·스플래시가 아직 Expo 기본 이미지다~~ → 걷어냈다
 
-`assets/icon.png`는 파란 A 로고, `assets/splash-icon.png`는 회색 동심원 — 둘 다
-Expo 템플릿 자산이다. 이대로 제출하면 두 스토어 모두 브랜딩 부재로 리젝된다.
+브랜드 로고(`assets/LOGO.svg`)로 전부 교체했다. 앱 아이콘·적응형 아이콘 전경·스플래시·
+파비콘이 모두 이 SVG 하나에서 나오고, 배경은 흰색이다. 규격과 크기 규칙은
+[`README.md`](../README.md)의 "아이콘·스플래시" 참고.
 
-교체 대상:
+스플래시는 Figma `SWM` / `[Splash] Basic`(node `1461:16493`) 그대로 — 흰 바탕에
+로고 280dp 하나다. 안드로이드 12+ 는 시스템이 스플래시를 그리면서 지름 192dp 원 밖을
+잘라내므로 그쪽만 `imageWidth`를 192로 낮췄다.
 
-| 파일 | 규격 | 쓰이는 곳 |
-|---|---|---|
-| `assets/icon.png` | 1024×1024 PNG | iOS 앱 아이콘. **알파 채널 없이** |
-| `assets/android-icon-foreground.png` | 1024×1024 PNG, 투명 배경 | 안드로이드 적응형 아이콘 전경 |
-| `assets/android-icon-monochrome.png` | 1024×1024 PNG, 단색 실루엣 | 안드로이드 테마 아이콘 |
-| `assets/splash-icon.png` | 1024×1024 PNG, 투명 배경 | 스플래시 중앙 로고 |
+**남은 것은 단색 실루엣 두 개다.** 로고를 줄여서 만들 수 없어 디자인에서 받아야 한다.
 
-배경색은 `app.json`에 브랜드 컬러(`#F04E23`)로 이미 잡혀 있다.
-적응형 아이콘은 바깥 33%가 잘리므로 로고를 가운데 66% 안에 넣어야 한다.
+| 파일 | 규격 | 쓰이는 곳 | 없으면 |
+|---|---|---|---|
+| (미정) | 96×96 PNG, 흰색 실루엣 + 투명 배경 | 안드로이드 알림 아이콘 | 상태 표시줄에서 앱 아이콘이 흰 덩어리로 뭉개진다 |
+| (미정) | 1024×1024 PNG, 단색 실루엣 | 안드로이드 테마 아이콘(`monochromeImage`) | 테마 아이콘을 켠 런처에서 일반 아이콘으로 폴백한다 |
+
+둘 다 **제출을 막지는 않는다.** 스토어 심사 항목이 아니라 마감의 문제다.
 
 ### 2. 웹뷰 래퍼는 최소 기능 심사에 걸린다
 
@@ -37,14 +39,18 @@ Expo 템플릿 자산이다. 이대로 제출하면 두 스토어 모두 브랜�
 
 통과 확률을 올리려면 앱만 할 수 있는 기능을 붙여야 한다. 비용 대비 효과 순:
 
-1. **푸시 알림** (`expo-notifications`) — 경기 시작·퀴즈 오픈 알림. 야구 앱의
-   성격상 가장 자연스럽고, 심사에서 "네이티브 기능"으로 인정받기 쉽다.
+1. ~~**푸시 알림**~~ — **붙였다.** 응원 구단 경기 시작 30분 전 알림
+   (`expo-notifications`, `src/notifications/`). 동작과 설계는 `README.md`의 "경기 알림" 참고.
+   원격 푸시가 아니라 기기에 예약하는 로컬 알림이지만, 알림 권한을 요청하고 알림을
+   보내는 **네이티브 기능**이라는 점은 같다. 심사 메모에는 "응원 구단 경기 시작 30분 전
+   알림"이라고 용도를 적고, 테스트 계정에는 응원 구단이 설정돼 있어야 한다
+   (구단이 없으면 알림 권한 요청 자체가 뜨지 않는다).
 2. **딥링크** — `scheme: victoryfairy`가 이미 잡혀 있으니 웹 링크를 앱으로 여는
-   경로를 연결한다.
+   경로를 연결한다. 알림을 누르면 경기 목록으로 이동하는 처리는 이미 들어가 있다.
 3. **네이티브 공유** — 경기 결과·퀴즈 결과를 시스템 공유 시트로.
 
-지금 상태로도 제출은 가능하다. 다만 Play를 먼저 통과시키고 App Store는 위 기능을
-하나 이상 붙인 뒤 넣는 편이 리젝 왕복을 줄인다.
+알림이 붙었으니 Apple 4.2 리스크는 눈에 띄게 줄었다. 남은 리젝 사유는 대부분
+아래 3·4번(개인정보처리방침·회원탈퇴)이다.
 
 ### 3. 개인정보처리방침이 앱에 연결돼 있지 않다
 
@@ -96,12 +102,31 @@ API가 이미 있으니 FE에 UI만 붙이면 된다.
 - **`app.json`**
   - `ios.config.usesNonExemptEncryption: false` — HTTPS만 쓰므로 수출 규정 대상이
     아니다. 넣어 두면 제출할 때마다 뜨는 암호화 문항을 건너뛴다.
-  - `android.blockedPermissions` — RN 템플릿이 자동으로 넣는 4개
-    (`READ/WRITE_EXTERNAL_STORAGE`, `SYSTEM_ALERT_WINDOW`, `VIBRATE`)를 제거한다.
+  - `android.blockedPermissions` — RN 템플릿이 자동으로 넣는 것 중 쓰지 않는 3개
+    (`READ/WRITE_EXTERNAL_STORAGE`, `SYSTEM_ALERT_WINDOW`)를 제거한다.
     쓰지 않는 권한이 매니페스트에 있으면 데이터 안전 섹션에서 해명해야 하고,
     `SYSTEM_ALERT_WINDOW`는 특히 심사에서 눈에 띈다.
+    `VIBRATE`는 경기 알림이 붙으면서 실제로 쓰게 되어 목록에서 뺐다.
     FE에 이미지 업로드가 붙으면 `READ_MEDIA_IMAGES`가 필요해질 수 있다.
+  - **알림 관련 권한** — `expo-notifications`가 `POST_NOTIFICATIONS`(안드로이드 13+)와
+    `RECEIVE_BOOT_COMPLETED`(재부팅 후에도 예약이 살아남게)를 넣는다. 정확 알람
+    (`SCHEDULE_EXACT_ALARM`)은 **일부러 넣지 않았다** — Play가 알람·캘린더가 본업인
+    앱에만 허용하는 권한이라 해명 대상이 되는데, 30분 전 안내에는 필요 없다.
+
+    `expo-notifications`는 여기에 딸려 오는 것들도 함께 넣는다. FCM 쪽
+    (`WAKE_LOCK`·`ACCESS_NETWORK_STATE`·`c2dm.permission.RECEIVE`)과 배지 라이브러리
+    (ShortcutBadger)가 제조사 런처마다 하나씩 선언하는 20여 개
+    (`com.sec.android.provider.badge.*`, `READ_APP_BADGE` 등)다. 배지는 쓰지 않지만
+    (`shouldSetBadge: false`) 이 목록은 **막지 않았다** — Play의 민감·제한 권한이
+    아니고 데이터 안전 양식에도 나오지 않는데, 20여 줄을 `blockedPermissions`에
+    적어 두면 나중에 배지를 켤 때 조용히 실패하는 함정만 남는다. 심사에서 지적받으면
+    그때 목록에 넣으면 된다(전부 `blockedPermissions`로 제거 가능하다).
 - **`package.json`** — `eas-cli`를 devDependency로 고정하고 빌드·제출 스크립트 추가.
+  `npx expo-doctor`는 이걸 지적한다("EAS CLI should not be installed in your project").
+  전역이나 `npx`로 쓰고 버전은 `eas.json`의 `cli.version`으로 묶으라는 뜻인데, 그 필드는
+  이미 `>= 21.0.0`으로 잡혀 있다. 지금 상태의 이점은 `npm install` 한 번이면 팀원 모두
+  같은 버전을 쓴다는 것이고, 대가는 설치 용량과 doctor 경고 하나다. 걷어내려면
+  devDependency에서 지우고 `package.json`의 스크립트를 `npx eas-cli ...`로 바꾸면 된다.
 - **`.gitignore`** — Play 서비스 계정 키를 제외.
 
 `targetSdk`는 36이다(Expo SDK 57 기본값). Play가 2026년 8월 31일부터 신규 앱·업데이트에
@@ -142,6 +167,65 @@ npm run submit:ios             # TestFlight 업로드
 Apple 계정 로그인을 묻는다. App Store Connect에 앱이 없으면 EAS가 만들어 준다.
 TestFlight에 올라간 뒤 실기기에서 먼저 확인하고 심사에 제출한다 —
 **이 앱은 iOS에서 한 번도 빌드·실행된 적이 없다.**
+
+#### `eas.json`에 iOS 항목이 없는 이유
+
+없어도 된다. `production`은 프로필 최상단의 `distribution: "store"`만으로 App Store용
+IPA가 나오고, 인증서·프로비저닝 프로파일은 `credentialsSource: "remote"`(기본값)로
+EAS가 만들어 보관한다. `autoIncrement`도 안드로이드의 `versionCode`와 iOS의
+`buildNumber`를 함께 올린다. 실제로 `npx eas config --platform ios --profile production`이
+해석해 주는 값이 그렇다.
+
+다만 두 가지는 알고 있어야 한다.
+
+- **`preview`를 iOS로 돌리면 ad hoc 빌드가 된다.** `distribution: "internal"`이라
+  설치할 기기의 UDID를 미리 등록해야 한다(`npx eas device:create`). 등록하지 않으면
+  빌드는 되지만 어느 기기에도 설치되지 않는다. Mac 없이 iOS를 테스트하는 현실적인
+  경로는 **TestFlight**(= `production` 빌드 → `submit`)이므로, 이 프로필은 안드로이드
+  전용으로 두고 있다(`npm run build:preview`도 `--platform android`다).
+- **`submit.production`에 `ios`가 없다.** 그래서 `npm run submit:ios`는 Apple ID·앱을
+  대화형으로 묻는다. 값이 정해지면 아래를 채워 두면 물어보지 않는다.
+
+  ```json
+  "submit": {
+    "production": {
+      "ios": {
+        "appleId": "<Apple 계정 이메일>",
+        "ascAppId": "<App Store Connect 앱 ID(숫자)>",
+        "appleTeamId": "<팀 ID>"
+      }
+    }
+  }
+  ```
+
+#### 빌드할 때 뜨는 "Expo Go" 경고
+
+`production` 프로필로 빌드하면 EAS CLI가 이렇게 경고한다.
+
+> ⚠️ Detected that your app uses Expo Go for development, this is not recommended
+> when building production apps.
+
+**빌드 결과물에는 Expo Go와 관련된 것이 아무것도 들어가지 않는다.** 이 경고는
+"개발을 Expo Go로 하는 것 같다"는 **추측**이고, 판단 기준은 셋뿐이다
+(`eas-cli/build/project/discourageExpoGoForProdAsync.js`).
+
+1. `production` 프로필로 빌드하는가
+2. `expo-dev-client`가 설치돼 있지 않은가
+3. `android/`·`ios/` 네이티브 디렉터리가 저장소에 없는가
+
+이 저장소는 2·3을 그대로 만족한다 — `android/`를 gitignore하고 `prebuild`로
+생성하는 것이 **의도한 구조**이기 때문이다(`AGENTS.md`). 실제 개발은
+`npm run android`(`expo run:android`)로 네이티브 빌드를 만들어서 하므로,
+경고가 말하는 위험(Expo Go에서는 `app.json` 설정과 네이티브 모듈이 다르게 동작한다)은
+이미 피하고 있다.
+
+셋 중 하나를 고르면 된다.
+
+| | 방법 | 대가 |
+|---|---|---|
+| 그냥 둔다 | 경고는 빌드를 막지 않는다 | 빌드할 때마다 뜬다 |
+| 숨긴다 | `EAS_BUILD_NO_EXPO_GO_WARNING=true` | 나중에 진짜 문제일 때도 안 뜬다 |
+| 없앤다 | `npx expo install expo-dev-client` | 네이티브 모듈이 하나 늘고 재빌드가 필요하다. 대신 `npm start`가 Expo Go 대신 개발 빌드를 붙잡고, 개발 메뉴가 생긴다 |
 
 ## 스토어 등록 정보
 
@@ -187,10 +271,9 @@ TestFlight에 올라간 뒤 실기기에서 먼저 확인하고 심사에 제출
 
 ## 권장 순서
 
-1. 브랜드 아이콘·스플래시 교체 (블로커 1)
+1. ~~브랜드 아이콘·스플래시 교체~~ (블로커 1 — 끝났다. 단색 실루엣 두 개만 남았고 제출을 막지는 않는다)
 2. FE에 회원탈퇴 UI + 개인정보처리방침 링크 (블로커 3·4)
 3. `eas init` → `npm run build:preview`로 내부 테스트 APK 배포, 실기기 확인
+   (경기 알림은 이 빌드부터 동작한다)
 4. Play Console 등록 → 비공개 테스트 시작 (개인 계정이면 여기서 14일 시계가 돈다)
-5. 그 2주 동안 푸시 알림을 붙인다 (블로커 2) — Play 프로덕션 승인과 App Store
-   제출 준비가 같이 끝난다
-6. iOS 빌드 → TestFlight 확인 → App Store 심사 제출
+5. iOS 빌드 → TestFlight 확인 → App Store 심사 제출

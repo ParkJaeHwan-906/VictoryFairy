@@ -17,16 +17,14 @@
     "android": {
       "package": "com.victoryfairy.app",
       "adaptiveIcon": {
-        "backgroundColor": "#F04E23",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "backgroundColor": "#FFFFFF",
+        "foregroundImage": "./assets/android-icon-foreground.png"
       },
       "predictiveBackGestureEnabled": false,
       "blockedPermissions": [
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
-        "android.permission.SYSTEM_ALERT_WINDOW",
-        "android.permission.VIBRATE"
+        "android.permission.SYSTEM_ALERT_WINDOW"
       ]
     },
     "web": {
@@ -37,11 +35,27 @@
         "expo-splash-screen",
         {
           "image": "./assets/splash-icon.png",
-          "imageWidth": 200,
+          "imageWidth": 280,
           "resizeMode": "contain",
-          "backgroundColor": "#F04E23"
+          "backgroundColor": "#FFFFFF",
+          "android": {
+            "imageWidth": 192
+          }
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#F04E23",
+          "defaultChannel": "game-reminder"
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "4f5d1c18-a705-45a3-9e3b-fd7c48ddce09"
+      }
+    },
+    "owner": "victoryfairy"
   }
 }
