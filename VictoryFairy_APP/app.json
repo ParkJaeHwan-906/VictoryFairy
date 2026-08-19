@@ -42,6 +42,12 @@
           "backgroundColor": "#F04E23"
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "4f5d1c18-a705-45a3-9e3b-fd7c48ddce09"
+      }
+    },
+    "owner": "victoryfairy"
   }
 }
