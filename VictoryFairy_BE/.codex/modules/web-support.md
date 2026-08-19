@@ -1,0 +1,31 @@
+# web-support 모듈
+
+> web-support 작업 시에만 로드되는 슬림 컨텍스트. (공통: `com.skhynix` 독립 앱 생태계, `:common`=ApiResponse/BusinessException/ErrorCode, `:domain`=엔티티/리포지토리, MySQL+spring-dotenv, prod `ddl-auto`는 앱마다 다름 — user=`update`, quiz=`none`)
+
+## 책임
+`user`·`quiz` 두 배포 앱이 공유하는 web/security 인프라를 담는 `java-library` 모듈. **자체 실행 앱이 아니라 포트 없음, 컨테이너로 안 뜸.** JWT 발급/검증 부품 + 전역 예외 어드바이스 + 401 인증 엔트리포인트. 배포 앱은 여전히 `user`(8080)·`quiz`(8081) 2개뿐.
+
+## 핵심 클래스 (`web-support/src/main/java/com/skhynix/websupport/`)
+- `jwt.JwtTokenProvider` (HS256 생성/검증) — `createAccessToken(String uid)`/`createRefreshToken(String uid)`/`getUid(String): String`/`validateToken`/`isRefreshToken`/`getIssuedAtEpochSecond(String): long`(토큰 무효화 대조용, `iat`를 epoch 초로 반환 — `Date`/`LocalDateTime`이 아닌 이유는 비교 상대인 계정 기준 시각도 존 없는 값이라서다. `iat`가 없는 토큰은 `Long.MIN_VALUE`로 흡수해 fail-closed)
+- `jwt.JwtAuthenticationFilter` — Bearer 파싱 후 `UserAccountRepository.findActiveAuthByUid(uid)`(`:domain`, `Optional<ActiveAccountView>` 반환 — `Optional<Long>` 아님)로 uid→id 해석, principal은 여전히 `Long id`. **찾았어도 토큰의 `iat`가 그 계정의 `passwordChangedEpochSecond`보다 앞선 초면 principal을 채우지 않는다**(`ActiveAccountView.acceptsTokenIssuedAt`, 판정 단일 출처는 `:domain`의 `UserAccount.acceptsTokenIssuedAt(Long, long)`) — 탈퇴(계정 없음)와 비밀번호 변경 무효화를 같은 조회·같은 분기에서 함께 막는다, 예외 없이 그냥 통과(인증 필수 경로는 기존과 동일한 401, `permitAll` 경로는 헤더 없는 요청과 동일한 200). 생성자 `(JwtTokenProvider, UserAccountRepository)`(불변)
+- `jwt.JwtProperties` — `jwt.secret` 등 설정 바인딩
+- `jwt.JwtVerificationConfig` — 검증만 필요한 소비 앱이 `@Import`할 최소 설정(`JwtTokenProvider` 빈만 등록, 발급 로직인 `AuthService`는 안 따라옴)
+- `error.GlobalExceptionHandler` (`@RestControllerAdvice`) — `BusinessException`→`ApiResponse.fail`(**data는 항상 null**), `BusinessDataException`(`:common` 신설, `BusinessException` 하위 + `Object data`)→`handleBusinessData`가 별도로 잡아 `ApiResponse.fail(message, data)`(data를 싣는 유일한 실패 경로 — `@ExceptionHandler`가 던져진 타입에 가장 가까운 핸들러를 고르는 상속 거리 규칙에 의존, `handleBusiness`는 무수정), `MethodArgumentNotValidException`→400 + 필드별 메시지 맵, `MissingServletRequestParameterException`(신설)→400 + `ApiResponse.fail`(data null, 메시지에 누락된 파라미터명 포함) — 이 핸들러가 없으면 필수 `@RequestParam` 누락 시 스프링 기본 에러 본문이 그대로 나가 공통 응답 규약을 벗어난다. user·quiz 양쪽의 모든 필수 `@RequestParam` 경로(예: quiz `GET /today`의 `gameId`)에 영향. `BusinessDataException`의 첫 실사용은 user의 닉네임 변경 쿨다운(429 + `nextChangeableAt`) — 그 핸들러 선택 동작을 고정하는 회귀 테스트는 `user/UserAccountControllerNicknameUpdateTest`에 있다(상세는 `user.md`)
+- `error.RestAuthenticationEntryPoint` — 미인증 401 + `ApiResponse` JSON 직접 직렬화. `ExceptionTranslationFilter` 단계(`DispatcherServlet` 밖)에서 호출돼 `GlobalExceptionHandler`(컨트롤러 단계)가 못 잡는 경로라 별도로 존재
+
+## 엔드포인트
+없음 — 라이브러리 모듈. 부트 플러그인 미적용.
+
+## 의존
+- 모듈: `api project(':common')`, `implementation project(':domain')`
+- 라이브러리: Security, WebMVC, **data-jpa**(implementation), JJWT 0.12.6(api+impl+jackson)
+- 소비 방향: `common` ← `domain` ← `web-support` ← `{user, quiz}`. 역방향 없음.
+
+## 주의 / 컨벤션
+- **data-jpa를 implementation으로 직접 선언한 이유**: `JwtAuthenticationFilter`가 `UserAccountRepository`(JpaRepository 하위) 타입을 컴파일 시 필요로 하는데, `domain`이 data-jpa를 `implementation`으로만 노출해 전이되지 않기 때문. `domain`의 스타터 노출 방식이 바뀌면 이 선언도 재점검할 것.
+- **소비 앱은 필요한 설정을 `@Import`로 직접 배선해야 한다** — 자동 스캔에 기대지 말 것. `user`는 `com.skhynix` 전역 스캔이라 `@Import({JwtVerificationConfig.class, GlobalExceptionHandler.class})`(`UserApplication`)로, `quiz`는 `com.skhynix.quiz`로 좁게 스캔이라 `SecurityConfig`에서 동일하게 `@Import`한다. 둘 다 이 두 빈만 등록하고 `securityFilterChain` 자체(라우트 규칙)는 앱마다 직접 작성 — SecurityConfig는 web-support로 옮기지 않고 각 앱에 그대로 둔 의도적 결정(permitAll 규칙이 앱마다 다름).
+- `JwtVerificationConfig`는 `JwtTokenProvider` 빈만 등록하는 최소 설정이지만, 실제로는 uid→id 해석에 `UserAccountRepository`(`:domain`+JPA)까지 필요하다 — 소비 앱이 이미 `:domain`+JPA를 갖추고 있어야 조립된다.
+- `JwtAuthenticationFilter`/`RestAuthenticationEntryPoint` 생성자가 바뀌면 두 앱의 `SecurityConfig`(각각 `new`로 직접 생성)를 함께 고쳐야 한다 — 인터페이스가 아니라 구체 클래스를 직접 조립하는 커플링.
+- Jackson 3 (Boot 4.1) 사용 중: `ObjectMapper`/`JsonNode`는 `tools.jackson.databind.*`. `com.fasterxml.jackson.databind.*`를 import하면 컴파일 깨짐 — 클래스패스의 `com.fasterxml` 2.x는 `jjwt-jackson`이 runtimeOnly로 끌고 온 것뿐이라 컴파일에 안 잡혀 더 헷갈림.
+- **이 모듈에는 `Clock` 빈이 없고, 토큰 무효화 대조에 `Clock`을 끌어들이면 안 된다.** `iat`도 계정의 무효화 기준 시각(`passwordChangedEpochSecond`, `:domain`)도 둘 다 epoch 초라 비교에 존 개념이 끼어들 일이 없다 — 운영 파드가 UTC로 돌아 KST 고정 `Clock`을 섞으면 오히려 9시간 어긋난다(`user.md`의 `ClockConfig` 항목과 반대되는 설계 판단이니 혼동하지 말 것). 판정 규칙(같은 초는 유효, `>=` 비교) 자체의 근거는 `:domain`의 `UserAccount.acceptsTokenIssuedAt` 소관이고 여기서는 그 결과를 그대로 쓴다.
+- 테스트: `web-support/src/test` 3개 클래스(`JwtTokenProviderTest` 10 · `JwtAuthenticationFilterTest` 8 · `RestAuthenticationEntryPointTest` 2, 총 20개), `user`에서 로직 무변경으로 이동. `RestAuthenticationEntryPointTest`는 스프링 컨텍스트 없이 직렬화만 단위 검증. 증분 2건은 `getIssuedAtEpochSecond`(`iat` 없는 토큰의 fail-closed 포함), 증분 3건은 `findActiveAuthByUid` 응답에 실린 `passwordChangedEpochSecond`에 따른 principal 채움/미채움 분기(`docs/requirements/user/access-token-invalidation.md` USER-ATI-1~22).
