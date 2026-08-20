@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   ApiError,
@@ -11,6 +11,7 @@ import {
   submitQuiz,
 } from '../api';
 import type { DailyQuiz } from '../api';
+import ConfirmSheet from '../components/ConfirmSheet';
 import QuizCard, { type QuizCardExit } from '../components/QuizCard';
 import { getTeamDisplay } from '../data/kboTeams';
 import { ROUTES, readQuizPageState } from '../routes';
@@ -65,6 +66,31 @@ const CARD_EXIT_MS = 280;
 
 /** 카드로 보여줄 뒷장 수. 디자인은 2장이고, 남은 문제가 적으면 그만큼 줄인다. */
 const MAX_DECK_LAYERS = 2;
+
+/**
+ * 나가기 전에 한 번 더 묻는 문구.
+ *
+ * 이탈은 되돌릴 수 없다 — 같은 `(경기, 이닝)` 으로 다시 부르면 409 라 받은 세트를
+ * 되받을 수 없고, 남은 문제는 8분이 지나면 오답으로 확정된다(위 화면 주석 참고).
+ * 줄은 `ConfirmSheet` 규약대로 디자인이 끊어 둔 자리에서 끊는다.
+ */
+const LEAVE_CONFIRM = {
+  title: '퀴즈를 그만 풀까요?',
+  description: [
+    '지금 나가면 이 문제로 다시 돌아올 수 없어요.',
+    '답하지 않은 문제는 오답으로 처리돼요.',
+  ],
+  confirmLabel: '나가기',
+} as const;
+
+/**
+ * 나갈 때 되돌리는 히스토리 칸 수.
+ *
+ * 이 화면은 시스템 뒤로가기를 받으려고 같은 주소로 자리를 하나 더 쌓아 둔다(아래 효과
+ * 주석 참고). 그 자리는 보여줄 화면이 아니라 뒤로가기를 받아 내는 덫이라, 나갈 때는
+ * 덫과 원래 자리 두 칸을 함께 되돌려야 들어오기 전 화면에 닿는다.
+ */
+const LEAVE_HISTORY_DELTA = -2;
 
 /** 문맥 없이 들어와 조회를 걸 수 없을 때의 안내. */
 const NO_CONTEXT_MESSAGE = '경기 정보가 없어 퀴즈를 불러올 수 없어요. 경기 목록에서 다시 들어와 주세요.';
@@ -129,6 +155,13 @@ export default function QuizPage() {
   const [exit, setExit] = useState<QuizCardExit | null>(null);
   /** 이번에 실제로 제출한 문제 수. 완료 화면에만 쓴다(정오는 세지 않는다). */
   const [submittedCount, setSubmittedCount] = useState(0);
+  /** 나가기를 다시 묻는 시트가 떠 있는지. */
+  const [isLeaveConfirmOpen, setIsLeaveConfirmOpen] = useState(false);
+
+  /** 뒤로가기를 받아 낼 자리를 이미 쌓았는지. StrictMode 가 효과를 두 번 태워도 하나만 쌓는다. */
+  const backGuardRef = useRef(false);
+  /** 지금 풀 문제가 화면에 있는지. `popstate` 는 렌더 밖에서 와 state 를 읽을 수 없다. */
+  const hasQuizRef = useRef(false);
 
   useEffect(() => {
     /*
@@ -156,6 +189,44 @@ export default function QuizPage() {
       alive = false;
     };
   }, [gameId]);
+
+  /*
+   * 시스템 뒤로가기(브라우저 · 안드로이드 · 스와이프)도 상단 바 뒤로가기와 같게 다룬다.
+   *
+   * `BrowserRouter` 는 데이터 라우터가 아니라 `useBlocker` 를 쓸 수 없다. 대신 같은
+   * 주소로 자리를 하나 더 쌓아 두고, 뒤로가기가 그 자리를 먹으면 곧바로 다시 쌓는다 —
+   * 주소가 같으니 화면은 그대로 남고, 우리는 뒤로가기가 눌렸다는 것만 넘겨받는다.
+   *
+   * 쌓는 자리에는 지금 자리의 값을 그대로 실어 둔다. 비워 두면 그 자리에 되돌아왔을 때
+   * `location.state`(경기 문맥)가 없어, 주소를 직접 치고 들어온 것처럼 보인다.
+   */
+  useEffect(() => {
+    if (!backGuardRef.current) {
+      window.history.pushState(window.history.state, '', window.location.href);
+      backGuardRef.current = true;
+    }
+
+    const handlePopState = () => {
+      /*
+       * 풀 문제가 없으면 잃을 것도 없다 — 묻지 않고 내보낸다.
+       * 방금 뒤로가기가 쌓아 둔 자리를 먹었으므로 여기서는 한 칸만 더 물러나면 된다.
+       */
+      if (!hasQuizRef.current) {
+        navigate(-1);
+        return;
+      }
+
+      // 먹힌 자리를 다시 쌓는다 — 다음 뒤로가기도 같은 자리에서 걸려야 한다.
+      window.history.pushState(window.history.state, '', window.location.href);
+      setIsLeaveConfirmOpen(true);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [navigate]);
 
   const handleSelect = (optionNo: number, direction: QuizCardExit) => {
     const quiz = quizzes?.[index];
@@ -243,6 +314,31 @@ export default function QuizPage() {
   /* 뒤에 깔릴수록 먼저 그려야 앞장에 가려진다 — DOM 순서가 곧 쌓임 순서다. */
   const layers = Array.from({ length: layerCount }, (_, order) => layerCount - order);
 
+  /* `popstate` 가 렌더 밖에서 읽을 수 있도록 최신 값을 옮겨 둔다. */
+  useEffect(() => {
+    hasQuizRef.current = quiz !== null;
+  }, [quiz]);
+
+  /** 쌓아 둔 자리까지 함께 되돌려 실제로 이 화면을 뜬다. */
+  const leave = () => {
+    navigate(LEAVE_HISTORY_DELTA);
+  };
+
+  /**
+   * 상단 바의 뒤로 가기.
+   *
+   * 화면에 풀 문제가 남아 있을 때만 묻는다 — 다 풀었거나 받지 못했으면 나가서 잃을 것이
+   * 없어, 한 번 더 묻는 것이 걸림돌이기만 하다.
+   */
+  const handleBack = () => {
+    if (quiz === null) {
+      leave();
+      return;
+    }
+
+    setIsLeaveConfirmOpen(true);
+  };
+
   return (
     <div
       className="quiz-page"
@@ -253,7 +349,7 @@ export default function QuizPage() {
         <button
           className="quiz-page__back"
           type="button"
-          onClick={() => navigate(-1)}
+          onClick={handleBack}
           aria-label="뒤로 가기"
         >
           <span className="quiz-page__back-icon" aria-hidden="true" />
@@ -338,6 +434,15 @@ export default function QuizPage() {
           </div>
         )}
       </div>
+
+      {/* 나가기는 곧 화면이 바뀌는 일이라 시트를 따로 닫지 않는다. */}
+      {isLeaveConfirmOpen && (
+        <ConfirmSheet
+          {...LEAVE_CONFIRM}
+          onConfirm={leave}
+          onClose={() => setIsLeaveConfirmOpen(false)}
+        />
+      )}
     </div>
   );
 }

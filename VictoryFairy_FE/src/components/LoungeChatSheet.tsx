@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useCallback,
   useEffect,
   useRef,
@@ -23,6 +24,7 @@ import {
 } from '../api';
 import type { ChatMessage, ChatRoom } from '../api';
 import { useBottomSheet } from '../hooks/useBottomSheet';
+import { formatKoreanDay } from '../utils/date';
 import { useAccountStore, useMyNickname, useSupportTeam } from '../stores/useAccountStore';
 import profilePlaceholder from '../assets/profile_img.svg';
 import '../styles/bottomSheet.css';
@@ -34,6 +36,16 @@ import '../styles/LoungeChatSheet.css';
  */
 function formatSentAt(createdAt: string) {
   return createdAt.slice(11, 16);
+}
+
+/** `createdAt` 에서 날짜(`yyyy-MM-dd`)만 잘라낸다. 시각과 같은 이유로 파싱하지 않는다. */
+function toSentDay(createdAt: string) {
+  return createdAt.slice(0, 10);
+}
+
+/** 앞 메시지에서 날짜가 넘어갔는지. 넘어간 자리에만 날짜 구분선을 끼운다. */
+function startsNewDay(previous: ChatMessage, message: ChatMessage) {
+  return toSentDay(previous.createdAt) !== toSentDay(message.createdAt);
 }
 
 /** 목록 끝에서 이만큼 안쪽에 있으면 "맨 아래를 보고 있다"고 보고 새 메시지를 따라 내려간다. */
@@ -688,90 +700,107 @@ export default function LoungeChatSheet({ onClose }: LoungeChatSheetProps) {
             )}
 
             {isReady &&
-              messages.map((message) =>
-                // 닉네임은 중복될 수 없으므로 내 메시지 판별 기준으로 쓸 수 있다.
-                message.senderNickname === myNickname ? (
-                  <li className="lounge-chat__message lounge-chat__message--mine" key={message.id}>
-                    <time className="lounge-chat__time" dateTime={message.createdAt}>
-                      {formatSentAt(message.createdAt)}
-                    </time>
-                    <p className="lounge-chat__bubble lounge-chat__bubble--mine">{message.content}</p>
-                  </li>
-                ) : (
-                  <li className="lounge-chat__message" key={message.id}>
-                    {/* 채팅 응답에는 발신자 프로필 사진이 없다(닉네임만 노출된다). */}
-                    <img className="lounge-chat__avatar" src={profilePlaceholder} alt="" />
-                    <div className="lounge-chat__body">
-                      <p className="lounge-chat__sender">{message.senderNickname}</p>
-                      <div className="lounge-chat__bubble-row">
-                        {/*
-                          길게 누르면 신고 아이콘이 나온다. 버튼으로 둔 건 키보드·스크린리더
-                          에서도 닿게 하기 위해서다 — 길게 누르기에는 대응하는 키 입력이 없다.
-                        */}
-                        <button
-                          className={`lounge-chat__bubble lounge-chat__bubble--pressable${
-                            pressingId === message.id ? ' lounge-chat__bubble--pressing' : ''
-                          }`}
-                          type="button"
-                          aria-haspopup="true"
-                          aria-expanded={reportTargetId === message.id}
-                          aria-label={`${message.senderNickname}님의 메시지. 길게 눌러 신고할 수 있어요`}
-                          onPointerDown={(event) => startPress(message.id, event)}
-                          onPointerMove={handlePressMove}
-                          onPointerUp={cancelPress}
-                          onPointerCancel={cancelPress}
-                          onPointerLeave={cancelPress}
-                          // 길게 누르면 모바일 브라우저가 자체 메뉴를 띄운다. 그건 우리 메뉴와 겹친다.
-                          onContextMenu={(event) => event.preventDefault()}
-                          onClick={(event) => {
-                            // detail 0 은 키보드(Enter·Space)로 눌렀다는 뜻이다. 손가락 탭은 1 이상이라
-                            // 짧게 스친 것만으로 메뉴가 열리지 않는다.
-                            if (event.detail === 0) setReportTargetId(message.id);
-                          }}
-                        >
-                          {message.content}
-                        </button>
-                        <time className="lounge-chat__time" dateTime={message.createdAt}>
-                          {formatSentAt(message.createdAt)}
-                        </time>
+              messages.map((message, index) => (
+                <Fragment key={message.id}>
+                  {/*
+                    날짜가 바뀌는 자리에만 넣는다 — 목록 맨 위에는 넣지 않는다.
+                    위로 더 불러오면 그 앞이 같은 날일 수도, 다른 날일 수도 있어
+                    첫 줄만 보고는 무슨 날인지 단정할 수 없다.
+                  */}
+                  {index > 0 && startsNewDay(messages[index - 1], message) && (
+                    <li className="lounge-chat__day-line">
+                      <span className="lounge-chat__day-rule" aria-hidden="true" />
+                      <time className="lounge-chat__day-text" dateTime={toSentDay(message.createdAt)}>
+                        {formatKoreanDay(toSentDay(message.createdAt))}
+                      </time>
+                      <span className="lounge-chat__day-rule" aria-hidden="true" />
+                    </li>
+                  )}
 
-                        {/*
-                          신고와 취소를 나란히 둔다. 누르면 확인 없이 바로 나가므로
-                          취소를 같은 자리에 붙여, 잘못 열었을 때 손을 옮기지 않고 닫게 한다.
-                        */}
-                        {reportTargetId === message.id && (
-                          <>
-                            <button
-                              className="lounge-chat__report-icon"
-                              type="button"
-                              aria-label="이 메시지 신고하기"
-                              onClick={() => void handleReport(message.id)}
-                              disabled={isReporting}
-                            >
-                              <span className="lounge-chat__report-icon-glyph" aria-hidden="true" />
-                            </button>
-                            <button
-                              className="lounge-chat__report-icon lounge-chat__report-icon--cancel"
-                              type="button"
-                              aria-label="신고 취소"
-                              onClick={closeReport}
-                              disabled={isReporting}
-                            >
-                              <span className="lounge-chat__cancel-icon-glyph" aria-hidden="true" />
-                            </button>
-                          </>
+                  {/* 닉네임은 중복될 수 없으므로 내 메시지 판별 기준으로 쓸 수 있다. */}
+                  {message.senderNickname === myNickname ? (
+                    <li className="lounge-chat__message lounge-chat__message--mine">
+                      <time className="lounge-chat__time" dateTime={message.createdAt}>
+                        {formatSentAt(message.createdAt)}
+                      </time>
+                      <p className="lounge-chat__bubble lounge-chat__bubble--mine">{message.content}</p>
+                    </li>
+                  ) : (
+                    <li className="lounge-chat__message">
+                      {/* 채팅 응답에는 발신자 프로필 사진이 없다(닉네임만 노출된다). */}
+                      <img className="lounge-chat__avatar" src={profilePlaceholder} alt="" />
+                      <div className="lounge-chat__body">
+                        <p className="lounge-chat__sender">{message.senderNickname}</p>
+                        <div className="lounge-chat__bubble-row">
+                          {/*
+                            길게 누르면 신고 아이콘이 나온다. 버튼으로 둔 건 키보드·스크린리더
+                            에서도 닿게 하기 위해서다 — 길게 누르기에는 대응하는 키 입력이 없다.
+                          */}
+                          <button
+                            className={`lounge-chat__bubble lounge-chat__bubble--pressable${
+                              pressingId === message.id ? ' lounge-chat__bubble--pressing' : ''
+                            }`}
+                            type="button"
+                            aria-haspopup="true"
+                            aria-expanded={reportTargetId === message.id}
+                            aria-label={`${message.senderNickname}님의 메시지. 길게 눌러 신고할 수 있어요`}
+                            onPointerDown={(event) => startPress(message.id, event)}
+                            onPointerMove={handlePressMove}
+                            onPointerUp={cancelPress}
+                            onPointerCancel={cancelPress}
+                            onPointerLeave={cancelPress}
+                            // 길게 누르면 모바일 브라우저가 자체 메뉴를 띄운다. 그건 우리 메뉴와 겹친다.
+                            onContextMenu={(event) => event.preventDefault()}
+                            onClick={(event) => {
+                              // detail 0 은 키보드(Enter·Space)로 눌렀다는 뜻이다. 손가락 탭은 1 이상이라
+                              // 짧게 스친 것만으로 메뉴가 열리지 않는다.
+                              if (event.detail === 0) setReportTargetId(message.id);
+                            }}
+                          >
+                            {message.content}
+                          </button>
+                          <time className="lounge-chat__time" dateTime={message.createdAt}>
+                            {formatSentAt(message.createdAt)}
+                          </time>
+
+                          {/*
+                            신고와 취소를 나란히 둔다. 누르면 확인 없이 바로 나가므로
+                            취소를 같은 자리에 붙여, 잘못 열었을 때 손을 옮기지 않고 닫게 한다.
+                          */}
+                          {reportTargetId === message.id && (
+                            <>
+                              <button
+                                className="lounge-chat__report-icon"
+                                type="button"
+                                aria-label="이 메시지 신고하기"
+                                onClick={() => void handleReport(message.id)}
+                                disabled={isReporting}
+                              >
+                                <span className="lounge-chat__report-icon-glyph" aria-hidden="true" />
+                              </button>
+                              <button
+                                className="lounge-chat__report-icon lounge-chat__report-icon--cancel"
+                                type="button"
+                                aria-label="신고 취소"
+                                onClick={closeReport}
+                                disabled={isReporting}
+                              >
+                                <span className="lounge-chat__cancel-icon-glyph" aria-hidden="true" />
+                              </button>
+                            </>
+                          )}
+                        </div>
+
+                        {reportError && reportTargetId === message.id && (
+                          <p className="lounge-chat__report-error" role="alert">
+                            {reportError}
+                          </p>
                         )}
                       </div>
-
-                      {reportError && reportTargetId === message.id && (
-                        <p className="lounge-chat__report-error" role="alert">
-                          {reportError}
-                        </p>
-                      )}
-                    </div>
-                  </li>
-                ),
-              )}
+                    </li>
+                  )}
+                </Fragment>
+              ))}
           </ol>
         </div>
 
