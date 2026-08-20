@@ -3,7 +3,7 @@
 > **도메인** `account` — 로그인 계정 자체의 생명주기(탈퇴) + 내 프로필 요약 조회 + 내 프로필 수정(닉네임·비밀번호·프로필 이미지).
 > **모듈** user (포트 8080) · **경로 접두사** `/api/users` · **엔드포인트** 5개
 > **컨트롤러** `user/src/main/java/com/skhynix/user/account/controller/UserAccountController.java` (`@RequestMapping("/users")`)
-> **최종 갱신** 2026-08-20 — **`POST /api/users/me/profile-image` 신규 추가**(업로드가 곧 프로필 변경 확정, 직전 객체는 커밋 이후 best-effort로 삭제) + **`GET /api/users/me` 응답에 `profileImgUrl` 추가**(키 5개→6개, SELECT 횟수는 그대로 5회 — 이미 조회하는 계정 행의 컬럼이라 추가 조회 없음). 계약 원본 `docs/requirements/user/profile-image.md`(승인됨 2026-08-20, USER-PI-1~121). profileImgUrl 조립 예시(BaseURL+EP, 흔한 실수 포함)와 CloudFront/S3 구분, 가입 전후 EP 완전 교체 서술 보강. (직전: 2026-08-17 `PATCH /api/users/me/password` 성공 시 **그 이전에 발급된 access·refresh 토큰이 즉시 무효화됨**(`main` 84f6f4a 머지 완료, PR #425). 직전 "이전 access 토큰은 최대 3h 그대로 유효하다"는 서술을 정정. (직전: 같은 날 `PATCH /api/users/me/nickname`·`PATCH /api/users/me/password`(내 프로필 수정) 신규 추가, 엔드포인트 2개→4개, 브랜치 `hwannee/be/feat-edit-profile`.))
+> **최종 갱신** 2026-08-20 — **`POST /api/users/me/profile-image` 신규 추가**(업로드가 곧 프로필 변경 확정, 직전 객체는 커밋 이후 best-effort로 삭제) + **`GET /api/users/me` 응답에 `profileImgUrl` 추가**(키 5개→6개, SELECT 횟수는 그대로 5회 — 이미 조회하는 계정 행의 컬럼이라 추가 조회 없음). 계약 원본 `docs/requirements/user/profile-image.md`(승인됨 2026-08-20, USER-PI-1~121). profileImgUrl 조립 예시(BaseURL+EP, 흔한 실수 포함)와 CloudFront/S3 구분, 가입 전후 EP 완전 교체 서술 보강. (직전: 2026-08-17 `PATCH /api/users/me/password` 성공 시 **그 이전에 발급된 access·refresh 토큰이 즉시 무효화됨**(`main` 84f6f4a 머지 완료, PR #425). 직전 "이전 access 토큰은 최대 3h 그대로 유효하다"는 서술을 정정.) 그 이전 이력은 각 엔드포인트 섹션의 `최종 변경` 줄에 남아 있다.
 > 공통 규약(응답 래퍼·JWT payload·401 4종·**토큰 무효화**·**시스템 예외 래핑**)은 [README.md](README.md)를 먼저 볼 것.
 
 ## 엔드포인트 목록
