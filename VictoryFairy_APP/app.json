@@ -8,7 +8,7 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "bundleIdentifier": "com.victoryfairy.app",
+      "bundleIdentifier": "com.victoryfairy.mobile",
       "supportsTablet": false,
       "config": {
         "usesNonExemptEncryption": false
