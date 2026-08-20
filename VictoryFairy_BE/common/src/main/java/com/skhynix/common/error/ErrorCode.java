@@ -59,6 +59,18 @@ public enum ErrorCode {
     PLAYER_NOT_IN_SUPPORT_TEAM(400, "응원하는 구단 소속 선수만 선택할 수 있습니다."),
     SUPPORT_PLAYER_LIMIT_EXCEEDED(400, "응원 선수는 최대 4명까지 선택할 수 있습니다."),
 
+    // 400 Bad Request - 프로필 이미지 업로드
+    PROFILE_IMAGE_REQUIRED(400, "프로필 이미지를 첨부해 주세요."),
+    // 판정 근거는 확장자·요청 Content-Type이 아니라 파일 선두 바이트다(둘 다 클라이언트가 자유로이
+    // 정하는 값이라 실행 파일을 a.png로 위장하는 것을 못 막는다).
+    INVALID_PROFILE_IMAGE_FORMAT(400, "JPG, PNG, WEBP 이미지만 업로드할 수 있습니다."),
+    // 가입 요청의 profileImgUrl 거절 사유 넷(temp 접두가 아님·형태가 어긋남·255자 초과·그 객체가
+    // 버킷에 없음)을 한 문구로 합친 코드 — 사유를 나눠 주면 "그 EP가 실재하는가"를 응답으로 물어볼
+    // 수 있게 되어 남의 EP 존재 여부를 탐색할 수 있다(QUIZ_LIKE_NOT_ALLOWED와 같은 계열의 은닉).
+    INVALID_PROFILE_IMAGE_ENDPOINT(400, "유효하지 않은 프로필 이미지입니다."),
+    // 값의 형식(UUID 등)은 검증하지 않는다 — 비어 있지만 않으면 통과다(서버가 발급하는 값이 아니다).
+    INVALID_APP_ID(400, "앱 식별자가 필요합니다."),
+
     // 404 Not Found
     CHATROOM_NOT_FOUND(404, "존재하지 않는 채팅방입니다."),
     CHAT_MESSAGE_NOT_FOUND(404, "존재하지 않는 메시지입니다."),
@@ -79,6 +91,12 @@ public enum ErrorCode {
     // 일시적 상태 충돌(409)이고, 저쪽은 지금 그 자원을 받을 자격이 없는 것(403)이다.
     QUIZ_ALREADY_SERVED_IN_INNING(409, "이번 이닝에는 이미 문제를 받았습니다."),
 
+    // 413 Content Too Large - 프로필 이미지 업로드
+    // 이 저장소 최초의 413. 400으로 묶지 않는 이유: 고칠 대상이 입력값의 "형식"이 아니라 요청 본문의
+    // "크기"이고, 이 응답은 컨트롤러에 닿기도 전에 멀티파트 해석 단계에서 나간다(web-support의
+    // GlobalExceptionHandler.handleMaxUploadSizeExceeded).
+    PROFILE_IMAGE_TOO_LARGE(413, "이미지 크기는 5MB를 넘을 수 없습니다."),
+
     // 429 Too Many Requests - 이메일 인증
     EMAIL_SEND_COOLDOWN(429, "인증번호를 방금 발송했습니다. 잠시 후 다시 시도해 주세요."),
 
@@ -88,7 +106,19 @@ public enum ErrorCode {
     // 상대 자원이 없고 막는 주체는 내 계정의 시간 제한이다(EMAIL_SEND_COOLDOWN과 같은 성격).
     // ⚠ 메시지의 "30"은 기간의 단일 출처인 NicknameChangeCooldownPolicy.COOLDOWN_DAYS와 같은 값이어야
     //   한다 — :common은 앱 모듈을 참조할 수 없어 상수로 조립할 수 없으니 한쪽만 고치지 말 것.
-    NICKNAME_CHANGE_COOLDOWN(429, "닉네임은 30일에 한 번만 변경할 수 있습니다.");
+    NICKNAME_CHANGE_COOLDOWN(429, "닉네임은 30일에 한 번만 변경할 수 있습니다."),
+
+    // 429 Too Many Requests - 비인증 프로필 이미지 업로드(appId 기준 10회)
+    // 창이 30분 고정이라 "잠시 후"가 문자 그대로 사실이다 — 갱신형(sliding)으로 바꾸면 계속 올리는
+    // 사용자가 영영 풀리지 않아 이 문구가 거짓이 된다.
+    PROFILE_IMAGE_UPLOAD_LIMIT_EXCEEDED(429, "이미지 등록 횟수를 초과했습니다. 잠시 후 다시 시도해 주세요."),
+
+    // 500 Internal Server Error - 처리되지 않은 예외의 최종 방어선
+    // (web-support GlobalExceptionHandler.handleUnexpected). 이 코드를 BusinessException 으로 던지지 말 것 —
+    // "예상하고 정의한 실패"에 500 을 쓰는 순간 이 문구가 거짓이 되고 로그도 남지 않는다.
+    // ⚠ 원인을 문구로 나누지 않는 것이 의도다: 예외 클래스명·내부 경로·SQL 은 응답이 아니라 서버 로그에만
+    //   남긴다(응답에 실으면 스택트레이스를 감춘 의미가 없어진다).
+    INTERNAL_SERVER_ERROR(500, "서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
 
     private final int status;
     private final String message;
