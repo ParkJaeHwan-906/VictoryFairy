@@ -67,13 +67,11 @@ user:
 
   # 프로필 이미지 저장소(S3).
   # ⚠ 자격증명은 여기에 없다 — 로컬은 ~/.aws, prod 파드는 IRSA 가 넣는다(ProfileImageStorageConfig).
-  # ⚠ 서버가 돌려주는 값은 언제나 BaseURL 을 뺀 EP 이고, 조립은 클라이언트 몫이다(응답 계약 불변).
-  #   base-url 은 그 조립에 쓰라고 배포 환경마다 알려 주는 값일 뿐, 저장·응답 경로가 읽지 않는다.
-  #   여기 두는 이유는 도메인이 코드·문서에 흩어져 하드코딩되는 것을 막기 위해서다.
+  # ⚠ 읽기(CloudFront BaseURL https://victoryfairy.com)는 서버가 관여하지 않는다. 서버가 돌려주는
+  #   값은 언제나 BaseURL 을 뺀 EP 이고, 조립은 클라이언트 몫이다.
   profile-image:
     bucket: ${USER_PROFILE_IMAGE_BUCKET:victoryfairy-asset}
     region: ${USER_PROFILE_IMAGE_REGION:ap-northeast-2}
-    base-url: ${USER_PROFILE_IMAGE_BASE_URL:https://victoryfairy.com}
 
 # 인증번호 메일 발신자 주소. 실제 SMTP 발송은 prod 프로파일에서만 일어난다(dev/test는 mock 로그).
 app:
