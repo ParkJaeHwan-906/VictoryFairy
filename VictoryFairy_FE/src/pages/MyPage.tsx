@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { logout, withdraw } from '../api';
+import { logout, toAssetUrl, withdraw } from '../api';
 import profilePlaceholder from '../assets/profile_img.svg';
 import ConfirmSheet from '../components/ConfirmSheet';
 import { getTeamDisplay } from '../data/kboTeams';
@@ -230,13 +230,16 @@ export default function MyPage() {
       <header className="my-page__header">
         <div className="my-page__identity">
           <div className="my-page__avatar-box">
-            {/* `GET /users/me` 에 사진 필드가 없어 자리표시 이미지를 쓴다 */}
-            <img className="my-page__avatar" src={profilePlaceholder} alt="" />
+            {/* 서버는 EP 만 준다 — 도메인을 붙이고, 사진이 없으면 자리표시 이미지를 쓴다 */}
+            <img
+              className="my-page__avatar"
+              src={toAssetUrl(profile?.profileImgUrl) ?? profilePlaceholder}
+              alt=""
+            />
             {/*
               연필 배지는 사진이 아니라 **프로필 수정 화면**으로 가는 문이다 —
-              지금 그 화면에서 바꾸는 것은 닉네임이고, 사진 변경은 API 가 없어 그쪽에도
-              모양만 있다(`ProfileEditPage`). 버튼이 아니라 링크로 그리는 이유는
-              문의하기 줄과 같다 — 눌러서 어딘가로 가는 것은 링크여야 한다.
+              닉네임도 사진도 그쪽에서 바꾼다(`ProfileEditPage`). 버튼이 아니라 링크로
+              그리는 이유는 문의하기 줄과 같다 — 눌러서 어딘가로 가는 것은 링크여야 한다.
             */}
             <Link className="my-page__avatar-edit" to={ROUTES.profileEdit} aria-label="프로필 수정">
               <span className="my-page__avatar-edit-icon" aria-hidden="true" />

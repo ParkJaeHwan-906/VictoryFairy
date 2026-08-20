@@ -79,6 +79,8 @@
   width: 100px;
   height: 100px;
   border-radius: 50%;
+  /* 자리표시 SVG 자리에 실제 사진이 들어온다 — 비율이 어긋나지 않게 잘라 채운다 */
+  object-fit: cover;
 }
 
 .signup-page__avatar-edit {
@@ -96,12 +98,34 @@
   overflow: clip;
 }
 
+/* 올리는 동안에는 다시 열 수 없다 — 연달아 올리면 앞의 EP 는 그냥 버려진다 */
+.signup-page__avatar-edit:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
 .signup-page__avatar-edit-icon {
   width: 20px;
   height: 20px;
   background-color: var(--color-label-alternative);
   -webkit-mask: url('../assets/plus.svg') center / contain no-repeat;
   mask: url('../assets/plus.svg') center / contain no-repeat;
+}
+
+/* 사진 진행·실패 안내 — 사진 바로 아래 가운데 한 줄. */
+.signup-page__image-status {
+  align-self: center;
+  margin: 8px 0 0;
+  padding-inline: var(--layout-gutter);
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+  text-align: center;
+}
+
+.signup-page__image-status--error {
+  color: var(--color-error-strong);
 }
 
 /* ------------------------------------------------------------------ *

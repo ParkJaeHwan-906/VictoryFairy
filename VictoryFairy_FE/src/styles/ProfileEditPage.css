@@ -120,12 +120,34 @@
   overflow: clip;
 }
 
+/* 올리는 동안에는 다시 열 수 없다 — 업로드가 곧 확정이라 두 번 보내면 두 번 바뀐다 */
+.profile-edit-page__avatar-edit:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
 .profile-edit-page__avatar-edit-icon {
   width: 20px;
   height: 20px;
   background-color: var(--color-label-neutral);
   -webkit-mask: url('../assets/plus.svg') center / contain no-repeat;
   mask: url('../assets/plus.svg') center / contain no-repeat;
+}
+
+/* 사진 진행·실패 안내 — 사진 바로 아래 가운데 한 줄. */
+.profile-edit-page__image-status {
+  align-self: center;
+  /* 폼이 gap 32 로 줄 간격을 잡는다 — 여기서 또 띄우면 사진에서 너무 멀어진다 */
+  margin: 0;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+  text-align: center;
+}
+
+.profile-edit-page__image-status--error {
+  color: var(--color-error-strong);
 }
 
 /* ------------------------------------------------------------------ *
