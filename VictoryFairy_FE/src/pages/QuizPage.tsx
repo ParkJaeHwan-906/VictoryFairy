@@ -69,6 +69,18 @@ const CARD_EXIT_MS = 280;
 const MAX_DECK_LAYERS = 2;
 
 /**
+ * 한 문제에 주는 시간(초). 다 되면 답하지 않은 채로 다음 문제로 넘어간다.
+ *
+ * 서버의 8분 제출 시한(위 머리말 참고)과는 다른 것이다 — 저쪽은 "받은 문제에 답을 낼 수
+ * 있는 시간"이고 이쪽은 화면이 한 문제에 머무는 시간이라, 이 시계로 넘긴 문제도 서버
+ * 시한 안에서는 여전히 미답 상태다(그리고 8분이 지나면 오답으로 확정된다).
+ */
+const QUESTION_SECONDS = 15;
+
+/** 시간이 다 돼 넘어갔다는 안내. 조용히 넘기면 자기 답이 저장된 줄 안다. */
+const TIME_OVER_NOTICE = `${QUESTION_SECONDS}초가 지나 다음 문제로 넘어갔어요. 답은 반영되지 않았어요.`;
+
+/**
  * 나가기 전에 한 번 더 묻는 문구.
  *
  * 이탈은 되돌릴 수 없다 — 같은 `(경기, 이닝)` 으로 다시 부르면 409 라 받은 세트를
@@ -159,10 +171,15 @@ export default function QuizPage() {
   /** 나가기를 다시 묻는 시트가 떠 있는지. */
   const [isLeaveConfirmOpen, setIsLeaveConfirmOpen] = useState(false);
 
+  /** 지금 문제에 남은 시간(초). 0 이 되면 답하지 않은 채로 넘어간다. */
+  const [secondsLeft, setSecondsLeft] = useState(QUESTION_SECONDS);
+
   /** 뒤로가기를 받아 낼 자리를 이미 쌓았는지. StrictMode 가 효과를 두 번 태워도 하나만 쌓는다. */
   const backGuardRef = useRef(false);
   /** 지금 풀 문제가 화면에 있는지. `popstate` 는 렌더 밖에서 와 state 를 읽을 수 없다. */
   const hasQuizRef = useRef(false);
+  /** 시간이 다 돼 이미 넘긴 문제. StrictMode 가 효과를 두 번 태워도 한 번만 넘어가게 한다. */
+  const timedOutQuizIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     /*
@@ -291,6 +308,11 @@ export default function QuizPage() {
   const goNext = () => {
     setExit(null);
     setSubmitError(null);
+    /*
+     * 시계를 여기서 되감는다. 문제가 바뀐 뒤 따로 되감으면 아래 "시간이 다 됐다" 효과가
+     * 0 초인 채로 한 번 더 돌아, 다음 문제까지 곧바로 넘겨 버린다.
+     */
+    setSecondsLeft(QUESTION_SECONDS);
     setIndex((current) => current + 1);
   };
 
@@ -319,6 +341,41 @@ export default function QuizPage() {
   useEffect(() => {
     hasQuizRef.current = quiz !== null;
   }, [quiz]);
+
+  /*
+   * 1초에 한 칸씩 줄인다.
+   *
+   * 답을 내는 중이거나 카드가 빠지는 중이면 세지 않는다 — 이미 끝난 문제다.
+   * 나가기 확인 시트가 떠 있는 동안에도 멈춘다. 그 시트는 화면을 떠날지 묻는 것이라,
+   * 답을 고민하는 시간이 아니다(취소하고 돌아왔더니 문제가 넘어가 있으면 안 된다).
+   */
+  useEffect(() => {
+    if (quiz === null || isSubmitting || exit !== null || isLeaveConfirmOpen) return;
+
+    const ticker = window.setInterval(() => {
+      setSecondsLeft((left) => Math.max(0, left - 1));
+    }, 1000);
+
+    return () => {
+      window.clearInterval(ticker);
+    };
+  }, [quiz, isSubmitting, exit, isLeaveConfirmOpen]);
+
+  /*
+   * 시간이 다 됐다 — 답하지 않은 채로 넘긴다.
+   *
+   * 카드는 버튼으로 골랐을 때와 같이 위로 빼고, 다 빠진 뒤에 넘긴다(고를 때와 같은 흐름).
+   * `setExit` 뒤 이 효과가 다시 돌지만 `exit !== null` 에서 멈추므로 한 번만 넘어간다.
+   */
+  useEffect(() => {
+    if (secondsLeft > 0 || quiz === null || isSubmitting || exit !== null) return;
+    if (timedOutQuizIdRef.current === quiz.id) return;
+
+    timedOutQuizIdRef.current = quiz.id;
+    setSkipNotice(TIME_OVER_NOTICE);
+    setExit('up');
+    void wait(CARD_EXIT_MS).then(goNext);
+  }, [secondsLeft, quiz, isSubmitting, exit]);
 
   /** 쌓아 둔 자리까지 함께 되돌려 실제로 이 화면을 뜬다. */
   const leave = () => {
@@ -401,6 +458,7 @@ export default function QuizPage() {
               dateLabel={dateLabel}
               matchLabel={matchLabel}
               isSubmitting={isSubmitting}
+              secondsLeft={secondsLeft}
               exit={exit}
               onSelect={handleSelect}
             />

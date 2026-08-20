@@ -64,12 +64,41 @@
 }
 
 /* ------------------------------------------------------------------ *
- * 머리말 — 날짜 · 맞붙는 두 팀
+ * 머리말 — 왼쪽에 날짜 · 맞붙는 두 팀, 오른쪽에 남은 시간
+ * 오른쪽은 디자인에서 "1회 초"가 놓이던 자리라 둘째 줄에 밑선을 맞춘다.
  * ------------------------------------------------------------------ */
 .quiz-card__meta {
   display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.quiz-card__meta-lines {
+  display: flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
+}
+
+/*
+ * 남은 시간. 폭이 고정된 숫자(tabular-nums)를 써야 10 → 9 처럼 자릿수가 줄 때
+ * 글자가 좌우로 흔들리지 않는다.
+ */
+.quiz-card__timer {
+  flex-shrink: 0;
+  margin: 0;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-body4);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body4);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 마지막 5초 — 색과 굵기를 함께 올린다(QuizCard 의 URGENT_SECONDS 주석 참고). */
+.quiz-card__timer[data-urgent] {
+  color: var(--color-primary-normal);
+  font-weight: var(--font-weight-semibold);
 }
 
 .quiz-card__meta-date {
