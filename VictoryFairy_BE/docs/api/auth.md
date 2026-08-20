@@ -1,10 +1,10 @@
 # 인증(auth) API 명세
 
-> **도메인** `auth` — 회원가입 전 사전 검사, 이메일 소유 확인, 가입, 로그인/토큰 수명 관리.
-> **모듈** user (포트 8080) · **경로 접두사** `/api/auth` · **엔드포인트** 9개
+> **도메인** `auth` — 회원가입 전 사전 검사, 이메일 소유 확인, 가입 전 프로필 이미지 업로드, 가입, 로그인/토큰 수명 관리.
+> **모듈** user (포트 8080) · **경로 접두사** `/api/auth` · **엔드포인트** 10개
 > **컨트롤러** `user/src/main/java/com/skhynix/user/auth/controller/AuthController.java` (`@RequestMapping("/auth")`)
-> **최종 갱신** 2026-08-17 — `POST /api/auth/refresh`가 **비밀번호 변경 이전에 발급된 refresh 토큰도 거절**하게 됨(`main` 84f6f4a 머지 완료, PR #425 — 응답은 기존 401 `EXPIRED_REFRESH_TOKEN`과 동일, 신규 코드 없음). (직전: 2026-08-04 `POST /api/auth/signup`에 `users_bq` 행 생성 부수 효과 반영, 요청·응답 계약은 변경 없음.)
-> 공통 규약(응답 래퍼·JWT payload·401 4종·403 부재·**토큰 무효화**)은 [README.md](README.md)를 먼저 볼 것.
+> **최종 갱신** 2026-08-20 — **`POST /api/auth/profile-image` 신규 추가**(가입 전 프로필 이미지 업로드, 이 저장소에서 인증 없이 쓰기가 되는 유일한 경로) + **`POST /api/auth/signup` 요청에 선택 필드 `profileImgUrl` 추가**(가입 성공 시 `temp/` → `user-profile-img/` 이동, 이동 실패는 가입 자체를 막지 않고 값만 `null`). 계약 원본 `docs/requirements/user/profile-image.md`(승인됨 2026-08-20, USER-PI-1~121). (직전: 2026-08-17 `POST /api/auth/refresh`가 **비밀번호 변경 이전에 발급된 refresh 토큰도 거절**하게 됨(`main` 84f6f4a 머지 완료, PR #425 — 응답은 기존 401 `EXPIRED_REFRESH_TOKEN`과 동일, 신규 코드 없음). (직전: 2026-08-04 `POST /api/auth/signup`에 `users_bq` 행 생성 부수 효과 반영, 요청·응답 계약은 변경 없음.))
+> 공통 규약(응답 래퍼·JWT payload·401 4종·403 부재·**토큰 무효화**·**시스템 예외 래핑**)은 [README.md](README.md)를 먼저 볼 것.
 
 ## 엔드포인트 목록
 
@@ -15,6 +15,7 @@
 | POST | [/api/auth/nickname/duplicate](#post-apiauthnicknameduplicate) | 200 | 닉네임 중복 단독 검사 |
 | POST | [/api/auth/email/send-code](#post-apiauthemailsend-code) | 200 | 이메일 인증번호 발송 |
 | POST | [/api/auth/email/verify](#post-apiauthemailverify) | 200 | 이메일 인증번호 대조 |
+| POST | [/api/auth/profile-image](#post-apiauthprofile-image) | 200 | **가입 전 프로필 이미지 업로드**(비인증, `temp/` 저장) — 신규 |
 | POST | [/api/auth/signup](#post-apiauthsignup) | 201 | 회원가입 |
 | POST | [/api/auth/login](#post-apiauthlogin) | 200 | 로그인(토큰 쌍 발급) |
 | POST | [/api/auth/refresh](#post-apiauthrefresh) | 200 | 토큰 쌍 재발급(rotate) |
@@ -22,9 +23,9 @@
 
 ## 이 도메인의 특이사항
 
-**9개 전부 인증 불필요.** `SecurityConfig`에서 `/api/auth/**` 전체가 `permitAll()`이다(로그인/재발급/가입 전 단계이므로 당연함). 다른 도메인의 GET 한정 `permitAll`과 달리 메서드 제한이 없다.
+**10개 전부 인증 불필요.** `SecurityConfig`에서 `/api/auth/**` 전체가 `permitAll()`이다(로그인/재발급/가입 전 단계이므로 당연함). 다른 도메인의 GET 한정 `permitAll`과 달리 메서드 제한이 없다. **`POST /api/auth/profile-image`도 이 규칙에 자연히 포함된다** — `SecurityConfig`를 별도로 고치지 않았다. 다만 이 경로는 이 저장소에서 **인증 없이 쓰기(S3 PutObject)가 이루어지는 유일한 경로**다(기존 공개 경로 9개는 전부 읽기이거나 DB 쓰기가 없는 판정 전용).
 
-**응답 래퍼가 이 도메인 안에서 갈린다** — 사전 검사 5개(`password/validate`, `nickname/validate`, `nickname/duplicate`, `email/send-code`, `email/verify`)는 `ApiResponse<T>`로 감싸고, 가입·로그인·재발급·로그아웃 4개는 **raw**로 반환한다. 반면 실패는 9개 모두 `ApiResponse`다.
+**응답 래퍼가 이 도메인 안에서 갈린다** — 사전 검사·프로필 이미지 6개(`password/validate`, `nickname/validate`, `nickname/duplicate`, `email/send-code`, `email/verify`, `profile-image`)는 `ApiResponse<T>`로 감싸고, 가입·로그인·재발급·로그아웃 4개는 **raw**로 반환한다. 반면 실패는 10개 모두 `ApiResponse`다.
 
 **사전 검사 5개는 "판정 결과"를 200으로 돌려준다.** 정책 위반·중복도 검사가 정상 수행된 결과일 뿐 요청 자체의 오류가 아니므로 400/409를 내지 않는다. 프론트는 이들을 4xx catch 대상이 아니라 `data.valid`/`data.message`로만 판정한다. **단 실제 가입(`signup`)의 중복은 409다** — 사전 검사와 가입은 의도적으로 상태 코드 계약이 다르다.
 
@@ -294,8 +295,79 @@ curl -i -X POST http://localhost:8080/api/auth/email/verify \
 
 ---
 
+## POST /api/auth/profile-image
+> 최종 변경: 2026-08-20 — 신규 추가
+
+가입 전(계정이 아직 없는 시점) 프로필 이미지 업로드. `AuthController.uploadTempProfileImage()` → `TempProfileImageService.upload()`. 저장 위치는 항상 **`temp/`**다 — 회원가입 화면에서 사진을 고르는 순간에는 인증할 주체가 없으므로, 이 엔드포인트는 "인증된 사용자의 업로드"가 아니라 "인증 없는 쓰기 창구를 하나 여는 일"이다.
+
+**인증 불필요.** 유효한 access 토큰이 함께 와도 동작이 달라지지 않는다 — 저장 위치는 언제나 `temp/`이고 어떤 계정 컬럼도 갱신되지 않으며, `appId` 기반 한도도 그대로 적용된다(`permitAll`이면서 토큰 유무로 결과가 갈리는 [`GET /api/players`](player.md)와 정반대).
+
+**요청**: `multipart/form-data`, 파트 2개.
+
+| 파트 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| appId | String(일반 파트, `@RequestParam`) | 예 | 클라이언트(RN 앱)가 발급하는 임의 문자열. 형식(UUID 등) 검증은 하지 않는다 — 비어 있지만 않으면 통과. Redis 카운터 키(`profile:image:temp:count:{appId}`)의 식별자로만 쓰이고, EP·파일명·응답 어디에도 실리지 않는다(남의 `appId`를 알아도 그가 올린 EP를 유도할 수 없다) |
+| image | 파일 | 예 | 업로드할 이미지. `@RequestPart(required = false)`로 받아 "파트 없음"과 "파트 이름이 다름(`file` 등)"을 같은 400으로 흡수한다 |
+
+**허용 형식·크기 (두 업로드 경로 공통, `ProfileImagePolicy`/`ProfileImageFormat`이 단일 출처)**
+
+| 항목 | 규칙 |
+|---|---|
+| 형식 | JPEG·PNG·WebP 3종만. **판정은 파일 선두 바이트(매직 넘버)**이며 확장자·요청 `Content-Type`은 근거로 쓰지 않는다(실행 파일을 `a.png`로 위장하는 것을 막기 위함). HEIC는 허용 목록에 없다 — iOS 기본 촬영 포맷은 앱(RN)이 JPEG로 변환해 보내는 것이 전제 |
+| 크기 | 최대 5MiB(`5 * 1024 * 1024` 바이트). 5MiB 정확히는 통과, 1바이트라도 넘으면 거절 |
+| 파일명 | 서버가 UUID v4로 생성한다. 원본 파일명(경로 조작·확장자 위장 포함)은 어떤 조각도 EP에 반영되지 않는다 |
+| 저장 바이트 | 변형 없이 그대로 저장(리사이즈·재인코딩·EXIF 제거 없음) |
+
+**`appId` 업로드 한도(비인증 경로 전용)**: 창 30분 고정, 창 안에서 성공 10회까지 허용(11번째부터 거절). Redis 키 `profile:image:temp:count:{appId}`(TTL은 **키가 새로 만들어질 때만** 30분으로 설정 — 매 성공마다 갱신되지 않는 고정 창). 판정 순서는 `appId` 확인 → 이미지 검증(형식·크기) → 카운터 증가 → S3 저장이다 — **검증이 증가보다 앞이라 형식·크기 위반은 한도를 소모하지 않는다.** 카운터 증가는 S3 저장보다 반드시 먼저 실행돼 동시 요청의 게이트 역할을 하며, **저장이 실패하면 방금 증가시킨 카운터를 되돌린다**(환불, best-effort — 환불 자체가 실패해도 사용자에게는 원래의 저장 실패가 그대로 나가고 로그만 남는다). 한도 초과로 거절된 요청은 환불 대상이 아니다(애초에 저장을 시도하지 않는다).
+
+**응답 200 OK** `ApiResponse<ProfileImageResponse>`
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| data.profileImgUrl | String | 저장된 객체의 **EP**(BaseURL을 뺀 오브젝트 키). 형태는 `temp/{uuid}.{jpg\|png\|webp}` — 아래 "profileImgUrl 값의 의미" 참고 |
+
+```json
+{"success":true,"data":{"profileImgUrl":"temp/9f1c4e2a-6b3d-4a1f-8c2e-1a2b3c4d5e6f.jpg"},"message":null}
+```
+
+성공 응답을 반환하기 전에 객체가 버킷에 실제로 존재한다(S3 `PutObject`는 성공 응답을 받은 시점에 이미 읽기 가능 — 응답과 저장 사이에 관측 가능한 공백이 없다).
+
+**`temp/` EP는 `user-profile-img/`와 마찬가지로 CDN(CloudFront)으로 읽힌다** — 가입 전 미리보기 화면이 이 경로에 의존하기 때문이다. 버킷 자체는 프라이빗이고 파일명이 UUID v4라 열거는 불가능하지만, `https://victoryfairy.com/temp/{uuid}.jpg`를 아는 사람은 인증 없이 그 이미지를 볼 수 있다(의도적으로 감수한 한계 — `docs/requirements/user/profile-image.md` "알려진 한계 2"). `temp/` 객체는 정리 스케줄러(매일 04:00 KST, 24시간 경과분)와 S3 라이프사이클(1일 만료)의 이중 안전망으로 정리되며, 이 API 자체에는 삭제 경로가 없다.
+
+**실패**
+
+| 상태 | ErrorCode | 조건 |
+|---|---|---|
+| 400 | INVALID_APP_ID | `appId` 파트가 없거나 공백 |
+| 400 | PROFILE_IMAGE_REQUIRED | `image` 파트가 없거나 이름이 다르거나(`file` 등) 0바이트 |
+| 400 | INVALID_PROFILE_IMAGE_FORMAT | 파일 선두 바이트가 JPEG·PNG·WebP 중 어느 것도 아님(확장자·`Content-Type`이 맞아도 무관) |
+| 413 | PROFILE_IMAGE_TOO_LARGE | 이미지가 5MiB 초과. `web-support`의 `GlobalExceptionHandler.handleMaxUploadSizeExceeded`(공유 컴포넌트, quiz에도 동일 적용)가 `ApiResponse` 래퍼를 붙여 반환 |
+| 415 | (`ApiResponse` 래퍼, ErrorCode 없음) | `Content-Type`이 `multipart/form-data`가 아님(예: JSON 본문으로 호출). `GlobalExceptionHandler.handleMediaTypeNotSupported`(공유 컴포넌트, 2026-08-20 신설) — 아래 [README.md](README.md#1-응답-래퍼--도메인엔드포인트마다-다르다) 공통 규약 참고 |
+| 429 | PROFILE_IMAGE_UPLOAD_LIMIT_EXCEEDED | 그 `appId`의 30분 창 안 누적 성공이 이미 10회 이상 |
+
+**S3 저장 자체가 실패하면(자격증명·버킷 부재 등) 500이다.** `TempProfileImageService.upload()`가 원인 `RuntimeException`을 그대로 다시 던지고, `GlobalExceptionHandler.handleUnexpected`(catch-all, 2026-08-20 신설)가 이를 잡아 `ErrorCode.INTERNAL_SERVER_ERROR`로 통일해 `ApiResponse` 래퍼가 붙은 500(`{"success":false,"data":null,"message":"서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."}`)으로 응답한다 — 실제 예외 클래스명·원인은 응답에 실리지 않고 서버 로그에만 남는다(과거에는 이 catch-all이 없어 래퍼 없는 스프링 기본 500이었다).
+
+**예시**
+```bash
+curl -i -X POST http://localhost:8080/api/auth/profile-image \
+  -F 'appId=b3f1c2a0-...' \
+  -F 'image=@/path/to/photo.jpg;type=image/jpeg'
+```
+
+한도 초과 예시(429):
+```json
+{"success":false,"data":null,"message":"이미지 등록 횟수를 초과했습니다. 잠시 후 다시 시도해 주세요."}
+```
+
+형식 위반 예시(400):
+```json
+{"success":false,"data":null,"message":"JPG, PNG, WEBP 이미지만 업로드할 수 있습니다."}
+```
+
+---
+
 ## POST /api/auth/signup
-> 최종 변경: 2026-08-04 — 부수 효과 추가: 같은 트랜잭션에서 `users_bq` 행(누적 점수 0)을 함께 생성. **요청·응답 계약·상태 코드·검사 순서는 변경 없음**
+> 최종 변경: 2026-08-20 — 요청에 선택 필드 `profileImgUrl` 추가(가입 전 `POST /api/auth/profile-image`로 받은 `temp/` EP를 실어 보내면 가입 성공 시 `user-profile-img/`로 이동). 응답 바디·상태 코드·기존 6필드·기존 검사 순서(형식→이메일 인증→중복)는 불변, 이미지 검증은 그 뒤에 붙는 **일곱 번째** 단계다. (직전: 2026-08-04 부수 효과 추가: 같은 트랜잭션에서 `users_bq` 행(누적 점수 0)을 함께 생성. **요청·응답 계약·상태 코드·검사 순서는 변경 없음**)
 
 회원가입. `User`(개인정보)와 `UserAccount`(로그인 계정)를 함께 생성한다. **같은 트랜잭션에서 `users_bq` 행(`bq_score=0`)도 함께 생성한다**(`AuthService.signup()`, `UserBqRepository.save()`) — 이 행은 [계정(account)](account.md#get-apiusersme)의 `GET /api/users/me`가 `bqScore`로 노출하는 누적 획득 점수의 출처다. 트랜잭션이 어느 단계에서든 실패하면(형식 위반·`EMAIL_NOT_VERIFIED`·중복 409 등) `users_bq` 행도 남지 않는다. 이 부수 효과는 **응답 바디·상태 코드·요청 필드·검사 순서에 아무 영향을 주지 않는다** — 여전히 `Boolean` 201, 아래 요청/실패 표 그대로다.
 
@@ -313,6 +385,7 @@ curl -i -X POST http://localhost:8080/api/auth/email/verify \
 | gender | Gender (`MALE`\|`FEMALE`) | `@NotNull` | 성별. **DB에는 ORDINAL로 저장**(MALE=0, FEMALE=1) |
 | nickname | String | `@ValidNickname` (아래 "닉네임 정책" 참고) | 닉네임 |
 | password | String | `@ValidPassword` (아래 "비밀번호 정책" 참고) | 비밀번호(평문, 서버에서 BCrypt로 인코딩 후 저장) |
+| profileImgUrl | String | **선택**, 검증 애노테이션 없음(2026-08-20 신규) | `POST /api/auth/profile-image`로 받은 `temp/{uuid}.{ext}` EP. 생략·`null`이면 이미지 없는 계정이 되고, 기존 가입 클라이언트는 코드 변경 없이 그대로 동작한다. `@Size` 등을 겹쳐 걸지 않는 이유는 아래 "프로필 이미지" 절 참고 |
 
 **응답 201 Created** `Boolean` (raw, `ApiResponse` 미사용)
 ```json
@@ -343,6 +416,16 @@ true
 - `password`가 `null`이거나 `""`인 경우도 `PasswordPolicy.findViolation()`이 예외 없이 처리하며, **길이 위반 메시지**로 응답한다(`@NotBlank`를 걸지 않으므로 "공백일 수 없습니다" 류의 메시지는 나오지 않는다).
 - `SignupRequest.password`에는 `@ValidPassword` 단일 애노테이션만 붙어 있다. `@NotBlank`·`@Size`·`@Pattern`을 겹쳐 걸면 동시 위반 시 `GlobalExceptionHandler`가 `Map`에 `put`하는 순서가 비결정적이라 응답 메시지가 호출마다 달라지는 문제가 있어(과거 이슈) 의도적으로 배제했다.
 
+**프로필 이미지 (`profileImgUrl`, 2026-08-20 신규)** — 판정은 `ProfileImagePolicy.validateTempEndpoint()` + `SignupProfileImageService.moveToPermanent()`가 담당하며, 검증 애노테이션을 걸지 않는다(형식·길이·존재를 한 코드가 판정해 전부 같은 `INVALID_PROFILE_IMAGE_ENDPOINT`로 응답하기 위함 — `@Size`를 함께 걸면 같은 사유가 필드 메시지 400과 코드 400 두 갈래로 나뉜다).
+
+| 검사 | 통과 조건 | 실패 |
+|---|---|---|
+| 접두·형태·길이 | `temp/{uuid-v4}.{jpg\|png\|webp}` 패턴과 정확히 일치, 255자 이하 | 400 `INVALID_PROFILE_IMAGE_ENDPOINT` |
+| 존재 | 그 EP가 가리키는 객체가 버킷에 실재 | 400 `INVALID_PROFILE_IMAGE_ENDPOINT`(값이 `user-profile-img/…`이거나 이미 다른 계정이 가입에 써서 원본이 삭제된 경우도 여기로 흡수) |
+| 이동(S3 `copy`+`delete`) | 저장소 장애 없이 완료 | **가입은 그대로 201로 성공하고 `profile_img_url`은 `null`이 된다**(400이 아니다 — 아래 설명 참고) |
+
+**"못 쓰는 EP"와 "이동 자체의 실패"는 처리가 다르다.** 모양이 어긋나거나(`user-profile-img/…`·`../x`·빈 문자열 등) 그 객체가 버킷에 없으면 **400으로 가입 자체를 막는다**(남의 영구 경로 EP를 자기 계정에 붙이는 것을 막는 줄). 반면 형태·존재 검사를 통과한 뒤 S3 장애로 **이동 자체**(copy+delete)가 실패하면 **가입은 성공시키고 이미지만 포기한다** — 이메일 인증완료 상태 소비(`consumeVerified`)가 Redis라 DB 트랜잭션 롤백으로 되돌아오지 않으므로, 여기서 가입을 실패시키면 사용자가 이메일 인증부터 다시 해야 한다(`docs/requirements/user/profile-image.md` 결정 기록 3). 이동이 실패해도 `UserBq` 행 생성·이메일 인증 소비 등 기존 가입 부수 효과는 그대로 일어난다.
+
 **실패**
 
 | 상태 | ErrorCode | 조건 |
@@ -352,8 +435,9 @@ true
 | 409 | DUPLICATE_EMAIL | `userRepository.existsByEmail()` true |
 | 409 | DUPLICATE_TEL | `userRepository.existsByTel()` true |
 | 409 | DUPLICATE_NICKNAME | `userAccountRepository.existsByNickname()` true |
+| 400 | INVALID_PROFILE_IMAGE_ENDPOINT | `profileImgUrl`이 있는데 `temp/` 접두·UUID v4·허용 확장자 형태가 아니거나, 255자를 넘거나, 그 객체가 버킷에 없음(2026-08-20 신규 — 위 "프로필 이미지" 절 참고) |
 
-**검사 순서는 `AuthService.signup()`에 고정돼 있다: 형식(`@Valid`, 400) → 이메일 인증완료 여부(`EMAIL_NOT_VERIFIED`, 400) → 중복 email → tel → nickname(순서대로 409).** 즉 형식은 통과했지만 이메일 인증도 안 됐고 이메일도 이미 가입돼 있는 경우, 응답은 `DUPLICATE_EMAIL`이 아니라 **`EMAIL_NOT_VERIFIED`가 먼저** 난다(인증완료 상태를 먼저 확인하기 때문). 여러 항목이 동시에 중복이어도 이 순서에서 가장 먼저 걸린 하나만 응답한다.
+**검사 순서는 `AuthService.signup()`에 고정돼 있다: 형식(`@Valid`, 400) → 이메일 인증완료 여부(`EMAIL_NOT_VERIFIED`, 400) → 중복 email → tel → nickname(순서대로 409) → **프로필 이미지(`INVALID_PROFILE_IMAGE_ENDPOINT`, 400, 2026-08-20 신규, 항상 맨 뒤).** 이미지 검증을 맨 뒤에 두는 이유는 앞선 검사들과 반대다 — 앞에 두면 인증 안 된 이메일·중복 이메일 요청에도 이미지 오류가 먼저 응답돼 사용자가 진짜 원인을 못 본다. 즉 형식은 통과했지만 이메일 인증도 안 됐고 이메일도 이미 가입돼 있는 경우, 응답은 `DUPLICATE_EMAIL`이 아니라 **`EMAIL_NOT_VERIFIED`가 먼저** 난다(인증완료 상태를 먼저 확인하기 때문). 여러 항목이 동시에 중복이어도 이 순서에서 가장 먼저 걸린 하나만 응답한다.
 
 가입에 성공하면 그 이메일의 인증완료 상태는 **1회용으로 즉시 소비**된다(`emailVerificationService.consumeVerified()`, `AuthService.signup()` 마지막 단계). 가입이 성공한 이메일은 이후 `existsByEmail`이 영구히 true가 되어(soft delete라 탈퇴해도 유지) 어차피 `DUPLICATE_EMAIL`로 재가입이 막히므로, 이 소비는 재가입 방지 자체보다는 "성공한 인증 상태를 즉시 정리"하는 성격에 가깝다. 반대로 **가입이 `DUPLICATE_TEL`/`DUPLICATE_NICKNAME`으로 실패**하면(이메일 인증은 통과했으나 다른 필드에서 막힌 경우) 인증완료 상태는 소비되지 않고 TTL 30분 동안 그대로 남아, tel/nickname만 바꿔 재시도할 때 재인증 없이 통과할 수 있다.
 
@@ -371,6 +455,26 @@ curl -i -X POST http://localhost:8080/api/auth/signup \
     "nickname": "gildong",
     "password": "Passw0rd!"
   }'
+```
+
+프로필 이미지 포함 예시(`temp/` EP는 `POST /api/auth/profile-image`의 응답에서 얻는다):
+```bash
+curl -i -X POST http://localhost:8080/api/auth/signup \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "홍길동",
+    "tel": "01012345678",
+    "email": "user@example.com",
+    "gender": "MALE",
+    "nickname": "gildong",
+    "password": "Passw0rd!",
+    "profileImgUrl": "temp/9f1c4e2a-6b3d-4a1f-8c2e-1a2b3c4d5e6f.jpg"
+  }'
+```
+
+프로필 이미지 EP 오류 예시(400 — 존재하지 않는 `temp/` 객체이거나 형태가 어긋남):
+```json
+{ "success": false, "data": null, "message": "유효하지 않은 프로필 이미지입니다." }
 ```
 
 실패 예시(이메일 미인증/만료, 400 — `email/verify`를 안 거쳤거나 인증완료 후 30분이 지남):
@@ -513,7 +617,13 @@ curl -i -X POST http://localhost:8080/api/auth/logout \
 - 가입 성공 응답이 `Boolean`뿐이라 클라이언트는 방금 만든 계정의 식별자를 얻을 수 없다. 이후 `login`으로 토큰을 받아야 하며, 그 토큰의 `sub`(uid)도 응답 body에는 드러나지 않는다([README.md](README.md)의 인증 방식 절 참고).
 - (과거 기록, 정정됨) 이전 버전 문서에는 미인증 응답이 "401이 아니라 403"이라고 적혀 있었다 — `formLogin`/`httpBasic`을 disable하면 커스텀 엔트리포인트가 없는 한 Spring Security 기본값(`Http403ForbiddenEntryPoint`)으로 떨어지기 때문에 나온 실측이었다. 이후 `RestAuthenticationEntryPoint`가 도입되며 401로 고정됐다. 과거 그 문서 기준 코드를 그대로 쓰고 있는 클라이언트가 있다면 401/403 처리 로직을 다시 확인할 것.
 
+## 확인 필요 / 코드 미확인 (프로필 이미지)
+
+- `POST /api/auth/profile-image`에서 S3 저장 자체가 실패했을 때의 정확한 상태 코드·바디는 `RuntimeException` 재던지기 → `GlobalExceptionHandler.handleUnexpected`(catch-all, 2026-08-20 신설) 경로를 코드로만 확인했고 실제 S3 장애를 재현한 실측은 아직 없다.
+- 버킷·CloudFront 오리진·IRSA 등 인프라 선행 조건(`docs/requirements/user/profile-image.md` "선행 조건" 절)의 실제 배포 여부는 이 문서(BE 코드) 범위 밖이라 확인하지 않았다.
+
 ## 관련 문서
 
-- [계정(account)](account.md) — 회원탈퇴, 그리고 `GET /api/users/me`(내 프로필 요약 조회 — signup이 만든 `users_bq` 행의 `bq_score`를 `bqScore`로 노출). 탈퇴가 이 도메인의 login/refresh/signup 응답에 미치는 영향, 그리고 `PATCH /api/users/me/password`가 `POST /api/auth/refresh`의 실패 조건에 미치는 영향(2026-08-17)도 정리돼 있다.
-- 요구사항: `docs/requirements/user/email-verification.md`, `docs/requirements/user/nickname-policy.md`, `docs/requirements/user/withdraw.md`, `docs/requirements/user/me-profile.md`(USER-ME-23~25·30 — signup의 `users_bq` 생성 계약), `docs/requirements/user/access-token-invalidation.md`(USER-ATI-20·22 — `POST /api/auth/refresh`가 비밀번호 변경 이전 `iat`를 거절하는 계약의 출처)
+- [계정(account)](account.md) — 회원탈퇴, `GET /api/users/me`(내 프로필 요약 조회 — signup이 만든 `users_bq` 행의 `bq_score`를 `bqScore`로 노출, `profileImgUrl` 포함), `POST /api/users/me/profile-image`(인증된 프로필 이미지 변경 — 이 문서의 `POST /api/auth/profile-image`와 저장소(`temp/` vs `user-profile-img/`)·인증 여부가 반대다). 탈퇴가 이 도메인의 login/refresh/signup 응답에 미치는 영향, 그리고 `PATCH /api/users/me/password`가 `POST /api/auth/refresh`의 실패 조건에 미치는 영향(2026-08-17)도 정리돼 있다.
+- [채팅(chat)](chat.md) — `MessageResponse`/`MessageEvent`의 `profileImgUrl`이 이 도메인·[계정(account)](account.md)의 `profileImgUrl`과 같은 형태(BaseURL 없는 EP)를 재사용한다.
+- 요구사항: `docs/requirements/user/email-verification.md`, `docs/requirements/user/nickname-policy.md`, `docs/requirements/user/withdraw.md`, `docs/requirements/user/me-profile.md`(USER-ME-23~25·30 — signup의 `users_bq` 생성 계약), `docs/requirements/user/access-token-invalidation.md`(USER-ATI-20·22 — `POST /api/auth/refresh`가 비밀번호 변경 이전 `iat`를 거절하는 계약의 출처), `docs/requirements/user/profile-image.md`(승인됨 2026-08-20, USER-PI-1~121 — 프로필 이미지 업로드·가입 연계 계약의 단일 출처)
