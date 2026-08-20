@@ -1,5 +1,5 @@
 # 소셜 로그인(OAuth) · 자동 계정 통합 요구사항
-> 상태: **승인됨 (2026-08-20)** · 모듈: user (+ domain) · 최종 수정: **2026-08-21** (3차 개정 — 구현이 드러낸 문서-실제 불일치 3건 정정 + 구현자 재량 2건 승격. **요구사항 2건 추가**: USER-OAU-100(인증번호 만료)·101(입력 티켓 이메일 누락). `ErrorCode` 신규는 6종 그대로다)
+> 상태: **승인됨 (2026-08-20)** · 모듈: user (+ domain) · 최종 수정: **2026-08-21** (3차 개정 — 구현이 드러낸 문서-실제 불일치 3건 정정 + 구현자 재량 2건 승격. **요구사항 2건 추가**: USER-OAU-100(인증번호 만료)·101(입력 티켓 이메일 누락). **`ErrorCode` 신규는 6종 → 7종** — 한때 지웠던 `OAUTH_EMAIL_REQUIRED`를 되살렸다, 제약 21)
 > **1차 개정(같은 날) 요약**: ①미검증 이메일을 일괄 거절하지 않고 기존 계정과 합쳐지는 갈래에서만 코드 인증을 태운다(USER-OAU-68~80) + **선점 방지**(USER-OAU-73). ②소셜 가입에 `name`·`tel`·`gender`를 받지 않고 컬럼을 nullable로 완화(USER-OAU-86~89). ③`redirectUri`를 본문으로 받되 허용 목록과 완전 일치 대조(USER-OAU-63~66).
 > **삭제된 요구사항 3건**: USER-OAU-23·24·39 (번호는 재사용하지 않는다).
 
@@ -114,7 +114,7 @@
 | USER-OAU-90 | 이벤트 | WHEN provider 사용자 정보에 쓸 수 있는 이메일이 없고 일치하는 연동 행도 없으면, THE 시스템 SHALL 200과 `status:"EMAIL_INPUT_REQUIRED"` + 입력 티켓을 반환한다 | 이메일 없는 카카오 응답 → 200, `ticket` 비어 있지 않음, `email:null`, **계정 행·연동 행 생성 0건**(400이 아니다) |
 | USER-OAU-91 | 유비쿼터스 | THE 시스템 SHALL 이메일 입력 단계 진입 여부를 provider 종류가 아니라 **이번 응답에 쓸 수 있는 이메일이 있는지**로 판정한다 | 같은 카카오 스텁이 이메일을 실어 응답하도록 바꾸면 설정·코드 변경 없이 `EMAIL_INPUT_REQUIRED`가 사라지고 USER-OAU-16/68/12 갈래로 간다(비즈 앱 전환 시의 동작) |
 | USER-OAU-92 | 이벤트 | WHEN 클라이언트가 **입력 티켓**과 이메일로 인증번호 발송을 요청하면, THE 시스템 SHALL 본문의 이메일로 인증번호를 발송한다 | `POST /api/auth/oauth/link/send-code` `{"ticket":"<입력 티켓>","email":"a@b.com"}` → 그 주소로 발송(링크 티켓과 달리 본문 이메일을 받는 유일한 경우) |
-| USER-OAU-101 | 예외 | IF **입력 티켓** 요청에 이메일이 없거나 공백이면, THEN THE 시스템 SHALL 400과 `"이메일 인증이 완료되지 않았습니다."`를 반환한다 | `{"ticket":"<입력 티켓>"}`(email 없음) 또는 `{"ticket":"...","email":""}` → 400 `EMAIL_NOT_VERIFIED`, 메일 발송 0건. 형식 오류(`"abc"`)는 여기까지 오지 않고 DTO `@Email`이 잡아 `data.email` 필드 메시지가 실린 일반 검증 400이 된다(⚠ `@NotBlank`는 걸 수 없다 — 링크 티켓 요청은 이 필드가 **없어야** 정상이다) |
+| USER-OAU-101 | 예외 | IF **입력 티켓** 요청에 이메일이 없거나 공백이면, THEN THE 시스템 SHALL 400과 `"이메일 주소를 입력해 주세요."`를 반환한다 | `{"ticket":"<입력 티켓>"}`(email 없음) 또는 `{"ticket":"...","email":""}` → 400 `OAUTH_EMAIL_REQUIRED`, 메일 발송 0건, 티켓은 소비되지 않음. 형식 오류(`"abc"`)는 여기까지 오지 않고 DTO `@Email`이 잡아 `data.email` 필드 메시지가 실린 일반 검증 400이 된다(⚠ `@NotBlank`는 걸 수 없다 — 링크 티켓 요청은 이 필드가 **없어야** 정상이다) |
 | USER-OAU-93 | 유비쿼터스 | THE 시스템 SHALL 입력 티켓의 인증 대상 이메일을 **가장 최근 발송 요청의 이메일**로 고정한다 | 오타 후 다른 주소로 재발송 → 이전 주소의 인증번호로는 400, 최신 주소의 인증번호로만 성공 |
 | USER-OAU-94 | 예외 | IF 같은 입력 티켓으로 발송 쿨다운 안에 재발송을 요청하면, THEN THE 시스템 SHALL 429와 `"인증번호를 방금 발송했습니다. 잠시 후 다시 시도해 주세요."`를 반환한다 | 60초 안에 **다른 이메일**로 재발송해도 429 `EMAIL_SEND_COOLDOWN`(티켓 하나를 대량 발송 통로로 쓰는 것을 막는다) |
 | USER-OAU-95 | 유비쿼터스 | THE 시스템 SHALL 인증번호 발송 응답을 그 이메일의 계정 존재 여부와 무관하게 동일하게 반환한다 | 가입된 이메일·미가입 이메일 둘 다 200(기존 `POST /api/auth/email/send-code`의 409와 다르다 — 여기서 409를 주면 계정 열거가 된다) |
@@ -193,14 +193,15 @@
 |---|---|---|---|
 | `UNSUPPORTED_OAUTH_PROVIDER` | 400 | 지원하지 않는 소셜 로그인입니다. | USER-OAU-4·5 |
 | `INVALID_OAUTH_REDIRECT_URI` | 400 | 허용되지 않은 리다이렉트 주소입니다. | USER-OAU-64·65 |
+| `OAUTH_EMAIL_REQUIRED` | 400 | 이메일 주소를 입력해 주세요. | USER-OAU-101 (**7번째 코드** — 입력 티켓에 이메일이 없을 때. `EMAIL_NOT_VERIFIED`를 빌려 쓰지 않는 이유는 사용자가 할 일이 "인증 완료"가 아니라 "입력"이라서다, 제약 21) |
 | `INVALID_OAUTH_TICKET` | 400 | 소셜 인증 정보가 만료되었습니다. 다시 로그인해 주세요. | USER-OAU-34·36·75·76 (가입 티켓·링크 티켓·입력 티켓 **공용**. 티켓 종류를 문구로 가르지 않는 이유는 사용자가 할 조치가 "다시 로그인"으로 같기 때문이다) |
 | `INVALID_OAUTH_CODE` | 401 | 소셜 인증에 실패했습니다. 다시 시도해 주세요. | USER-OAU-7 (만료·재사용·provider 쪽 redirect URI 불일치 세 사유 통합) |
 | `OAUTH_PROVIDER_ALREADY_LINKED` | 409 | 이미 다른 소셜 계정이 연결되어 있습니다. | USER-OAU-20 |
 | `OAUTH_PROVIDER_UNAVAILABLE` | **502** | 소셜 로그인 제공자와 통신할 수 없습니다. 잠시 후 다시 시도해 주세요. | USER-OAU-8 — **이 저장소 최초의 502**. 500으로 묶지 않는 이유는 원인이 이 서버가 아니라 외부 의존이고 클라이언트의 올바른 행동(재시도)이 다르기 때문이다 |
 
-**삭제된 코드**: `OAUTH_EMAIL_REQUIRED`(400, 초안). 이메일 미제공이 더 이상 오류가 아니라 `status:"EMAIL_INPUT_REQUIRED"`라는 **정상 응답**이 됐으므로 쓰이는 곳이 없다. 새 상태는 새 에러 코드가 아니라 **기존 `status` 계약의 네 번째 값**으로 표현한다(USER-OAU-10) — 정상 흐름의 한 단계를 4xx로 표현하면 프론트 인터셉터가 오류로 삼킨다.
+**`OAUTH_EMAIL_REQUIRED`는 뜻이 한 번 바뀐 코드다.** 초안에서는 "provider가 이메일을 주지 않았다"는 **거절** 사유였으나, 2차 개정에서 이메일 미제공이 오류가 아니라 `status:"EMAIL_INPUT_REQUIRED"`라는 **정상 응답**이 되면서 그 뜻으로는 쓰이는 곳이 없어져 삭제됐다(정상 흐름의 한 단계를 4xx로 표현하면 프론트 인터셉터가 오류로 삼킨다). 3차 개정에서 **"사용자가 이메일을 입력하지 않았다"는 새 뜻으로 되살렸다** — 경위는 제약 21.
 
-기존 코드 재사용(**신규 6종은 그대로 유지 — 7번째를 만들지 않는다**): `DUPLICATE_EMAIL`(409, USER-OAU-40·51·52·56) · `DUPLICATE_NICKNAME`(409, USER-OAU-38) · `INVALID_VERIFICATION_CODE`(400, USER-OAU-77) · `EXPIRED_VERIFICATION_CODE`(400, **USER-OAU-100** — 티켓이 아니라 인증번호의 만료) · `VERIFICATION_ATTEMPTS_EXCEEDED`(400, USER-OAU-78) · `EMAIL_SEND_COOLDOWN`(429, USER-OAU-79·94) · `EMAIL_NOT_VERIFIED`(400, **USER-OAU-101** — 입력 티켓의 이메일 누락) · `INVALID_CREDENTIALS`(401, USER-OAU-44) · `INVALID_CURRENT_PASSWORD`(400, USER-OAU-45) · `UNAUTHENTICATED`(401, USER-OAU-50) · `INTERNAL_SERVER_ERROR`(500, USER-OAU-60).
+기존 코드 재사용(**신규는 위 7종뿐이다**): `DUPLICATE_EMAIL`(409, USER-OAU-40·51·52·56) · `DUPLICATE_NICKNAME`(409, USER-OAU-38) · `INVALID_VERIFICATION_CODE`(400, USER-OAU-77) · `EXPIRED_VERIFICATION_CODE`(400, **USER-OAU-100** — 티켓이 아니라 인증번호의 만료) · `VERIFICATION_ATTEMPTS_EXCEEDED`(400, USER-OAU-78) · `EMAIL_SEND_COOLDOWN`(429, USER-OAU-79·94) · `INVALID_CREDENTIALS`(401, USER-OAU-44) · `INVALID_CURRENT_PASSWORD`(400, USER-OAU-45) · `UNAUTHENTICATED`(401, USER-OAU-50) · `INTERNAL_SERVER_ERROR`(500, USER-OAU-60). ⚠ `EMAIL_NOT_VERIFIED`는 **이 기능이 쓰지 않는다** — USER-OAU-41이 자체 가입과의 대비로 언급할 뿐이다(3차 개정 때 USER-OAU-101이 잠시 빌려 썼다가 `OAUTH_EMAIL_REQUIRED`로 되돌렸다, 제약 21).
 
 ## 제약 (모듈 컨텍스트 대조 결과 — 구현 지시가 아니라 이미 참이거나 이 결정이 만든 사실)
 1. **`POST /api/auth/email/send-code`를 이 기능에 재사용할 수 없다.** 그 엔드포인트는 **이미 가입된 이메일에 409를 주도록 계약돼 있고**(중복가입 사전차단 우선, `email-verification.md`), 이 기능의 인증 대상은 **계정이 이미 있을 수도 있는 이메일**이다(링크 티켓은 항상 그렇고, 입력 티켓도 그럴 수 있다). 그래서 `/api/auth/oauth/link/send-code`·`/link/verify` 2개가 전용 경로이며 **두 티켓 종류가 이 둘을 함께 쓴다**(엔드포인트를 더 늘리지 않는다). 판정 정책(60초 쿨다운·5회 시도·1회용 소비)은 기존 `EmailVerificationService`의 것을 그대로 따르되(USER-OAU-77~79), **결과는 전역 인증완료 상태가 아니라 티켓에 결부된다**(USER-OAU-80).
@@ -223,7 +224,7 @@
 18. **`:domain` 컨벤션**: 테이블명은 `users_` + 한정어, provider는 `@Enumerated(ORDINAL)`+TINYINT이며 **선언 순서 변경 금지**, UNIQUE 제약은 이름을 명시한다.
 19. **Redis는 이미 이 모듈에 있다**(이메일 인증·프로필 이미지 한도와 같은 인스턴스). 세 종류의 티켓 저장에 새 인프라 의존이 생기지 않는다.
 20. **처리되지 않은 예외의 500은 `ApiResponse`로 감싸여 나간다**(`:web-support`의 `GlobalExceptionHandler.handleUnexpected` — `AccessDeniedException`·`AuthenticationException`·`ErrorResponse`·`AsyncRequestNotUsableException`만 다시 던지고 나머지는 전부 감싼다). 연동 UNIQUE 충돌(`DataIntegrityViolationException`)도 여기 걸리므로 USER-OAU-60의 응답은 **래퍼가 붙은 500**이다. ⚠ 이 핸들러를 이 기능 때문에 고치지 말 것 — **전 앱의 500 응답 계약을 바꾸는 일**이고, 락 획득 실패 등 기존 사례와 응답 형태가 갈린다.
-21. **`EMAIL_NOT_VERIFIED`(USER-OAU-101)는 상황에 딱 맞는 문구가 아니다 — 알고 감수한 선택이다.** 사용자가 해야 할 일은 "이메일 입력"인데 문구는 "인증이 완료되지 않았습니다"라 이미 주소를 알고 있다는 전제를 깐다. 그럼에도 재사용하는 이유는 **`ErrorCode` 총량을 6종으로 묶은 결정** 때문이고, 기존 400 중 이보다 나은 후보가 없다(`INVALID_OAUTH_TICKET`은 "다시 로그인하라"고 잘못 안내하고, `INVALID_APP_ID`·`PROFILE_IMAGE_REQUIRED` 같은 "~가 필요합니다" 계열은 도메인이 다르다). 되돌리는 방법은 하나뿐이다 — **한때 있다가 지운 `OAUTH_EMAIL_REQUIRED`를 7번째 코드로 되살려 문구만 바꾸는 것**(USER-OAU-101 한 줄만 바뀐다).
+21. **`OAUTH_EMAIL_REQUIRED`(USER-OAU-101)는 한 번 지웠다가 되살린 코드다 — 그 경위를 남긴다.** ①초안에는 "provider가 이메일을 안 줬다"는 뜻의 400으로 있었고, ②2차 개정에서 **이메일 미제공이 오류가 아니라 정상 경로**(`status:"EMAIL_INPUT_REQUIRED"`)가 되면서 쓰이는 곳이 없어져 삭제됐다. ③3차 개정에서 입력 티켓의 이메일 누락을 규정할 때 **총량을 6종으로 묶는 결정** 때문에 `EMAIL_NOT_VERIFIED`를 빌려 썼는데, 그 문구는 사용자가 이미 주소를 알고 있다는 전제를 깔아 **해야 할 일(입력)을 잘못 안내**했다. 기존 400 중 대안도 없었다 — `INVALID_OAUTH_TICKET`은 "다시 로그인하라"고 잘못 안내하고, `INVALID_APP_ID`·`PROFILE_IMAGE_REQUIRED` 같은 "~가 필요합니다" 계열은 도메인이 다르다. ④**2026-08-21 사용자가 7종을 허용해 이견이 채택**됐고, 같은 이름을 **새 뜻**으로 되살렸다. ⚠ 나중에 "코드가 왜 이렇게 많나"를 되묻는 사람을 위해: 6종으로 묶었던 이유는 **에러 코드 인플레이션 억제**였고, 그 원칙을 깬 기준은 "상태코드가 같아도 **사용자가 취할 조치가 다르면** 코드를 나눈다"였다.
 
 ## 배포 전제
 1. **운영 DDL 3건 — 앱 배포보다 반드시 먼저.** `users.name`·`tel`·`gender`의 NOT NULL 해제. ⚠ **`ddl-auto=update`는 기존 컬럼의 NOT NULL을 풀어 주지 않는다** — 손으로 적용하지 않으면 소셜 가입이 전부 제약 위반으로 실패한다(엔티티만 nullable로 바꿔 놓으면 로컬·신규 DB에서만 멀쩡하고 운영에서만 깨진다).
@@ -244,6 +245,7 @@
 9. **소셜 전용 계정의 비밀번호 설정 기능은 이번 범위 제외.**
 10. **연동 목록 조회·해제(unlink) API는 이번 범위 제외.** USER-OAU-73의 연동 해제는 시스템 내부 동작이며 이것과 별개다.
 11. **구현 후 정정 3건(2026-08-21).** 구현이 드러낸 문서-실제 불일치를 문서 쪽으로 맞췄다. ①USER-OAU-60의 500은 **래퍼가 붙는다**(제약 20). ②입력 티켓의 이메일 누락 응답을 USER-OAU-101로 명시했다(제약 21의 문구 한계 포함). ③**티켓 만료와 인증번호 만료는 다른 사건**이라 코드가 갈린다 — 티켓은 `INVALID_OAUTH_TICKET`(USER-OAU-76, 소셜 로그인부터 다시), 인증번호는 `EXPIRED_VERIFICATION_CODE`(USER-OAU-100, 재발송으로 이어서 진행). 같은 날 구현자 재량 2건을 계약으로 승격했다 — `EMAIL_VERIFICATION_REQUIRED` 응답의 `email` 동봉(USER-OAU-68), 예약 이메일의 409(USER-OAU-56).
+12. **`ErrorCode` 6종 → 7종(2026-08-21, 같은 날 재결정).** 3차 개정 때 총량을 6종으로 묶은 탓에 USER-OAU-101이 `EMAIL_NOT_VERIFIED`를 빌려 썼는데, **사용자가 해야 할 일("이메일을 입력하라")과 문구("인증이 완료되지 않았습니다")가 어긋난다**는 이견이 제기돼 사용자가 7번째 코드를 허용했다. 초안에 있다가 2차 개정에서 지웠던 **`OAUTH_EMAIL_REQUIRED`를 되살리되 뜻을 바꿔 재정의**한다 — 옛 뜻은 "provider가 이메일 제공에 동의받지 못했다"(그래서 400 거절)였고, 지금 뜻은 "**사용자가 이메일을 입력하지 않았다**"다. 바뀐 것은 USER-OAU-101 한 줄과 코드 표뿐이다(제약 21).
 
 ## 미해결 질문
 없음 — 초안의 8건과 2차 개정 논점은 2026-08-20 사용자 답변으로 전부 해소됐다(위 "결정 기록" 참조).

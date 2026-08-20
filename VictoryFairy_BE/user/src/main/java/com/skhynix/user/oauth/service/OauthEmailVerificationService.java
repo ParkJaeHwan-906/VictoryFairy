@@ -92,8 +92,10 @@ public class OauthEmailVerificationService {
         if (ticket.type() == OauthTicketType.LINK) {
             return ticket.email();
         }
+        // 입력 티켓은 본문 이메일이 필수다. 형식 오류는 여기까지 오지 않는다(DTO 의 @Email 이 잡는다) —
+        // 링크 티켓 요청은 이 필드가 없어야 정상이라 @NotBlank 를 못 걸어 누락만 이 자리에서 판정한다.
         if (bodyEmail == null || bodyEmail.isBlank()) {
-            throw new BusinessException(ErrorCode.EMAIL_NOT_VERIFIED);
+            throw new BusinessException(ErrorCode.OAUTH_EMAIL_REQUIRED);
         }
         return bodyEmail;
     }

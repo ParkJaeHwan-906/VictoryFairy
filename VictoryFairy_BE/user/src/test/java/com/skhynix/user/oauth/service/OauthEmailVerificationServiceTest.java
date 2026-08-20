@@ -104,6 +104,87 @@ class OauthEmailVerificationServiceTest {
         order.verify(emailSender).sendVerificationCode(eq("corrected@example.com"), anyString());
     }
 
+    // ---------- sendCode(): INPUT 티켓 이메일 누락 (USER-OAU-101) ----------
+
+    @Test
+    @DisplayName("[USER-OAU-101] INPUT 티켓 요청에 본문 이메일이 없으면(null) 400 OAUTH_EMAIL_REQUIRED를 던지고 "
+            + "부작용이 없다 — 판정이 쿨다운 검사보다 앞이라 발송 0회·티켓 소비 0회·쿨다운 미소모")
+    void sendCode_inputTicket_nullBodyEmail_throwsOauthEmailRequiredWithNoSideEffects() {
+        // given
+        OauthTicket ticket = OauthTicket.input(OauthProvider.KAKAO, "kakao-4");
+        OauthEmailVerificationService service = newService();
+
+        // when & then
+        assertThatThrownBy(() -> service.sendCode(TOKEN, ticket, null))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.OAUTH_EMAIL_REQUIRED);
+
+        verify(emailSender, never()).sendVerificationCode(anyString(), anyString());
+        verify(ticketStore, never()).invalidateCode(anyString());
+        verify(ticketStore, never()).saveCode(anyString(), anyString(), anyString());
+        verify(ticketStore, never()).startCooldown(anyString());
+        verify(ticketStore, never()).isCoolingDown(anyString());
+    }
+
+    @Test
+    @DisplayName("[USER-OAU-101] INPUT 티켓 요청에 본문 이메일이 공백 문자열(\"\")이면 400 OAUTH_EMAIL_REQUIRED를 "
+            + "던지고 부작용이 없다")
+    void sendCode_inputTicket_emptyBodyEmail_throwsOauthEmailRequiredWithNoSideEffects() {
+        // given
+        OauthTicket ticket = OauthTicket.input(OauthProvider.NAVER, "naver-2");
+        OauthEmailVerificationService service = newService();
+
+        // when & then
+        assertThatThrownBy(() -> service.sendCode(TOKEN, ticket, ""))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.OAUTH_EMAIL_REQUIRED);
+
+        verify(emailSender, never()).sendVerificationCode(anyString(), anyString());
+        verify(ticketStore, never()).invalidateCode(anyString());
+        verify(ticketStore, never()).saveCode(anyString(), anyString(), anyString());
+        verify(ticketStore, never()).startCooldown(anyString());
+        verify(ticketStore, never()).isCoolingDown(anyString());
+    }
+
+    @Test
+    @DisplayName("[USER-OAU-101] INPUT 티켓 요청에 본문 이메일이 공백 문자로만 채워져 있으면(\"   \") 400 "
+            + "OAUTH_EMAIL_REQUIRED를 던진다 — 공백만 있는 값이 통과하면 빈 주소로 발송을 시도하게 된다")
+    void sendCode_inputTicket_blankBodyEmail_throwsOauthEmailRequiredWithNoSideEffects() {
+        // given
+        OauthTicket ticket = OauthTicket.input(OauthProvider.GOOGLE, "google-2");
+        OauthEmailVerificationService service = newService();
+
+        // when & then
+        assertThatThrownBy(() -> service.sendCode(TOKEN, ticket, "   "))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.OAUTH_EMAIL_REQUIRED);
+
+        verify(emailSender, never()).sendVerificationCode(anyString(), anyString());
+        verify(ticketStore, never()).invalidateCode(anyString());
+        verify(ticketStore, never()).saveCode(anyString(), anyString(), anyString());
+        verify(ticketStore, never()).startCooldown(anyString());
+        verify(ticketStore, never()).isCoolingDown(anyString());
+    }
+
+    @Test
+    @DisplayName("[USER-OAU-101 대조] LINK 티켓은 본문 이메일이 없어도(null) OAUTH_EMAIL_REQUIRED가 나지 않는다 "
+            + "— 링크 티켓 요청은 이 필드가 없어야 정상이라 여기서 막히면 안 된다")
+    void sendCode_linkTicket_nullBodyEmail_doesNotThrowOauthEmailRequired() {
+        // given
+        OauthTicket ticket = OauthTicket.link(OauthProvider.KAKAO, "kakao-5", "owner2@example.com");
+        given(ticketStore.isCoolingDown(TOKEN)).willReturn(false);
+        OauthEmailVerificationService service = newService();
+
+        // when
+        service.sendCode(TOKEN, ticket, null);
+
+        // then: 티켓에 실린 이메일로 정상 발송됐다(예외 없이 통과)
+        verify(emailSender).sendVerificationCode(eq("owner2@example.com"), anyString());
+    }
+
     // ---------- sendCode(): 쿨다운 (USER-OAU-79, 94) ----------
 
     @Test
