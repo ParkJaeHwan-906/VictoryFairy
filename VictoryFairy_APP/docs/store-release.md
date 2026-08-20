@@ -249,7 +249,9 @@ EAS가 만들어 보관한다. `autoIncrement`도 안드로이드의 `versionCod
 - 자세한 설명
 - 스크린샷 — 실기기 화면. 로그인·메인·경기·퀴즈·마이페이지 정도
 - 개인정보처리방침 URL (위 노션 링크 또는 자체 도메인)
+  https://fate-almanac-c79.notion.site/3bead13a96fe8057b5b7c5abb0c3762c
 - 지원 이메일
+  as8542994@gmail.com
 
 ### Google Play
 
