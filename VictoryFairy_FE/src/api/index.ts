@@ -4,7 +4,7 @@
  */
 
 // 모듈별 base URL — 엔드포인트 함수는 이 base 기준 상대 경로를 쓴다.
-export { USER_BASE_URL, GAME_BASE_URL } from './config';
+export { USER_BASE_URL, GAME_BASE_URL, ASSET_BASE_URL, toAssetUrl } from './config';
 
 // 모듈별 axios 인스턴스(고급 사용/직접 요청용). 일반적으로는 아래 엔드포인트 함수를 쓴다.
 export { userClient, gameClient } from './httpClient';
@@ -16,6 +16,7 @@ export {
   checkNicknameDuplicate,
   sendEmailCode,
   verifyEmailCode,
+  uploadSignupProfileImage,
   signup,
   login,
   refresh,
@@ -27,6 +28,7 @@ export {
   getMyProfile,
   changeNickname,
   changePassword,
+  changeProfileImage,
   withdraw,
   isSameAsCurrentNickname,
   isDuplicateNickname,
@@ -36,6 +38,21 @@ export {
   isSameAsCurrentPassword,
   ACCOUNT_ERROR_MESSAGE,
 } from './account';
+
+// 프로필 이미지 — 가입 전(auth) · 가입 후(account) 두 경로가 함께 쓰는 규칙과 실패 판별
+export {
+  PROFILE_IMAGE_ACCEPT,
+  PROFILE_IMAGE_MAX_BYTES,
+  PROFILE_IMAGE_MIME_TYPES,
+  PROFILE_IMAGE_ERROR_MESSAGE,
+  isProfileImageRequired,
+  isInvalidProfileImageFormat,
+  isProfileImageTooLarge,
+  isProfileImageUploadLimit,
+  isInvalidProfileImageEndpoint,
+  toProfileImageMessage,
+  validateProfileImageFile,
+} from './profileImage';
 
 // 구단(user 모듈) 엔드포인트 함수 — 인증 없이 호출한다
 export { getTeamList } from './team';
@@ -137,6 +154,7 @@ export type {
   TokenRequest,
   PasswordValidationResponse,
   NicknameValidationResponse,
+  ProfileImageUploadResponse,
   TokenResponse,
 } from '../types/auth';
 export type { ApiResponse, FieldErrors, ApiErrorResponse } from '../types/api';

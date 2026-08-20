@@ -1,9 +1,10 @@
 import type { AxiosResponse } from 'axios';
 import { userClient } from './httpClient';
+import { multipartConfig } from './profileImage';
 import { getTokenStorage } from './tokenStorage';
 import { ApiError } from './errors';
 import type { ApiResponse } from '../types/api';
-import type { TokenResponse } from '../types/auth';
+import type { ProfileImageUploadResponse, TokenResponse } from '../types/auth';
 import type {
   ChangeNicknameRequest,
   ChangePasswordRequest,
@@ -173,6 +174,39 @@ export async function changePassword(body: ChangePasswordRequest): Promise<Token
 
   getTokenStorage().setTokens(tokens);
   return tokens;
+}
+
+/**
+ * POST /users/me/profile-image — 프로필 이미지 등록·변경. 성공 시 ApiResponse 래핑(200).
+ *
+ * **업로드가 곧 변경 확정이다.** 확정·취소 단계가 없어, 성공 응답이 오는 순간부터
+ * `GET /users/me` 의 `profileImgUrl` 이 이 값이다 — 화면에 "저장" 버튼을 두려면
+ * 파일 전송 자체를 그 버튼에 걸어야 한다.
+ *
+ * 가입 전 경로와 달리 `temp/` 를 거치지 않고 처음부터 `user-profile-img/` 에 저장한다.
+ * 직전 사진은 커밋 뒤 best-effort 로 지워지며, 그 삭제가 실패해도 응답은 그대로 200 이다.
+ *
+ * 반환값은 새 EP 다. 다만 전역 프로필까지 갱신하려면 이 값을 직접 쓰기보다
+ * `useAccountStore.fetchProfile()` 로 다시 받는 편이 낫다 — 정본은 `GET /users/me` 다.
+ *
+ * 에러:
+ * - 400 `isProfileImageRequired` / `isInvalidProfileImageFormat`, 413 `isProfileImageTooLarge`
+ * - 401 UNAUTHENTICATED, 500(S3 저장 실패) — 화면 문구는 `toProfileImageMessage()` 로 옮긴다.
+ * - **한도(429)는 여기 없다.** 가입 전 경로만의 것이고 `appId` 는 보내도 무시된다.
+ *
+ * @param image JPEG · PNG · WebP, 최대 5MiB. 형식은 서버가 매직 넘버로 판정한다.
+ */
+export async function changeProfileImage(image: File): Promise<string> {
+  const form = new FormData();
+  form.append('image', image);
+
+  const res = await userClient.post<ApiResponse<ProfileImageUploadResponse>>(
+    '/users/me/profile-image',
+    form,
+    multipartConfig(true),
+  );
+
+  return unwrap(res).profileImgUrl;
 }
 
 /**

@@ -1,5 +1,7 @@
 import type { AxiosResponse } from 'axios';
 import { userClient } from './httpClient';
+import { multipartConfig } from './profileImage';
+import { getAppId } from '../utils/appId';
 import type { ApiResponse } from '../types/api';
 import type {
   EmailSendCodeRequest,
@@ -9,6 +11,7 @@ import type {
   NicknameValidationResponse,
   PasswordValidationRequest,
   PasswordValidationResponse,
+  ProfileImageUploadResponse,
   SignupRequest,
   TokenRequest,
   TokenResponse,
@@ -79,6 +82,44 @@ export async function verifyEmailCode(body: EmailVerifyRequest): Promise<void> {
 export async function signup(body: SignupRequest): Promise<boolean> {
   const res = await userClient.post<boolean>('/auth/signup', body);
   return res.data;
+}
+
+/**
+ * POST /auth/profile-image — 가입 전 프로필 이미지 업로드. 성공 시 ApiResponse 래핑(200).
+ *
+ * **계정이 아직 없는 시점**에 쓰는 경로다. 파일은 `temp/` 에만 올라가고 어떤 계정도
+ * 바뀌지 않는다 — 받은 EP 를 `signup({ ..., profileImgUrl })` 에 실어야 계정에 붙는다.
+ * 인증은 필요 없고, 토큰을 함께 보내도 동작이 달라지지 않는다.
+ *
+ * 반환값은 EP(`temp/{uuid}.ext`)다. 미리보기로 쓰려면 `toAssetUrl()` 로 도메인을 붙인다
+ * (`temp/` 도 CDN 으로 읽힌다). 다만 **가입이 끝나면 이 EP 는 죽는다** — 서버가 파일을
+ * 새 이름으로 옮기고 원본을 지우므로, 가입 후에는 `GET /users/me` 의 값을 써야 한다.
+ *
+ * 같은 EP 로 두 번 가입할 수는 없다(원본이 이미 지워져 400).
+ *
+ * 에러:
+ * - 400 `isProfileImageRequired` / `isInvalidProfileImageFormat`, 400 앱 식별자 누락
+ * - 413 `isProfileImageTooLarge` / 429 `isProfileImageUploadLimit`(appId 기준 30분 10회)
+ * - 화면 문구는 `toProfileImageMessage()` 로 옮긴다.
+ *
+ * @param image JPEG · PNG · WebP, 최대 5MiB. 형식은 서버가 매직 넘버로 판정한다.
+ * @param appId 이 기기의 앱 식별자. 한도를 세는 유일한 키라 기본값(저장된 값)을 그대로 쓴다.
+ */
+export async function uploadSignupProfileImage(
+  image: File,
+  appId: string = getAppId(),
+): Promise<string> {
+  const form = new FormData();
+  form.append('appId', appId);
+  form.append('image', image);
+
+  const res = await userClient.post<ApiResponse<ProfileImageUploadResponse>>(
+    '/auth/profile-image',
+    form,
+    multipartConfig(false),
+  );
+
+  return unwrap(res).profileImgUrl;
 }
 
 /**
