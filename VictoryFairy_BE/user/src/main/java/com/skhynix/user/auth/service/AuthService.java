@@ -15,6 +15,7 @@ import com.skhynix.user.auth.dto.NicknameValidationResponse;
 import com.skhynix.user.auth.dto.SignupRequest;
 import com.skhynix.user.auth.dto.TokenResponse;
 import com.skhynix.user.auth.policy.NicknamePolicy;
+import com.skhynix.user.profileimage.service.SignupProfileImageService;
 import com.skhynix.websupport.jwt.JwtTokenProvider;
 import java.time.LocalDateTime;
 import java.util.Optional;
@@ -35,6 +36,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider tokenProvider;
     private final EmailVerificationService emailVerificationService;
+    private final SignupProfileImageService signupProfileImageService;
 
     @Transactional
     public Long signup(SignupRequest request) {
@@ -51,6 +53,13 @@ public class AuthService {
             throw new BusinessException(ErrorCode.DUPLICATE_NICKNAME);
         }
 
+        // 이미지 검증은 기존 검사들의 '뒤'다. 앞에 두면 인증 안 된 이메일·중복 이메일 요청에도
+        // 이미지 오류가 먼저 응답돼 사용자가 진짜 원인을 못 본다(검사 순서: 형식 -> 이메일 인증 ->
+        // 중복 -> 이미지).
+        // 실패 갈래가 둘이라는 점이 중요하다: 못 쓰는 EP 는 여기서 400 으로 가입을 막고(예외가 이
+        // 트랜잭션을 롤백시킨다), 저장소 장애로 인한 이동 실패는 null 을 돌려 가입을 그대로 진행시킨다.
+        String profileImgUrl = signupProfileImageService.moveToPermanent(request.profileImgUrl());
+
         User user = userRepository.save(User.builder()
                 .name(request.name())
                 .tel(request.tel())
@@ -63,6 +72,13 @@ public class AuthService {
                 .nickname(request.nickname())
                 .password(passwordEncoder.encode(request.password()))
                 .build());
+
+        // 빌더가 아니라 저장 후 전이로 채운다(빌더 파라미터를 늘리면 기존 가입 호출부의 계약이
+        // 흔들린다). 이동에 실패했으면 null 이라 컬럼도 null 로 남는다 - 그때도 아래 UserBq 행 생성과
+        // 이메일 인증 소비는 그대로 일어난다.
+        if (profileImgUrl != null) {
+            account.changeProfileImgUrl(profileImgUrl);
+        }
 
         // 계정과 같은 트랜잭션에서 bq 행을 만든다 — 별도 커밋·비동기로 빼면 "계정은
         // 있는데 bq 행이 없는" 상태가 생긴다.
