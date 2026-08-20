@@ -1,11 +1,16 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ApiError,
   changeNickname,
+  changeProfileImage,
   checkNicknameDuplicate,
   getNicknameChangeableAt,
   isNicknameChangeCooldown,
+  PROFILE_IMAGE_ACCEPT,
+  toAssetUrl,
+  toProfileImageMessage,
+  validateProfileImageFile,
 } from '../api';
 import profilePlaceholder from '../assets/profile_img.svg';
 import { ROUTES } from '../routes';
@@ -90,6 +95,50 @@ export default function ProfileEditPage() {
   const [isChecking, setIsChecking] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  /*
+   * 프로필 사진.
+   *
+   * **올리는 순간 바뀐다** — 확정·취소 단계가 없는 계약이라, 아래 "저장" 버튼(닉네임)과
+   * 묶지 않고 사진을 고르는 즉시 보낸다. 성공하면 전역 프로필을 다시 받아, 이 화면뿐
+   * 아니라 마이페이지 · 라운지의 내 사진까지 함께 바뀌게 한다.
+   */
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+
+  /** 지금 사진. 서버는 EP 만 주므로 도메인을 붙이고, 없으면 자리표시 이미지를 쓴다. */
+  const avatarUrl = toAssetUrl(profile?.profileImgUrl) ?? profilePlaceholder;
+
+  const handleImageChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null;
+
+    // 값을 비워야 같은 파일을 다시 골랐을 때도 change 가 온다(실패 후 재시도가 그렇다).
+    event.target.value = '';
+    if (file === null) return;
+
+    const invalid = validateProfileImageFile(file);
+    if (invalid !== null) {
+      setImageError(invalid);
+      return;
+    }
+
+    setIsUploadingImage(true);
+    setImageError(null);
+
+    try {
+      await changeProfileImage(file);
+      /*
+       * 응답이 새 EP 를 주지만 그대로 쓰지 않는다 — 정본은 `GET /users/me` 이고,
+       * 전역 프로필을 갱신해야 다른 화면의 내 사진도 함께 바뀐다.
+       */
+      await fetchProfile();
+    } catch (cause: unknown) {
+      setImageError(toProfileImageMessage(cause));
+    } finally {
+      setIsUploadingImage(false);
+    }
+  };
 
   const currentNickname = profile?.nickname ?? '';
 
@@ -193,28 +242,41 @@ export default function ProfileEditPage() {
 
       <form className="profile-edit-page__form" onSubmit={handleSubmit} noValidate>
         {/*
-          프로필 사진.
-
-          ⚠️ **아직 사진을 다루는 API 가 없다** — `GET /users/me` 응답에 사진 필드가 없고
-          (docs/account.md, 키 5개), 업로드·삭제 엔드포인트도 없다. 그래서 그림은
-          마이페이지와 같은 자리표시 이미지를 쓰고, 디자인의 사진 변경(+) 버튼은
-          아래에 **모양만 만들어 두고 주석으로 막아 둔다**.
-
-          계약이 생기면 주석을 풀고 onClick 에 업로드 흐름(파일 선택 → 업로드 → 프로필 재조회)만
-          연결하면 된다. 버튼 스타일(`__avatar-edit`)은 CSS 에 그대로 살아 있다.
+          프로필 사진. ＋ 배지가 파일 선택창을 열고, 고르는 즉시 올라가 바뀐다
+          (별도 확정 단계가 없는 계약이라 아래 "저장"과 묶지 않는다).
         */}
         <div className="profile-edit-page__avatar-box">
-          <img className="profile-edit-page__avatar" src={profilePlaceholder} alt="" />
-          {/*
+          <img className="profile-edit-page__avatar" src={avatarUrl} alt="" />
+
           <button
             className="profile-edit-page__avatar-edit"
             type="button"
             aria-label="프로필 사진 바꾸기"
+            onClick={() => imageInputRef.current?.click()}
+            disabled={isUploadingImage}
           >
             <span className="profile-edit-page__avatar-edit-icon" aria-hidden="true" />
           </button>
-          */}
+
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept={PROFILE_IMAGE_ACCEPT}
+            onChange={(event) => void handleImageChange(event)}
+            hidden
+          />
         </div>
+
+        {(isUploadingImage || imageError !== null) && (
+          <p
+            className={`profile-edit-page__image-status${
+              imageError !== null ? ' profile-edit-page__image-status--error' : ''
+            }`}
+            role={imageError !== null ? 'alert' : 'status'}
+          >
+            {imageError ?? '사진을 올리는 중이에요…'}
+          </p>
+        )}
 
         <div className="profile-edit-page__group">
           <label className="profile-edit-page__label" htmlFor="profile-edit-nickname">
