@@ -169,9 +169,47 @@ module "cdn" {
   api_path_patterns  = local.api_path_patterns
   route53_zone_id    = module.dns.zone_id
 
+  # 두 번째 S3 오리진 = 사용자 업로드 이미지(module.asset). 새 배포를 만들지 않고 이 배포에
+  # 경로 두 개만 더 갈라 붙인다. 상대편(버킷 정책)은 이 배포 ARN 을 받아 이 배포에만 읽기를
+  # 허용한다 — 두 모듈이 서로의 출력을 주고받지만 순환은 아니다(서로 다른 리소스에 걸린다).
+  asset_bucket_name                 = module.asset.bucket_name
+  asset_bucket_regional_domain_name = module.asset.bucket_regional_domain_name
+  asset_profile_prefix              = local.asset_profile_prefix
+  asset_temp_prefix                 = local.asset_temp_prefix
+
   # 실서비스 전환 스위치. false 인 동안은 트래픽이 그대로 ALB 로 가고 CloudFront 는 배포
   # 도메인으로만 접근된다 — 검증을 마친 뒤 true 로 바꿔 apex 를 옮긴다(문서 §4 2단계).
   attach_apex_alias = var.fe_attach_apex_alias
+}
+
+# 사용자 업로드 자산(프로필 이미지) 버킷. 퍼블릭 차단 + OAC 를 든 CloudFront 만 읽는다.
+# 쓰는 주체는 user-app 파드(module.user_irsa 의 역할)이고, 읽는 경로는 module.cdn 의
+# /user-profile-img/*·/temp/* behavior 다.
+module "asset" {
+  source = "../../modules/asset"
+
+  bucket_name    = local.asset_bucket_name
+  profile_prefix = local.asset_profile_prefix
+  temp_prefix    = local.asset_temp_prefix
+
+  # 이 배포에서 온 요청만 버킷을 읽는다(fe 버킷과 같은 SourceArn 조건).
+  cloudfront_distribution_arn = module.cdn.distribution_arn
+}
+
+# user-app 파드용 IRSA — asset 버킷의 temp/·user-profile-img/ 읽기·쓰기·삭제 + temp/ 나열.
+# 역할 ARN 을 k8s/20-user-app.yaml 의 SA 어노테이션에 지정한다(출력 user_app_role_arn).
+# ⚠ 현재 user-app 에는 ServiceAccount 자체가 없다 — 매니페스트에 SA 를 새로 만들고
+#   Deployment 에 serviceAccountName 을 걸어야 이 권한이 파드에 닿는다(k8s-manifest 소관).
+module "user_irsa" {
+  source = "../../modules/user-irsa"
+
+  name_prefix       = local.cluster_name
+  oidc_provider_arn = module.eks.oidc_provider_arn
+  oidc_provider_url = module.eks.oidc_provider_url
+
+  asset_bucket_name = module.asset.bucket_name
+  profile_prefix    = local.asset_profile_prefix
+  temp_prefix       = local.asset_temp_prefix
 }
 
 # 상시 감시 — 배포 스모크(수십 초)가 닫힌 뒤를 맡는다.

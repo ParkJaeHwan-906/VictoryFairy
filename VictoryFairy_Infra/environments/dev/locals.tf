@@ -17,6 +17,19 @@ locals {
   #   경로를 rewrite 하지 않는다.
   api_path_patterns = ["/api/*", "/rt/*"]
 
+  # 사용자 업로드 자산(프로필 이미지)의 단일 출처. 세 곳이 같은 값을 써야 한다:
+  #   1) modules/asset    — 버킷 이름 + temp/ 만료 규칙 + 버킷 정책이 허용하는 접두사
+  #   2) modules/cdn      — 경로 패턴 /user-profile-img/*, /temp/* (그 외는 종전대로 FE·ALB)
+  #   3) modules/user-irsa — user-app 파드가 읽고 쓸 수 있는 접두사
+  # ⚠ BE 가 만드는 S3 키와 문자 그대로 일치해야 한다. 어긋나면 업로드는 AccessDenied,
+  #   조회는 CloudFront 가 FE 버킷으로 보내 404 가 된다.
+  #
+  # ⚠ 버킷 이름만 name_prefix(victoryfairy-dev) 규약에서 벗어난다 — BE·프론트와 합의된 이름이
+  #   victoryfairy-asset 이라 그대로 못 박는다(modules/asset/variables.tf 참조).
+  asset_bucket_name    = "victoryfairy-asset"
+  asset_profile_prefix = "user-profile-img/"
+  asset_temp_prefix    = "temp/"
+
   # 수집기(py-collector) 스택이 소유한 리소스의 ARN.
   # 그 스택은 VictoryFairy_AI/py-collector/deploy/lambda/terraform 에 있고 state 가
   # 달라 모듈 출력으로 받을 수 없다 — 이름 규약(그쪽 var.name = "kbo-collector")대로
