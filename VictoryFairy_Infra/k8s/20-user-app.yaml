@@ -15,6 +15,22 @@
 #     이미지 태그로 들어가 파드가 ImagePullBackOff 로 죽는다. 변경은 커밋 → CI 로만.
 #   ⚠ 플레이스홀더 문자열 형식은 CI 치환 규칙과 짝이다. 형식을 바꾸려면 CI 도 같이 고쳐야 한다.
 ---
+# IRSA: 이 역할이 자산 버킷(victoryfairy-asset)의 temp/·user-profile-img/ 접두사에만 읽기·쓰기·
+#   삭제 권한을 준다 — 프로필 이미지 업로드(BE :user)가 파일을 올리고, 가입 확정 시 temp/ 에서
+#   user-profile-img/ 로 옮기고, 정리 스케줄러가 미완주분을 지운다. 역할 정의는 modules/user-irsa,
+#   ARN = terraform output user_app_role_arn (이름 기반이라 값이 고정됨 — quiz-app 과 동일 방식).
+# 토큰 주입은 파드 '생성' 시점이라 기존 파드에는 적용되지 않지만, 배포마다 apply + 새 이미지 태그로
+#   파드가 새로 뜨므로 rollout restart 같은 수동 절차는 필요 없다.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: user-app
+  namespace: victoryfairy
+  labels:
+    app: user-app
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::555209622409:role/victoryfairy-dev-user-app
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -44,6 +60,7 @@ spec:
       labels:
         app: user-app
     spec:
+      serviceAccountName: user-app # IRSA — 위 SA 의 role-arn 어노테이션이 S3 자산 버킷 자격증명을 준다
       # ── 인프라 커플링: app 공용 노드그룹 label 과 정확히 일치 ──
       nodeSelector:
         workload: app
@@ -66,6 +83,27 @@ spec:
           env:
             - name: TZ
               value: "Asia/Seoul"
+            # 프로필 이미지 업로드(BE :user). 비밀이 아니라 Secret 이 아니고, app-config 가 아니라
+            #   여기 둔다 — app-config 는 클러스터에서 수기로 관리되어 git 에 실물이 없고(CI 가 적용하지
+            #   않는다) user 전용 값이라 quiz 와 공유할 이유도 없다. TZ 와 같은 판단 근거다.
+            # ⚠ 버킷/접두사는 Terraform 의 단일 출처(environments/dev/locals.tf)와 문자 그대로
+            #   일치해야 한다 — 어긋나면 IRSA 정책 조건에 걸려 업로드가 AccessDenied 로 죽는다.
+            - name: USER_PROFILE_IMAGE_BUCKET
+              value: "victoryfairy-asset"
+            # 자산 버킷과 클러스터가 같은 리전(ap-northeast-2, environments/dev 기준).
+            - name: USER_PROFILE_IMAGE_REGION
+              value: "ap-northeast-2"
+            # temp/ 정리 스케줄러 — 가입을 완주하지 않은 업로드를 지우는 1차 방어.
+            #   끄면 S3 라이프사이클(modules/asset)만 남는데 그건 일 단위 안전망이라 반응이 느리다.
+            - name: USER_CLEANUP_TEMP_PROFILE_IMAGE_ENABLED
+              value: "true"
+            # Spring 6필드 cron(초 분 시 일 월 요일). 매일 04:00 — 위 TZ=Asia/Seoul 이 적용된
+            #   벽시계라 KST 다. modules/asset 의 라이프사이클 주석이 적은 "매일 04:00 KST" 와 짝이다.
+            #   배치 파이프라인(03:15 KST)과 겹치지 않는다.
+            # ⚠ HPA 로 파드가 2개면 두 파드가 각자 돌린다(리더 선출 없음). 이미 지운 객체를
+            #   다시 지우는 일이라 멱등하지만, 삭제 외 부수효과가 생기면 이 전제가 깨진다.
+            - name: USER_CLEANUP_TEMP_PROFILE_IMAGE_CRON
+              value: "0 0 4 * * *"
           envFrom:
             - configMapRef:
                 name: app-config

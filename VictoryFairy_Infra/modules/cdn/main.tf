@@ -4,16 +4,38 @@
 # 운영하지 않고 S3 가 파일을 갖고 CloudFront 가 내보낸다. nginx.conf 가 하던 캐시 정책·
 # SPA fallback·압축은 아래 Response Headers Policy / CloudFront Function / compress 로 옮겨왔다.
 #
-# 오리진이 2개인 이유: 사용자 대면 도메인을 하나로 유지하기 위해서다. CloudFront 가 진입점이 되어
-#   /api/*, /rt/*  → ALB (기존 EKS 앱)
-#   그 외          → S3 (정적 자산)
-# 로 갈라 보내므로 FE·API 가 계속 같은 오리진이고, CORS 도 FE 번들의 절대 URL 도 필요 없다.
+# 오리진이 3개인 이유: 사용자 대면 도메인을 하나로 유지하기 위해서다. CloudFront 가 진입점이 되어
+#   /api/*, /rt/*                → ALB (기존 EKS 앱)
+#   /user-profile-img/*, /temp/* → S3 asset 버킷 (사용자 업로드 이미지, modules/asset)
+#   그 외                        → S3 fe 버킷 (정적 자산)
+# 로 갈라 보내므로 FE·API·이미지가 계속 같은 오리진이고, CORS 도 FE 번들의 절대 URL 도 필요 없다.
+#
+# ⚠ 세 갈래는 경로가 서로 겹치지 않는다. 새 behavior 를 끼워도 기존 /assets/*·/api/*·/rt/* 의
+#   매칭 결과는 바뀌지 않는다(precedence 번호만 밀린다).
 #
 # 전환 절차·롤백은 docs/fe-cdn-migration.md.
 
 locals {
-  s3_origin_id  = "s3-fe"
-  alb_origin_id = "alb-api"
+  s3_origin_id    = "s3-fe"
+  asset_origin_id = "s3-asset"
+  alb_origin_id   = "alb-api"
+
+  # 접두사(temp/)로 받아 경로 패턴(/temp/*)으로 바꾼다. 버킷 키와 URL 경로가 같은 문자열이라
+  # 한 곳(루트 locals)에서 온 값을 양쪽이 나눠 쓰게 한다 — 어긋나면 이미지가 404 다.
+  asset_profile_path_pattern = "/${var.asset_profile_prefix}*"
+  asset_temp_path_pattern    = "/${var.asset_temp_prefix}*"
+
+  # 사용자 업로드 이미지 쪽 OAC·캐시 정책·응답 헤더 정책이 공유하는 AWS 리소스 이름.
+  #
+  # ⚠ 여기에 "-asset" 을 쓰지 말 것. 이 계정에는 FE 정적 자산용 victoryfairy-dev-assets 가
+  #   이미 있다(캐시 정책·응답 헤더 정책 양쪽 — 아래 aws_*.assets). "-asset" 은 그것과 글자
+  #   하나 차이라 콘솔 목록에 나란히 뜨면 사람이 잘못 고른다. 정책을 잘못 붙이면 이미지가
+  #   깨지는 정도가 아니라 FE 전체의 캐시·보안 헤더가 바뀐다.
+  #   그래서 용도가 그대로 드러나는 -profile-img 로 못 박는다.
+  # (Terraform 라벨은 asset/asset_temp 그대로 둔다 — 버킷·오리진·modules/asset 과 짝을
+  #  맞추기 위해서다. 콘솔에 보이는 이름만 다르며, 그 이름의 출처는 이 두 local 뿐이다.)
+  asset_name      = "${var.name_prefix}-profile-img"
+  asset_temp_name = "${var.name_prefix}-profile-img-temp"
 }
 
 # ---------------------------------------------------------------------------
@@ -116,6 +138,17 @@ resource "aws_s3_bucket_policy" "fe" {
   depends_on = [aws_s3_bucket_public_access_block.fe]
 }
 
+# asset 버킷용 OAC. 버킷 자체(+퍼블릭 차단·라이프사이클·버킷 정책)는 modules/asset 소유이고,
+# 여기는 '이 배포가 그 버킷을 어떻게 읽는가' 만 갖는다 — 배포를 소유한 모듈이 오리진 배선을 갖는다.
+# 상대편 버킷 정책은 이 배포 ARN 을 SourceArn 으로 받아 걸린다(루트에서 서로의 출력을 교차 주입).
+resource "aws_cloudfront_origin_access_control" "asset" {
+  name                              = local.asset_name
+  description                       = "CloudFront → S3(${var.asset_bucket_name}) 전용 읽기"
+  origin_access_control_origin_type = "s3"
+  signing_behavior                  = "always"
+  signing_protocol                  = "sigv4"
+}
+
 # ---------------------------------------------------------------------------
 # 3) SPA fallback 함수 — 코드와 근거는 functions/spa-fallback.js
 #
@@ -171,6 +204,61 @@ resource "aws_cloudfront_cache_policy" "assets" {
   parameters_in_cache_key_and_forwarded_to_origin {
     enable_accept_encoding_brotli = true
     enable_accept_encoding_gzip   = true
+
+    cookies_config {
+      cookie_behavior = "none"
+    }
+    headers_config {
+      header_behavior = "none"
+    }
+    query_strings_config {
+      query_string_behavior = "none"
+    }
+  }
+}
+
+# 프로필 이미지 — Vite 해시 자산과 같은 계약이다. 업로드마다 키가 새 UUID 로 생기고 같은 키를
+# 덮어쓰지 않으므로(교체하면 새 UUID + 옛 객체 삭제) 엣지에 오래 둬도 낡은 그림이 나올 수 없다.
+# 그래서 무효화(create-invalidation)를 배포 파이프라인에 걸 필요도 없다.
+resource "aws_cloudfront_cache_policy" "asset" {
+  name        = local.asset_name
+  comment     = "프로필 이미지 — UUID 키라 덮어쓰기가 없다(영구 캐시 안전)"
+  min_ttl     = 1
+  default_ttl = 31536000
+  max_ttl     = 31536000
+
+  parameters_in_cache_key_and_forwarded_to_origin {
+    # 이미지는 이미 압축 포맷이라 브로틀리/gzip 이득이 없다. 캐시 키를 인코딩별로 쪼개
+    # 히트율만 떨어뜨리지 않도록 둘 다 끈다(정적 번들과 다른 점).
+    enable_accept_encoding_brotli = false
+    enable_accept_encoding_gzip   = false
+
+    cookies_config {
+      cookie_behavior = "none"
+    }
+    headers_config {
+      header_behavior = "none"
+    }
+    query_strings_config {
+      query_string_behavior = "none"
+    }
+  }
+}
+
+# temp/ — 하루면 사라지는 객체다. 길게 잡을 실익이 없어 따로 뺐다.
+#   · 이 URL 은 가입 절차 몇 분 동안 본인 한 명이 한두 번 볼 뿐이라 장기 캐시의 히트가 없다.
+#   · 반대로 TTL 이 길면 S3 에서 만료된 뒤에도 엣지가 사본을 계속 내보내, "지웠는데 아직 보이는"
+#     구간이 하루 이상 길어진다. 임시 업로드에는 그쪽 위험이 더 크다.
+resource "aws_cloudfront_cache_policy" "asset_temp" {
+  name        = local.asset_temp_name
+  comment     = "가입 전 임시 업로드 — 하루살이 객체라 짧게만 담는다"
+  min_ttl     = 0
+  default_ttl = var.asset_temp_ttl_seconds
+  max_ttl     = var.asset_temp_ttl_seconds
+
+  parameters_in_cache_key_and_forwarded_to_origin {
+    enable_accept_encoding_brotli = false
+    enable_accept_encoding_gzip   = false
 
     cookies_config {
       cookie_behavior = "none"
@@ -256,6 +344,58 @@ resource "aws_cloudfront_response_headers_policy" "assets" {
   }
 }
 
+# 사용자 업로드 이미지 전용 헤더 정책 2종.
+#
+# ⚠ nosniff 가 여기서는 장식이 아니다. 이 오브젝트들은 '사용자가 올린 바이트' 이고, 그것을
+#   FE 와 같은 오리진(victoryfairy.com)으로 내보낸다. HTML 을 .jpg 로 위장해 올린 뒤 브라우저가
+#   내용을 스니핑해 HTML 로 렌더하면 동일 출처 XSS 가 된다. Content-Type 을 곧이곧대로 지키게
+#   막고, 프레임 삽입도 함께 거절한다. (파일 내용이 진짜 이미지인지 검사하는 것은 BE 몫이다.)
+resource "aws_cloudfront_response_headers_policy" "asset" {
+  name    = local.asset_name
+  comment = "프로필 이미지 — 영구 캐시(immutable) + 스니핑 차단"
+
+  custom_headers_config {
+    items {
+      header   = "Cache-Control"
+      value    = "public, max-age=31536000, immutable"
+      override = true
+    }
+  }
+
+  security_headers_config {
+    content_type_options {
+      override = true
+    }
+    frame_options {
+      frame_option = "DENY"
+      override     = true
+    }
+  }
+}
+
+resource "aws_cloudfront_response_headers_policy" "asset_temp" {
+  name    = local.asset_temp_name
+  comment = "임시 업로드 — 짧은 캐시 + 스니핑 차단"
+
+  custom_headers_config {
+    items {
+      header   = "Cache-Control"
+      value    = "public, max-age=${var.asset_temp_ttl_seconds}"
+      override = true
+    }
+  }
+
+  security_headers_config {
+    content_type_options {
+      override = true
+    }
+    frame_options {
+      frame_option = "DENY"
+      override     = true
+    }
+  }
+}
+
 # ---------------------------------------------------------------------------
 # 6) CloudFront 배포
 # ---------------------------------------------------------------------------
@@ -271,6 +411,14 @@ resource "aws_cloudfront_distribution" "this" {
     origin_id                = local.s3_origin_id
     domain_name              = aws_s3_bucket.fe.bucket_regional_domain_name
     origin_access_control_id = aws_cloudfront_origin_access_control.fe.id
+  }
+
+  # 사용자 업로드 이미지(modules/asset). 새 배포를 만들지 않고 이 배포에 오리진만 더한다 —
+  # 이미지가 apex 도메인으로 나가야 FE 가 상대경로로 참조할 수 있고, 인증서·DNS 도 그대로 쓴다.
+  origin {
+    origin_id                = local.asset_origin_id
+    domain_name              = var.asset_bucket_regional_domain_name
+    origin_access_control_id = aws_cloudfront_origin_access_control.asset.id
   }
 
   origin {
@@ -340,6 +488,47 @@ resource "aws_cloudfront_distribution" "this" {
       cache_policy_id          = data.aws_cloudfront_cache_policy.caching_disabled.id
       origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer.id
     }
+  }
+
+  # ── 사용자 업로드 이미지 ────────────────────────────────────────────────────
+  # 기존 behavior 뒤에 붙인다. 경로가 겹치지 않아 순서는 결과에 영향을 주지 않지만, 뒤에 두면
+  # /api/*·/rt/* 의 precedence 번호가 그대로라 배포 diff 가 작다.
+  #
+  # ⚠ SPA fallback 함수를 붙이지 않는다. 붙으면 없는 이미지 요청이 index.html + 200 으로 돌아와
+  #   깨진 그림 대신 HTML 이 <img> 에 들어간다(/assets/* 와 같은 이유).
+  # ⚠ 읽기 전용이다(GET/HEAD). 업로드는 브라우저가 아니라 user-app 파드가 SDK 로 S3 에 직접
+  #   PUT 한다(IRSA: modules/user-irsa) — 그래서 이 경로로 쓰기 메서드를 열 이유가 없고,
+  #   버킷에 CORS 설정도 필요 없다. 브라우저 presigned PUT 방식으로 바꾸면 둘 다 다시 볼 것.
+  ordered_cache_behavior {
+    path_pattern           = local.asset_profile_path_pattern
+    target_origin_id       = local.asset_origin_id
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["GET", "HEAD"]
+    cached_methods         = ["GET", "HEAD"]
+
+    # 이미지는 이미 압축돼 있어 엣지 압축이 CPU 만 쓰고 이득이 없다.
+    compress = false
+
+    cache_policy_id            = aws_cloudfront_cache_policy.asset.id
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.asset.id
+  }
+
+  # ⚠ temp/ 도 공개적으로 읽힌다(인증 없음). 프론트가 '가입을 마치기 전에' 방금 올린 사진을
+  #   미리보기로 다시 읽어야 하는데, 그 시점에는 아직 토큰이 없기 때문이다.
+  #   한계 — 키가 UUID 라 목록을 훑어 찾아낼 수는 없지만(버킷은 비공개, 이 배포도 목록을
+  #   내보내지 않는다), **링크를 아는 사람은 누구나 그 이미지를 읽을 수 있다.** 하루면 만료되고
+  #   가입 절차에만 쓰이는 사진이라 감수한다. 서명 URL(CloudFront signed URL)로 좁히려면
+  #   키 그룹·서명 발급이 BE 에 붙어야 하므로 별건으로 판단할 것.
+  ordered_cache_behavior {
+    path_pattern           = local.asset_temp_path_pattern
+    target_origin_id       = local.asset_origin_id
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["GET", "HEAD"]
+    cached_methods         = ["GET", "HEAD"]
+    compress               = false
+
+    cache_policy_id            = aws_cloudfront_cache_policy.asset_temp.id
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.asset_temp.id
   }
 
   viewer_certificate {
