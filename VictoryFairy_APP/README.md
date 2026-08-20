@@ -10,7 +10,8 @@
 반대로 `app.json`·`src/` 를 고치면 APK를 다시 만들어 설치해야 한다.
 
 - Expo SDK 57 / React Native 0.86 / React 19 / TypeScript 6
-- 번들 ID · 패키지명: `com.victoryfairy.app`
+- 안드로이드 패키지명 `com.victoryfairy.app` / iOS 번들 ID `com.victoryfairy.mobile`
+  — 원래 쓰려던 `com.victoryfairy.app`이 Apple에 이미 선점돼 있어 iOS만 다르다.
 
 ## 필요한 것
 
@@ -94,10 +95,8 @@ cd android
 배포용 빌드는 로컬 Gradle이 아니라 EAS Build로 만든다. keystore·iOS 인증서를
 EAS가 만들어 보관하고, Mac 없이 iOS를 빌드할 수 있다.
 
-```powershell
-npm install
-npx eas login
-npx eas init                   # 최초 1회. app.json에 projectId를 심는다
+```undefined
+npx eas-cli init                   # 최초 1회. app.json에 projectId를 심는다
 
 npm run build:preview          # 내부 테스트용 APK
 npm run build:android          # 스토어용 AAB
