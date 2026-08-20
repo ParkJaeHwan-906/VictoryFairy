@@ -76,6 +76,11 @@ class UserAccountControllerMeTest {
     @MockitoBean
     private UserAccountRepository userAccountRepository;
 
+    // 컨트롤러가 프로필 이미지 업로드용 AccountProfileImageService도 생성자로 받아, 없으면 컨텍스트
+    // 로딩이 실패한다(이 클래스 테스트는 GET /me만 다뤄 상호작용은 없음).
+    @MockitoBean
+    private com.skhynix.user.profileimage.service.AccountProfileImageService accountProfileImageService;
+
     private String stubValidAccessToken(String uid) {
         String token = "access-token-for-" + uid;
         given(jwtTokenProvider.validateToken(token)).willReturn(true);
@@ -90,15 +95,15 @@ class UserAccountControllerMeTest {
 
     private static UserAccountResponse fullProfile() {
         return new UserAccountResponse("nick", new TeamResponse(6L, "KIA"),
-                List.of(playerOf(100L, "김선수")), 1200L, 340L);
+                List.of(playerOf(100L, "김선수")), 1200L, 340L, null);
     }
 
     // ---------- 응답 본문 (USER-ME-12 ~ 20) ----------
 
     @Test
-    @DisplayName("[USER-ME-12, 13, 14, 15, 17, 18] 인증된 사용자가 요청하면 200과 ApiResponse에 담긴 "
-            + "프로필을 반환하고, data의 키는 정확히 nickname·supportTeam·supportPlayers·point·bqScore 5개뿐이다")
-    void getMyProfile_authenticated_returns200WithExactlyFiveKeys() throws Exception {
+    @DisplayName("[USER-ME-12, 13, 14, 15, 17, 18][USER-PI-65] 인증된 사용자가 요청하면 200과 ApiResponse에 담긴 "
+            + "프로필을 반환하고, data의 키는 정확히 nickname·supportTeam·supportPlayers·point·bqScore·profileImgUrl 6개뿐이다")
+    void getMyProfile_authenticated_returns200WithExactlySixKeys() throws Exception {
         // given
         String uid = UUID.randomUUID().toString();
         Long accountId = 1L;
@@ -112,7 +117,7 @@ class UserAccountControllerMeTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.message").doesNotExist())
-                .andExpect(jsonPath("$.data.length()").value(5))
+                .andExpect(jsonPath("$.data.length()").value(6))
                 .andExpect(jsonPath("$.data.nickname").value("nick"))
                 .andExpect(jsonPath("$.data.supportTeam.id").value(6))
                 .andExpect(jsonPath("$.data.supportTeam.name").value("KIA"))
@@ -156,7 +161,7 @@ class UserAccountControllerMeTest {
         given(userAccountRepository.findActiveAuthByUid(uid))
                 .willReturn(Optional.of(new ActiveAccountView(accountId, null)));
         given(userProfileService.getMyProfile(accountId))
-                .willReturn(new UserAccountResponse("nick", new TeamResponse(6L, "KIA"), List.of(), 1200L, 340L));
+                .willReturn(new UserAccountResponse("nick", new TeamResponse(6L, "KIA"), List.of(), 1200L, 340L, null));
 
         // when & then
         mockMvc.perform(get("/users/me").header("Authorization", "Bearer " + token))
@@ -199,7 +204,7 @@ class UserAccountControllerMeTest {
         given(userAccountRepository.findActiveAuthByUid(uid))
                 .willReturn(Optional.of(new ActiveAccountView(accountId, null)));
         given(userProfileService.getMyProfile(accountId))
-                .willReturn(new UserAccountResponse("nick", null, List.of(), 0L, 0L));
+                .willReturn(new UserAccountResponse("nick", null, List.of(), 0L, 0L, null));
 
         // when & then
         mockMvc.perform(get("/users/me").header("Authorization", "Bearer " + token))
@@ -218,7 +223,7 @@ class UserAccountControllerMeTest {
         given(userAccountRepository.findActiveAuthByUid(uid))
                 .willReturn(Optional.of(new ActiveAccountView(accountId, null)));
         given(userProfileService.getMyProfile(accountId))
-                .willReturn(new UserAccountResponse("nick", null, List.of(), 1200L, 0L));
+                .willReturn(new UserAccountResponse("nick", null, List.of(), 1200L, 0L, null));
 
         // when & then: jsonPath.value(1200)은 숫자 1200과만 매칭되고 문자열 "1200"과는 매칭되지 않는다
         mockMvc.perform(get("/users/me").header("Authorization", "Bearer " + token))
@@ -246,6 +251,46 @@ class UserAccountControllerMeTest {
 
         // 컨트롤러가 principal(내부 id) 외의 값을 읽지 않으므로 서비스는 여전히 토큰이 해석한 id로만 호출된다
         verify(userProfileService).getMyProfile(eq(accountId));
+    }
+
+    @Test
+    @DisplayName("[USER-PI-66, 67] 프로필 이미지가 있는 계정이면 profileImgUrl에 BaseURL 없는 EP가 "
+            + "문자 그대로 담긴다")
+    void getMyProfile_withProfileImage_returnsEndpointWithoutBaseUrl() throws Exception {
+        // given
+        String uid = UUID.randomUUID().toString();
+        Long accountId = 1L;
+        String token = stubValidAccessToken(uid);
+        given(userAccountRepository.findActiveAuthByUid(uid))
+                .willReturn(Optional.of(new ActiveAccountView(accountId, null)));
+        given(userProfileService.getMyProfile(accountId)).willReturn(new UserAccountResponse(
+                "nick", new TeamResponse(6L, "KIA"), List.of(), 1200L, 340L,
+                "user-profile-img/9f1c1e2a-aaaa-4bbb-8ccc-1234567890ab.jpg"));
+
+        // when & then
+        mockMvc.perform(get("/users/me").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.profileImgUrl")
+                        .value("user-profile-img/9f1c1e2a-aaaa-4bbb-8ccc-1234567890ab.jpg"));
+    }
+
+    @Test
+    @DisplayName("[USER-PI-65, 66] 프로필 이미지가 없는 계정이면 profileImgUrl 키는 존재하되 값은 null이다"
+            + "(빈 문자열도 기본 이미지 URL도 아니다)")
+    void getMyProfile_withoutProfileImage_returnsNullNotEmptyString() throws Exception {
+        // given
+        String uid = UUID.randomUUID().toString();
+        Long accountId = 1L;
+        String token = stubValidAccessToken(uid);
+        given(userAccountRepository.findActiveAuthByUid(uid))
+                .willReturn(Optional.of(new ActiveAccountView(accountId, null)));
+        given(userProfileService.getMyProfile(accountId)).willReturn(fullProfile());
+
+        // when & then
+        mockMvc.perform(get("/users/me").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").value(org.hamcrest.Matchers.hasKey("profileImgUrl")))
+                .andExpect(jsonPath("$.data.profileImgUrl").value(org.hamcrest.Matchers.nullValue()));
     }
 
     // ---------- 인증 (USER-ME-7 ~ 10) ----------
