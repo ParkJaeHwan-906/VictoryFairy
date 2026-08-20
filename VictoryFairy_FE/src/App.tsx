@@ -15,20 +15,34 @@ import AccountSettingPage from './pages/AccountSettingPage';
 import QuizPage from './pages/QuizPage';
 import QuizResultPage from './pages/QuizResultPage';
 import ProtectedRoute from './components/ProtectedRoute';
+import PublicOnlyRoute from './components/PublicOnlyRoute';
 import { ROUTES } from './routes';
 
 export default function App() {
   return (
     <Routes>
+      {/*
+        진입 지점. 로그인으로 보내지만 세션이 남아 있으면 아래 `PublicOnlyRoute` 가 곧바로
+        메인으로 이어 보낸다 — 앱을 다시 켰을 때 로그인 화면을 거치지 않는 경로다.
+        여기서 직접 판정하지 않는 이유는, 그러면 "세션이 있으면 메인" 규칙이 두 군데로
+        갈라져 한쪽만 고치는 일이 생기기 때문이다.
+      */}
       <Route path="/" element={<Navigate to={ROUTES.login} replace />} />
-      <Route path={ROUTES.login} element={<LoginPage />} />
-      <Route path={ROUTES.signup} element={<SignupPage />} />
+      {/*
+        로그인 · 회원가입은 세션이 없는 사람만 들어오는 자리다. 토큰이 남아 있는데도
+        폼을 마주하지 않도록 `PublicOnlyRoute` 가 메인으로 돌려보낸다.
+      */}
+      <Route element={<PublicOnlyRoute />}>
+        <Route path={ROUTES.login} element={<LoginPage />} />
+        <Route path={ROUTES.signup} element={<SignupPage />} />
+      </Route>
       <Route path={ROUTES.teamSelect} element={<TeamSelectPage />} />
       <Route path={ROUTES.playerSelect} element={<PlayerSelectPage />} />
       <Route path={ROUTES.complete} element={<CompletePage />} />
       {/*
-        여기부터는 로그인해야 들어올 수 있다. 위쪽(로그인 · 회원가입 · 온보딩)은
-        아직 토큰이 없거나 막 받은 단계라 열어 둔다.
+        여기부터는 로그인해야 들어올 수 있다. 위쪽 온보딩(구단 · 선수 선택 · 완료)은
+        회원가입으로 토큰을 막 받은 채 지나는 구간이라 어느 쪽으로도 막지 않는다 —
+        `PublicOnlyRoute` 를 씌우면 가입 직후 흐름이 통째로 끊긴다.
       */}
       <Route element={<ProtectedRoute />}>
         {/* 퀴즈는 디자인에 NavBar 가 없어 레이아웃 밖 전체 화면이다 */}
