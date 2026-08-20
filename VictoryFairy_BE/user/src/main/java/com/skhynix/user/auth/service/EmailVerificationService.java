@@ -13,8 +13,13 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class EmailVerificationService {
 
-    /** 인증번호 1건당 허용 검증 실패 횟수. 이 값에 도달하면 이후 시도를 차단하고 재발송을 요구한다. */
-    private static final int MAX_ATTEMPTS = 5;
+    /**
+     * 인증번호 1건당 허용 검증 실패 횟수. 이 값에 도달하면 이후 시도를 차단하고 재발송을 요구한다.
+     *
+     * <p>{@code public} 인 이유는 소셜 로그인의 티켓 단위 인증({@code OauthEmailVerificationService})이
+     * 같은 한도를 따라야 하기 때문이다 — 값을 복제하면 언젠가 한쪽만 바뀌어 두 경로의 정책이 갈라진다.
+     */
+    public static final int MAX_ATTEMPTS = 5;
 
     private static final SecureRandom RANDOM = new SecureRandom();
 
