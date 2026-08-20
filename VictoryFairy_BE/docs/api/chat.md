@@ -3,7 +3,7 @@
 > **도메인** `chat` — 구단별 채팅방, 메시지 전송·히스토리·신고, SSE 실시간 구독.
 > **모듈** quiz (포트 8081) · **경로 접두사** `/rt/chat` · **엔드포인트** 7개
 > **컨트롤러** `quiz/src/main/java/com/skhynix/quiz/chat/controller/ChatController.java` (`@RequestMapping("/chat")` — `/rt`는 context-path가 붙인다) — 현재 quiz 모듈의 유일한 컨트롤러.
-> **최종 갱신** 2026-08-20 — **`MessageResponse`(전송 응답·히스토리)와 SSE `message` 이벤트 payload(`MessageEvent`)에 `profileImgUrl` 필드 추가**(발신자 `users_account.profile_img_url`, 없으면 `null` — 값의 형태는 [account](account.md#profileimgurl-값의-의미-프론트-필독)와 동일한 BaseURL 없는 EP). 발신자 계정이 이미 로딩돼 있어 SELECT는 늘지 않는다. 탈퇴자 메시지는 `(알수없음)` 더미 계정으로 이관되고 그 계정은 프로필 이미지가 없어 자연히 `null`이다(별도 분기 없음). 엔드포인트 7개·필드 개수 외 나머지 계약은 불변. 계약 원본 `docs/requirements/user/profile-image.md`(승인됨 2026-08-20). (직전: 2026-08-17 **비밀번호 변경 이전에 발급된 토큰이 이 도메인 7개 엔드포인트 전부에서 401로 거절되게 됨**(user 모듈의 `PATCH /api/users/me/password`, `main` 84f6f4a 머지 완료 — 공유 인증 필터라 chat 쪽 코드 변경 없이 적용됨). 응답·요청 계약은 그 외 불변. (직전: 2026-08-04 **구단 접근 제어 도입**: 방 목록 `teamId` 필터·403 구단 가드(신규 `CHATROOM_TEAM_MISMATCH`)를 6개 기존 경로에 추가하고, 명시적 퇴장 `DELETE /rooms/{roomUid}/subscribe`를 신설(직전 변경: 2026-08-01 `RoomResponse`에서 `participants` 필드 제거)))
+> **최종 갱신** 2026-08-20 — **`MessageResponse`(전송 응답·히스토리)와 SSE `message` 이벤트 payload(`MessageEvent`)에 `profileImgUrl` 필드 추가**(발신자 `users_account.profile_img_url`, 없으면 `null` — 값의 형태는 [account](account.md#profileimgurl-값의-의미-프론트-필독)와 동일한 BaseURL 없는 EP). 발신자 계정이 이미 로딩돼 있어 SELECT는 늘지 않는다. 탈퇴자 메시지는 `(알수없음)` 더미 계정으로 이관되고 그 계정은 프로필 이미지가 없어 자연히 `null`이다(별도 분기 없음). 엔드포인트 7개·필드 개수 외 나머지 계약은 불변. 계약 원본 `docs/requirements/user/profile-image.md`(승인됨 2026-08-20). (직전: 2026-08-17 **비밀번호 변경 이전에 발급된 토큰이 이 도메인 7개 엔드포인트 전부에서 401로 거절되게 됨**(user 모듈의 `PATCH /api/users/me/password`, `main` 84f6f4a 머지 완료 — 공유 인증 필터라 chat 쪽 코드 변경 없이 적용됨). 응답·요청 계약은 그 외 불변.) 그 이전 이력은 각 엔드포인트 섹션의 `최종 변경` 줄에 남아 있다.
 > **요구사항** `docs/requirements/quiz/chat.md`(QUIZ-CHAT, 도입 시점 계약) · `docs/requirements/quiz/chat-team-access-control.md`(QUIZ-CTAC-1~29, 구단 접근 제어) · `docs/requirements/user/profile-image.md`(승인됨 2026-08-20 — `profileImgUrl` 필드의 출처)
 > 공통 규약(응답 래퍼·JWT payload·401 정책·**시스템 예외 래핑**)은 [README.md](README.md)를 먼저 볼 것.
 
@@ -136,7 +136,7 @@ curl -i http://localhost:8081/rt/chat/rooms/3f9c2e10-... \
 ---
 
 ## GET /rt/chat/rooms/{roomUid}/subscribe
-> 최종 변경: 2026-08-20 — `message` 이벤트 payload(`MessageEvent`)에 `profileImgUrl` 추가(발신자 프로필 이미지 EP, 없으면 `null`). 히스토리에만 실으면 SSE로 방금 도착한 메시지는 아바타가 비었다가 새로고침해야 채워지므로 함께 싣는다 — 전송 트랜잭션이 이미 로딩해 둔 발신자 계정이라 SELECT 증가 없음. (직전: 2026-08-04 구독 시점 1회 구단 일치 검사 추가(스트림을 열기 전, 트랜잭션 안에서 완결) + 같은 사용자의 기존 구독을 축출(last-one-wins)(직전: 2026-08-01(추정) `ChatController` 마지막 커밋))
+> 최종 변경: 2026-08-20 — `message` 이벤트 payload(`MessageEvent`)에 `profileImgUrl` 추가(발신자 프로필 이미지 EP, 없으면 `null`). 히스토리에만 실으면 SSE로 방금 도착한 메시지는 아바타가 비었다가 새로고침해야 채워지므로 함께 싣는다 — 전송 트랜잭션이 이미 로딩해 둔 발신자 계정이라 SELECT 증가 없음. (직전: 2026-08-04 구독 시점 1회 구단 일치 검사 추가(스트림을 열기 전, 트랜잭션 안에서 완결) + 같은 사용자의 기존 구독을 축출(last-one-wins))
 
 방 실시간 구독(SSE). `produces = text/event-stream`. 반환 타입은 `SseEmitter`이며 `ApiResponse`로 감싸지 않는다(다른 6개 엔드포인트와 다름 — 이벤트 스트림이라 JSON 래핑 대상이 아님).
 
@@ -233,7 +233,7 @@ curl -i -X DELETE http://localhost:8081/rt/chat/rooms/3f9c2e10-.../subscribe \
 ---
 
 ## POST /rt/chat/rooms/{roomUid}/messages
-> 최종 변경: 2026-08-20 — 응답에 `profileImgUrl` 추가(발신자 프로필 이미지 EP, 없으면 `null`. 발신자 계정이 이미 로딩돼 있어 SELECT 증가 없음). 나머지 계약 불변. (직전: 2026-08-04 구단 일치 검사 추가(내 응원 구단 방이 아니면 403, 저장하지 않음). 판정 순서: content 검증(400) → 방 존재(404) → 응원 구단 없음(400) → 구단 불일치(403)(직전: 2026-08-01(추정) `ChatController` 마지막 커밋))
+> 최종 변경: 2026-08-20 — 응답에 `profileImgUrl` 추가(발신자 프로필 이미지 EP, 없으면 `null`. 발신자 계정이 이미 로딩돼 있어 SELECT 증가 없음). 나머지 계약 불변. (직전: 2026-08-04 구단 일치 검사 추가(내 응원 구단 방이 아니면 403, 저장하지 않음). 판정 순서: content 검증(400) → 방 존재(404) → 응원 구단 없음(400) → 구단 불일치(403))
 
 메시지 전송. 저장 후 발신자를 제외한 같은 방 구독자에게 SSE `message` 이벤트로 전달(fire-and-forget)하고, 저장된 메시지를 응답으로 반환한다.
 
@@ -301,7 +301,7 @@ curl -i -X POST http://localhost:8081/rt/chat/rooms/3f9c2e10-.../messages \
 ---
 
 ## GET /rt/chat/rooms/{roomUid}/messages
-> 최종 변경: 2026-08-20 — 항목(`MessageResponse`)에 `profileImgUrl` 추가(발신자 프로필 이미지 EP, 없으면 `null`). 히스토리는 fetch join으로 이미 발신자 계정을 함께 로딩하므로 SELECT 증가 없음. (직전: 2026-08-04 구단 일치 검사 추가(내 응원 구단 방이 아니면 403, 메시지가 실리지 않음)(직전: 2026-08-01(추정) `ChatController` 마지막 커밋))
+> 최종 변경: 2026-08-20 — 항목(`MessageResponse`)에 `profileImgUrl` 추가(발신자 프로필 이미지 EP, 없으면 `null`). 히스토리는 fetch join으로 이미 발신자 계정을 함께 로딩하므로 SELECT 증가 없음. (직전: 2026-08-04 구단 일치 검사 추가(내 응원 구단 방이 아니면 403, 메시지가 실리지 않음))
 
 방 히스토리 조회(페이징).
 

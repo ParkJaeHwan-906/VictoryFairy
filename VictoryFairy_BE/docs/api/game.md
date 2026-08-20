@@ -3,7 +3,7 @@
 > **도메인** `game` — 날짜별 KBO 경기 일정·스코어, 경기별 선발 라인업, 내 활성 응원 구단 경기 목록.
 > **모듈** user (포트 8080) · **경로 접두사** `/api/games` · **엔드포인트** 3개
 > **컨트롤러** `user/src/main/java/com/skhynix/user/game/controller/GameController.java`(`@RequestMapping("/games")`, `GET`+`GET /support`) · `GameLineupController.java`(`@RequestMapping("/games/lineup")`)
-> **최종 갱신** 2026-08-20 — `date` 형식 위반 400의 응답 형태 정정: `GlobalExceptionHandler.handleTypeMismatch`(공유 컴포넌트 신설)가 `MethodArgumentTypeMismatchException`을 잡아 이제 `ApiResponse` 래퍼가 붙는다(종전엔 래퍼 없음). `GET /api/games`·`GET /api/games/support` 둘 다 해당, 엔드포인트·다른 계약은 불변. (직전: 2026-08-13 `GET /api/games/support` 신규 추가: 인증된 계정의 **활성 응원 구단**(홈 또는 원정)이 참여한 경기만 돌려주는 조회. **이 도메인 최초의 인증 필수 엔드포인트**라 아래 "이 도메인의 특이사항"의 "전부 공개 참조 데이터" 서술이 더 이상 도메인 전체에 참이 아니게 됐다(범위를 `/games`·`/games/lineup` 두 경로로 좁혀 정정). 응답 형식·13필드·정렬·날짜 해석 규칙은 `GET /api/games`와 완전히 동일하며, `GET /api/games`·`GET /api/games/lineup`의 기존 계약은 변경 없음(요구사항 USER-GSP-24). (직전: 같은 날 `GET /api/games/lineup`의 `gameId` 파라미터 누락 400 서술 정정: `web-support`의 `GlobalExceptionHandler`에 `MissingServletRequestParameterException` 핸들러가 추가돼(공유 컴포넌트, user·quiz 공통) **이제 이 400도 `ApiResponse` 래퍼를 탄다**(종전엔 래퍼 아님으로 서술). 엔드포인트 자체는 불변, 타입 변환 실패(400)는 위 2026-08-20 항목에서 함께 정정됨. (직전: 2026-08-11 `GET /api/games` 응답에 `inning`/`inningHalf` 필드 추가(11→13필드, `games` 테이블에 `current_inning`/`inning_half` 컬럼 신설). 같은 날 devdb 실측으로 현재는 항상 `null`임을 확인(아래 참고). (직전: 같은 날 `cancelReason` 필드 반영(10→11필드, 커밋 f01d08e #281). 같은 날 운영 DB 실측으로 py-collector 쓰기가 이미 동작 중임을 확인해 서술 정정, `cancelReason` 미채움 시 클라이언트 fallback(`"경기취소"`) 권장 규칙 추가(아래 참고).))))
+> **최종 갱신** 2026-08-20 — `date` 형식 위반 400의 응답 형태 정정: `GlobalExceptionHandler.handleTypeMismatch`(공유 컴포넌트 신설)가 `MethodArgumentTypeMismatchException`을 잡아 이제 `ApiResponse` 래퍼가 붙는다(종전엔 래퍼 없음). `GET /api/games`·`GET /api/games/support` 둘 다 해당, 엔드포인트·다른 계약은 불변. (직전: 2026-08-13 `GET /api/games/support` 신규 추가: 인증된 계정의 **활성 응원 구단**(홈 또는 원정)이 참여한 경기만 돌려주는 조회. **이 도메인 최초의 인증 필수 엔드포인트**라 아래 "이 도메인의 특이사항"의 "전부 공개 참조 데이터" 서술이 더 이상 도메인 전체에 참이 아니게 됐다(범위를 `/games`·`/games/lineup` 두 경로로 좁혀 정정). 응답 형식·13필드·정렬·날짜 해석 규칙은 `GET /api/games`와 완전히 동일하며, `GET /api/games`·`GET /api/games/lineup`의 기존 계약은 변경 없음(요구사항 USER-GSP-24).) 그 이전 이력은 각 엔드포인트 섹션의 `최종 변경` 줄에 남아 있다.
 > 공통 규약(응답 래퍼·401 정책)은 [README.md](README.md)를 먼저 볼 것.
 
 ## 엔드포인트 목록
@@ -29,7 +29,7 @@
 ---
 
 ## GET /api/games
-> 최종 변경: 2026-08-20 — `date` 형식 위반 400의 응답 형태 정정(래퍼 없음 → `ApiResponse` 래퍼, `GlobalExceptionHandler.handleTypeMismatch` 신설). 엔드포인트·다른 필드는 불변. (직전: 2026-08-11 응답에 `inning`/`inningHalf` 추가(11→13필드, `games.current_inning`/`games.inning_half` 컬럼 신설). **현재는 항상 `null`**이다 — 이 값을 채우는 주체는 py-collector이고 수집기 쪽 구현이 아직 없다(`cancelReason`이 처음 추가됐을 때와 같은 상태, 아래 참고). (직전: 같은 날 응답에 `cancelReason` 추가(10→11필드, 커밋 f01d08e #281), 같은 날 운영 DB 실측 결과 반영("수집기 미구현·항상 null" 서술을 실측값으로 정정), `cancelReason` 미채움 시 클라이언트 fallback(`cancelReason ?? "경기취소"`, `CANCELED`일 때만 적용) 권장 규칙 추가. (그 이전: 2026-08-04 `homeTeamId`/`awayTeamId` 추가, 8→10필드)))
+> 최종 변경: 2026-08-20 — `date` 형식 위반 400의 응답 형태 정정(래퍼 없음 → `ApiResponse` 래퍼, `GlobalExceptionHandler.handleTypeMismatch` 신설). 엔드포인트·다른 필드는 불변. (직전: 2026-08-11 응답에 `inning`/`inningHalf` 추가(11→13필드, `games.current_inning`/`games.inning_half` 컬럼 신설). **현재는 항상 `null`**이다 — 이 값을 채우는 주체는 py-collector이고 수집기 쪽 구현이 아직 없다(`cancelReason`이 처음 추가됐을 때와 같은 상태, 아래 참고).)
 
 날짜별 경기 목록 조회. `GameController` → `GameService.getGames(LocalDate)` → `GameRepository.findAllByGameDateGreaterThanEqualAndGameDateLessThanOrderByGameDateAsc(...)`.
 
