@@ -13,6 +13,7 @@ import {
 import type { DailyQuiz } from '../api';
 import ConfirmSheet from '../components/ConfirmSheet';
 import QuizCard, { type QuizCardExit } from '../components/QuizCard';
+import QuizVoteGauge from '../components/QuizVoteGauge';
 import { getTeamDisplay } from '../data/kboTeams';
 import { ROUTES, readQuizPageState } from '../routes';
 import { formatKoreanDate, getTodayInSeoul } from '../utils/date';
@@ -52,9 +53,9 @@ import '../styles/QuizPage.css';
  * 받은 세트를 잃으면(새로고침·이탈) 그 문제들은 8분 뒤 오답으로 확정되고 돌아오지 않는다.
  * ──────────────────────────────────────────────────────────────────────
  *
- * 디자인 아래쪽의 실시간 선택율(O 65% / X 35% 와 게이지, 744:22706~22748)은 넣지 않았다 —
- * **보기별 선택 비율을 주는 API 가 없다**(docs/quiz.md). 제출 응답이 주는 것은 내 정오와
- * 정답 번호뿐이고 `accuracy` 도 내 누적 정답률이라 다른 값이다. 숫자를 지어내지 않는다.
+ * 디자인 아래쪽의 선택율 게이지(744:22745·1365:11847)는 `QuizVoteGauge` 가 그린다.
+ * 근거는 `/today` 가 보기마다 함께 주는 `voteCount` 하나뿐이라(2026-08-19 신설) **문제를
+ * 받은 순간의 스냅샷**이다 — 갱신 경로가 없어 내가 답해도 숫자는 움직이지 않는다.
  */
 
 /**
@@ -417,6 +418,13 @@ export default function QuizPage() {
           <p className="quiz-page__status quiz-page__status--error" role="alert">
             {submitError}
           </p>
+        )}
+
+        {/* 지금 문제의 보기별 선택율. 남는 공간을 위로 밀어 화면 아래에 붙는다. */}
+        {quiz !== null && (
+          <div className="quiz-page__vote">
+            <QuizVoteGauge quiz={quiz} />
+          </div>
         )}
 
         {isDone && !isEmpty && (
