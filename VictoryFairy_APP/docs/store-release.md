@@ -172,6 +172,13 @@ Apple 계정 로그인을 묻는다. App Store Connect에 앱이 없으면 EAS�
 TestFlight에 올라간 뒤 실기기에서 먼저 확인하고 심사에 제출한다 —
 **이 앱은 iOS에서 한 번도 빌드·실행된 적이 없다.**
 
+#### iOS 번들 ID만 `com.victoryfairy.mobile`인 이유
+
+App ID는 Apple 전체 개발자 계정을 통틀어 유일해야 하는데 `com.victoryfairy.app`이
+이미 다른 팀에 등록돼 있었다. 회수 경로가 없어서(도메인 소유권도 근거가 되지 않는다)
+iOS 쪽만 다른 문자열을 쓴다. 안드로이드 `package`는 Play에 올라간 뒤로는 바꾸면
+다른 앱이 되므로 `com.victoryfairy.app` 그대로 둔다. 두 값이 같을 필요는 없다.
+
 #### `eas.json`에 iOS 항목이 없는 이유
 
 없어도 된다. `production`은 프로필 최상단의 `distribution: "store"`만으로 App Store용
