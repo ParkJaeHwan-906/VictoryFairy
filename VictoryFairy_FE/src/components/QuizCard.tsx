@@ -37,6 +37,14 @@ const DRAG_CAPTURE_PX = 6;
 const SWIPE_TILT_DEG_PER_PX = 0.02;
 
 /**
+ * 남은 시간이 이 아래로 내려가면 눈에 띄게 바뀐다.
+ *
+ * 색만 바꾸지 않고 굵기도 함께 올린다 — 색만으로 알리면 색을 구분하기 어려운 사람에게는
+ * 아무 일도 일어나지 않은 것과 같다.
+ */
+const URGENT_SECONDS = 5;
+
+/**
  * 카드가 빠져나가는 방향. 고른 방식과 맞춘다 —
  * 민 방향 그대로(`left`·`right`)거나, 버튼으로 골랐으면 위로(`up`).
  */
@@ -60,6 +68,11 @@ type QuizCardProps = {
   matchLabel: string | null;
   /** 제출 중. 같은 문제를 두 번 보내지 않도록 입력을 막는다. */
   isSubmitting: boolean;
+  /**
+   * 이 문제에 남은 시간(초). 0 이 되면 화면이 다음 문제로 넘긴다.
+   * 세는 것은 화면 몫이라 카드는 받은 값을 그리기만 한다.
+   */
+  secondsLeft: number;
   /**
    * 빠져나가는 방향. `null` 이면 제자리다.
    * 값을 카드가 아니라 화면이 들고 있는 이유 — 제출이 실패하면 카드를 되돌려야 하는데,
@@ -124,6 +137,7 @@ export default function QuizCard({
   dateLabel,
   matchLabel,
   isSubmitting,
+  secondsLeft,
   exit,
   onSelect,
 }: QuizCardProps) {
@@ -230,9 +244,19 @@ export default function QuizCard({
       onPointerLeave={handlePointerEnd}
     >
       <div className="quiz-card__meta">
-        <p className="quiz-card__meta-date">{dateLabel}</p>
-        {/* 디자인은 오른쪽에 "1회 초"도 쓰지만 `GET /games` 응답에 이닝이 없어 뺐다. */}
-        {matchLabel !== null && <p className="quiz-card__meta-match">{matchLabel}</p>}
+        <div className="quiz-card__meta-lines">
+          <p className="quiz-card__meta-date">{dateLabel}</p>
+          {matchLabel !== null && <p className="quiz-card__meta-match">{matchLabel}</p>}
+        </div>
+
+        {/*
+          디자인의 "1회 초" 자리다 — 이닝은 `GET /games` 응답에 없어 비어 있던 곳에
+          남은 시간을 놓았다. `role="timer"` 는 기본이 조용해서(aria-live off) 1초마다
+          읽어 주지 않는다 — 넘어간 사실은 목록 아래 안내가 한 번만 알린다.
+        */}
+        <p className="quiz-card__timer" role="timer" data-urgent={secondsLeft <= URGENT_SECONDS || undefined}>
+          {secondsLeft}초
+        </p>
       </div>
 
       <hr className="quiz-card__divider" />

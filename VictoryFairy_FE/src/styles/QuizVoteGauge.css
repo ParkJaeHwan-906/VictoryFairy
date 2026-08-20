@@ -1,0 +1,154 @@
+/**
+ * QuizVoteGauge(보기별 선택율) 스타일.
+ * Figma: SWM / [Game] 퀴즈 메인(OorX) (node 744:22745 · 1365:11847)
+ *        SWM / [Game] 퀴즈 메인(AorB) (node 1365:12159 · 1365:12138)
+ *
+ * 세로 배치는 디자인 좌표 그대로다 — 표지 줄(34) → 8 → 막대(16).
+ * 좌우 여백은 화면이 준다(`.quiz-page__vote`).
+ */
+
+.quiz-vote {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 왼쪽 · 오른쪽 표지를 양 끝으로 밀어 막대의 두 끝과 맞춘다. */
+.quiz-vote__sides {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.quiz-vote__side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+}
+
+.quiz-vote__percent {
+  flex-shrink: 0;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-title1);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title1);
+}
+
+/* ------------------------------------------------------------------ *
+ * 표지 — 카드의 글리프(80px)를 24px 로 줄인 것이라 비율은 그대로다.
+ * 카드에서는 A · B 를 회색으로 두지만(옳고 그름으로 읽히지 않게) 여기서는
+ * 막대의 두 색을 가리키는 범례라, 디자인대로 초록 · 빨강을 쓴다.
+ * ------------------------------------------------------------------ */
+.quiz-vote__mark {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  font-size: var(--font-size-title1);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+}
+
+/* 카드의 `Ellipse 2`(80 박스 · 테두리 10)와 같은 비율 — 24 박스에 테두리 3. */
+.quiz-vote__mark--o {
+  border: 3px solid var(--color-success-strong);
+  border-radius: 50%;
+}
+
+.quiz-vote__mark--x {
+  position: relative;
+}
+
+/* 카드의 막대(폭 10 · 높이 102.7 · 반경 11)를 24/80 배로 줄인 값. */
+.quiz-vote__mark-bar {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 3px;
+  height: 30.8px;
+  border-radius: 3.3px;
+  background-color: var(--color-error-strong);
+}
+
+.quiz-vote__mark-bar:first-child {
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.quiz-vote__mark-bar:last-child {
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+.quiz-vote__mark--left {
+  color: var(--color-success-strong);
+}
+
+.quiz-vote__mark--right {
+  color: var(--color-error-strong);
+}
+
+/*
+ * 보기가 셋 이상이면 표지 자리에 보기 이름이 들어간다 — A · B 로는 몇 번 보기인지
+ * 가리킬 수 없기 때문이다. 이름은 길 수 있으므로 한 줄로 자르고 백분율을 먼저 지킨다.
+ */
+.quiz-vote__name {
+  min-width: 0;
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.quiz-vote__side[data-side='left'] .quiz-vote__name {
+  color: var(--color-success-strong);
+}
+
+.quiz-vote__side[data-side='right'] .quiz-vote__name {
+  color: var(--color-error-strong);
+}
+
+/* 표지를 소리로만 읽어 주는 이름(핸들 설명과 같은 방식). */
+.quiz-vote__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------ *
+ * 막대 — 20칸(한 칸 5%). 앞선 쪽만 그 쪽 색으로 채우고 나머지는 비운다.
+ * ------------------------------------------------------------------ */
+.quiz-vote__bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 16px;
+}
+
+.quiz-vote__segment {
+  flex: 1 0 0;
+  min-width: 0;
+  height: 100%;
+  border-radius: var(--radius-4);
+  background-color: var(--color-background-gray);
+}
+
+.quiz-vote__bar[data-leading='left'] .quiz-vote__segment[data-filled] {
+  background-color: var(--color-success-normal);
+}
+
+.quiz-vote__bar[data-leading='right'] .quiz-vote__segment[data-filled] {
+  background-color: var(--color-error-normal);
+}

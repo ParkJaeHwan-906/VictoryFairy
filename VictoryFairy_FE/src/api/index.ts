@@ -175,6 +175,7 @@ export type {
   QuizType,
   QuizDifficulty,
   QuizOption,
+  DailyQuizOption,
   DailyQuiz,
   QuizDetail,
   UnsolvedQuizDetail,
