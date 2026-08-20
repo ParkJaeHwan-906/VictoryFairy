@@ -57,6 +57,15 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
+      # 프로필 이미지(S3). 값은 application.yaml 기본값과 같지만 명시해 둔다 — k8s 매니페스트는
+      # 이미 주입하고 있어서, 여기서만 비어 있으면 "로컬에선 되는데 파드에선 다르다"의 반대
+      # 상황(로컬만 암묵 기본값)이 생긴다.
+      # ⚠ 자격증명은 넣지 않는다. 로컬 컨테이너에는 ~/.aws 도 IRSA 도 없어 업로드는 실패한다(정상).
+      USER_PROFILE_IMAGE_BUCKET: ${USER_PROFILE_IMAGE_BUCKET:-victoryfairy-asset}
+      USER_PROFILE_IMAGE_REGION: ${USER_PROFILE_IMAGE_REGION:-ap-northeast-2}
+      USER_PROFILE_IMAGE_BASE_URL: ${USER_PROFILE_IMAGE_BASE_URL:-https://victoryfairy.com}
+      # temp 정리 스케줄러는 로컬에서 꺼 둔다 — 켜면 새벽에 실제 S3 객체를 지우러 간다.
+      USER_CLEANUP_TEMP_PROFILE_IMAGE_ENABLED: ${USER_CLEANUP_TEMP_PROFILE_IMAGE_ENABLED:-false}
     ports:
       - "8080:8080"
 
