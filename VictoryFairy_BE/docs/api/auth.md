@@ -324,7 +324,7 @@ curl -i -X POST http://localhost:8080/api/auth/email/verify \
 
 | 필드 | 타입 | 설명 |
 |---|---|---|
-| data.profileImgUrl | String | 저장된 객체의 **EP**(BaseURL을 뺀 오브젝트 키). 형태는 `temp/{uuid}.{jpg\|png\|webp}` — 아래 "profileImgUrl 값의 의미" 참고 |
+| data.profileImgUrl | String | 저장된 객체의 **EP**(BaseURL을 뺀 오브젝트 키). 형태는 `temp/{uuid}.{jpg\|png\|webp}` — BaseURL+EP 조립 예시·CloudFront 안내는 [account.md의 "profileImgUrl 값의 의미"](account.md#profileimgurl-값의-의미-프론트-필독) 참고 |
 
 ```json
 {"success":true,"data":{"profileImgUrl":"temp/9f1c4e2a-6b3d-4a1f-8c2e-1a2b3c4d5e6f.jpg"},"message":null}

@@ -3,7 +3,7 @@
 > **도메인** `account` — 로그인 계정 자체의 생명주기(탈퇴) + 내 프로필 요약 조회 + 내 프로필 수정(닉네임·비밀번호·프로필 이미지).
 > **모듈** user (포트 8080) · **경로 접두사** `/api/users` · **엔드포인트** 5개
 > **컨트롤러** `user/src/main/java/com/skhynix/user/account/controller/UserAccountController.java` (`@RequestMapping("/users")`)
-> **최종 갱신** 2026-08-20 — **`POST /api/users/me/profile-image` 신규 추가**(업로드가 곧 프로필 변경 확정, 직전 객체는 커밋 이후 best-effort로 삭제) + **`GET /api/users/me` 응답에 `profileImgUrl` 추가**(키 5개→6개, SELECT 횟수는 그대로 5회 — 이미 조회하는 계정 행의 컬럼이라 추가 조회 없음). 계약 원본 `docs/requirements/user/profile-image.md`(승인됨 2026-08-20, USER-PI-1~121). (직전: 2026-08-17 `PATCH /api/users/me/password` 성공 시 **그 이전에 발급된 access·refresh 토큰이 즉시 무효화됨**(`main` 84f6f4a 머지 완료, PR #425). 직전 "이전 access 토큰은 최대 3h 그대로 유효하다"는 서술을 정정. (직전: 같은 날 `PATCH /api/users/me/nickname`·`PATCH /api/users/me/password`(내 프로필 수정) 신규 추가, 엔드포인트 2개→4개, 브랜치 `hwannee/be/feat-edit-profile`.))
+> **최종 갱신** 2026-08-20 — **`POST /api/users/me/profile-image` 신규 추가**(업로드가 곧 프로필 변경 확정, 직전 객체는 커밋 이후 best-effort로 삭제) + **`GET /api/users/me` 응답에 `profileImgUrl` 추가**(키 5개→6개, SELECT 횟수는 그대로 5회 — 이미 조회하는 계정 행의 컬럼이라 추가 조회 없음). 계약 원본 `docs/requirements/user/profile-image.md`(승인됨 2026-08-20, USER-PI-1~121). profileImgUrl 조립 예시(BaseURL+EP, 흔한 실수 포함)와 CloudFront/S3 구분, 가입 전후 EP 완전 교체 서술 보강. (직전: 2026-08-17 `PATCH /api/users/me/password` 성공 시 **그 이전에 발급된 access·refresh 토큰이 즉시 무효화됨**(`main` 84f6f4a 머지 완료, PR #425). 직전 "이전 access 토큰은 최대 3h 그대로 유효하다"는 서술을 정정. (직전: 같은 날 `PATCH /api/users/me/nickname`·`PATCH /api/users/me/password`(내 프로필 수정) 신규 추가, 엔드포인트 2개→4개, 브랜치 `hwannee/be/feat-edit-profile`.))
 > 공통 규약(응답 래퍼·JWT payload·401 4종·**토큰 무효화**·**시스템 예외 래핑**)은 [README.md](README.md)를 먼저 볼 것.
 
 ## 엔드포인트 목록
@@ -108,13 +108,27 @@ curl -i -X DELETE http://localhost:8080/api/users/me \
 이 API 전체(`GET /me`·`POST /me/profile-image`·`POST /api/auth/profile-image`·[채팅](chat.md)의 `MessageResponse`/`MessageEvent`)에서 `profileImgUrl`은 항상 같은 규칙을 따른다.
 
 - **값은 BaseURL을 뺀 EP다.** 스킴(`https://`)·도메인(`victoryfairy.com`)·버킷명·선행 슬래시(`/`)를 포함하지 않는다 — `user-profile-img/9f1c4e2a-....jpg`처럼 세그먼트 2개(`접두/파일명`)뿐이다.
-- **클라이언트가 `https://victoryfairy.com/` + 이 값을 그대로 이어 붙이면 실제 이미지 URL이 된다.** 서버는 이 조립을 대신 해 주지 않는다(응답에 완성된 URL이 없다).
+- **EP에 선행 슬래시가 없다는 점이 실수하기 쉬운 지점이다.** 클라이언트가 BaseURL과 EP를 **단순 문자열 결합**으로 이어 붙이면 슬래시가 통째로 빠진다. 슬래시는 서버가 넣어 주지 않으므로 **클라이언트가 직접 `/`를 끼워 넣어야 한다.**
+
+```
+BaseURL   : https://victoryfairy.com
+EP        : temp/9f2c4e2a-6b3d-4a1f-8c2e-1a2b3c4d5e6f.png
+정답      : https://victoryfairy.com/temp/9f2c4e2a-6b3d-4a1f-8c2e-1a2b3c4d5e6f.png   (BaseURL + "/" + EP)
+흔한 실수 : https://victoryfairy.comtemp/9f2c4e2a-6b3d-4a1f-8c2e-1a2b3c4d5e6f.png    (슬래시 없이 그냥 이어 붙임 — 404)
+```
+
 - **값이 없으면 `null`이다.** 빈 문자열(`""`)도 아니고 기본 이미지의 URL도 아니다 — "이미지 없음"과 "이미지가 있는데 아직 못 정했다"를 구분할 필요가 없는 API 설계다.
+
+**`https://victoryfairy.com`은 S3 주소가 아니라 CloudFront(CDN) 주소다.** 버킷(`victoryfairy-asset`)은 퍼블릭 액세스 차단(BPA) 4종이 전부 켜진 프라이빗 버킷이라 `https://victoryfairy-asset.s3.ap-northeast-2.amazonaws.com/...` 같은 S3 직접 URL로는 애초에 읽히지 않는다. 버킷 정책이 허용하는 읽기 경로는 **지정된 CloudFront 배포(OAC) 하나뿐**이고, 그 배포 안에서도 경로 패턴이 `/user-profile-img/*`·`/temp/*` 두 개로 한정돼 있다 — 이 두 접두사 밖의 키는 버킷에 있어도 이 도메인으로 못 읽는다. FE와 API가 같은 도메인(`victoryfairy.com`)을 쓰므로 이 값을 읽을 때 CORS 설정이 필요 없다.
+
+⚠ **이 BaseURL 값 자체는 이 저장소(BE 설정·코드) 어디에도 없다.** 서버는 EP만 응답하고 도메인 조립은 전적으로 클라이언트 몫이므로, `https://victoryfairy.com`을 서버 설정 키(`application.yaml`의 프로퍼티 등)로 착각해 찾지 말 것 — 클라이언트가 알고 있어야 하는 상수다.
 
 ```json
 {"profileImgUrl": "user-profile-img/9f1c4e2a-6b3d-4a1f-8c2e-1a2b3c4d5e6f.jpg"}
 ```
 → 실제 이미지: `https://victoryfairy.com/user-profile-img/9f1c4e2a-6b3d-4a1f-8c2e-1a2b3c4d5e6f.jpg`
+
+**가입 전후로 EP가 완전히 달라진다 — 가입 전에 쓰던 temp EP를 계속 붙들고 있으면 안 된다.** 접두사가 `temp/` → `user-profile-img/`로 바뀌는 것뿐 아니라, **파일명도 새 UUID로 다시 생성된다**(`SignupProfileImageService.move()`가 원본 이름을 물려받지 않고 새 키를 만든다 — `temp/`가 CDN으로 공개 읽히므로, 이름을 물려받으면 가입 전 미리보기 링크를 아는 사람이 가입 후 영구 주소까지 그대로 알게 되기 때문이다). 즉 `POST /api/auth/profile-image`가 돌려준 `temp/{uuid-A}.jpg`와 가입 후 `GET /api/users/me`가 돌려주는 `user-profile-img/{uuid-B}.jpg`는 **같은 파일이지만 EP 문자열이 완전히 다르다.** 클라이언트는 가입 응답을 받은 뒤에는 반드시 `GET /api/users/me`를 다시 호출해 그 값을 화면에 반영해야 하고, 가입 전 화면에서 쓰던 temp EP를 그대로 프로필 이미지 URL로 캐싱해 두면 안 된다(그 temp 객체는 이동 후 삭제되고, 정리 스케줄러·라이프사이클도 결국 회수한다).
 
 ⚠ **`supportTeam`(단일 값)과 `supportPlayers`(목록)의 "없음" 표현은 비대칭이다.** 구단은 단일 값이라 "없음"을 `null`로만 표현할 수 있지만, 목록은 빈 배열이 그대로 "0건"이라 `supportPlayers`는 응원 선수가 없어도 `null`이 아니라 **빈 배열 `[]`**이다. 응원 구단이 아예 없는 계정(구단 선택 전)에서도 `supportPlayers`는 (구단이 없으므로 당연히) `[]`이며 200이다 — 400 `SUPPORT_TEAM_REQUIRED`가 아니다.
 
