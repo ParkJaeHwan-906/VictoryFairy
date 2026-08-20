@@ -9,6 +9,49 @@ variable "api_path_patterns" {
   }
 }
 
+variable "asset_bucket_name" {
+  description = "사용자 업로드 자산 버킷 이름(modules/asset 출력). OAC 설명 문구에만 쓴다 — 실제 오리진 주소는 asset_bucket_regional_domain_name."
+  type        = string
+}
+
+variable "asset_bucket_regional_domain_name" {
+  description = "자산 버킷의 리전 도메인(modules/asset 출력). 두 번째 S3 오리진의 domain_name. ⚠ 웹사이트 엔드포인트가 아니라 REST 엔드포인트여야 OAC 서명이 통한다."
+  type        = string
+}
+
+variable "asset_profile_prefix" {
+  description = "확정 프로필 이미지 키 접두사(슬래시로 끝난다). 여기서 경로 패턴 /<접두사>* 로 바뀐다 — modules/asset·BE 업로드 키와 같은 값이어야 한다."
+  type        = string
+  default     = "user-profile-img/"
+
+  validation {
+    condition     = endswith(var.asset_profile_prefix, "/") && !startswith(var.asset_profile_prefix, "/")
+    error_message = "asset_profile_prefix 는 슬래시로 끝나고 슬래시로 시작하지 않아야 합니다(예: user-profile-img/)."
+  }
+}
+
+variable "asset_temp_prefix" {
+  description = "가입 전 임시 업로드 키 접두사(슬래시로 끝난다). 여기서 경로 패턴 /<접두사>* 로 바뀐다."
+  type        = string
+  default     = "temp/"
+
+  validation {
+    condition     = endswith(var.asset_temp_prefix, "/") && !startswith(var.asset_temp_prefix, "/")
+    error_message = "asset_temp_prefix 는 슬래시로 끝나고 슬래시로 시작하지 않아야 합니다(예: temp/)."
+  }
+}
+
+variable "asset_temp_ttl_seconds" {
+  description = "임시 업로드(temp/)의 엣지·브라우저 캐시 시간(초). 객체가 하루면 사라지므로 길게 잡을 실익이 없고, 길면 삭제 후에도 엣지 사본이 남는다. 가입 절차 한 번을 덮을 정도면 충분하다."
+  type        = number
+  default     = 300
+
+  validation {
+    condition     = var.asset_temp_ttl_seconds >= 0 && var.asset_temp_ttl_seconds <= 3600
+    error_message = "asset_temp_ttl_seconds 는 0~3600 이어야 합니다(하루살이 객체에 1시간을 넘길 이유가 없습니다)."
+  }
+}
+
 variable "attach_apex_alias" {
   description = <<-EOT
     apex 도메인 A/AAAA(ALIAS) 레코드를 CloudFront 로 붙일지 여부. 이것이 곧 실서비스 전환 스위치다.
