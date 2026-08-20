@@ -44,7 +44,8 @@ class RedisPubSubPublisherTest {
     @DisplayName("publish()는 roomUid·이벤트를 JSON 으로 직렬화해 단일 채널로 발행한다")
     void publish_sendsJsonToChannel() throws Exception {
         RedisPubSubPublisher publisher = new RedisPubSubPublisher(redisTemplate, objectMapper);
-        MessageEvent data = new MessageEvent(42L, "안녕", "닉", LocalDateTime.of(2026, 7, 27, 12, 0), "room-1");
+        MessageEvent data = new MessageEvent(42L, "안녕", "닉", "user-profile-img/42.jpg",
+                LocalDateTime.of(2026, 7, 27, 12, 0), "room-1");
 
         publisher.publish("room-1", new RealtimeEvent("message", data, 7L));
 
@@ -56,6 +57,7 @@ class RedisPubSubPublisherTest {
         assertThat(sent.get("excludeUserAccountId").asLong()).isEqualTo(7L);
         assertThat(sent.get("data").get("id").asLong()).isEqualTo(42L);
         assertThat(sent.get("data").get("content").asString()).isEqualTo("안녕");
+        assertThat(sent.get("data").get("profileImgUrl").asString()).isEqualTo("user-profile-img/42.jpg");
         assertThat(sent.get("data").get("createdAt").asString()).isEqualTo("2026-07-27T12:00:00");
     }
 

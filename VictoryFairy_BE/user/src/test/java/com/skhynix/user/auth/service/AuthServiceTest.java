@@ -67,6 +67,9 @@ class AuthServiceTest {
     @Mock
     private EmailVerificationService emailVerificationService;
 
+    @Mock
+    private com.skhynix.user.profileimage.service.SignupProfileImageService signupProfileImageService;
+
     @InjectMocks
     private AuthService authService;
 
@@ -318,7 +321,8 @@ class AuthServiceTest {
     // ---------- signup ----------
 
     private SignupRequest signupRequest() {
-        return new SignupRequest("홍길동", "01012345678", "test@example.com", Gender.MALE, "nickname", "abc123!@");
+        return new SignupRequest("홍길동", "01012345678", "test@example.com", Gender.MALE, "nickname",
+                "abc123!@", null);
     }
 
     @Test
@@ -437,6 +441,138 @@ class AuthServiceTest {
         verifyNoInteractions(userRepository);
         verify(userAccountRepository, never()).existsByNickname(anyString());
         verify(userAccountRepository, never()).save(any());
+    }
+
+    // ---------- signup: 프로필 이미지 연계 (USER-PI-52 ~ 60) ----------
+
+    @Test
+    @DisplayName("[USER-PI-52, 53] profileImgUrl이 주어지고 이동에 성공하면 저장되는 계정의 "
+            + "profileImgUrl이 temp/ 원본이 아니라 이동 후 반환된 영구 EP다")
+    void signup_withProfileImage_movesAndStoresPermanentEndpoint() {
+        // given
+        SignupRequest request = new SignupRequest("홍길동", "01012345678", "test@example.com",
+                Gender.MALE, "nickname", "abc123!@",
+                "temp/9f1c1e2a-aaaa-4bbb-8ccc-1234567890ab.jpg");
+        given(emailVerificationService.isEmailVerified(request.email())).willReturn(true);
+        given(userRepository.existsByEmail(request.email())).willReturn(false);
+        given(userRepository.existsByTel(request.tel())).willReturn(false);
+        given(userAccountRepository.existsByNickname(request.nickname())).willReturn(false);
+        given(passwordEncoder.encode(request.password())).willReturn("encoded-password");
+        given(userRepository.save(any(User.class))).willAnswer(invocation -> invocation.getArgument(0));
+        given(userAccountRepository.save(any(UserAccount.class)))
+                .willAnswer(invocation -> invocation.getArgument(0));
+        String movedEndpoint = "user-profile-img/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.jpg";
+        given(signupProfileImageService.moveToPermanent(request.profileImgUrl()))
+                .willReturn(movedEndpoint);
+
+        // when
+        authService.signup(request);
+
+        // then
+        ArgumentCaptor<UserAccount> accountCaptor = ArgumentCaptor.forClass(UserAccount.class);
+        verify(userAccountRepository).save(accountCaptor.capture());
+        assertThat(accountCaptor.getValue().getProfileImgUrl()).isEqualTo(movedEndpoint);
+    }
+
+    @Test
+    @DisplayName("[USER-PI-57, 58] 이동에 실패하면(moveToPermanent가 null 반환) 가입은 그대로 성공하고 "
+            + "profileImgUrl은 null로 저장되며, UserBq 저장과 이메일 인증 소비는 그대로 일어난다")
+    void signup_profileImageMoveFails_stillSucceedsWithNullProfileImgUrl() {
+        // given
+        SignupRequest request = new SignupRequest("홍길동", "01012345678", "test@example.com",
+                Gender.MALE, "nickname", "abc123!@",
+                "temp/9f1c1e2a-aaaa-4bbb-8ccc-1234567890ab.jpg");
+        given(emailVerificationService.isEmailVerified(request.email())).willReturn(true);
+        given(userRepository.existsByEmail(request.email())).willReturn(false);
+        given(userRepository.existsByTel(request.tel())).willReturn(false);
+        given(userAccountRepository.existsByNickname(request.nickname())).willReturn(false);
+        given(passwordEncoder.encode(request.password())).willReturn("encoded-password");
+        given(userRepository.save(any(User.class))).willAnswer(invocation -> invocation.getArgument(0));
+        given(userAccountRepository.save(any(UserAccount.class)))
+                .willAnswer(invocation -> invocation.getArgument(0));
+        // 저장소 장애로 이동 실패 — 예외 없이 null을 돌려준다(SignupProfileImageService의 계약).
+        given(signupProfileImageService.moveToPermanent(request.profileImgUrl())).willReturn(null);
+
+        // when
+        authService.signup(request);
+
+        // then: 계정은 저장됐고 이미지 컬럼만 null, 부수효과(UserBq·이메일 인증 소비)는 그대로 일어난다
+        ArgumentCaptor<UserAccount> accountCaptor = ArgumentCaptor.forClass(UserAccount.class);
+        verify(userAccountRepository).save(accountCaptor.capture());
+        assertThat(accountCaptor.getValue().getProfileImgUrl()).isNull();
+        verify(userBqRepository, times(1)).save(any(UserBq.class));
+        verify(emailVerificationService).consumeVerified(request.email());
+    }
+
+    @Test
+    @DisplayName("[USER-PI-55, 56] 못 쓰는 EP(형태 위반·객체 없음)로 이동이 예외를 던지면 가입 트랜잭션이 "
+            + "그 예외로 실패하고 계정·UserBq 어느 쪽도 저장되지 않는다")
+    void signup_invalidProfileImageEndpoint_propagatesExceptionAndDoesNotSaveAccount() {
+        // given
+        SignupRequest request = new SignupRequest("홍길동", "01012345678", "test@example.com",
+                Gender.MALE, "nickname", "abc123!@", "user-profile-img/other-account.jpg");
+        given(emailVerificationService.isEmailVerified(request.email())).willReturn(true);
+        given(userRepository.existsByEmail(request.email())).willReturn(false);
+        given(userRepository.existsByTel(request.tel())).willReturn(false);
+        given(userAccountRepository.existsByNickname(request.nickname())).willReturn(false);
+        given(signupProfileImageService.moveToPermanent(request.profileImgUrl()))
+                .willThrow(new BusinessException(ErrorCode.INVALID_PROFILE_IMAGE_ENDPOINT));
+
+        // when & then
+        assertThatThrownBy(() -> authService.signup(request))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.INVALID_PROFILE_IMAGE_ENDPOINT);
+
+        verify(userRepository, never()).save(any());
+        verify(userAccountRepository, never()).save(any());
+        verify(userBqRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("[USER-PI-51] profileImgUrl이 null이면 이미지 이동을 시도하지 않고(호출은 하되 인자가 "
+            + "null) 계정의 profileImgUrl도 null로 남는다 — 기존 가입 클라이언트 하위 호환")
+    void signup_nullProfileImgUrl_leavesAccountProfileImgUrlNull() {
+        // given
+        SignupRequest request = signupRequest(); // profileImgUrl == null
+        given(emailVerificationService.isEmailVerified(request.email())).willReturn(true);
+        given(userRepository.existsByEmail(request.email())).willReturn(false);
+        given(userRepository.existsByTel(request.tel())).willReturn(false);
+        given(userAccountRepository.existsByNickname(request.nickname())).willReturn(false);
+        given(passwordEncoder.encode(request.password())).willReturn("encoded-password");
+        given(userRepository.save(any(User.class))).willAnswer(invocation -> invocation.getArgument(0));
+        given(userAccountRepository.save(any(UserAccount.class)))
+                .willAnswer(invocation -> invocation.getArgument(0));
+        given(signupProfileImageService.moveToPermanent(null)).willReturn(null);
+
+        // when
+        authService.signup(request);
+
+        // then
+        ArgumentCaptor<UserAccount> accountCaptor = ArgumentCaptor.forClass(UserAccount.class);
+        verify(userAccountRepository).save(accountCaptor.capture());
+        assertThat(accountCaptor.getValue().getProfileImgUrl()).isNull();
+    }
+
+    @Test
+    @DisplayName("[USER-PI-59] 이미지 검증은 검사 순서의 마지막이라, 중복 닉네임으로 먼저 실패하면 "
+            + "이미지 이동 시도(moveToPermanent) 자체가 일어나지 않는다")
+    void signup_duplicateNickname_neverAttemptsProfileImageMove() {
+        // given
+        SignupRequest request = new SignupRequest("홍길동", "01012345678", "test@example.com",
+                Gender.MALE, "nickname", "abc123!@", "temp/whatever.jpg");
+        given(emailVerificationService.isEmailVerified(request.email())).willReturn(true);
+        given(userRepository.existsByEmail(request.email())).willReturn(false);
+        given(userRepository.existsByTel(request.tel())).willReturn(false);
+        given(userAccountRepository.existsByNickname(request.nickname())).willReturn(true);
+
+        // when & then
+        assertThatThrownBy(() -> authService.signup(request))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.DUPLICATE_NICKNAME);
+
+        verifyNoInteractions(signupProfileImageService);
     }
 
     @Test

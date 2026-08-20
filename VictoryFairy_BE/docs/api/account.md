@@ -1,18 +1,19 @@
 # 계정(account) API 명세
 
-> **도메인** `account` — 로그인 계정 자체의 생명주기(탈퇴) + 내 프로필 요약 조회 + 내 프로필 수정(닉네임·비밀번호).
-> **모듈** user (포트 8080) · **경로 접두사** `/api/users` · **엔드포인트** 4개
+> **도메인** `account` — 로그인 계정 자체의 생명주기(탈퇴) + 내 프로필 요약 조회 + 내 프로필 수정(닉네임·비밀번호·프로필 이미지).
+> **모듈** user (포트 8080) · **경로 접두사** `/api/users` · **엔드포인트** 5개
 > **컨트롤러** `user/src/main/java/com/skhynix/user/account/controller/UserAccountController.java` (`@RequestMapping("/users")`)
-> **최종 갱신** 2026-08-17 — `PATCH /api/users/me/password` 성공 시 **그 이전에 발급된 access·refresh 토큰이 즉시 무효화됨**(`main` 84f6f4a 머지 완료, PR #425). 직전 "이전 access 토큰은 최대 3h 그대로 유효하다"는 서술을 정정. (직전: 같은 날 `PATCH /api/users/me/nickname`·`PATCH /api/users/me/password`(내 프로필 수정) 신규 추가, 엔드포인트 2개→4개, 브랜치 `hwannee/be/feat-edit-profile`.)
-> 공통 규약(응답 래퍼·JWT payload·401 4종·**토큰 무효화**)은 [README.md](README.md)를 먼저 볼 것.
+> **최종 갱신** 2026-08-20 — **`POST /api/users/me/profile-image` 신규 추가**(업로드가 곧 프로필 변경 확정, 직전 객체는 커밋 이후 best-effort로 삭제) + **`GET /api/users/me` 응답에 `profileImgUrl` 추가**(키 5개→6개, SELECT 횟수는 그대로 5회 — 이미 조회하는 계정 행의 컬럼이라 추가 조회 없음). 계약 원본 `docs/requirements/user/profile-image.md`(승인됨 2026-08-20, USER-PI-1~121). (직전: 2026-08-17 `PATCH /api/users/me/password` 성공 시 **그 이전에 발급된 access·refresh 토큰이 즉시 무효화됨**(`main` 84f6f4a 머지 완료, PR #425). 직전 "이전 access 토큰은 최대 3h 그대로 유효하다"는 서술을 정정. (직전: 같은 날 `PATCH /api/users/me/nickname`·`PATCH /api/users/me/password`(내 프로필 수정) 신규 추가, 엔드포인트 2개→4개, 브랜치 `hwannee/be/feat-edit-profile`.))
+> 공통 규약(응답 래퍼·JWT payload·401 4종·**토큰 무효화**·**시스템 예외 래핑**)은 [README.md](README.md)를 먼저 볼 것.
 
 ## 엔드포인트 목록
 
 | 메서드 | 경로 | 성공 | 용도 |
 |---|---|---|---|
 | DELETE | [/api/users/me](#delete-apiusersme) | 204 | 회원 탈퇴(soft delete) |
-| GET | [/api/users/me](#get-apiusersme) | 200 | 내 요약 프로필 조회(닉네임·응원 구단·응원 선수·포인트·누적 점수) |
+| GET | [/api/users/me](#get-apiusersme) | 200 | 내 요약 프로필 조회(닉네임·응원 구단·응원 선수·포인트·누적 점수·프로필 이미지) |
 | PATCH | [/api/users/me/nickname](#patch-apiusersmenickname) | 204 | 닉네임 변경(형식→중복→쿨다운 판정) |
+| POST | [/api/users/me/profile-image](#post-apiusersmeprofile-image) | 200 | 프로필 이미지 등록·변경(업로드가 곧 변경 확정) — 신규 |
 | PATCH | [/api/users/me/password](#patch-apiusersmepassword) | 200 | 비밀번호 변경(성공 시 refresh 전량 만료+새 토큰 쌍 발급) |
 
 ## 이 도메인의 특이사항
@@ -26,7 +27,7 @@
 ---
 
 ## DELETE /api/users/me
-> 최종 변경: 2026-07-27 (추정) — 도메인 분리 이전 이력이 없어 `UserAccountController` 마지막 커밋 기준
+> 최종 변경: 2026-08-20 — 탈퇴 확정(커밋) 후 그 계정의 프로필 이미지 객체를 best-effort로 삭제하는 부수 효과 추가(`WithdrawnProfileImageListener`, `AFTER_COMMIT`). **요청·응답 계약·상태 코드는 변경 없음**(여전히 204, 본문 없음). (직전: 2026-07-27 (추정) — 도메인 분리 이전 이력이 없어 `UserAccountController` 마지막 커밋 기준)
 
 회원 탈퇴(soft delete). `UserAccountController` → `UserAccountService.withdraw()`.
 
@@ -43,6 +44,8 @@
 2. `UserRefreshTokenRepository.expireValidTokens(account, now)` — 해당 계정의 유효한 refresh 토큰을 모두 만료 처리한다.
 
 탈퇴 전에 발급받은 **access 토큰은 폐기되지 않는다**(stateless라 서버가 할 수 없음). 대신 이후의 모든 인증 필요 요청에서 `JwtAuthenticationFilter`가 `findActiveIdByUid()`로 매번 활성 여부를 다시 조회하므로, 탈퇴 순간부터 그 access 토큰은 남은 유효 기간(최대 3h)과 무관하게 즉시 인증되지 않는다.
+
+**프로필 이미지 삭제(2026-08-20 신규, best-effort)**: 트랜잭션이 **커밋된 뒤**(`WithdrawnProfileImageListener`, `@TransactionalEventListener(phase = AFTER_COMMIT)`) 그 계정의 `profile_img_url`이 가리키던 S3 객체를 삭제한다. `AFTER_COMMIT`이라 롤백된 탈퇴 시도에서는 아예 호출되지 않는다(계정은 살아 있는데 사진만 사라지는 상태를 막는다). **삭제가 실패해도 탈퇴 응답은 여전히 204** — 이미지 하나 때문에 탈퇴가 막히지 않으며, 실패한 EP는 ERROR 로그로만 남는다(재시도 없음). `profile_img_url` 컬럼 값 자체는 지우지 않는다(soft delete라 행이 남고, 탈퇴 계정은 어떤 응답에도 노출되지 않는다).
 
 **실패**
 
@@ -77,7 +80,7 @@ curl -i -X DELETE http://localhost:8080/api/users/me \
 ---
 
 ## GET /api/users/me
-> 최종 변경: 2026-08-06 — 응답에 `supportPlayers`(현재 응원 중인 선수 목록) 추가. 키 4개→5개, SELECT 4회→5회로 정정
+> 최종 변경: 2026-08-20 — 응답에 `profileImgUrl` 추가. 키 5개→6개, SELECT 횟수는 5회 그대로(추가 조회 없음). (직전: 2026-08-06 응답에 `supportPlayers`(현재 응원 중인 선수 목록) 추가. 키 4개→5개, SELECT 4회→5회로 정정)
 
 내 요약 프로필 조회(닉네임·응원 구단·응원 선수·보유 포인트·누적 획득 점수). `UserAccountController.getMyProfile()` → `UserProfileService.getMyProfile()`(클래스 레벨 `@Transactional(readOnly = true)`, 쓰기 경로 없음 — 아래 안전망이 작동해도 행을 만들지 않는다). 응원 선수 목록은 `SupportService.currentSupportedPlayers()`에 위임한다(같은 목록을 두 곳에서 따로 만들면 한쪽만 고쳐질 때 응원 API 응답과 갈라지기 때문).
 
@@ -96,24 +99,38 @@ curl -i -X DELETE http://localhost:8080/api/users/me \
 | data.supportPlayers | `PlayerResponse[]` | **현재 응원 중인**(`oppose is null`) 선수 전체, `playerName` 오름차순. 항목은 [선수(player)](player.md#get-apiplayers)·[응원(support)](support.md) API와 **완전히 동일한 `PlayerResponse` 재사용**(전용 DTO 없음) — 키 6개 `{teamId, teamName, playerId, playerName, playerNumber, playerPosition}`. `playerNumber`·`playerPosition`은 nullable이라 `null`이 그대로 나갈 수 있다 |
 | data.point | long(JSON 숫자) | 보유 포인트. `users_account.point` |
 | data.bqScore | long(JSON 숫자) | 누적 획득 점수. `users_bq.bq_score`. **그 계정의 `users_bq` 행이 없으면 `null`이 아니라 `0`**(배포 직후~백필 사이의 안전망, 아래 각주 참고) |
+| data.profileImgUrl | String \| null | 프로필 이미지의 **EP**(BaseURL을 뺀 오브젝트 키, `user-profile-img/{uuid}.{ext}` 형태 — 2026-08-20 신규). `users_account.profile_img_url`을 그대로 노출한다(추가 SELECT 없음). **이미지가 없으면 `null`**이며 빈 문자열도 기본 이미지 URL도 아니다(`supportTeam`이 `null`인 것과 같은 방식). 값을 실제 이미지로 쓰려면 클라이언트가 `https://victoryfairy.com/` + 이 값을 그대로 이어 붙인다(선행 슬래시·버킷명은 없다) — 자세한 내용은 아래 "profileImgUrl 값의 의미" 참고 |
 
-`data`의 키 집합은 정확히 이 5개로 닫혀 있다(2026-08-06 이전은 4개) — `id`·`uid`·`password`·`email`·`tel`·`exitAt`·`createdAt`·`updatedAt`은 응답 어디에도 없다(`UserAccount` 엔티티를 그대로 싣지 않고 전용 DTO로 조립).
+`data`의 키 집합은 정확히 이 6개로 닫혀 있다(2026-08-20 이전은 5개, 2026-08-06 이전은 4개) — `id`·`uid`·`password`·`email`·`tel`·`exitAt`·`createdAt`·`updatedAt`은 응답 어디에도 없다(`UserAccount` 엔티티를 그대로 싣지 않고 전용 DTO로 조립).
+
+### profileImgUrl 값의 의미 (프론트 필독)
+
+이 API 전체(`GET /me`·`POST /me/profile-image`·`POST /api/auth/profile-image`·[채팅](chat.md)의 `MessageResponse`/`MessageEvent`)에서 `profileImgUrl`은 항상 같은 규칙을 따른다.
+
+- **값은 BaseURL을 뺀 EP다.** 스킴(`https://`)·도메인(`victoryfairy.com`)·버킷명·선행 슬래시(`/`)를 포함하지 않는다 — `user-profile-img/9f1c4e2a-....jpg`처럼 세그먼트 2개(`접두/파일명`)뿐이다.
+- **클라이언트가 `https://victoryfairy.com/` + 이 값을 그대로 이어 붙이면 실제 이미지 URL이 된다.** 서버는 이 조립을 대신 해 주지 않는다(응답에 완성된 URL이 없다).
+- **값이 없으면 `null`이다.** 빈 문자열(`""`)도 아니고 기본 이미지의 URL도 아니다 — "이미지 없음"과 "이미지가 있는데 아직 못 정했다"를 구분할 필요가 없는 API 설계다.
+
+```json
+{"profileImgUrl": "user-profile-img/9f1c4e2a-6b3d-4a1f-8c2e-1a2b3c4d5e6f.jpg"}
+```
+→ 실제 이미지: `https://victoryfairy.com/user-profile-img/9f1c4e2a-6b3d-4a1f-8c2e-1a2b3c4d5e6f.jpg`
 
 ⚠ **`supportTeam`(단일 값)과 `supportPlayers`(목록)의 "없음" 표현은 비대칭이다.** 구단은 단일 값이라 "없음"을 `null`로만 표현할 수 있지만, 목록은 빈 배열이 그대로 "0건"이라 `supportPlayers`는 응원 선수가 없어도 `null`이 아니라 **빈 배열 `[]`**이다. 응원 구단이 아예 없는 계정(구단 선택 전)에서도 `supportPlayers`는 (구단이 없으므로 당연히) `[]`이며 200이다 — 400 `SUPPORT_TEAM_REQUIRED`가 아니다.
 
 ⚠ **`supportPlayers`의 길이는 보통 4 이하지만, 그 상한을 강제하는 주체는 이 엔드포인트가 아니다.** 4명 상한은 [`POST /api/support/players`](support.md#post-apisupportplayers)가 추가 시점에 거부하는 것으로만 강제되며, `/me`는 "있는 그대로" 반환한다. 상한 도입(2026-08-06) 이전에 이미 5명 이상을 응원 중이던 계정은 그 초과분이 그대로 반환된다(마이그레이션 없음) — **클라이언트가 `supportPlayers.length <= 4`를 불변으로 가정하면 안 된다.**
 
-응원 선수가 있는 경우:
+응원 선수·프로필 이미지가 있는 경우:
 ```json
-{"success":true,"data":{"nickname":"gildong","supportTeam":{"id":6,"name":"KIA"},"supportPlayers":[{"teamId":6,"teamName":"KIA","playerId":168,"playerName":"김도영","playerNumber":"5","playerPosition":"INFIELDER"},{"teamId":6,"teamName":"KIA","playerId":414,"playerName":"고종욱","playerNumber":null,"playerPosition":null}],"point":0,"bqScore":0},"message":null}
+{"success":true,"data":{"nickname":"gildong","supportTeam":{"id":6,"name":"KIA"},"supportPlayers":[{"teamId":6,"teamName":"KIA","playerId":168,"playerName":"김도영","playerNumber":"5","playerPosition":"INFIELDER"},{"teamId":6,"teamName":"KIA","playerId":414,"playerName":"고종욱","playerNumber":null,"playerPosition":null}],"point":0,"bqScore":0,"profileImgUrl":"user-profile-img/9f1c4e2a-6b3d-4a1f-8c2e-1a2b3c4d5e6f.jpg"},"message":null}
 ```
 
-응원 구단·응원 선수 모두 없는 경우:
+응원 구단·응원 선수·프로필 이미지 모두 없는 경우:
 ```json
-{"success":true,"data":{"nickname":"gildong","supportTeam":null,"supportPlayers":[],"point":0,"bqScore":0},"message":null}
+{"success":true,"data":{"nickname":"gildong","supportTeam":null,"supportPlayers":[],"point":0,"bqScore":0,"profileImgUrl":null},"message":null}
 ```
 
-**내부 동작(SELECT 5회 고정, 응원 이력 행 수·응원 선수 수와 무관)**: `JwtAuthenticationFilter`의 uid→id 해석(`findActiveIdByUid`) 1 + 계정 조회 1 + 응원 구단 행 조회(+구단명 LAZY 프록시 초기화) 1 + 응원 선수 목록(fetch join 1쿼리로 선수·소속 구단까지 함께 가져온다, `SupportService.currentSupportedPlayers`) 1 + 누적 점수 조회 1 = 5. 응원 선수가 0명이어도 fetch join 쿼리 자체는 나가므로 등호로 고정된 횟수다(이전 문서의 "SELECT 4회 고정"은 필터 단계를 빼고 세거나 응원 선수 조회를 2쿼리로 세던 낡은 서술 — 정정됨). DTO 조립은 서비스 트랜잭션 안에서 끝난다(`open-in-view: false`인 prod에서 컨트롤러가 지연 로딩 연관을 읽으면 `LazyInitializationException`이 나기 때문).
+**내부 동작(SELECT 5회 고정, 응원 이력 행 수·응원 선수 수와 무관)**: `JwtAuthenticationFilter`의 uid→id 해석(`findActiveIdByUid`) 1 + 계정 조회 1 + 응원 구단 행 조회(+구단명 LAZY 프록시 초기화) 1 + 응원 선수 목록(fetch join 1쿼리로 선수·소속 구단까지 함께 가져온다, `SupportService.currentSupportedPlayers`) 1 + 누적 점수 조회 1 = 5. 응원 선수가 0명이어도 fetch join 쿼리 자체는 나가므로 등호로 고정된 횟수다(이전 문서의 "SELECT 4회 고정"은 필터 단계를 빼고 세거나 응원 선수 조회를 2쿼리로 세던 낡은 서술 — 정정됨). `profileImgUrl`(2026-08-20 신규)은 계정 조회 시점에 이미 로딩되는 `users_account.profile_img_url` 컬럼이라 이 5회에서 늘지 않는다. DTO 조립은 서비스 트랜잭션 안에서 끝난다(`open-in-view: false`인 prod에서 컨트롤러가 지연 로딩 연관을 읽으면 `LazyInitializationException`이 나기 때문).
 
 **실패**
 
@@ -197,6 +214,64 @@ curl -i -X PATCH http://localhost:8080/api/users/me/nickname \
 
 ---
 
+## POST /api/users/me/profile-image
+> 최종 변경: 2026-08-20 — 신규 추가
+
+내 프로필 이미지를 등록·변경한다. `UserAccountController.uploadProfileImage()` → `AccountProfileImageService.upload()`. **업로드가 곧 변경 확정**이며 별도 확정·취소 단계가 없다 — 성공 응답이 오는 순간부터 `GET /api/users/me`의 `profileImgUrl`이 그 값이다.
+
+**인증 필요** — `Authorization: Bearer <accessToken>`. `/api/users/**`는 `SecurityConfig`에 별도 `permitAll` 줄이 없어 `anyRequest().authenticated()`에 자연히 걸린다. ⚠ 여기에 `permitAll` 줄을 추가하는 것은 버그다(`/api/games/support` 선례와 같은 함정).
+
+**대상 계정은 access 토큰에서만 정해진다.** 경로·본문 어디에도 계정 식별자가 없다.
+
+**요청**: `multipart/form-data`, 파트 1개.
+
+| 파트 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| image | 파일 | 예 | 업로드할 이미지. `@RequestPart(required = false)`로 받아 "파트 없음"과 "파트 이름이 다름"을 같은 400으로 흡수한다. `appId`는 받지 않는다 — 함께 보내도 무시된다(비인증 경로만의 한도이기 때문) |
+
+**허용 형식·크기는 [`POST /api/auth/profile-image`](auth.md#post-apiauthprofile-image)와 완전히 동일하다**(JPEG·PNG·WebP 3종, 매직 넘버 판정, 최대 5MiB, 서버가 UUID v4로 파일명 생성, 바이트 무변형 저장 — `ProfileImagePolicy`/`ProfileImageFormat`을 공유). 다른 점은 저장 위치뿐이다: 이 경로는 **`temp/`를 경유하지 않고 처음부터 `user-profile-img/`에 저장**하며(`AccountProfileImageService.upload()`), `appId` 기반 10회/30분 한도가 적용되지 않는다(인증된 요청이라 이미 계정 단위로 식별된다).
+
+**처리 순서(계약)**: ①S3에 새 객체 저장 → ②`users_account.profile_img_url`을 새 EP로 교체(이 단계까지가 응답을 결정) → ③커밋 이후 직전 객체를 best-effort로 삭제.
+
+- ①이 실패하면 컬럼은 손대지 않은 채 5xx다 — 저장에 실패한 이미지가 프로필이 되는 일은 없다.
+- ②까지 성공하면 **응답은 200**이다. ③(직전 객체 삭제)은 응답 이후의 부수 작업이라 **실패해도 응답을 바꾸지 않는다** — 옛 객체는 참조 없이 남고(고아), ERROR 로그만 남는다(재시도·보류 큐 없음). 첫 업로드(직전 값이 `null`)는 애초에 삭제를 시도하지 않는다.
+
+**응답 200 OK** `ApiResponse<ProfileImageResponse>`
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| data.profileImgUrl | String | 새로 저장된 객체의 EP. 형태는 `user-profile-img/{uuid}.{jpg\|png\|webp}` — `GET /api/users/me`가 이후 반환하는 값과 문자 그대로 동일 |
+
+```json
+{"success":true,"data":{"profileImgUrl":"user-profile-img/1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d.png"},"message":null}
+```
+
+**실패**
+
+| 상태 | ErrorCode | 조건 |
+|---|---|---|
+| 401 | UNAUTHENTICATED | Authorization 헤더 없음/무효 토큰/refresh 토큰으로 요청/탈퇴한 계정의 access 토큰/비밀번호 변경 이전에 발급된 access 토큰 |
+| 400 | PROFILE_IMAGE_REQUIRED | `image` 파트가 없거나 이름이 다르거나 0바이트 |
+| 400 | INVALID_PROFILE_IMAGE_FORMAT | 파일 선두 바이트가 JPEG·PNG·WebP 어느 것도 아님 |
+| 413 | PROFILE_IMAGE_TOO_LARGE | 이미지가 5MiB 초과(공유 `GlobalExceptionHandler`, `ApiResponse` 래퍼 붙음) |
+| 415 | (`ApiResponse` 래퍼, ErrorCode 없음) | `Content-Type`이 `multipart/form-data`가 아님(2026-08-20 신설 공유 핸들러) |
+
+S3 저장(①) 자체가 실패하면 500이다 — `GlobalExceptionHandler.handleUnexpected`(catch-all, 2026-08-20 신설)가 원인 예외를 잡아 `ErrorCode.INTERNAL_SERVER_ERROR`로 통일해 `ApiResponse` 래퍼가 붙은 500으로 응답한다(원인 예외 클래스명은 응답에 실리지 않고 서버 로그에만 남는다 — [auth](auth.md#post-apiauthprofile-image)와 같은 방식).
+
+**예시**
+```bash
+curl -i -X POST http://localhost:8080/api/users/me/profile-image \
+  -H 'Authorization: Bearer eyJ...' \
+  -F 'image=@/path/to/photo.png;type=image/png'
+```
+
+형식 위반 예시(400):
+```json
+{"success":false,"data":null,"message":"JPG, PNG, WEBP 이미지만 업로드할 수 있습니다."}
+```
+
+---
+
 ## PATCH /api/users/me/password
 > 최종 변경: 2026-08-17 — **성공 시 그 이전에 발급된 access·refresh 토큰이 즉시 무효화됨**(`UserAccount.passwordChangedEpochSecond`, PR #425, `main` 84f6f4a 머지 완료). 종전 "이전 access 토큰은 최대 3h 그대로 유효하다"는 서술을 정정. (직전: 같은 날 신규 추가, 브랜치 `hwannee/be/feat-edit-profile`)
 
@@ -274,7 +349,8 @@ curl -i -X PATCH http://localhost:8080/api/users/me/password \
 
 ## 관련 문서
 
-- [인증(auth)](auth.md) — 탈퇴가 login/refresh/signup 응답에 미치는 영향의 반대편 서술. signup이 `users_bq` 행을 함께 만드는 부수 효과도 그쪽 문서 참고. `PATCH /api/users/me/password`가 재사용하는 `TokenResponse`도 이쪽 문서(로그인·재발급)에서 정의된다.
+- [인증(auth)](auth.md) — 탈퇴가 login/refresh/signup 응답에 미치는 영향의 반대편 서술. signup이 `users_bq` 행을 함께 만드는 부수 효과도 그쪽 문서 참고. `PATCH /api/users/me/password`가 재사용하는 `TokenResponse`도 이쪽 문서(로그인·재발급)에서 정의된다. `POST /api/auth/profile-image`(가입 전, 비인증, `temp/`)는 이 문서의 `POST /api/users/me/profile-image`(가입 후, 인증, `user-profile-img/`)와 짝을 이룬다.
 - [구단(team)](team.md) — `supportTeam` 필드가 재사용하는 `TeamResponse` 정의.
 - [선수(player)](player.md) · [응원(support)](support.md) — `supportPlayers` 필드가 재사용하는 `PlayerResponse` 정의. **`PlayerResponse`를 바꾸면 `GET /players`·응원 API 2개·이 엔드포인트 총 4곳이 함께 바뀐다.**
-- 요구사항: `docs/requirements/user/withdraw.md`, `docs/requirements/user/me-profile.md`(USER-ME-1~36, 2026-08-06 2차 개정으로 `supportPlayers` 추가·상한 무관 서술 확정), `docs/requirements/user/profile-edit.md`(USER-PE-1~49, 승인됨 2026-08-17 — `PATCH /me/nickname`·`PATCH /me/password`의 출처. USER-PE-32는 폐기 표기 — 아래 문서로 대체됨), `docs/requirements/user/access-token-invalidation.md`(USER-ATI-1~22, 승인됨 2026-08-17 — `PATCH /me/password`의 토큰 즉시 무효화 계약의 출처)
+- [채팅(chat)](chat.md) — `MessageResponse`/`MessageEvent`의 `profileImgUrl`이 이 문서의 `profileImgUrl`과 같은 값·같은 형태를 재사용한다(둘 다 `users_account.profile_img_url` 출처).
+- 요구사항: `docs/requirements/user/withdraw.md`, `docs/requirements/user/me-profile.md`(USER-ME-1~36, 2026-08-06 2차 개정으로 `supportPlayers` 추가·상한 무관 서술 확정), `docs/requirements/user/profile-edit.md`(USER-PE-1~49, 승인됨 2026-08-17 — `PATCH /me/nickname`·`PATCH /me/password`의 출처. USER-PE-32는 폐기 표기 — 아래 문서로 대체됨), `docs/requirements/user/access-token-invalidation.md`(USER-ATI-1~22, 승인됨 2026-08-17 — `PATCH /me/password`의 토큰 즉시 무효화 계약의 출처), `docs/requirements/user/profile-image.md`(승인됨 2026-08-20, USER-PI-1~121 — `GET /me`의 `profileImgUrl`·`POST /me/profile-image`의 출처)
