@@ -244,6 +244,35 @@
 }
 
 /* ------------------------------------------------------------------ *
+ * 날짜 구분선 — 앞 메시지와 날짜가 달라지는 자리에 끼우는 한 줄.
+ *
+ * 가로선은 말풍선의 24px 여백을 따르지 않고 시트 끝까지 간다(디자인 그대로) —
+ * 대화가 여기서 한 번 끊긴다는 걸 여백 없이 가로지르는 선이 더 분명히 보여준다.
+ * ------------------------------------------------------------------ */
+.lounge-chat__day-line {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 28px;
+}
+
+.lounge-chat__day-rule {
+  flex: 1 0 0;
+  min-width: 0;
+  height: 1px;
+  background-color: var(--color-line-lighter);
+}
+
+.lounge-chat__day-text {
+  flex-shrink: 0;
+  color: var(--color-label-assistive);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+/* ------------------------------------------------------------------ *
  * 안내 문구 — 로딩 · 실패 · 빈 목록. 말풍선 대신 목록 가운데에 한 줄로 놓는다.
  * ------------------------------------------------------------------ */
 .lounge-chat__notice {
