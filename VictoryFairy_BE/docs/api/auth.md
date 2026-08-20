@@ -3,7 +3,7 @@
 > **도메인** `auth` — 회원가입 전 사전 검사, 이메일 소유 확인, 가입 전 프로필 이미지 업로드, 가입, 로그인/토큰 수명 관리.
 > **모듈** user (포트 8080) · **경로 접두사** `/api/auth` · **엔드포인트** 10개
 > **컨트롤러** `user/src/main/java/com/skhynix/user/auth/controller/AuthController.java` (`@RequestMapping("/auth")`)
-> **최종 갱신** 2026-08-20 — **`POST /api/auth/profile-image` 신규 추가**(가입 전 프로필 이미지 업로드, 이 저장소에서 인증 없이 쓰기가 되는 유일한 경로) + **`POST /api/auth/signup` 요청에 선택 필드 `profileImgUrl` 추가**(가입 성공 시 `temp/` → `user-profile-img/` 이동, 이동 실패는 가입 자체를 막지 않고 값만 `null`). 계약 원본 `docs/requirements/user/profile-image.md`(승인됨 2026-08-20, USER-PI-1~121). (직전: 2026-08-17 `POST /api/auth/refresh`가 **비밀번호 변경 이전에 발급된 refresh 토큰도 거절**하게 됨(`main` 84f6f4a 머지 완료, PR #425 — 응답은 기존 401 `EXPIRED_REFRESH_TOKEN`과 동일, 신규 코드 없음). (직전: 2026-08-04 `POST /api/auth/signup`에 `users_bq` 행 생성 부수 효과 반영, 요청·응답 계약은 변경 없음.))
+> **최종 갱신** 2026-08-20 — **`POST /api/auth/profile-image` 신규 추가**(가입 전 프로필 이미지 업로드, 이 저장소에서 인증 없이 쓰기가 되는 유일한 경로) + **`POST /api/auth/signup` 요청에 선택 필드 `profileImgUrl` 추가**(가입 성공 시 `temp/` → `user-profile-img/` 이동, 이동 실패는 가입 자체를 막지 않고 값만 `null`). 계약 원본 `docs/requirements/user/profile-image.md`(승인됨 2026-08-20, USER-PI-1~121). (직전: 2026-08-17 `POST /api/auth/refresh`가 **비밀번호 변경 이전에 발급된 refresh 토큰도 거절**하게 됨(`main` 84f6f4a 머지 완료, PR #425 — 응답은 기존 401 `EXPIRED_REFRESH_TOKEN`과 동일, 신규 코드 없음).) 그 이전 이력은 각 엔드포인트 섹션의 `최종 변경` 줄에 남아 있다.
 > 공통 규약(응답 래퍼·JWT payload·401 4종·403 부재·**토큰 무효화**·**시스템 예외 래핑**)은 [README.md](README.md)를 먼저 볼 것.
 
 ## 엔드포인트 목록
