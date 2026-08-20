@@ -46,7 +46,8 @@ class RealtimeEventSubscriberTest {
     @Test
     @DisplayName("[왕복] 발행한 이벤트가 수신 측에서 같은 roomUid·이벤트명·제외대상·payload 로 레지스트리에 닿는다")
     void roundTrip_deliversEquivalentEventToRegistry() {
-        MessageEvent data = new MessageEvent(42L, "안녕", "닉", LocalDateTime.of(2026, 7, 27, 12, 0), "room-1");
+        MessageEvent data = new MessageEvent(42L, "안녕", "닉", "user-profile-img/42.jpg",
+                LocalDateTime.of(2026, 7, 27, 12, 0), "room-1");
         new RedisPubSubPublisher(redisTemplate, objectMapper)
                 .publish("room-1", new RealtimeEvent("message", data, 7L));
         ArgumentCaptor<String> payload = ArgumentCaptor.forClass(String.class);
@@ -67,6 +68,7 @@ class RealtimeEventSubscriberTest {
                 "id", 42,
                 "content", "안녕",
                 "senderNickname", "닉",
+                "profileImgUrl", "user-profile-img/42.jpg",
                 "createdAt", "2026-07-27T12:00:00",
                 "roomUid", "room-1"));
     }
