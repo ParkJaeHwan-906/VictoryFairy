@@ -50,7 +50,7 @@ class PasswordPolicyViolationCountTest {
     }
 
     private SignupRequest requestWithPassword(String password) {
-        return new SignupRequest("홍길동", "01012345678", "test@example.com", Gender.MALE, "nickname", password);
+        return new SignupRequest("홍길동", "01012345678", "test@example.com", Gender.MALE, "nickname", password, null);
     }
 
     private Set<ConstraintViolation<SignupRequest>> passwordViolations(String password) {

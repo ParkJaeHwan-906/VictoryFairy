@@ -3,7 +3,7 @@
 > **도메인** `game` — 날짜별 KBO 경기 일정·스코어, 경기별 선발 라인업, 내 활성 응원 구단 경기 목록.
 > **모듈** user (포트 8080) · **경로 접두사** `/api/games` · **엔드포인트** 3개
 > **컨트롤러** `user/src/main/java/com/skhynix/user/game/controller/GameController.java`(`@RequestMapping("/games")`, `GET`+`GET /support`) · `GameLineupController.java`(`@RequestMapping("/games/lineup")`)
-> **최종 갱신** 2026-08-13 — `GET /api/games/support` 신규 추가: 인증된 계정의 **활성 응원 구단**(홈 또는 원정)이 참여한 경기만 돌려주는 조회. **이 도메인 최초의 인증 필수 엔드포인트**라 아래 "이 도메인의 특이사항"의 "전부 공개 참조 데이터" 서술이 더 이상 도메인 전체에 참이 아니게 됐다(범위를 `/games`·`/games/lineup` 두 경로로 좁혀 정정). 응답 형식·13필드·정렬·날짜 해석 규칙은 `GET /api/games`와 완전히 동일하며, `GET /api/games`·`GET /api/games/lineup`의 기존 계약은 변경 없음(요구사항 USER-GSP-24). (직전: 같은 날 `GET /api/games/lineup`의 `gameId` 파라미터 누락 400 서술 정정: `web-support`의 `GlobalExceptionHandler`에 `MissingServletRequestParameterException` 핸들러가 추가돼(공유 컴포넌트, user·quiz 공통) **이제 이 400도 `ApiResponse` 래퍼를 탄다**(종전엔 래퍼 아님으로 서술). 엔드포인트 자체·다른 400(타입 변환 실패 등)은 불변. (직전: 2026-08-11 `GET /api/games` 응답에 `inning`/`inningHalf` 필드 추가(11→13필드, `games` 테이블에 `current_inning`/`inning_half` 컬럼 신설). 같은 날 devdb 실측으로 현재는 항상 `null`임을 확인(아래 참고). (직전: 같은 날 `cancelReason` 필드 반영(10→11필드, 커밋 f01d08e #281). 같은 날 운영 DB 실측으로 py-collector 쓰기가 이미 동작 중임을 확인해 서술 정정, `cancelReason` 미채움 시 클라이언트 fallback(`"경기취소"`) 권장 규칙 추가(아래 참고).)))
+> **최종 갱신** 2026-08-20 — `date` 형식 위반 400의 응답 형태 정정: `GlobalExceptionHandler.handleTypeMismatch`(공유 컴포넌트 신설)가 `MethodArgumentTypeMismatchException`을 잡아 이제 `ApiResponse` 래퍼가 붙는다(종전엔 래퍼 없음). `GET /api/games`·`GET /api/games/support` 둘 다 해당, 엔드포인트·다른 계약은 불변. (직전: 2026-08-13 `GET /api/games/support` 신규 추가: 인증된 계정의 **활성 응원 구단**(홈 또는 원정)이 참여한 경기만 돌려주는 조회. **이 도메인 최초의 인증 필수 엔드포인트**라 아래 "이 도메인의 특이사항"의 "전부 공개 참조 데이터" 서술이 더 이상 도메인 전체에 참이 아니게 됐다(범위를 `/games`·`/games/lineup` 두 경로로 좁혀 정정). 응답 형식·13필드·정렬·날짜 해석 규칙은 `GET /api/games`와 완전히 동일하며, `GET /api/games`·`GET /api/games/lineup`의 기존 계약은 변경 없음(요구사항 USER-GSP-24). (직전: 같은 날 `GET /api/games/lineup`의 `gameId` 파라미터 누락 400 서술 정정: `web-support`의 `GlobalExceptionHandler`에 `MissingServletRequestParameterException` 핸들러가 추가돼(공유 컴포넌트, user·quiz 공통) **이제 이 400도 `ApiResponse` 래퍼를 탄다**(종전엔 래퍼 아님으로 서술). 엔드포인트 자체는 불변, 타입 변환 실패(400)는 위 2026-08-20 항목에서 함께 정정됨. (직전: 2026-08-11 `GET /api/games` 응답에 `inning`/`inningHalf` 필드 추가(11→13필드, `games` 테이블에 `current_inning`/`inning_half` 컬럼 신설). 같은 날 devdb 실측으로 현재는 항상 `null`임을 확인(아래 참고). (직전: 같은 날 `cancelReason` 필드 반영(10→11필드, 커밋 f01d08e #281). 같은 날 운영 DB 실측으로 py-collector 쓰기가 이미 동작 중임을 확인해 서술 정정, `cancelReason` 미채움 시 클라이언트 fallback(`"경기취소"`) 권장 규칙 추가(아래 참고).))))
 > 공통 규약(응답 래퍼·401 정책)은 [README.md](README.md)를 먼저 볼 것.
 
 ## 엔드포인트 목록
@@ -29,7 +29,7 @@
 ---
 
 ## GET /api/games
-> 최종 변경: 2026-08-11 — 응답에 `inning`/`inningHalf` 추가(11→13필드, `games.current_inning`/`games.inning_half` 컬럼 신설). **현재는 항상 `null`**이다 — 이 값을 채우는 주체는 py-collector이고 수집기 쪽 구현이 아직 없다(`cancelReason`이 처음 추가됐을 때와 같은 상태, 아래 참고). (직전: 같은 날 응답에 `cancelReason` 추가(10→11필드, 커밋 f01d08e #281), 같은 날 운영 DB 실측 결과 반영("수집기 미구현·항상 null" 서술을 실측값으로 정정), `cancelReason` 미채움 시 클라이언트 fallback(`cancelReason ?? "경기취소"`, `CANCELED`일 때만 적용) 권장 규칙 추가. (그 이전: 2026-08-04 `homeTeamId`/`awayTeamId` 추가, 8→10필드))
+> 최종 변경: 2026-08-20 — `date` 형식 위반 400의 응답 형태 정정(래퍼 없음 → `ApiResponse` 래퍼, `GlobalExceptionHandler.handleTypeMismatch` 신설). 엔드포인트·다른 필드는 불변. (직전: 2026-08-11 응답에 `inning`/`inningHalf` 추가(11→13필드, `games.current_inning`/`games.inning_half` 컬럼 신설). **현재는 항상 `null`**이다 — 이 값을 채우는 주체는 py-collector이고 수집기 쪽 구현이 아직 없다(`cancelReason`이 처음 추가됐을 때와 같은 상태, 아래 참고). (직전: 같은 날 응답에 `cancelReason` 추가(10→11필드, 커밋 f01d08e #281), 같은 날 운영 DB 실측 결과 반영("수집기 미구현·항상 null" 서술을 실측값으로 정정), `cancelReason` 미채움 시 클라이언트 fallback(`cancelReason ?? "경기취소"`, `CANCELED`일 때만 적용) 권장 규칙 추가. (그 이전: 2026-08-04 `homeTeamId`/`awayTeamId` 추가, 8→10필드)))
 
 날짜별 경기 목록 조회. `GameController` → `GameService.getGames(LocalDate)` → `GameRepository.findAllByGameDateGreaterThanEqualAndGameDateLessThanOrderByGameDateAsc(...)`.
 
@@ -97,7 +97,7 @@ cancelReason ?? "경기취소"   // gameState === "CANCELED" 일 때만 적용
 
 | 상태 | 코드 | 조건 |
 |---|---|---|
-| 400 | (래퍼 없음) | `date` 형식 위반(예: `?date=2026/08/01`, `?date=20260801`) 또는 존재하지 않는 날짜(예: `?date=2026-13-01`). **`date` 자체가 없는 것은 더 이상 오류가 아니다**(200 + 오늘) — 이 400은 오직 "값은 있는데 파싱이 안 됨"에만 해당한다. 컨트롤러 진입 전 타입 변환·바인딩 단계라 `GlobalExceptionHandler`가 아니라 Spring 기본 예외 처리(`DefaultHandlerExceptionResolver`)가 처리한다 — **`GET /api/players`의 `teamId` 형식 오류와 같은 사정으로, 이 응답만 `ApiResponse` 래퍼가 아니다** |
+| 400 | (`ApiResponse` 래퍼, ErrorCode 없음) | `date` 형식 위반(예: `?date=2026/08/01`, `?date=20260801`) 또는 존재하지 않는 날짜(예: `?date=2026-13-01`). **`date` 자체가 없는 것은 더 이상 오류가 아니다**(200 + 오늘) — 이 400은 오직 "값은 있는데 파싱이 안 됨"에만 해당한다. 컨트롤러 진입 전 타입 변환·바인딩 단계지만 2026-08-20부터 `GlobalExceptionHandler.handleTypeMismatch`(공유 컴포넌트 신설)가 잡아 `ApiResponse` 래퍼를 붙인다(종전엔 Spring 기본 `DefaultHandlerExceptionResolver`가 처리해 래퍼가 없었다 — **`GET /api/players`의 `teamId` 형식 오류와 같은 사정으로 함께 정정됨**, [README.md](README.md#1-응답-래퍼--도메인엔드포인트마다-다르다) 참고) |
 | 401 | UNAUTHENTICATED | `GET` 이외의 메서드로 이 경로 요청(`permitAll`이 GET으로만 좁혀져 있음 — 405 아님) |
 
 Authorization 헤더가 있어도(만료·무효 토큰이어도) 이 경로는 `permitAll`이라 검증 자체를 거치지 않고 그대로 200을 반환한다.
@@ -135,7 +135,7 @@ curl -i -X GET "http://localhost:8080/api/games?date=2026-08-13"
 curl -i -X GET "http://localhost:8080/api/games"
 ```
 
-형식 오류 예시(400, `ApiResponse` 래퍼 아님 — `date=20260801`처럼 구분자가 없거나 `date=2026-13-01`처럼 존재하지 않는 날짜):
+형식 오류 예시(400, 2026-08-20부터 `ApiResponse` 래퍼 붙음 — `date=20260801`처럼 구분자가 없거나 `date=2026-13-01`처럼 존재하지 않는 날짜):
 ```bash
 curl -i -X GET "http://localhost:8080/api/games?date=20260801"
 ```
@@ -148,7 +148,7 @@ curl -i -X GET "http://localhost:8080/api/games?date=20260801"
 ---
 
 ## GET /api/games/support
-> 최종 변경: 2026-08-13 — 신규 추가(요구사항 `docs/requirements/user/support-team-games.md`, USER-GSP-1~24)
+> 최종 변경: 2026-08-20 — `date` 형식 위반 400의 응답 형태 정정(래퍼 없음 → `ApiResponse` 래퍼, `GET /api/games`와 같은 사정). 엔드포인트·다른 계약은 불변. (직전: 2026-08-13 신규 추가(요구사항 `docs/requirements/user/support-team-games.md`, USER-GSP-1~24))
 
 인증된 요청 계정의 **활성 응원 구단**(홈 또는 원정)이 참여하는 경기만 좁혀서 돌려준다. `GameController.getSupportTeamGames` → `GameService.getSupportTeamGames(Long, LocalDate)` → `UserSupportTeamRepository.findByUserAccount_IdAndOpposeIsNull` + `GameRepository.findAllByTeamAndGameDateRange(teamId, start, end)`.
 
@@ -186,7 +186,7 @@ curl -i -X GET "http://localhost:8080/api/games?date=20260801"
 
 | 상태 | ErrorCode | 조건 |
 |---|---|---|
-| 400 | (래퍼 없음) | `date` 형식 위반(예: `?date=20260801`) 또는 존재하지 않는 날짜(예: `?date=2026-13-01`). `GET /api/games`와 같은 사정으로 컨트롤러 진입 전 타입 변환 단계라 `GlobalExceptionHandler`를 타지 않는다 — **`ApiResponse` 래퍼가 아니다**. 인증 여부와 무관하게 이 400이 우선한다(실측: `GameControllerSupportTest`, 유효 토큰을 실어도 400) |
+| 400 | (`ApiResponse` 래퍼, ErrorCode 없음) | `date` 형식 위반(예: `?date=20260801`) 또는 존재하지 않는 날짜(예: `?date=2026-13-01`). `GET /api/games`와 같은 사정으로 컨트롤러 진입 전 타입 변환 단계지만 2026-08-20부터 `GlobalExceptionHandler.handleTypeMismatch`가 잡아 **`ApiResponse` 래퍼를 붙인다**(종전엔 래퍼 없음 — 정정됨). 인증 여부와 무관하게 이 400이 우선한다(실측: `GameControllerSupportTest`, 유효 토큰을 실어도 400) |
 | 401 | UNAUTHENTICATED(`"인증이 필요합니다."`) | `Authorization` 헤더 없음 · 위조/만료 access 토큰 · refresh 타입 토큰 실림 · 탈퇴(`exit_at IS NOT NULL`)했거나 존재하지 않는 계정을 가리키는 uid · GET 이외 메서드로 미인증 요청. 네 경우 모두 응답이 구분되지 않는다(위 "인증 필수" 참고, `/players`가 같은 네 경우를 200으로 흡수하는 것과 정반대) |
 
 **예시**
@@ -305,7 +305,7 @@ curl -i -X GET "http://localhost:8080/api/games/support"
 | 상태 | ErrorCode | 조건 |
 |---|---|---|
 | 404 | `GAME_NOT_FOUND`(`"존재하지 않는 경기입니다."`) | `gameId`와 일치하는 `naver_game_id`가 없을 때. **`?gameId=`처럼 값이 빈 경우도 이 404다**(빈 문자열이 그냥 일치하는 경기가 없는 것으로 자연히 흡수될 뿐, 별도 400 분기가 없다) |
-| 400 | (공통 래퍼, `ErrorCode` 아님) | `gameId` 쿼리 파라미터 **자체가 없을 때**(`?gameId=` 아니라 `gameId=` 키조차 없음)만 해당. `@RequestParam String gameId`가 필수라 Spring이 바인딩 단계에서 `MissingServletRequestParameterException`을 던지며, **2026-08-13부터 `web-support`의 `GlobalExceptionHandler`가 이를 처리하는 `@ExceptionHandler`를 갖는다**(공유 컴포넌트, user·quiz 공통) — `{ "success": false, "data": null, "message": "필수 요청 파라미터가 누락되었습니다: gameId" }`을 400으로 반환한다. **`BusinessException`이 아니라서 `ErrorCode`는 없지만, 래퍼는 씌워진다** — `GET /api/games`의 `date` 형식 오류·`GET /api/players`의 `teamId` 형식 오류(둘 다 타입 변환 실패, 여전히 래퍼 아님)와는 다른 경로다 |
+| 400 | (공통 래퍼, `ErrorCode` 아님) | `gameId` 쿼리 파라미터 **자체가 없을 때**(`?gameId=` 아니라 `gameId=` 키조차 없음)만 해당. `@RequestParam String gameId`가 필수라 Spring이 바인딩 단계에서 `MissingServletRequestParameterException`을 던지며, **2026-08-13부터 `web-support`의 `GlobalExceptionHandler`가 이를 처리하는 `@ExceptionHandler`를 갖는다**(공유 컴포넌트, user·quiz 공통) — `{ "success": false, "data": null, "message": "필수 요청 파라미터가 누락되었습니다: gameId" }`을 400으로 반환한다. **`BusinessException`이 아니라서 `ErrorCode`는 없지만, 래퍼는 씌워진다** — `GET /api/games`의 `date` 형식 오류·`GET /api/players`의 `teamId` 형식 오류(둘 다 타입 변환 실패, 2026-08-20부터 이쪽도 래퍼가 붙는다 — `MissingServletRequestParameterException`·`MethodArgumentTypeMismatchException` 각각 별도 핸들러라 여전히 다른 경로이지만, 결과적으로 둘 다 `ApiResponse` 래퍼를 탄다)와는 다른 경로다 |
 | 401 | UNAUTHENTICATED | `GET` 이외의 메서드로 이 경로 요청(`permitAll`이 GET으로만 좁혀져 있음) |
 
 **예시**(홈·원정 두 팀, 각 팀 투수 1명·타자 9명 예시. 나머지는 `...`로 생략):

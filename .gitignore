@@ -4,6 +4,9 @@
 
 HELP.md
 .gradle
+# 한글 사용자명 경로에서 Gradle 워커가 깨져 ASCII 경로로 만든 로컬 GRADLE_USER_HOME.
+# `.gradle` 패턴은 이 이름을 매치하지 않아 따로 적어야 한다.
+.gradle-user/
 build/
 !gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/

@@ -119,6 +119,13 @@ class ChatServiceTest {
         return account;
     }
 
+    /** profileImgUrl까지 지정하는 오버로드. 미지정 시(위 2-arg)는 기본값 null(프로필 없음)이다. */
+    private UserAccount userAccountWithId(Long id, String nickname, String profileImgUrl) {
+        UserAccount account = userAccountWithId(id, nickname);
+        account.changeProfileImgUrl(profileImgUrl);
+        return account;
+    }
+
     private Chat chatOf(Chatroom room, UserAccount author, String content) {
         return Chat.builder().chatroom(room).userAccount(author).content(content).build();
     }
@@ -448,7 +455,7 @@ class ChatServiceTest {
     @DisplayName("[AC-CHAT-10-1] sendMessage()는 방·발신자가 유효하면 blind=false로 저장하고 저장된 메시지를 반환한다")
     void sendMessage_validRoomAndSender_savesWithBlindFalse() {
         Chatroom room = activeRoom(ROOM_UID);
-        UserAccount sender = userAccountWithId(1L, "두산팬1");
+        UserAccount sender = userAccountWithId(1L, "두산팬1", "user-profile-img/1.jpg");
         givenSupportTeam(1L, team());
         given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
         given(userAccountRepository.findById(1L)).willReturn(Optional.of(sender));
@@ -465,15 +472,33 @@ class ChatServiceTest {
         assertThat(saved.getUserAccount()).isSameAs(sender);
         assertThat(response.content()).isEqualTo("안녕");
         assertThat(response.senderNickname()).isEqualTo("두산팬1");
+        assertThat(response.profileImgUrl()).isEqualTo("user-profile-img/1.jpg");
+    }
+
+    @Test
+    @DisplayName("[신규] sendMessage()는 발신자에게 프로필 이미지가 없으면(탈퇴자 이관용 더미 계정 등) "
+            + "profileImgUrl을 null로 응답한다 — MessageResponse.from()이 접근자를 그대로 읽을 뿐 "
+            + "별도 분기가 없어 자연히 null이 된다")
+    void sendMessage_senderWithoutProfileImg_responseProfileImgUrlIsNull() {
+        Chatroom room = activeRoom(ROOM_UID);
+        UserAccount sender = userAccountWithId(1L, "(알수없음)"); // profileImgUrl 미설정 = 기본 null
+        givenSupportTeam(1L, team());
+        given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
+        given(userAccountRepository.findById(1L)).willReturn(Optional.of(sender));
+        given(chatRepository.saveAndFlush(any(Chat.class))).willAnswer(invocation -> invocation.getArgument(0));
+
+        MessageResponse response = chatService.sendMessage(ROOM_UID, 1L, "안녕");
+
+        assertThat(response.profileImgUrl()).isNull();
     }
 
     @Test
     @DisplayName("[AC-CHAT-11/15-1] sendMessage()는 저장 후 발신자를 제외 대상으로 지정하고 "
-            + "{id, content, senderNickname, createdAt, roomUid} 5필드로 구성된 "
+            + "{id, content, senderNickname, profileImgUrl, createdAt, roomUid} 6필드로 구성된 "
             + "MessageEvent를 payload로 publish한다")
     void sendMessage_publishesRealtimeEventExcludingSenderWithMessageEventPayload() {
         Chatroom room = activeRoom(ROOM_UID);
-        UserAccount sender = userAccountWithId(1L, "두산팬1");
+        UserAccount sender = userAccountWithId(1L, "두산팬1", "user-profile-img/1.jpg");
         givenSupportTeam(1L, team());
         given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
         given(userAccountRepository.findById(1L)).willReturn(Optional.of(sender));
@@ -498,6 +523,7 @@ class ChatServiceTest {
         MessageEvent payload = (MessageEvent) event.data();
         assertThat(payload.content()).isEqualTo("안녕");
         assertThat(payload.senderNickname()).isEqualTo("두산팬1");
+        assertThat(payload.profileImgUrl()).isEqualTo("user-profile-img/1.jpg");
         assertThat(payload.roomUid()).isEqualTo(ROOM_UID);
         assertThat(payload.createdAt()).isNotNull();
         // id 는 저장된 Chat 의 PK 그대로 — 클라이언트가 히스토리 중복 제거·신고에 쓴다(QUIZ-CHAT-15 개정).
@@ -619,7 +645,7 @@ class ChatServiceTest {
         Chatroom room = activeRoom(ROOM_UID);
         givenSupportTeam(1L, team());
         given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
-        UserAccount author = userAccountWithId(1L, "닉네임");
+        UserAccount author = userAccountWithId(1L, "닉네임", "user-profile-img/history.jpg");
         Chat chat = chatOf(room, author, "내용");
         Page<Chat> repoPage = new PageImpl<>(List.of(chat), PageRequest.of(0, 30), 1);
         given(chatRepository.findByChatroomAndBlindFalseAndDeletedAtIsNullOrderByCreatedAtDesc(
@@ -634,6 +660,29 @@ class ChatServiceTest {
         assertThat(pageableCaptor.getValue().getPageSize()).isEqualTo(30);
         assertThat(result.content()).hasSize(1);
         assertThat(result.content().get(0).content()).isEqualTo("내용");
+        assertThat(result.content().get(0).profileImgUrl()).isEqualTo("user-profile-img/history.jpg");
+    }
+
+    @Test
+    @DisplayName("[신규] getHistory()는 항목마다 프로필 이미지 유무를 그대로 실어 보낸다 — "
+            + "프로필이 있는 발신자와 없는 발신자(탈퇴자 이관 더미 계정 등)가 한 페이지에 섞여도 "
+            + "값이 있는 쪽은 그대로, 없는 쪽은 null로 유지된다")
+    void getHistory_mixedProfileImgUrl_preservesValueAndNullPerMessage() {
+        Chatroom room = activeRoom(ROOM_UID);
+        givenSupportTeam(1L, team());
+        given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
+        UserAccount withProfile = userAccountWithId(2L, "닉1", "user-profile-img/2.jpg");
+        UserAccount withoutProfile = userAccountWithId(3L, "(알수없음)"); // 프로필 없음(기본 null)
+        Chat chatWithProfile = chatOf(room, withProfile, "내용1");
+        Chat chatWithoutProfile = chatOf(room, withoutProfile, "내용2");
+        Page<Chat> repoPage = new PageImpl<>(List.of(chatWithProfile, chatWithoutProfile), PageRequest.of(0, 30), 2);
+        given(chatRepository.findByChatroomAndBlindFalseAndDeletedAtIsNullOrderByCreatedAtDesc(
+                eq(room), any(Pageable.class))).willReturn(repoPage);
+
+        PageResponse<MessageResponse> result = chatService.getHistory(ROOM_UID, 0, 1L);
+
+        assertThat(result.content().get(0).profileImgUrl()).isEqualTo("user-profile-img/2.jpg");
+        assertThat(result.content().get(1).profileImgUrl()).isNull();
     }
 
     @Test
