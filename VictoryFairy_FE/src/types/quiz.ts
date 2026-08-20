@@ -19,6 +19,10 @@ import type { ApiResponse } from './api';
  * | `true`  | `false` | 답함 — 복기 필드가 실린다 |
  * | `false` | `true`  | 시한 초과 — 제출하면 영구히 403, 복구 경로 없음 |
  *
+ * ── 2026-08-19 `/today` 보기에 투표 수가 붙었다 ────────────────────────
+ * `GET /quizzes/today` 의 `options[]` 에만 `voteCount` 가 실린다. 상세·제출·이력의
+ * `options` 에는 없으므로 보기 타입을 `QuizOption` / `DailyQuizOption` 둘로 나눠 두었다.
+ *
  * ── 2026-08-13 풀이 이력이 "경기 한 건의 이닝별 결산"이 됐다 ──────────
  * `GET /quizzes/submissions` 의 조회 축이 계정에서 **경기**로 좁혀지고(`gameId` 필수),
  * 응답이 페이지 구조에서 `summary` + `innings[]` 로 바뀌었다. 항목에는 `options` 가
@@ -35,6 +39,26 @@ export type QuizDifficulty = 'EASY' | 'MEDIUM' | 'HARD' | 'EXPERT';
 export interface QuizOption {
   no: number;
   text: string;
+}
+
+/**
+ * `GET /quizzes/today` 의 보기 하나 — 투표 수가 함께 실린다(2026-08-19 신설).
+ *
+ * **이 필드는 `/today` 에만 있다.** 상세·제출·이력의 `options` 는 `QuizOption` 그대로라,
+ * 타입을 나눠 두어 없는 쪽에서 읽으려 하면 컴파일에서 걸리게 한다.
+ */
+export interface DailyQuizOption extends QuizOption {
+  /**
+   * 그 보기를 고른 사람 수(0 이상). 서버가 항상 싣는다 — 생략도 null 도 없다.
+   *
+   * **서빙 시점의 근사 스냅샷이다.** 갱신 경로(SSE·폴링)가 없어 화면이 들고 있는 값은
+   * 문제를 받은 순간에 멈춰 있고, 보기별 합이 참여자 수와 같다는 보장도 없다.
+   *
+   * ⚠️ 집계(Redis)를 못 읽었을 때도 `0` 으로 채워 200 이 온다 — **`0` 은 "아무도 안
+   * 골랐다"와 "집계를 못 읽었다"를 구분하지 않는다**(docs/quiz.md). 그래서 전부 `0` 인
+   * 경우를 "아직 아무 표도 없다"로만 읽어야 하고, 실패로 안내하면 안 된다.
+   */
+  voteCount: number;
 }
 
 /** 목록·상세가 공유하는 문제 본문. 정답 관련 필드는 여기에 없다. */
@@ -59,6 +83,8 @@ interface QuizBase {
 export interface DailyQuiz extends QuizBase {
   /** 내 응원 구단·선수와 매칭되는지 여부. 정렬 근거이자 뱃지 표시용. */
   preferred: boolean;
+  /** 투표 수가 함께 실린 보기 목록. 이 응답에만 `voteCount` 가 있다. */
+  options: DailyQuizOption[];
 }
 
 /**

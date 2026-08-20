@@ -13,6 +13,7 @@ import {
 import type { DailyQuiz } from '../api';
 import ConfirmSheet from '../components/ConfirmSheet';
 import QuizCard, { type QuizCardExit } from '../components/QuizCard';
+import QuizVoteGauge from '../components/QuizVoteGauge';
 import { getTeamDisplay } from '../data/kboTeams';
 import { ROUTES, readQuizPageState } from '../routes';
 import { formatKoreanDate, getTodayInSeoul } from '../utils/date';
@@ -52,9 +53,9 @@ import '../styles/QuizPage.css';
  * 받은 세트를 잃으면(새로고침·이탈) 그 문제들은 8분 뒤 오답으로 확정되고 돌아오지 않는다.
  * ──────────────────────────────────────────────────────────────────────
  *
- * 디자인 아래쪽의 실시간 선택율(O 65% / X 35% 와 게이지, 744:22706~22748)은 넣지 않았다 —
- * **보기별 선택 비율을 주는 API 가 없다**(docs/quiz.md). 제출 응답이 주는 것은 내 정오와
- * 정답 번호뿐이고 `accuracy` 도 내 누적 정답률이라 다른 값이다. 숫자를 지어내지 않는다.
+ * 디자인 아래쪽의 선택율 게이지(744:22745·1365:11847)는 `QuizVoteGauge` 가 그린다.
+ * 근거는 `/today` 가 보기마다 함께 주는 `voteCount` 하나뿐이라(2026-08-19 신설) **문제를
+ * 받은 순간의 스냅샷**이다 — 갱신 경로가 없어 내가 답해도 숫자는 움직이지 않는다.
  */
 
 /**
@@ -66,6 +67,18 @@ const CARD_EXIT_MS = 280;
 
 /** 카드로 보여줄 뒷장 수. 디자인은 2장이고, 남은 문제가 적으면 그만큼 줄인다. */
 const MAX_DECK_LAYERS = 2;
+
+/**
+ * 한 문제에 주는 시간(초). 다 되면 답하지 않은 채로 다음 문제로 넘어간다.
+ *
+ * 서버의 8분 제출 시한(위 머리말 참고)과는 다른 것이다 — 저쪽은 "받은 문제에 답을 낼 수
+ * 있는 시간"이고 이쪽은 화면이 한 문제에 머무는 시간이라, 이 시계로 넘긴 문제도 서버
+ * 시한 안에서는 여전히 미답 상태다(그리고 8분이 지나면 오답으로 확정된다).
+ */
+const QUESTION_SECONDS = 15;
+
+/** 시간이 다 돼 넘어갔다는 안내. 조용히 넘기면 자기 답이 저장된 줄 안다. */
+const TIME_OVER_NOTICE = `${QUESTION_SECONDS}초가 지나 다음 문제로 넘어갔어요. 답은 반영되지 않았어요.`;
 
 /**
  * 나가기 전에 한 번 더 묻는 문구.
@@ -158,10 +171,15 @@ export default function QuizPage() {
   /** 나가기를 다시 묻는 시트가 떠 있는지. */
   const [isLeaveConfirmOpen, setIsLeaveConfirmOpen] = useState(false);
 
+  /** 지금 문제에 남은 시간(초). 0 이 되면 답하지 않은 채로 넘어간다. */
+  const [secondsLeft, setSecondsLeft] = useState(QUESTION_SECONDS);
+
   /** 뒤로가기를 받아 낼 자리를 이미 쌓았는지. StrictMode 가 효과를 두 번 태워도 하나만 쌓는다. */
   const backGuardRef = useRef(false);
   /** 지금 풀 문제가 화면에 있는지. `popstate` 는 렌더 밖에서 와 state 를 읽을 수 없다. */
   const hasQuizRef = useRef(false);
+  /** 시간이 다 돼 이미 넘긴 문제. StrictMode 가 효과를 두 번 태워도 한 번만 넘어가게 한다. */
+  const timedOutQuizIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     /*
@@ -290,6 +308,11 @@ export default function QuizPage() {
   const goNext = () => {
     setExit(null);
     setSubmitError(null);
+    /*
+     * 시계를 여기서 되감는다. 문제가 바뀐 뒤 따로 되감으면 아래 "시간이 다 됐다" 효과가
+     * 0 초인 채로 한 번 더 돌아, 다음 문제까지 곧바로 넘겨 버린다.
+     */
+    setSecondsLeft(QUESTION_SECONDS);
     setIndex((current) => current + 1);
   };
 
@@ -318,6 +341,41 @@ export default function QuizPage() {
   useEffect(() => {
     hasQuizRef.current = quiz !== null;
   }, [quiz]);
+
+  /*
+   * 1초에 한 칸씩 줄인다.
+   *
+   * 답을 내는 중이거나 카드가 빠지는 중이면 세지 않는다 — 이미 끝난 문제다.
+   * 나가기 확인 시트가 떠 있는 동안에도 멈춘다. 그 시트는 화면을 떠날지 묻는 것이라,
+   * 답을 고민하는 시간이 아니다(취소하고 돌아왔더니 문제가 넘어가 있으면 안 된다).
+   */
+  useEffect(() => {
+    if (quiz === null || isSubmitting || exit !== null || isLeaveConfirmOpen) return;
+
+    const ticker = window.setInterval(() => {
+      setSecondsLeft((left) => Math.max(0, left - 1));
+    }, 1000);
+
+    return () => {
+      window.clearInterval(ticker);
+    };
+  }, [quiz, isSubmitting, exit, isLeaveConfirmOpen]);
+
+  /*
+   * 시간이 다 됐다 — 답하지 않은 채로 넘긴다.
+   *
+   * 카드는 버튼으로 골랐을 때와 같이 위로 빼고, 다 빠진 뒤에 넘긴다(고를 때와 같은 흐름).
+   * `setExit` 뒤 이 효과가 다시 돌지만 `exit !== null` 에서 멈추므로 한 번만 넘어간다.
+   */
+  useEffect(() => {
+    if (secondsLeft > 0 || quiz === null || isSubmitting || exit !== null) return;
+    if (timedOutQuizIdRef.current === quiz.id) return;
+
+    timedOutQuizIdRef.current = quiz.id;
+    setSkipNotice(TIME_OVER_NOTICE);
+    setExit('up');
+    void wait(CARD_EXIT_MS).then(goNext);
+  }, [secondsLeft, quiz, isSubmitting, exit]);
 
   /** 쌓아 둔 자리까지 함께 되돌려 실제로 이 화면을 뜬다. */
   const leave = () => {
@@ -400,6 +458,7 @@ export default function QuizPage() {
               dateLabel={dateLabel}
               matchLabel={matchLabel}
               isSubmitting={isSubmitting}
+              secondsLeft={secondsLeft}
               exit={exit}
               onSelect={handleSelect}
             />
@@ -417,6 +476,13 @@ export default function QuizPage() {
           <p className="quiz-page__status quiz-page__status--error" role="alert">
             {submitError}
           </p>
+        )}
+
+        {/* 지금 문제의 보기별 선택율. 남는 공간을 위로 밀어 화면 아래에 붙는다. */}
+        {quiz !== null && (
+          <div className="quiz-page__vote">
+            <QuizVoteGauge quiz={quiz} />
+          </div>
         )}
 
         {isDone && !isEmpty && (
