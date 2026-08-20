@@ -17,6 +17,18 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+  # 프로필 이미지 업로드(멀티파트) 한도.
+  #
+  # ⚠ Boot 기본값은 max-file-size 1MB 라, 이 블록이 없으면 5MiB 이미지가 컨테이너 단에서 413 이 되어
+  #   "5MiB 정확히는 통과" 경계가 깨진다.
+  # ⚠ 반대로 여기를 딱 5MiB 로 맞추지도 말 것 — 멀티파트 경계·헤더 오버헤드 때문에 5MiB 정확한
+  #   파일까지 걸린다. 여기는 명백한 초과만 거르는 1차 방어로 넉넉히 두고, 정확한 경계 판정은
+  #   실제 바이트 길이를 재는 애플리케이션(ProfileImagePolicy.MAX_SIZE_BYTES)이 한다.
+  #   두 경로 모두 같은 ErrorCode(PROFILE_IMAGE_TOO_LARGE)로 나가 응답은 구분되지 않는다.
+  servlet:
+    multipart:
+      max-file-size: 8MB
+      max-request-size: 10MB
 
 server:
   port: 8080
@@ -45,6 +57,21 @@ user:
     expired-data:
       enabled: ${USER_CLEANUP_EXPIRED_DATA_ENABLED:false}
       cron: "${USER_CLEANUP_EXPIRED_DATA_CRON:0 0 3 * * *}"
+    # 임시 프로필 이미지(temp/) 정리 스케줄러. 위와 스위치가 완전히 별개다 — 하나만 켜도 켠 쪽은
+    # 반드시 돈다(CleanupSchedulingConfig 가 두 스위치의 OR 로 스케줄링을 켠다).
+    # 기본값이 꺼짐인 이유는 위와 같다: 로컬·dev 가 원격 자원(여기서는 버킷)을 직접 본다.
+    # 만료 데이터 정리(03:00)와 한 시간 띄운 04:00 이다 — 같은 시각이면 락·부하가 겹친다.
+    temp-profile-image:
+      enabled: ${USER_CLEANUP_TEMP_PROFILE_IMAGE_ENABLED:false}
+      cron: "${USER_CLEANUP_TEMP_PROFILE_IMAGE_CRON:0 0 4 * * *}"
+
+  # 프로필 이미지 저장소(S3).
+  # ⚠ 자격증명은 여기에 없다 — 로컬은 ~/.aws, prod 파드는 IRSA 가 넣는다(ProfileImageStorageConfig).
+  # ⚠ 읽기(CloudFront BaseURL https://victoryfairy.com)는 서버가 관여하지 않는다. 서버가 돌려주는
+  #   값은 언제나 BaseURL 을 뺀 EP 이고, 조립은 클라이언트 몫이다.
+  profile-image:
+    bucket: ${USER_PROFILE_IMAGE_BUCKET:victoryfairy-asset}
+    region: ${USER_PROFILE_IMAGE_REGION:ap-northeast-2}
 
 # 인증번호 메일 발신자 주소. 실제 SMTP 발송은 prod 프로파일에서만 일어난다(dev/test는 mock 로그).
 app:

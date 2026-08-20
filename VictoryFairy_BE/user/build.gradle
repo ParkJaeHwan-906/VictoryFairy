@@ -16,6 +16,16 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-webmvc'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'     // ALB 타깃 헬스체크(/actuator/health/readiness)
+
+    // 프로필 이미지 저장 — S3 victoryfairy-asset 버킷에 쓰기/복사/삭제/목록. 자격증명은 코드에 없다:
+    // 로컬은 ~/.aws(aws configure), prod 파드는 IRSA 가 DefaultCredentialsProvider 로 주입된다
+    // (quiz 의 퀴즈 적재가 같은 방식·같은 BOM 버전을 쓴다).
+    implementation platform('software.amazon.awssdk:bom:2.46.7')
+    implementation 'software.amazon.awssdk:s3'
+    // IRSA 필수 — 웹 아이덴티티 토큰 교환은 sts 모듈이 클래스패스에 있어야 기본 체인이 수행한다.
+    // 없으면 로컬(~/.aws)에선 멀쩡하다가 IRSA 파드에서만 자격증명 로드가 실패한다.
+    runtimeOnly 'software.amazon.awssdk:sts'
+
     runtimeOnly 'me.paulschwarz:spring-dotenv:4.0.0'
 
     developmentOnly 'org.springframework.boot:spring-boot-devtools'

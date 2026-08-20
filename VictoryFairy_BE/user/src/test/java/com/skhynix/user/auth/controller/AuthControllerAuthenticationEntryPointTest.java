@@ -79,6 +79,11 @@ class AuthControllerAuthenticationEntryPointTest {
     @MockitoBean
     private EmailVerificationService emailVerificationService;
 
+    // AuthController가 가입 전 임시 프로필 이미지 업로드용 TempProfileImageService도 생성자로 받아,
+    // 없으면 컨텍스트 로딩이 실패한다(이 클래스 테스트는 그 경로와 상호작용하지 않음).
+    @MockitoBean
+    private com.skhynix.user.profileimage.service.TempProfileImageService tempProfileImageService;
+
     @Test
     @DisplayName("토큰 없이 인증이 필요한 경로에 접근하면 403이 아니라 401과 ApiResponse 바디(success:false, "
             + "message:\"인증이 필요합니다.\")를 반환한다")
