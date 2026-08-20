@@ -73,6 +73,29 @@ user:
     bucket: ${USER_PROFILE_IMAGE_BUCKET:victoryfairy-asset}
     region: ${USER_PROFILE_IMAGE_REGION:ap-northeast-2}
 
+# 소셜 로그인(OAuth) 3사.
+#
+# ⚠ 시크릿은 이 파일에 적지 않는다 — 값의 출처는 언제나 환경변수(.env / k8s Secret)다.
+# ⚠ client-id 가 비어 있는 provider 는 지원 목록에서 빠진다(그 provider 요청은 400
+#   UNSUPPORTED_OAUTH_PROVIDER). 기동은 정상적으로 되므로 "왜 카카오만 400인가"의 답은 거의 항상
+#   이 값의 누락이다.
+# ⚠ redirect-uris 는 콤마로 구분한 목록이고, 대조는 접두 일치가 아니라 문자 그대로 완전 일치다.
+#   웹 주소와 앱 커스텀 스킴을 모두 넣어야 하며, provider 콘솔의 화이트리스트와 같은 값이어야 한다
+#   (한쪽만 늘리면 provider 가 인가코드를 안 주거나 우리가 400 을 준다).
+oauth:
+  kakao:
+    client-id: ${KAKAO_CLIENT_ID:}
+    client-secret: ${KAKAO_CLIENT_SECRET:}
+    redirect-uris: ${KAKAO_REDIRECT_URIS:}
+  naver:
+    client-id: ${NAVER_CLIENT_ID:}
+    client-secret: ${NAVER_CLIENT_SECRET:}
+    redirect-uris: ${NAVER_REDIRECT_URIS:}
+  google:
+    client-id: ${GOOGLE_CLIENT_ID:}
+    client-secret: ${GOOGLE_CLIENT_SECRET:}
+    redirect-uris: ${GOOGLE_REDIRECT_URIS:}
+
 # 인증번호 메일 발신자 주소. 실제 SMTP 발송은 prod 프로파일에서만 일어난다(dev/test는 mock 로그).
 app:
   mail:
