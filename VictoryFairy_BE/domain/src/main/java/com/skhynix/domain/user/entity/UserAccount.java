@@ -95,6 +95,21 @@ public class UserAccount {
     @ColumnDefault("0")
     private long point = 0L;
 
+    /**
+     * 프로필 이미지의 <b>EP(오브젝트 키)</b>. 이미지가 없으면 {@code null}이고, 그것이 기본 상태다
+     * (가입 시 채우지 않는다 — 아래 {@code @Builder} 주석 참고).
+     *
+     * <p><b>전체 URL을 담지 않는다.</b> {@code user-profile-img/{uuid}.jpg}처럼 BaseURL(버킷 공개
+     * 도메인·CDN)을 뺀 나머지만 저장한다 — 도메인이 바뀌는 날 저장된 값이 전부 죽은 링크가 되어
+     * DB를 통째로 UPDATE해야 하는 상황을 만들지 않기 위해서다. BaseURL 조립은 읽는 쪽 몫이다.
+     *
+     * <p>⚠ 그래서 <b>이 값을 그대로 이미지 주소로 쓰면 깨진다</b>. 반대로 어딘가에서 전체 URL을
+     * 넘겨 저장해 버리면 조립 시 도메인이 두 번 붙어, 값이 섞인 뒤에는 어느 행이 어느 형태인지
+     * 구분할 방법이 없다({@code length}만으로는 안 걸린다).
+     */
+    @Column(name = "profile_img_url", length = 255, nullable = true)
+    private String profileImgUrl;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -107,6 +122,8 @@ public class UserAccount {
     private UserAccount(User user, String nickname, String password) {
         // uid·exitAt·point는 @Builder 파라미터로 받지 않는다 — 탈퇴 상태로 태어나는 계정을 막기 위해
         // exitAt은 null(활성)로 시작해 withdraw()로만 전이한다.
+        // profileImgUrl도 받지 않는다(빠뜨린 게 아니다) — 파라미터를 늘리면 기존 가입 호출부의 계약이
+        // 흔들리므로, 가입 시 이미지 설정도 저장 후 changeProfileImgUrl()로 전이한다.
         this.uid = UUID.randomUUID().toString();
         this.user = user;
         this.nickname = nickname;
@@ -179,6 +196,26 @@ public class UserAccount {
     public void changeNickname(String nickname, LocalDateTime changedAt) {
         this.nickname = nickname;
         this.nicknameChangedAt = changedAt;
+    }
+
+    /**
+     * 프로필 이미지 EP 교체. 가입 시 최초 설정과 이후 변경을 <b>한 메서드로</b> 받는다 — 두 경우의
+     * 상태 전이가 "컬럼 값을 새 EP로 바꾼다"로 완전히 같고, 다른 것은 직전 값이 {@code null}이었느냐
+     * 뿐이라서다. 나누면 호출자가 "이번이 최초인가"를 판정해야 하는데 <b>잘못 골라도 결과가 같아
+     * 오류가 드러나지 않는</b> 종류의 분기가 생긴다({@link #changeNickname(String, LocalDateTime)}이
+     * 시각 기록을 묶어야 했던 것과 달리, 여기엔 함께 갱신할 짝 컬럼이 없어 나눌 이유 자체가 없다).
+     *
+     * <p>가입 경로가 {@code @Builder}가 아니라 이 메서드를 쓰는 이유는 빌더 파라미터를 늘리면 기존
+     * 가입 호출부의 계약이 흔들리기 때문이다 — 저장 후 호출한다.
+     *
+     * <p>인자는 <b>BaseURL을 뺀 EP</b>여야 한다({@link #getProfileImgUrl()} 참고). 형식·저장소에 객체가
+     * 실제로 있는지는 호출자가 판정한다 — domain은 오브젝트 스토리지를 알지 못한다.
+     *
+     * <p>⚠ 이 전이는 <b>직전 EP를 잃어버린다.</b> 옛 객체를 지워야 하는 호출자는 부르기 전에
+     * {@link #getProfileImgUrl()}로 값을 먼저 챙겨야 한다(부른 뒤에는 어디에도 남아 있지 않다).
+     */
+    public void changeProfileImgUrl(String profileImgUrl) {
+        this.profileImgUrl = profileImgUrl;
     }
 
     /**
