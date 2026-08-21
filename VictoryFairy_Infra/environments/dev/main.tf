@@ -70,7 +70,7 @@ module "ecr" {
   # user/quiz 는 BE Gradle 모듈과 1:1 (Dockerfile ARG MODULE).
   # pipeline 은 정제 러너 이미지 — 패턴·Bedrock Lambda 가 같은 이미지를 공유한다(ARCHITECTURE §4).
   # fe 리포지토리는 2026-08-07 제거했다. FE 는 S3+CloudFront 가 서비스하므로 이미지를 pull 할
-  # 주체(fe-app 파드)가 없어졌다(docs/fe-cdn-migration.md).
+  # 주체(fe-app 파드)가 없어졌다(docs/fe-hosting.md).
   # ⚠ 여기서 이름을 빼면 리포지토리가 destroy 된다. 이 모듈은 force_delete 를 켜지 않으므로
   #   이미지가 남아 있으면 RepositoryNotEmptyException 으로 apply 가 실패한다 —
   #   aws ecr batch-delete-image 로 먼저 비워야 한다(fe 는 그렇게 처리했다).
@@ -155,7 +155,7 @@ module "dns" {
 
 # FE 정적 호스팅 — S3(원본) + CloudFront(단일 진입점).
 # CloudFront 가 /api/*·/rt/* 를 ALB 로, 나머지를 S3 로 갈라 보내므로 FE·API 가 같은 오리진으로 남는다.
-# 전환 절차·롤백은 docs/fe-cdn-migration.md.
+# 구성과 주의점은 docs/fe-hosting.md.
 module "cdn" {
   source = "../../modules/cdn"
 

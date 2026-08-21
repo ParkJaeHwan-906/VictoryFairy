@@ -13,7 +13,7 @@
 # ⚠ 세 갈래는 경로가 서로 겹치지 않는다. 새 behavior 를 끼워도 기존 /assets/*·/api/*·/rt/* 의
 #   매칭 결과는 바뀌지 않는다(precedence 번호만 밀린다).
 #
-# 전환 절차·롤백은 docs/fe-cdn-migration.md.
+# 구성과 주의점은 docs/fe-hosting.md.
 
 locals {
   s3_origin_id    = "s3-fe"

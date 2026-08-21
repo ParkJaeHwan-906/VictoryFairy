@@ -62,7 +62,7 @@ variable "attach_apex_alias" {
 
     ⚠ 이 레코드는 ExternalDNS 가 만들어 둔 것을 allow_overwrite 로 덮어써 소유권을 가져온다.
       되돌리려면 false 로 바꾸는 것만으로는 부족하다 — Terraform 이 레코드를 지우면 도메인이
-      어디도 가리키지 않는다. 롤백 절차는 docs/fe-cdn-migration.md §4 를 따를 것.
+      어디도 가리키지 않는다. 되돌릴 때는 apex A 를 ALB ALIAS 로 수동 UPSERT 한다.
   EOT
   type        = bool
   default     = false

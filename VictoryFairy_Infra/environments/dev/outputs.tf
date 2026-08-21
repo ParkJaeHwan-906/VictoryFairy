@@ -89,7 +89,7 @@ output "watchdog_sns_topic_arn" {
 }
 
 output "fe_cloudfront_domain_name" {
-  description = "FE CloudFront 배포 도메인(d*.cloudfront.net). apex 를 옮기기 전에 이 주소로 직접 접속해 검증한다(docs/fe-cdn-migration.md §4 1단계)."
+  description = "FE CloudFront 배포 도메인(d*.cloudfront.net). apex 를 거치지 않고 배포를 직접 찌를 때 쓴다 — 다만 Host 가 apex 가 아니면 /api/*·/rt/* 는 ALB 규칙과 어긋나 404 다(docs/fe-hosting.md §2)."
   value       = module.cdn.distribution_domain_name
 }
 
