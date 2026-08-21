@@ -17,6 +17,23 @@ body {
   padding: 0;
 }
 
+/*
+ * 글자 크기를 브라우저가 임의로 키우지 못하게 못박는다.
+ *
+ * iOS Safari 만 이 값의 기본이 `auto` 라 텍스트 자동 확대(text autosizing)가 살아 있다 —
+ * 가로 모드로 돌리거나 특정 flex 블록 안에서 본문 글자를 제멋대로 키운다. 이 디자인은
+ * 402px 프레임 기준으로 좌표를 픽셀까지 맞춰 둔 것이라(tokens.css 참고) 글자가 조금만
+ * 커져도 카드 안 배치가 통째로 밀린다. 크롬(데스크톱·안드로이드)에는 없는 동작이라
+ * 그쪽만 보고 있으면 끝까지 드러나지 않는다.
+ *
+ * 사용자가 시스템 글꼴 크기를 키우는 것은 이 값과 무관하게 그대로 따른다 —
+ * 막는 것은 브라우저의 자동 보정뿐이다.
+ */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 body {
   background-color: var(--color-background-gray);
   color: var(--color-label-normal);

@@ -146,6 +146,20 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * 이번에 카드가 빠져나가는 데 실제로 걸리는 시간(ms).
+ *
+ * 움직임을 줄여 달라고 한 사용자에게는 CSS 가 퇴장 전환을 끄므로(QuizCard.css) 기다릴
+ * 것이 없다. 그런데도 `CARD_EXIT_MS` 를 그대로 기다리면 카드는 즉시 사라지고 **빈 자리를
+ * 280ms 동안 보게 된다** — 넘어가는 것이 매끄러워지는 게 아니라 끊겨 보인다.
+ *
+ * 매번 다시 묻는 이유: 아이폰의 "동작 줄이기"는 앱을 켜 둔 채로도 켜고 끌 수 있어,
+ * 한 번 읽어 두면 그 뒤로 어긋난다.
+ */
+function cardExitMs(): number {
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : CARD_EXIT_MS;
+}
+
 export default function QuizPage() {
   const navigate = useNavigate();
   const context = readQuizPageState(useLocation().state);
@@ -262,7 +276,7 @@ export default function QuizPage() {
      * 응답이 더 빠르면 카드가 사라지기 전에 내용이 바뀌고, 애니메이션이 더 빠르면
      * 빈 자리가 남는다 — 늦은 쪽에 맞춰야 둘 다 안 생긴다.
      */
-    Promise.all([submitQuiz(quiz.id, optionNo), wait(CARD_EXIT_MS)])
+    Promise.all([submitQuiz(quiz.id, optionNo), wait(cardExitMs())])
       .then(() => {
         setSubmittedCount((current) => current + 1);
         goNext();
@@ -374,7 +388,7 @@ export default function QuizPage() {
     timedOutQuizIdRef.current = quiz.id;
     setSkipNotice(TIME_OVER_NOTICE);
     setExit('up');
-    void wait(CARD_EXIT_MS).then(goNext);
+    void wait(cardExitMs()).then(goNext);
   }, [secondsLeft, quiz, isSubmitting, exit]);
 
   /** 쌓아 둔 자리까지 함께 되돌려 실제로 이 화면을 뜬다. */

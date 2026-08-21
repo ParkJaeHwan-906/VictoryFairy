@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { OX_OPTION_NO } from '../api';
 import type { DailyQuiz, QuizOption } from '../api';
@@ -141,10 +141,22 @@ export default function QuizCard({
   exit,
   onSelect,
 }: QuizCardProps) {
-  /** 끌린 거리(px). 놓으면 0 으로 돌아간다. */
-  const [dragX, setDragX] = useState(0);
-  const [isDragging, setIsDragging] = useState(false);
+  /**
+   * 카드 요소. **끌린 거리는 state 가 아니라 이 요소에 직접 쓴다.**
+   *
+   * state 로 두면 손가락이 움직일 때마다 카드 한 장이 통째로 다시 렌더된다. 아이폰의
+   * ProMotion 화면은 포인터 이벤트를 120Hz 로 던져 그 수가 데스크톱·안드로이드의 두 배라,
+   * 같은 코드가 사파리에서만 눈에 띄게 늦게 따라온다. 바텀시트(useBottomSheet)가 목록이
+   * 긴 시트에서 같은 문제를 만나 택한 방법을 그대로 쓴다.
+   */
+  const cardRef = useRef<HTMLDivElement | null>(null);
   const startXRef = useRef(0);
+  /** 지금 끌린 거리(px). 화면에 옮기는 것은 아래 `paint` 한 곳뿐이다. */
+  const dragXRef = useRef(0);
+  /** 예약해 둔 프레임. 한 프레임에 한 번만 그린다(이벤트가 몇 번 오든). */
+  const frameRef = useRef<number | null>(null);
+
+  const [isDragging, setIsDragging] = useState(false);
 
   /*
    * 미는 방식은 **보기가 둘일 때**다. 유형(`O/X`·`객관식`)이 아니라 개수로 정하는 이유 —
@@ -157,14 +169,68 @@ export default function QuizCard({
 
   const isLocked = isSubmitting || exit !== null;
 
-  /** 지금 놓으면 어느 쪽이 선택되는지. 끄는 동안 그쪽 보기를 강조한다. */
-  const lean: SwipeSide | null =
-    isDragging && Math.abs(dragX) >= SWIPE_COMMIT_PX ? (dragX < 0 ? 'left' : 'right') : null;
+  /**
+   * 지금 놓으면 어느 쪽이 선택되는지. 끄는 동안 그쪽 보기를 강조한다.
+   *
+   * 끌린 거리와 달리 이쪽은 state 로 둔다 — 값이 바뀌는 때가 문턱(80px)을 넘나드는
+   * 순간뿐이라 한 번의 끌기에 많아야 몇 번이고, 화면에서 바뀌는 것도 클래스뿐이다.
+   */
+  const [lean, setLean] = useState<SwipeSide | null>(null);
+  /** 같은 값을 ref 로도 들고 있는다 — 포인터 처리기가 state 반영을 기다리지 않게. */
+  const leanRef = useRef<SwipeSide | null>(null);
+
+  /** 끌린 자리를 화면에 옮긴다. 렌더를 거치지 않으므로 프레임마다 불러도 된다. */
+  const paint = () => {
+    frameRef.current = null;
+
+    const card = cardRef.current;
+    if (card === null) return;
+
+    const distance = dragXRef.current;
+    card.style.transform = `translateX(${distance}px) rotate(${distance * SWIPE_TILT_DEG_PER_PX}deg)`;
+  };
+
+  /** 한 프레임에 한 번만 그리도록 예약한다. 이미 예약돼 있으면 그대로 둔다. */
+  const schedulePaint = () => {
+    if (frameRef.current !== null) return;
+    frameRef.current = window.requestAnimationFrame(paint);
+  };
+
+  /*
+   * 끌기가 끝나면 카드를 제자리로 되돌린다.
+   *
+   * 되돌리는 일을 포인터 처리기에서 곧바로 하지 않는 이유 — 끄는 동안에는 `data-dragging`
+   * 이 전환을 꺼 두므로, **그 속성이 지워진 화면이 한 번 그려진 뒤**에 transform 을 손대야
+   * 제자리로 미끄러진다. 지금 바로 지우면 순간이동한다(useBottomSheet 와 같은 이유).
+   *
+   * 빠져나가는 중(`exit`)에도 지운다 — 인라인 transform 이 남아 있으면 명시도로 CSS 의
+   * 퇴장 규칙(`.quiz-card[data-exit]`)을 이겨서 카드가 그 자리에 굳는다.
+   */
+  useEffect(() => {
+    if (isDragging) return;
+
+    if (frameRef.current !== null) {
+      window.cancelAnimationFrame(frameRef.current);
+      frameRef.current = null;
+    }
+
+    dragXRef.current = 0;
+    if (cardRef.current !== null) cardRef.current.style.transform = '';
+  }, [isDragging, exit]);
+
+  /* 카드가 사라진 뒤에 예약해 둔 프레임이 깨어나지 않게 한다. */
+  useEffect(
+    () => () => {
+      if (frameRef.current !== null) window.cancelAnimationFrame(frameRef.current);
+    },
+    [],
+  );
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (swipePair === null || isLocked) return;
 
     startXRef.current = event.clientX;
+    dragXRef.current = 0;
     setIsDragging(true);
   };
 
@@ -185,7 +251,23 @@ export default function QuizCard({
       event.currentTarget.setPointerCapture(event.pointerId);
     }
 
-    setDragX(distance);
+    dragXRef.current = distance;
+    schedulePaint();
+
+    /*
+     * 기우는 쪽이 **실제로 바뀔 때만** 렌더한다.
+     *
+     * 매 프레임 렌더하면 `data-active` 가 붙었다 떨어지기를 반복하고, 그때마다 그 위의
+     * 형제 선택자가 통째로 다시 계산된다. WebKit 은 이런 무효화 비용이 Blink 보다 커서
+     * 여기서 새는 시간이 사파리에서만 프레임을 갉아먹는다.
+     */
+    const nextLean: SwipeSide | null =
+      Math.abs(distance) >= SWIPE_COMMIT_PX ? (distance < 0 ? 'left' : 'right') : null;
+
+    if (nextLean !== leanRef.current) {
+      leanRef.current = nextLean;
+      setLean(nextLean);
+    }
   };
 
   /**
@@ -201,8 +283,10 @@ export default function QuizCard({
     }
 
     const distance = event.clientX - startXRef.current;
+    /* 제자리로 되돌리는 것은 위 효과가 맡는다 — 여기서 지우면 전환 없이 순간이동한다. */
     setIsDragging(false);
-    setDragX(0);
+    leanRef.current = null;
+    setLean(null);
 
     // 왼쪽으로 밀면 첫 보기, 오른쪽으로 밀면 둘째 보기 — 카드 위에 놓인 순서 그대로다.
     if (swipePair !== null && event.type === 'pointerup' && Math.abs(distance) >= SWIPE_COMMIT_PX) {
@@ -229,14 +313,10 @@ export default function QuizCard({
   return (
     <div
       className="quiz-card"
+      ref={cardRef}
       data-dragging={isDragging || undefined}
       data-exit={exit ?? undefined}
-      // 빠져나가는 중에는 CSS 가 transform 을 맡는다 — 끌린 위치는 이미 0 으로 되돌아갔다.
-      style={
-        exit === null
-          ? { transform: `translateX(${dragX}px) rotate(${dragX * SWIPE_TILT_DEG_PER_PX}deg)` }
-          : undefined
-      }
+      // transform 은 렌더가 아니라 `paint`(끄는 중)와 CSS(빠져나가는 중)가 맡는다.
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerEnd}
@@ -266,7 +346,9 @@ export default function QuizCard({
 
       {swipePair !== null ? (
         <>
-          <div className="quiz-card__choices" data-ox={isOx || undefined}>
+          {/* `data-lean` 은 "지금 한쪽으로 기울어 있다"를 부모가 직접 들고 있는 것이다 —
+              CSS 가 자식을 거슬러 올라가 찾지(`:has`) 않아도 되게 한다. */}
+          <div className="quiz-card__choices" data-ox={isOx || undefined} data-lean={lean ?? undefined}>
             {renderChoice(swipePair[0], 'left')}
             {renderChoice(swipePair[1], 'right')}
           </div>
