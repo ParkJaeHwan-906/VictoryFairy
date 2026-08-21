@@ -398,9 +398,20 @@
   }
 }
 
-/* 퇴장은 transition 만 끄고 결과(사라짐)는 그대로 둔다 — 움직임 없이 즉시 바뀐다. */
+/*
+ * 퇴장은 transition 만 끄고 결과(사라짐)는 그대로 둔다 — 움직임 없이 즉시 바뀐다.
+ *
+ * ⚠️ 위의 `.quiz-card:not([data-dragging])` · `.quiz-card[data-exit]` 와 **명시도를
+ * 맞춰 적어야** 실제로 꺼진다. `.quiz-card` 하나만 적으면 명시도가 낮아 두 규칙에 지고,
+ * 미디어 쿼리 안이라는 것과 무관하게 아무 일도 일어나지 않는다.
+ *
+ * 기다리는 쪽(QuizPage 의 `cardExitMs`)도 같이 0 이 되어야 한다 — 한쪽만 끄면 카드가
+ * 즉시 사라진 뒤 빈 자리를 280ms 동안 보게 된다.
+ */
 @media (prefers-reduced-motion: reduce) {
   .quiz-card,
+  .quiz-card:not([data-dragging]),
+  .quiz-card[data-exit],
   .quiz-card__choice,
   .quiz-card__option {
     transition: none;
