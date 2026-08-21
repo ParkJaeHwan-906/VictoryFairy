@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { OX_OPTION_NO } from '../api';
 import type { DailyQuiz, DailyQuizOption } from '../api';
 import '../styles/QuizVoteGauge.css';
@@ -123,7 +124,7 @@ type QuizVoteGaugeProps = {
   quiz: DailyQuiz;
 };
 
-export default function QuizVoteGauge({ quiz }: QuizVoteGaugeProps) {
+function QuizVoteGauge({ quiz }: QuizVoteGaugeProps) {
   const pair = pickPair(quiz.options);
 
   // 보기가 하나뿐인 문제는 나눌 것이 없다. 서버가 줄 리 없지만 그리지 않고 비운다.
@@ -174,3 +175,13 @@ export default function QuizVoteGauge({ quiz }: QuizVoteGaugeProps) {
     </div>
   );
 }
+
+/**
+ * 문제가 바뀔 때만 다시 그린다.
+ *
+ * 이 게이지가 보는 값은 `quiz` 하나뿐인데, 화면(QuizPage)은 남은 시간 때문에 1초마다
+ * 다시 렌더된다. 그대로 두면 막대 20칸과 표지가 매초 함께 재조정되고, 그 시간이 하필
+ * 카드를 끄는 도중에도 끼어든다. 스냅샷이라 문제가 바뀌기 전에는 값이 움직일 일이
+ * 없으므로(위 머리말 참고) 여기서 끊는 것이 안전하다.
+ */
+export default memo(QuizVoteGauge);

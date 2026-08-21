@@ -24,7 +24,17 @@
   /* 세로 스크롤은 브라우저에 넘기고 가로 끌기만 가져온다 */
   touch-action: pan-y;
   /* 끄는 도중 글자가 잡히면 드래그가 텍스트 선택으로 새어나간다 */
+  -webkit-user-select: none;
   user-select: none;
+  /*
+   * 카드를 제 합성 레이어로 올린다.
+   *
+   * WebKit 은 transform 이 바뀐다는 것만으로는 레이어를 잘 만들어 주지 않아서, 이게
+   * 없으면 끄는 내내 354x560 카드를 그림자·글자까지 통째로 다시 칠한다 — 아이폰은
+   * 픽셀 밀도가 3배라 그 비용이 그대로 3배가 된다. 바텀시트(bottomSheet.css)가 같은
+   * 이유로 이미 쓰고 있고, 화면에 올라오는 카드는 한 장뿐이라 메모리 부담도 없다.
+   */
+  will-change: transform;
 }
 
 /* 놓는 순간에만 제자리로 되돌아가는 애니메이션을 건다.
@@ -178,8 +188,12 @@
 }
 
 /* 지금 놓으면 선택될 쪽을 키워 알려준다. 색이 아니라 크기로 구분해
-   대비만으로 판단하지 않아도 되게 한다. */
-.quiz-card__choices:has([data-active]) .quiz-card__choice:not([data-active]) {
+   대비만으로 판단하지 않아도 되게 한다.
+
+   `:has([data-active])` 로 자식을 거슬러 찾지 않고 부모의 `data-lean` 을 보는 이유 —
+   이 값은 끄는 동안 계속 바뀌는데, WebKit 의 `:has()` 무효화 비용이 Blink 보다 커서
+   그쪽에서만 프레임을 갉아먹는다. 뜻은 같고 계산은 평범한 자손 선택자 하나다. */
+.quiz-card__choices[data-lean] .quiz-card__choice:not([data-active]) {
   opacity: 0.35;
 }
 
