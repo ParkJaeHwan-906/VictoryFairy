@@ -309,13 +309,39 @@
   font-weight: var(--font-weight-medium);
   line-height: var(--line-height-tight);
   text-align: center;
+  /* 아래 `:active` 가 눌린 상태를 직접 그리므로 iOS 기본 회색 덧칠은 겹치기만 한다 */
+  -webkit-tap-highlight-color: transparent;
   transition:
     background-color 0.15s ease-out,
     color 0.15s ease-out,
     opacity 0.15s ease-out;
 }
 
-.quiz-card__option:hover:not(:disabled),
+/*
+ * ⚠️ hover 는 진짜 포인터가 있을 때만 건다.
+ *
+ * iOS Safari 는 손가락으로 탭한 요소에 `:hover` 를 걸고 **다른 곳을 탭할 때까지 유지**한다.
+ * 게다가 이 화면은 문제마다 카드를 통째로 갈아 끼우므로(QuizPage 의 `key={quiz.id}`),
+ * 탭한 버튼이 사라지면 WebKit 이 마지막 터치 좌표에서 hit-test 를 다시 돌려 **새로 깔린
+ * 카드의 같은 자리 버튼으로 hover 를 옮긴다** — 다음 문제가 뜨자마자 보기 하나가 이미
+ * 골라진 것처럼 주황색으로 서 있게 되는 것이 이것이다.
+ *
+ * 마우스가 있는 브라우저는 커서가 움직이면 hover 가 풀리고, 안드로이드 크롬은 노드가
+ * 사라질 때 hover 상태를 버려서 이 증상이 드러나지 않는다. 그래서 애플에서만 보인다.
+ */
+@media (hover: hover) and (pointer: fine) {
+  .quiz-card__option:hover:not(:disabled) {
+    background-color: var(--color-background-red);
+    color: var(--color-primary-normal);
+  }
+}
+
+/*
+ * 누르는 동안의 반응과 키보드 포커스는 포인터 종류와 무관하다.
+ * `:active` 는 손을 떼는 순간 반드시 풀리므로 hover 처럼 눌어붙지 않는다 —
+ * 터치에서도 "지금 이걸 누르고 있다"를 잃지 않으면서 위 증상만 사라진다.
+ */
+.quiz-card__option:active:not(:disabled),
 .quiz-card__option:focus-visible {
   background-color: var(--color-background-red);
   color: var(--color-primary-normal);
