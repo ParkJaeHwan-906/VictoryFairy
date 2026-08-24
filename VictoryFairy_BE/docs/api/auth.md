@@ -198,7 +198,7 @@ curl -i -X POST http://localhost:8080/api/auth/nickname/duplicate \
 ---
 
 ## POST /api/auth/email/send-code
-> 최종 변경: 2026-07-27 (추정) — 도메인 분리 이전 이력이 없어 `AuthController` 마지막 커밋 기준
+> 최종 변경: 2026-08-24 — 소셜 전용 계정 이메일에 `SOCIAL_ACCOUNT_ONLY` 안내 추가
 
 회원가입용 이메일 소유 확인 절차의 1단계. 입력한 이메일로 6자리 인증번호를 발송한다.
 
@@ -216,7 +216,7 @@ curl -i -X POST http://localhost:8080/api/auth/nickname/duplicate \
 ```
 
 내부 동작(`EmailVerificationService.sendCode()`):
-1. `userRepository.existsByEmail(email)`이 true면 **가입 이력이 있는 이메일**이므로 즉시 409로 거부한다(이미 탈퇴한 계정이 점유한 이메일도 soft delete라 여전히 `existsByEmail` true — signup과 동일한 재가입 불가 정책).
+1. `userRepository.existsByEmail(email)`이 true면 **가입 이력이 있는 이메일**이므로 즉시 409로 거부한다(이미 탈퇴한 계정이 점유한 이메일도 soft delete라 여전히 `existsByEmail` true — signup과 동일한 재가입 불가 정책). 이때 그 계정이 **소셜로만 가입된 계정**이면 `DUPLICATE_EMAIL` 대신 `SOCIAL_ACCOUNT_ONLY`로 갈리고, 응답 `data`에 로그인 가능한 provider 목록이 실린다(아래 참고).
 2. 같은 이메일에 대한 쿨다운(60초 TTL) 마커가 살아 있으면 429로 거부한다.
 3. 6자리 숫자 코드를 생성하고, 그 이메일의 기존 코드·시도 카운터를 무효화한 뒤 새 코드를 TTL 5분으로 저장하고, 쿨다운 마커를 TTL 60초로 설정한다.
 4. `EmailSender`로 메일을 발송한다. **`prod` 프로파일이 아니면 `LogEmailSender`가 로딩돼 실제 메일 없이 로그(`[MOCK-EMAIL] 인증번호 발송 to=... code=...`)로만 남긴다.** 실제 SMTP 발송은 `SmtpEmailSender`(`@Profile("prod")`, `spring.mail.*` 설정과 `app.mail.from` 필요)가 `prod`에서만 담당한다.
@@ -229,7 +229,18 @@ curl -i -X POST http://localhost:8080/api/auth/nickname/duplicate \
 |---|---|---|
 | 400 | (검증 실패, ErrorCode 없음) | `email` 형식 위반(`@NotBlank`/`@Email`/`@Size(max=100)`) |
 | 409 | DUPLICATE_EMAIL | 이미 가입(또는 탈퇴 포함 가입 이력)된 이메일 |
+| 409 | SOCIAL_ACCOUNT_ONLY | 위 중 **소셜로만 가입된 활성 계정**의 이메일. `data`가 `null`이 아닌 **유일한 실패 응답**이다 |
 | 429 | EMAIL_SEND_COOLDOWN | 같은 이메일로 60초 이내 재요청(**이 API 전체에서 유일한 429 응답**) |
+
+### `SOCIAL_ACCOUNT_ONLY`가 `DUPLICATE_EMAIL`에서 갈리는 조건
+
+셋을 **모두** 만족할 때만 갈린다. 하나라도 어긋나면 종전의 `DUPLICATE_EMAIL`이다.
+
+1. 그 이메일의 **활성**(`exit_at IS NULL`) 계정이 있다 — 탈퇴 계정이 점유한 이메일은 그 소셜로 로그인해도 같은 409라 안내가 제자리로 돌려보낸다.
+2. `users_account.password`가 소셜 전용 잠금값이다 — 자체 가입 뒤 소셜을 **추가로** 연동한 계정은 비밀번호가 살아 있어 여기 걸리면 안 된다.
+3. 연동 행이 하나 이상이다.
+
+**이 세분화를 로그인(`INVALID_CREDENTIALS`)으로 옮기지 말 것.** 로그인은 계정 존재를 감추는 계약이라 같은 안내를 붙이면 계정 열거가 된다. 이 엔드포인트에서만 허용되는 이유는 **원래부터 409로 가입 사실을 알려 왔기** 때문이며(USER-EMV-14의 의도적 예외), 추가로 새는 정보는 provider 이름뿐이다.
 
 **예시**
 ```bash
@@ -241,6 +252,12 @@ curl -i -X POST http://localhost:8080/api/auth/email/send-code \
 실패 예시(쿨다운, 429):
 ```json
 {"success":false,"data":null,"message":"인증번호를 방금 발송했습니다. 잠시 후 다시 시도해 주세요."}
+```
+
+실패 예시(소셜 전용 계정, 409) — `providers`는 경로 변수와 같은 소문자라 클라이언트가 자기 로그인 버튼 id에 그대로 대응시킬 수 있다:
+```json
+{"success":false,"data":{"providers":["naver"]},
+ "message":"소셜 로그인으로 가입된 이메일입니다. 가입할 때 사용한 소셜 계정으로 로그인해 주세요."}
 ```
 
 ---
