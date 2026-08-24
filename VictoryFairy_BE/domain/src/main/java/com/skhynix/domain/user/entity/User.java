@@ -108,8 +108,8 @@ public class User {
      * 가 예약 계정만의 생성 규칙을 별도 팩터리로 가져간 것과 같은 판단이다).
      *
      * <p>{@code emailVerified} 는 provider 의 검증 판정을 <b>그대로</b> 받는다. 판정 규칙(구글은
-     * {@code email_verified}, 카카오는 두 필드의 동시 만족, 네이버는 무조건 검증됨)은 provider 응답을
-     * 아는 쪽의 몫이고 domain 은 그 결과만 보관한다.
+     * {@code email_verified}, 카카오는 두 필드의 동시 만족, 네이버는 판정 필드가 없어 언제나 미검증)은
+     * provider 응답을 아는 쪽의 몫이고 domain 은 그 결과만 보관한다.
      *
      * <p>⚠ 여기서 만든 계정의 이메일은 <b>티켓에 실려 온 provider 이메일이어야 한다.</b> 요청 본문의
      * 이메일을 쓰면 남의 이메일로 계정을 만들 수 있게 된다.
