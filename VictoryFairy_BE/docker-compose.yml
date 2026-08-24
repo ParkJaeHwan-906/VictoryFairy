@@ -33,7 +33,11 @@ services:
       retries: 10
 
   user:
-    # dev/test 프로파일은 LogEmailSender(mock)를 쓰므로 MAIL_* 환경변수 주입이 불필요함.
+    # ⚠ 이 서비스는 profiles: ["prod"] 다. .env 의 COMPOSE_PROFILES=${SPRING_PROFILES_ACTIVE} 라 이
+    # 컨테이너가 뜬다는 것 자체가 SPRING_PROFILES_ACTIVE=prod 라는 뜻 → SmtpEmailSender(실제 SMTP
+    # 발송)가 활성화된다. dev/test 전용 LogEmailSender(mock)로 착각하지 말 것. 카카오는 이메일을
+    # 안 주므로(비즈 앱 아님) 인증번호 메일 발송이 카카오 로그인의 필수 경로다 — MAIL_* 미주입 시
+    # 카카오 로그인 자체가 막힌다.
     profiles: ["prod"]
     build:
       context: .
@@ -57,6 +61,26 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
+      # 인증번호 메일 발송(Mailjet SMTP). host/port 는 application-prod.yaml 이 이미
+      # in-v3.mailjet.com:587 을 기본값으로 갖고 있어 여기서 다시 넘기지 않는다 — username/password
+      # 는 시크릿이라 기본값을 지어낼 수 없고(비어 있으면 발송만 실패, 기동은 됨), from 은 앱 기본값과
+      # 같은 값을 compose 기본값으로도 둬 위 S3 버킷과 같은 이유로 명시한다(.env 미설정 시 컴포즈가
+      # 빈 문자열로 덮어써 앱 기본값을 가리는 것을 막기 위함).
+      MAIL_USERNAME: ${MAIL_USERNAME}
+      MAIL_PASSWORD: ${MAIL_PASSWORD}
+      MAIL_FROM: ${MAIL_FROM:-no-reply@victoryfairy.com}
+      # 소셜 로그인(OAuth) 3사. client-id 가 비면 앱이 그 provider 를 지원 목록에서 자동으로 뺀다
+      # (400 UNSUPPORTED_OAUTH_PROVIDER) — 여기서 값을 지어내 채우지 않는다. redirect-uris 는
+      # 콤마 구분 목록이다.
+      KAKAO_CLIENT_ID: ${KAKAO_CLIENT_ID}
+      KAKAO_CLIENT_SECRET: ${KAKAO_CLIENT_SECRET}
+      KAKAO_REDIRECT_URIS: ${KAKAO_REDIRECT_URIS}
+      NAVER_CLIENT_ID: ${NAVER_CLIENT_ID}
+      NAVER_CLIENT_SECRET: ${NAVER_CLIENT_SECRET}
+      NAVER_REDIRECT_URIS: ${NAVER_REDIRECT_URIS}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      GOOGLE_REDIRECT_URIS: ${GOOGLE_REDIRECT_URIS}
       # 프로필 이미지(S3). 값은 application.yaml 기본값과 같지만 명시해 둔다 — k8s 매니페스트는
       # 이미 주입하고 있어서, 여기서만 비어 있으면 "로컬에선 되는데 파드에선 다르다"의 반대
       # 상황(로컬만 암묵 기본값)이 생긴다.
