@@ -81,7 +81,7 @@
 | USER-OAU-13 | 유비쿼터스 | THE 시스템 SHALL 신원 해석을 ①(provider, provider 사용자 식별자) 일치 ②확정된 이메일과 `users.email` 일치 순서로 판정한다 | 두 조건이 서로 다른 계정을 가리키도록 데이터를 만든 뒤 인증 → ①이 가리키는 계정의 `uid`로 로그인(②는 조회되지 않음) |
 | USER-OAU-14 | 이벤트 | WHEN (provider, provider 사용자 식별자)와 일치하는 연동 행이 있으면, THE 시스템 SHALL 그 연동 행의 계정으로 로그인시킨다 | provider 쪽 이메일을 바꾼 뒤 재인증 → 이메일 대조·검증 판정 없이 같은 계정 `uid`로 200. **이메일을 안 주는 provider도 이 경로는 그대로 성립**(두 번째 로그인부터는 이메일 입력이 없다) |
 | USER-OAU-15 | 유비쿼터스 | THE 시스템 SHALL 신원 해석 대상을 `exit_at IS NULL`인 계정으로 한정한다 | 탈퇴 계정과 일치하는 연동 행·이메일이 있어도 그 계정으로 로그인되지 않음(USER-OAU-51·52) |
-| USER-OAU-67 | 유비쿼터스 | THE 시스템 SHALL provider가 준 이메일의 검증 판정을 구글 `email_verified`, 카카오 `is_email_verified` **와** `is_email_valid`의 동시 만족, 네이버 무조건 검증됨으로 한다 | 카카오 응답이 `is_email_verified:true, is_email_valid:false` → 미검증으로 판정. 네이버 응답에 검증 필드가 없어도 검증됨으로 판정. ⚠ 카카오 갈래는 **비즈 앱 전환 전까지 도달하지 않는다**(이메일 자체가 오지 않아 USER-OAU-90으로 빠진다) — 전환 후를 위해 유지하는 규칙이다 |
+| USER-OAU-67 | 유비쿼터스 | THE 시스템 SHALL provider가 준 이메일의 검증 판정을 구글 `email_verified`, 카카오 `is_email_verified` **와** `is_email_valid`의 동시 만족, 네이버 **언제나 미검증**으로 한다 | 카카오 응답이 `is_email_verified:true, is_email_valid:false` → 미검증으로 판정. 네이버 응답에 이메일이 있어도 미검증으로 판정(검증 필드 자체가 없어 근거가 없다 — 결정 기록 13). ⚠ 카카오 갈래는 **비즈 앱 전환 전까지 도달하지 않는다**(이메일 자체가 오지 않아 USER-OAU-90으로 빠진다) — 전환 후를 위해 유지하는 규칙이다 |
 | USER-OAU-16 | 이벤트 | WHEN 일치하는 연동 행이 없고 같은 이메일의 활성 계정이 있으며 **확정된 이메일과 그 계정의 이메일이 둘 다 검증됨**이면, THE 시스템 SHALL 그 계정에 (provider, 식별자) 연동 행 1건을 생성한다 | 자체 가입 계정(항상 검증됨)의 이메일로 구글(`email_verified:true`) 인증 → 코드 인증 없이 연동 1행 생성 |
 | USER-OAU-17 | 이벤트 | WHEN USER-OAU-16의 조건이 성립하면, THE 시스템 SHALL 그 계정의 토큰 쌍을 반환한다 | 200 `status:"LOGIN"`, 받은 access로 `GET /api/users/me` → 기존 계정의 `nickname` |
 | USER-OAU-68 | 이벤트 | WHEN 일치하는 연동 행이 없고 같은 이메일의 활성 계정이 있으며 **provider가 준 이메일과 그 계정의 이메일 중 하나라도 미검증**이면, THE 시스템 SHALL 200과 `status:"EMAIL_VERIFICATION_REQUIRED"` + 링크 티켓 + 그 이메일을 반환한다 | 미검증 이메일이 기존 계정과 일치 → 200, `ticket` 비어 있지 않음, `email`이 provider가 방금 준 값(어디로 코드가 갈지 화면에 필요하고, 요청자 자신의 값이라 신규 노출이 없다), **연동 행 생성 0건·토큰 0건** |
@@ -163,6 +163,7 @@
 | USER-OAU-44 | 예외 | IF 소셜 전용 계정의 이메일로 자체 로그인을 요청하면, THEN THE 시스템 SHALL 401과 `"이메일 또는 비밀번호가 올바르지 않습니다."`를 반환한다 | 임의 비밀번호로 `POST /api/auth/login` → 401 `INVALID_CREDENTIALS`(미가입 이메일과 응답 동일) |
 | USER-OAU-45 | 예외 | IF 소셜 전용 계정이 비밀번호 변경을 요청하면, THEN THE 시스템 SHALL 400과 `"현재 비밀번호가 올바르지 않습니다."`를 반환한다 | 어떤 `currentPassword`로도 `PATCH /api/users/me/password` → 400 `INVALID_CURRENT_PASSWORD` |
 | USER-OAU-46 | 이벤트 | WHEN 자체 가입 계정에 소셜 연동이 추가되면, THE 시스템 SHALL 그 계정의 `password`를 변경하지 않는다 | 연동 후 기존 비밀번호로 `POST /api/auth/login` → 200 |
+| USER-OAU-46-1 | 예외 | IF 자체 가입의 인증번호 발송 대상이 소셜 전용 활성 계정의 이메일이면, THEN THE 시스템 SHALL 409와 `SOCIAL_ACCOUNT_ONLY`를, `data`에 로그인 가능한 provider 목록을 실어 반환한다 | 네이버로만 가입한 이메일로 `POST /api/auth/email/send-code` → 409 `{"data":{"providers":["naver"]}}`. 자체 가입 뒤 연동을 추가한 계정·탈퇴 계정 점유 이메일은 종전대로 `DUPLICATE_EMAIL`(2026-08-24 추가 — 결정 기록 14) |
 | USER-OAU-47 | 이벤트 | WHEN 소셜 인증으로 토큰을 발급하면, THE 시스템 SHALL 그 계정의 기존 유효 refresh 토큰을 모두 만료시킨다 | 자체 로그인으로 받은 refresh → 소셜 로그인 → 이전 refresh로 `POST /api/auth/refresh` → 401 `EXPIRED_REFRESH_TOKEN` |
 | USER-OAU-48 | 유비쿼터스 | THE 시스템 SHALL 소셜 인증으로 발급한 토큰의 claim 구성을 자체 로그인과 동일하게 한다 | payload의 `sub`가 `UserAccount.uid`, `type`이 `access`/`refresh`. 소셜 access로 `GET /api/users/me` → 200 |
 | USER-OAU-49 | 이벤트 | WHEN 소셜 인증으로 발급된 refresh 토큰으로 재발급을 요청하면, THE 시스템 SHALL 자체 로그인 토큰과 동일하게 처리한다 | `POST /api/auth/refresh` → 200 + 새 토큰 쌍 |
@@ -197,11 +198,12 @@
 | `INVALID_OAUTH_TICKET` | 400 | 소셜 인증 정보가 만료되었습니다. 다시 로그인해 주세요. | USER-OAU-34·36·75·76 (가입 티켓·링크 티켓·입력 티켓 **공용**. 티켓 종류를 문구로 가르지 않는 이유는 사용자가 할 조치가 "다시 로그인"으로 같기 때문이다) |
 | `INVALID_OAUTH_CODE` | 401 | 소셜 인증에 실패했습니다. 다시 시도해 주세요. | USER-OAU-7 (만료·재사용·provider 쪽 redirect URI 불일치 세 사유 통합) |
 | `OAUTH_PROVIDER_ALREADY_LINKED` | 409 | 이미 다른 소셜 계정이 연결되어 있습니다. | USER-OAU-20 |
+| `SOCIAL_ACCOUNT_ONLY` | 409 | 소셜 로그인으로 가입된 이메일입니다. 가입할 때 사용한 소셜 계정으로 로그인해 주세요. | USER-OAU-46-1 (**8번째 코드, 2026-08-24 추가** — `DUPLICATE_EMAIL`의 세분화. 이 기능에서 `data`를 싣는 유일한 실패라 `BusinessDataException`으로 던진다) |
 | `OAUTH_PROVIDER_UNAVAILABLE` | **502** | 소셜 로그인 제공자와 통신할 수 없습니다. 잠시 후 다시 시도해 주세요. | USER-OAU-8 — **이 저장소 최초의 502**. 500으로 묶지 않는 이유는 원인이 이 서버가 아니라 외부 의존이고 클라이언트의 올바른 행동(재시도)이 다르기 때문이다 |
 
 **`OAUTH_EMAIL_REQUIRED`는 뜻이 한 번 바뀐 코드다.** 초안에서는 "provider가 이메일을 주지 않았다"는 **거절** 사유였으나, 2차 개정에서 이메일 미제공이 오류가 아니라 `status:"EMAIL_INPUT_REQUIRED"`라는 **정상 응답**이 되면서 그 뜻으로는 쓰이는 곳이 없어져 삭제됐다(정상 흐름의 한 단계를 4xx로 표현하면 프론트 인터셉터가 오류로 삼킨다). 3차 개정에서 **"사용자가 이메일을 입력하지 않았다"는 새 뜻으로 되살렸다** — 경위는 제약 21.
 
-기존 코드 재사용(**신규는 위 7종뿐이다**): `DUPLICATE_EMAIL`(409, USER-OAU-40·51·52·56) · `DUPLICATE_NICKNAME`(409, USER-OAU-38) · `INVALID_VERIFICATION_CODE`(400, USER-OAU-77) · `EXPIRED_VERIFICATION_CODE`(400, **USER-OAU-100** — 티켓이 아니라 인증번호의 만료) · `VERIFICATION_ATTEMPTS_EXCEEDED`(400, USER-OAU-78) · `EMAIL_SEND_COOLDOWN`(429, USER-OAU-79·94) · `INVALID_CREDENTIALS`(401, USER-OAU-44) · `INVALID_CURRENT_PASSWORD`(400, USER-OAU-45) · `UNAUTHENTICATED`(401, USER-OAU-50) · `INTERNAL_SERVER_ERROR`(500, USER-OAU-60). ⚠ `EMAIL_NOT_VERIFIED`는 **이 기능이 쓰지 않는다** — USER-OAU-41이 자체 가입과의 대비로 언급할 뿐이다(3차 개정 때 USER-OAU-101이 잠시 빌려 썼다가 `OAUTH_EMAIL_REQUIRED`로 되돌렸다, 제약 21).
+기존 코드 재사용(**신규는 위 8종이다** — 2026-08-24 이전에는 7종이었다): `DUPLICATE_EMAIL`(409, USER-OAU-40·51·52·56) · `DUPLICATE_NICKNAME`(409, USER-OAU-38) · `INVALID_VERIFICATION_CODE`(400, USER-OAU-77) · `EXPIRED_VERIFICATION_CODE`(400, **USER-OAU-100** — 티켓이 아니라 인증번호의 만료) · `VERIFICATION_ATTEMPTS_EXCEEDED`(400, USER-OAU-78) · `EMAIL_SEND_COOLDOWN`(429, USER-OAU-79·94) · `INVALID_CREDENTIALS`(401, USER-OAU-44) · `INVALID_CURRENT_PASSWORD`(400, USER-OAU-45) · `UNAUTHENTICATED`(401, USER-OAU-50) · `INTERNAL_SERVER_ERROR`(500, USER-OAU-60). ⚠ `EMAIL_NOT_VERIFIED`는 **이 기능이 쓰지 않는다** — USER-OAU-41이 자체 가입과의 대비로 언급할 뿐이다(3차 개정 때 USER-OAU-101이 잠시 빌려 썼다가 `OAUTH_EMAIL_REQUIRED`로 되돌렸다, 제약 21).
 
 ## 제약 (모듈 컨텍스트 대조 결과 — 구현 지시가 아니라 이미 참이거나 이 결정이 만든 사실)
 1. **`POST /api/auth/email/send-code`를 이 기능에 재사용할 수 없다.** 그 엔드포인트는 **이미 가입된 이메일에 409를 주도록 계약돼 있고**(중복가입 사전차단 우선, `email-verification.md`), 이 기능의 인증 대상은 **계정이 이미 있을 수도 있는 이메일**이다(링크 티켓은 항상 그렇고, 입력 티켓도 그럴 수 있다). 그래서 `/api/auth/oauth/link/send-code`·`/link/verify` 2개가 전용 경로이며 **두 티켓 종류가 이 둘을 함께 쓴다**(엔드포인트를 더 늘리지 않는다). 판정 정책(60초 쿨다운·5회 시도·1회용 소비)은 기존 `EmailVerificationService`의 것을 그대로 따르되(USER-OAU-77~79), **결과는 전역 인증완료 상태가 아니라 티켓에 결부된다**(USER-OAU-80).
@@ -214,7 +216,7 @@
 8. **`redirectUri`를 검증 없이 그대로 쓰면 인가코드를 임의 주소로 빼돌리는 경로가 열린다.** 서버 설정 고정은 불가능하다 — 웹(`https://…`)과 앱(커스텀 스킴)이 서로 다른 값을 쓰고, 토큰 교환 시 인가코드 발급 때와 **문자 그대로 일치**해야 한다. 그래서 본문으로 받되 허용 목록과 대조한다(USER-OAU-63). **접두 일치로 구현하면 안 된다** — `https://victoryfairy.com`을 접두로 검사하면 `https://victoryfairy.com.evil.com`이 통과한다.
 9. **`users.email`·`tel`은 탈퇴해도 30일간 점유된다**(`existsBy*`가 탈퇴를 구분하지 않고 DB UNIQUE가 물리적으로 막는다 — 근거는 `withdraw.md` "결정 근거 1"). 자동 통합도 소셜 가입도 이 벽을 넘을 수 없어 USER-OAU-51·52가 409로 고정된다.
 10. **탈퇴 계정 비노출 원칙(USER-WD-8)의 의도적 예외**가 USER-OAU-51·52다. 근거: 그 지점에서는 **provider 또는 우리 인증번호가 이미 그 이메일의 소유자임을 증명한 상태**라 응답이 알려주는 정보가 요청자 자신의 것이다. ⚠ 그래서 **입력 티켓 경로의 409는 반드시 인증번호 통과 뒤에 나가야 한다** — 발송 단계에서 409를 주면 아무나 이메일만 적어 가입·탈퇴 이력을 캐낼 수 있다(USER-OAU-95).
-11. **네이버는 이메일 검증 여부를 알려주지 않아 무조건 검증됨으로 취급한다**(USER-OAU-67). **자동 통합의 가장 약한 고리**이며, 네이버 쪽에 미검증 이메일 계정이 존재할 수 있다면 그 계정은 코드 인증 없이 기존 계정에 붙는다. 네이버가 정책을 바꾸거나 사고가 보고되면 가장 먼저 재검토할 자리다.
+11. **네이버는 이메일 검증 여부를 알려주지 않아 언제나 미검증으로 접는다**(USER-OAU-67, 2026-08-24 변경 — 결정 기록 13). 그래서 네이버로 만든 계정은 `email_verified=false`로 남고, 나중에 다른 provider가 그 계정에 붙을 때 코드 인증을 한 번 태운다. 그 승격이 선점 해제(USER-OAU-73)를 함께 발동시켜 **네이버 연동도 끊기고 재연동이 필요하다** — 정직한 사용자가 내는 일회성 비용이며, 이것이 선점 방어와 맞바꾼 값이다.
 12. **카카오 검증 판정 규칙(USER-OAU-67)은 지금 도달하지 않는 코드 경로다.** 비즈 앱이 아니라 이메일 자체가 오지 않기 때문이다. **삭제하지 않는 이유는 전환 승인 시 그대로 필요하기 때문**이며, 그때 `is_email_verified`만 보고 `is_email_valid`를 빠뜨리면 폐기된(회수·재사용될 수 있는) 주소가 검증됨으로 통과한다.
 13. **`tel`이 NULL인 계정이 정상적으로 존재하게 된다.** 향후 SMS 발송·본인확인·전화번호 기반 조회 기능은 **NULL을 다뤄야 하고**, "전화번호는 항상 있다"를 전제로 짜면 소셜 계정에서 NPE 또는 조용한 누락이 된다. `name`·`gender`도 같다.
 14. **refresh 토큰은 계정당 1개다.** 소셜 로그인은 기존 세션을 끊는다(USER-OAU-47) — 새 정책이 아니라 현행 계약의 귀결이다(사용자 고지 완료).
@@ -235,7 +237,7 @@
 
 ## 결정 기록 (2026-08-20, 사용자 확정)
 1. **미검증 이메일 — 위험한 갈래에만 인증을 요구한다.** 초안의 "검증된 이메일만 통합, 나머지는 400"은 과잉이라 폐기했다. 빼앗을 계정이 없는 신규 가입은 검증 여부와 무관하게 통과시키고(USER-OAU-84가 그 사실을 계정에 기록한다), 기존 계정과 합쳐지는 갈래에서만 코드 인증을 태운다. **대신 선점 방지(USER-OAU-73)가 필수 조건으로 함께 확정됐다** — 이 규칙이 없으면 완화가 곧 취약점이 된다.
-2. **provider별 검증 판정** — 구글 `email_verified` / 카카오 `is_email_verified` **AND** `is_email_valid` / 네이버는 필드 부재로 검증됨 취급(제약 11).
+2. **provider별 검증 판정** — 구글 `email_verified` / 카카오 `is_email_verified` **AND** `is_email_valid` / 네이버는 필드 부재로 검증됨 취급(제약 11). ⚠ 네이버 판정은 **2026-08-24에 미검증으로 뒤집혔다**(아래 13).
 3. **이메일 미제공 — 사용자 입력 + 우리 코드 인증(2차 개정).** 카카오 비즈 앱 전환을 하지 않기로 확정되면서 `account_email` 동의항목 자체를 못 쓰게 됐고, **이메일 미제공이 오류가 아니라 정상 경로**가 됐다. 그래서 400 거절(USER-OAU-23)을 폐기하고 입력 갈래를 신설했다. **이 경로로 얻은 이메일은 `emailVerified=true`** 다 — provider가 주는 미검증 이메일과 달리 **우리가 직접 소유를 확인**했으므로 신뢰도가 provider 검증 이메일과 동급 이상이다. 따라서 인증 통과 후의 판정은 ②단계와 완전히 같고 **인증을 또 요구하지 않는다**(USER-OAU-97). 선점 방지는 이 경로에도 그대로 적용된다(USER-OAU-73).
 4. **분기 기준은 provider가 아니라 "이번 응답에 이메일이 있는가"**(USER-OAU-91). provider를 하드코딩해 분기하면 비즈 앱 전환 시 요구사항과 코드를 다시 고쳐야 한다. 네이버도 이메일이 선택 동의라 거부당하면 같은 경로를 탄다.
 5. **소셜 가입 필수 필드 — 컬럼 nullable 완화(초안 B안 채택).** 초안 A안(폼으로 `name`·`tel`·`gender`를 받기)은 **아무도 읽지 않는 값을 위해 마찰을 만드는 것**이라 폐기했다. `tel`은 `existsByTel`과 시스템 계정 채움 외에 소비처가 없고 `/me`는 일부러 제외한다. **자체 가입 요청 계약은 불변**(USER-OAU-88).
@@ -246,6 +248,8 @@
 10. **연동 목록 조회·해제(unlink) API는 이번 범위 제외.** USER-OAU-73의 연동 해제는 시스템 내부 동작이며 이것과 별개다.
 11. **구현 후 정정 3건(2026-08-21).** 구현이 드러낸 문서-실제 불일치를 문서 쪽으로 맞췄다. ①USER-OAU-60의 500은 **래퍼가 붙는다**(제약 20). ②입력 티켓의 이메일 누락 응답을 USER-OAU-101로 명시했다(제약 21의 문구 한계 포함). ③**티켓 만료와 인증번호 만료는 다른 사건**이라 코드가 갈린다 — 티켓은 `INVALID_OAUTH_TICKET`(USER-OAU-76, 소셜 로그인부터 다시), 인증번호는 `EXPIRED_VERIFICATION_CODE`(USER-OAU-100, 재발송으로 이어서 진행). 같은 날 구현자 재량 2건을 계약으로 승격했다 — `EMAIL_VERIFICATION_REQUIRED` 응답의 `email` 동봉(USER-OAU-68), 예약 이메일의 409(USER-OAU-56).
 12. **`ErrorCode` 6종 → 7종(2026-08-21, 같은 날 재결정).** 3차 개정 때 총량을 6종으로 묶은 탓에 USER-OAU-101이 `EMAIL_NOT_VERIFIED`를 빌려 썼는데, **사용자가 해야 할 일("이메일을 입력하라")과 문구("인증이 완료되지 않았습니다")가 어긋난다**는 이견이 제기돼 사용자가 7번째 코드를 허용했다. 초안에 있다가 2차 개정에서 지웠던 **`OAUTH_EMAIL_REQUIRED`를 되살리되 뜻을 바꿔 재정의**한다 — 옛 뜻은 "provider가 이메일 제공에 동의받지 못했다"(그래서 400 거절)였고, 지금 뜻은 "**사용자가 이메일을 입력하지 않았다**"다. 바뀐 것은 USER-OAU-101 한 줄과 코드 표뿐이다(제약 21).
+13. **네이버 검증 판정을 fail-closed로 뒤집었다(2026-08-24).** 결정 기록 2의 "필드 부재 = 검증됨"은 **선점 방지(USER-OAU-73)를 네이버에서만 무력화**한다 — 공격자가 피해자 이메일로 네이버 가입을 해 두면 그 계정이 `email_verified=true`로 태어나고, 진짜 주인이 구글로 들어올 때 양쪽이 모두 검증됨이라 **코드 인증 없이 공격자 계정에 자동 통합**된다. 필드가 없다는 것은 검증됐다는 근거가 없다는 뜻이므로 구글의 필드 부재 처리(미검증으로 접음)와 같은 규칙으로 통일한다. **신규 가입 플로우는 바뀌지 않는다**(화면 수·왕복 수 동일, `users.email_verified`만 false로 기록된다). 비용은 제약 11에 적었다. ⚠ 네이버가 나중에 검증 필드를 추가하더라도 **계약을 확인하기 전까지는 그 값을 믿지 않는다**(회귀 테스트로 고정).
+14. **소셜 전용 계정 이메일의 자체 가입 안내(2026-08-24, USER-OAU-46-1 신설).** USER-OAU-43~45가 만든 상태의 뒷면이 드러났다 — 소셜로만 가입한 사용자는 비밀번호가 잠겨 있고(43) 자체 로그인은 미가입과 같은 401이며(44) 비밀번호 변경도 막혀 있는데(45) **비밀번호 재설정 API가 존재하지 않아**, 자기 계정을 소셜 버튼 말고는 되찾을 길이 없다. 그런데 자체 가입을 다시 시도하면 `send-code`가 `DUPLICATE_EMAIL`("이미 사용 중인 이메일입니다")만 주어 **남이 쓰는 주소로 오해**하게 된다. 그래서 그 응답만 `SOCIAL_ACCOUNT_ONLY`로 세분화하고 provider 목록을 함께 준다. ⚠ **로그인으로 옮기지 말 것** — `send-code`에서만 되는 이유는 그 응답이 USER-EMV-14의 의도적 예외로 **원래부터 가입 사실을 알려 왔기** 때문이고(추가로 새는 정보는 provider 이름뿐), 계정 존재를 감추는 로그인에 같은 안내를 붙이면 계정 열거가 된다. **소셜 전용 계정의 비밀번호 설정(결정 기록 9의 범위 제외)이 들어오면 이 안내는 근본 해결로 대체될 수 있다.**
 
 ## 미해결 질문
 없음 — 초안의 8건과 2차 개정 논점은 2026-08-20 사용자 답변으로 전부 해소됐다(위 "결정 기록" 참조).
