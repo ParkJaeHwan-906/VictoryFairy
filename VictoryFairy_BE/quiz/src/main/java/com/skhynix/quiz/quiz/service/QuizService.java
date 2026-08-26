@@ -13,6 +13,7 @@ import com.skhynix.domain.support.repository.UserSupportPlayerRepository;
 import com.skhynix.domain.support.repository.UserSupportTeamRepository;
 import com.skhynix.quiz.quiz.dto.QuizDetailResponse;
 import com.skhynix.quiz.quiz.dto.QuizResponse;
+import com.skhynix.quiz.quiz.dto.QuizVoteCountResponse;
 import com.skhynix.quiz.quiz.vote.QuizVoteTally;
 import java.time.Clock;
 import java.time.LocalDate;
@@ -221,5 +222,39 @@ public class QuizService {
             return true;
         }
         return quiz.getPlayer() != null && supportPlayerIds.contains(quiz.getPlayer().getId());
+    }
+
+    /**
+     * 아직 답하지 않은 문제의 보기별 투표 분포. 화면이 열려 있는 동안 <b>주기적으로 다시 부르는</b>
+     * 경로라, 여기서 하는 일은 판정 1 + 보기 조회 1 + Redis 왕복 1 로 묶여 있다.
+     *
+     * <p><b>"받았고 아직 답하지 않은" 행이 있을 때만 값을 준다.</b> 그 외(받은 적 없음 · 이미 제출함 ·
+     * 문제가 없음)는 예외가 아니라 {@code null} 이고, 컨트롤러가 {@code data: null} 로 내보낸다 —
+     * 이미 낸 사람에게 분포를 감추는 것이 목적이라 404·403 으로 갈라 주면 <b>응답 코드만 보고
+     * "그 문제를 받았는지"를 알아낼 수 있다</b>(QUIZ_LIKE_NOT_ALLOWED 와 같은 계열의 은닉).
+     *
+     * <p>⚠ 시한(+8분) 초과는 여기서 걸러 내지 않는다. 시한이 지난 미답 행은 제출 경로에서 403 이지만
+     * 분포를 못 볼 이유는 없고, 시각으로 갈리는 판정을 여기에 하나 더 두면 같은 화면이 폴링 도중
+     * 조용히 빈 응답으로 바뀐다.
+     */
+    @Transactional(readOnly = true)
+    public QuizVoteCountResponse getQuizVoteCount(Long userAccountId, Long quizId) {
+        // submit_option_id 는 이 행에 있는 FK 컬럼이라, LAZY 연관이어도 null 검사에 추가 조회가 없다.
+        // (getQuiz 가 쓰는 것과 같은 판정 — 행 존재 = "받았다", 값 존재 = "답했다")
+        boolean unanswered = quizUserSubmitRepository
+                .findByUserAccount_IdAndQuiz_Id(userAccountId, quizId)
+                .filter(submit -> submit.getSubmitOption() == null)
+                .isPresent();
+        if (!unanswered) {
+            return null;
+        }
+
+        // Redis 에 없는 보기를 0 으로 채우는 근거가 이 목록이라, 표가 하나도 없거나 Redis 가 죽어도
+        // 응답에 실리는 보기 개수는 늘 같다. 보기 텍스트도 여기서 나온다(/today 와 같은 항목 모양).
+        List<QuizOption> options = quizOptionRepository.findAllByQuiz_IdOrderByOptionAsc(quizId);
+        if (options.isEmpty()) {
+            return null;
+        }
+        return QuizVoteCountResponse.of(quizId, options, quizVoteTally.read(quizId));
     }
 }
