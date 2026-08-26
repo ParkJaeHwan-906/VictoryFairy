@@ -46,4 +46,22 @@ public interface QuizVoteTally {
      * @return 문제 id → (보기 번호(0-based) → 투표 수). 읽지 못한 문제·보기는 키 자체가 없다
      */
     Map<Long, Map<Integer, Long>> initializeAndRead(Map<Long, List<Integer>> optionNosByQuizId);
+
+    /**
+     * 한 문제의 현재 분포를 <b>읽기만</b> 한다 — 위 {@link #initializeAndRead} 와 달리 키를 만들지도,
+     * 없는 보기를 0 으로 채우지도, TTL 을 걸지도 않는다.
+     *
+     * <p>초기화를 함께 하지 않는 것이 이 메서드의 존재 이유다. 이 경로(투표율 조회)는 이미 서빙받은
+     * 문제만 대상이라 키가 이미 있고, 그럼에도 초기화를 얹으면 <b>TTL 이 만료돼 사라진 키를 조회가
+     * 되살려</b> 전 보기 0 짜리 키가 새 수명을 얻는다 — 표는 이미 없는데 "아무도 안 골랐다"로 보이는
+     * 상태가 TTL 만큼 더 유지된다.
+     *
+     * <p>반환 맵은 {@link #initializeAndRead} 와 같은 규칙으로 <b>부분적일 수 있다</b>: 저장소 장애면
+     * 빈 맵, 키·필드가 없거나 값이 0 이상의 정수로 해석되지 않으면 그 항목이 빠진다. 호출부가 빠진
+     * 자리를 0 으로 채운다.
+     *
+     * @param quizId {@code quizzes.id}
+     * @return 보기 번호(0-based) → 투표 수. 읽지 못한 보기는 키 자체가 없다
+     */
+    Map<Integer, Long> read(long quizId);
 }

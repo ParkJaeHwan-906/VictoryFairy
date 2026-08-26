@@ -4,6 +4,7 @@ import com.skhynix.common.response.ApiResponse;
 import com.skhynix.quiz.quiz.dto.QuizDetailResponse;
 import com.skhynix.quiz.quiz.dto.QuizLikeResponse;
 import com.skhynix.quiz.quiz.dto.QuizResponse;
+import com.skhynix.quiz.quiz.dto.QuizVoteRateResponse;
 import com.skhynix.quiz.quiz.service.QuizLikeService;
 import com.skhynix.quiz.quiz.service.QuizService;
 import java.util.List;
@@ -48,5 +49,17 @@ public class QuizController {
             @AuthenticationPrincipal Long userAccountId,
             @PathVariable Long quizId) {
         return ResponseEntity.ok(ApiResponse.ok(quizLikeService.toggle(userAccountId, quizId)));
+    }
+
+    /**
+     * 아직 답하지 않은 문제의 보기별 투표율. 자격이 없으면(받은 적 없음 · 이미 제출함) 상태 코드를
+     * 가르지 않고 <b>200 + {@code data: null}</b> 로 답한다 — 404·403 으로 갈리면 응답 코드만으로
+     * "그 사람이 그 문제를 받았는지"가 드러나고, 화면 쪽도 폴링 중에 에러 분기를 타게 된다.
+     */
+    @GetMapping("/{quizId}/vote-rate")
+    public ResponseEntity<ApiResponse<QuizVoteRateResponse>> getQuizVoteRate(
+            @AuthenticationPrincipal Long userAccountId,
+            @PathVariable Long quizId) {
+        return ResponseEntity.ok(ApiResponse.ok(quizService.getQuizVoteRate(userAccountId, quizId)));
     }
 }
