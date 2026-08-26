@@ -16,17 +16,17 @@ import java.util.Map;
  * <p>값의 출처가 RDB 가 아니라 Redis 집계라 <b>근사 스냅샷</b>이고, 못 읽었을 때도 전 보기 0 으로
  * 나간다(응답 스키마는 늘 한 모양).
  */
-public record QuizVoteRateResponse(Long quizId, List<TodayOptionResponse> options) {
+public record QuizVoteCountResponse(Long quizId, List<TodayOptionResponse> options) {
 
     /**
      * @param voteCounts 보기 번호(0-based) → 투표 수. <b>빠진 보기는 0 으로 채운다</b> — 이 맵은
      *                   Redis 장애·키 부재·TTL 만료로 부분적일 수 있는데, 없는 자리를 생략해 버리면
      *                   같은 문제인데 요청마다 보기 개수가 달라진다
      */
-    public static QuizVoteRateResponse of(Long quizId, List<QuizOption> options,
+    public static QuizVoteCountResponse of(Long quizId, List<QuizOption> options,
             Map<Integer, Long> voteCounts) {
         Map<Integer, Long> votes = voteCounts == null ? Map.of() : voteCounts;
-        return new QuizVoteRateResponse(quizId, options.stream()
+        return new QuizVoteCountResponse(quizId, options.stream()
                 .map(option -> TodayOptionResponse.from(option, votes))
                 .toList());
     }

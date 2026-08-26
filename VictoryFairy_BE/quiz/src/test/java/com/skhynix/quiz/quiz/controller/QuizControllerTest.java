@@ -17,7 +17,7 @@ import com.skhynix.quiz.quiz.dto.OptionResponse;
 import com.skhynix.quiz.quiz.dto.QuizDetailResponse;
 import com.skhynix.quiz.quiz.dto.QuizResponse;
 import com.skhynix.quiz.quiz.dto.QuizResponse.TodayOptionResponse;
-import com.skhynix.quiz.quiz.dto.QuizVoteRateResponse;
+import com.skhynix.quiz.quiz.dto.QuizVoteCountResponse;
 import com.skhynix.quiz.quiz.service.QuizLikeService;
 import com.skhynix.quiz.quiz.service.QuizService;
 import com.skhynix.websupport.error.GlobalExceptionHandler;
@@ -352,12 +352,12 @@ class QuizControllerTest {
         }
     }
 
-    // ---------- GET /quizzes/{quizId}/vote-rate ----------
+    // ---------- GET /quizzes/{quizId}/vote-count ----------
 
     @Test
     @DisplayName("인증 없이 투표 현황을 요청하면 401을 반환한다")
-    void getQuizVoteRate_withoutAuthentication_returns401() throws Exception {
-        mockMvc.perform(get("/quizzes/1/vote-rate"))
+    void getQuizVoteCount_withoutAuthentication_returns401() throws Exception {
+        mockMvc.perform(get("/quizzes/1/vote-count"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.success").value(false));
 
@@ -366,13 +366,13 @@ class QuizControllerTest {
 
     @Test
     @DisplayName("미답 상태면 200과 보기별 투표 수를 반환한다(항목 필드는 /today 와 같은 no·text·voteCount)")
-    void getQuizVoteRate_unanswered_returnsCountsPerOption() throws Exception {
-        given(quizService.getQuizVoteRate(USER_ID, 1L)).willReturn(
-                new QuizVoteRateResponse(1L, List.of(
+    void getQuizVoteCount_unanswered_returnsCountsPerOption() throws Exception {
+        given(quizService.getQuizVoteCount(USER_ID, 1L)).willReturn(
+                new QuizVoteCountResponse(1L, List.of(
                         new TodayOptionResponse(0, "안타", 37L),
                         new TodayOptionResponse(1, "삼진", 12L))));
 
-        mockMvc.perform(get("/quizzes/1/vote-rate").with(authenticatedAs(USER_ID)))
+        mockMvc.perform(get("/quizzes/1/vote-count").with(authenticatedAs(USER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.quizId").value(1))
@@ -389,10 +389,10 @@ class QuizControllerTest {
     @Test
     @DisplayName("자격이 없으면(받은 적 없음·이미 제출함) 상태 코드를 가르지 않고 200 + data:null 이다 "
             + "— 404·403 으로 갈리면 응답 코드만으로 그 문제를 받았는지가 드러난다")
-    void getQuizVoteRate_notEligible_returns200WithNullData() throws Exception {
-        given(quizService.getQuizVoteRate(USER_ID, 1L)).willReturn(null);
+    void getQuizVoteCount_notEligible_returns200WithNullData() throws Exception {
+        given(quizService.getQuizVoteCount(USER_ID, 1L)).willReturn(null);
 
-        mockMvc.perform(get("/quizzes/1/vote-rate").with(authenticatedAs(USER_ID)))
+        mockMvc.perform(get("/quizzes/1/vote-count").with(authenticatedAs(USER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data").doesNotExist());
@@ -400,8 +400,8 @@ class QuizControllerTest {
 
     @Test
     @DisplayName("quizId 가 숫자가 아니면 400이고 서비스는 호출되지 않는다")
-    void getQuizVoteRate_nonNumericQuizId_returns400() throws Exception {
-        mockMvc.perform(get("/quizzes/abc/vote-rate").with(authenticatedAs(USER_ID)))
+    void getQuizVoteCount_nonNumericQuizId_returns400() throws Exception {
+        mockMvc.perform(get("/quizzes/abc/vote-count").with(authenticatedAs(USER_ID)))
                 .andExpect(status().isBadRequest());
 
         verifyNoInteractions(quizService);

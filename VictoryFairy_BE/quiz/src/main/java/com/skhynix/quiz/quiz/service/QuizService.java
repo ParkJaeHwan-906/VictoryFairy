@@ -13,7 +13,7 @@ import com.skhynix.domain.support.repository.UserSupportPlayerRepository;
 import com.skhynix.domain.support.repository.UserSupportTeamRepository;
 import com.skhynix.quiz.quiz.dto.QuizDetailResponse;
 import com.skhynix.quiz.quiz.dto.QuizResponse;
-import com.skhynix.quiz.quiz.dto.QuizVoteRateResponse;
+import com.skhynix.quiz.quiz.dto.QuizVoteCountResponse;
 import com.skhynix.quiz.quiz.vote.QuizVoteTally;
 import java.time.Clock;
 import java.time.LocalDate;
@@ -238,7 +238,7 @@ public class QuizService {
      * 조용히 빈 응답으로 바뀐다.
      */
     @Transactional(readOnly = true)
-    public QuizVoteRateResponse getQuizVoteRate(Long userAccountId, Long quizId) {
+    public QuizVoteCountResponse getQuizVoteCount(Long userAccountId, Long quizId) {
         // submit_option_id 는 이 행에 있는 FK 컬럼이라, LAZY 연관이어도 null 검사에 추가 조회가 없다.
         // (getQuiz 가 쓰는 것과 같은 판정 — 행 존재 = "받았다", 값 존재 = "답했다")
         boolean unanswered = quizUserSubmitRepository
@@ -255,6 +255,6 @@ public class QuizService {
         if (options.isEmpty()) {
             return null;
         }
-        return QuizVoteRateResponse.of(quizId, options, quizVoteTally.read(quizId));
+        return QuizVoteCountResponse.of(quizId, options, quizVoteTally.read(quizId));
     }
 }

@@ -32,7 +32,7 @@ import com.skhynix.domain.team.entity.Team;
 import com.skhynix.quiz.quiz.dto.QuizDetailResponse;
 import com.skhynix.quiz.quiz.dto.QuizLikeResponse;
 import com.skhynix.quiz.quiz.dto.QuizResponse;
-import com.skhynix.quiz.quiz.dto.QuizVoteRateResponse;
+import com.skhynix.quiz.quiz.dto.QuizVoteCountResponse;
 import com.skhynix.quiz.quiz.vote.QuizVoteTally;
 import java.time.Clock;
 import java.time.LocalDate;
@@ -1336,11 +1336,11 @@ class QuizServiceTest {
         assertThat(componentNames).containsExactlyInAnyOrder("no", "text", "voteCount");
     }
 
-    // ---------- getQuizVoteRate ----------
+    // ---------- getQuizVoteCount ----------
 
     @Test
     @DisplayName("받았고 아직 답하지 않은 문제는 보기별 투표 수를 돌려준다 — 항목 모양이 /today 와 같다")
-    void getQuizVoteRate_unanswered_returnsVoteCountsPerOption() {
+    void getQuizVoteCount_unanswered_returnsVoteCountsPerOption() {
         Quiz quiz = quiz(1L, "객관식", "다음 타석 결과는?", "MEDIUM", 30.0);
         given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, 1L))
                 .willReturn(Optional.of(QuizUserSubmit.builder().quiz(quiz).isAnswer(false).build()));
@@ -1348,7 +1348,7 @@ class QuizServiceTest {
                 .willReturn(List.of(option(quiz, 0, "안타"), option(quiz, 1, "삼진")));
         given(quizVoteTally.read(1L)).willReturn(Map.of(0, 37L, 1, 12L));
 
-        QuizVoteRateResponse result = quizService.getQuizVoteRate(USER_ID, 1L);
+        QuizVoteCountResponse result = quizService.getQuizVoteCount(USER_ID, 1L);
 
         assertThat(result.quizId()).isEqualTo(1L);
         assertThat(result.options()).extracting(
@@ -1360,7 +1360,7 @@ class QuizServiceTest {
 
     @Test
     @DisplayName("Redis 가 일부만 돌려주거나(부분 결손) 통째로 비어도 보기는 전부 실린다 — 없는 자리는 0")
-    void getQuizVoteRate_partialTally_fillsMissingOptionsWithZero() {
+    void getQuizVoteCount_partialTally_fillsMissingOptionsWithZero() {
         Quiz quiz = quiz(1L, "객관식", "다음 타석 결과는?", "MEDIUM", 30.0);
         given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, 1L))
                 .willReturn(Optional.of(QuizUserSubmit.builder().quiz(quiz).isAnswer(false).build()));
@@ -1370,7 +1370,7 @@ class QuizServiceTest {
         // Redis 장애·TTL 만료면 read 가 빈 맵을 준다(예외가 아니다) — 여기서는 1번 보기만 읽힌 상태
         given(quizVoteTally.read(1L)).willReturn(Map.of(1, 5L));
 
-        QuizVoteRateResponse result = quizService.getQuizVoteRate(USER_ID, 1L);
+        QuizVoteCountResponse result = quizService.getQuizVoteCount(USER_ID, 1L);
 
         assertThat(result.options()).extracting(QuizResponse.TodayOptionResponse::voteCount)
                 .containsExactly(0L, 5L, 0L);
@@ -1378,18 +1378,18 @@ class QuizServiceTest {
 
     @Test
     @DisplayName("받은 적 없는 문제는 null 이다 — 보기도 Redis 도 조회하지 않는다")
-    void getQuizVoteRate_neverServed_returnsNullWithoutTouchingOptionsOrTally() {
+    void getQuizVoteCount_neverServed_returnsNullWithoutTouchingOptionsOrTally() {
         given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, 1L))
                 .willReturn(Optional.empty());
 
-        assertThat(quizService.getQuizVoteRate(USER_ID, 1L)).isNull();
+        assertThat(quizService.getQuizVoteCount(USER_ID, 1L)).isNull();
 
         verifyNoInteractions(quizOptionRepository, quizVoteTally);
     }
 
     @Test
     @DisplayName("이미 제출한 문제는 null 이다 — 낸 사람에게 분포를 감추는 것이 이 API 의 목적이다")
-    void getQuizVoteRate_alreadyAnswered_returnsNull() {
+    void getQuizVoteCount_alreadyAnswered_returnsNull() {
         Quiz quiz = quiz(1L, "객관식", "다음 타석 결과는?", "MEDIUM", 30.0);
         given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, 1L))
                 .willReturn(Optional.of(QuizUserSubmit.builder()
@@ -1398,27 +1398,27 @@ class QuizServiceTest {
                         .isAnswer(false)
                         .build()));
 
-        assertThat(quizService.getQuizVoteRate(USER_ID, 1L)).isNull();
+        assertThat(quizService.getQuizVoteCount(USER_ID, 1L)).isNull();
 
         verifyNoInteractions(quizOptionRepository, quizVoteTally);
     }
 
     @Test
     @DisplayName("보기가 하나도 없는 문제는 null 이다 — 0 으로 채울 근거가 없어 Redis 도 읽지 않는다")
-    void getQuizVoteRate_noOptions_returnsNullWithoutReadingTally() {
+    void getQuizVoteCount_noOptions_returnsNullWithoutReadingTally() {
         Quiz quiz = quiz(1L, "객관식", "다음 타석 결과는?", "MEDIUM", 30.0);
         given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, 1L))
                 .willReturn(Optional.of(QuizUserSubmit.builder().quiz(quiz).isAnswer(false).build()));
         given(quizOptionRepository.findAllByQuiz_IdOrderByOptionAsc(1L)).willReturn(List.of());
 
-        assertThat(quizService.getQuizVoteRate(USER_ID, 1L)).isNull();
+        assertThat(quizService.getQuizVoteCount(USER_ID, 1L)).isNull();
 
         verifyNoInteractions(quizVoteTally);
     }
 
     @Test
     @DisplayName("시한(8분)을 넘긴 미답 행도 그대로 준다 — 폴링 도중 응답이 조용히 비지 않게 한다")
-    void getQuizVoteRate_unansweredPastWindow_stillReturnsCounts() {
+    void getQuizVoteCount_unansweredPastWindow_stillReturnsCounts() {
         Quiz quiz = quiz(1L, "객관식", "다음 타석 결과는?", "MEDIUM", 30.0);
         QuizUserSubmit expired = QuizUserSubmit.builder().quiz(quiz).isAnswer(false).build();
         ReflectionTestUtils.setField(expired, "createdAt", QuizSubmitWindow.now().minusMinutes(30));
@@ -1428,18 +1428,18 @@ class QuizServiceTest {
                 .willReturn(List.of(option(quiz, 0, "안타")));
         given(quizVoteTally.read(1L)).willReturn(Map.of(0, 3L));
 
-        assertThat(quizService.getQuizVoteRate(USER_ID, 1L)).isNotNull();
+        assertThat(quizService.getQuizVoteCount(USER_ID, 1L)).isNotNull();
     }
 
     @Test
-    @DisplayName("투표율 응답의 필드 집합은 quizId·options 둘뿐이고, 보기 항목은 /today 와 같은 타입이다 "
+    @DisplayName("투표 수 응답의 필드 집합은 quizId·options 둘뿐이고, 보기 항목은 /today 와 같은 타입이다 "
             + "— 서버가 백분율을 계산해 내보내지 않는다")
-    void quizVoteRateResponse_recordComponents_areQuizIdAndOptionsOnly() {
+    void quizVoteCountResponse_recordComponents_areQuizIdAndOptionsOnly() {
         List<java.lang.reflect.RecordComponent> components = java.util.Arrays
-                .stream(QuizVoteRateResponse.class.getRecordComponents()).toList();
+                .stream(QuizVoteCountResponse.class.getRecordComponents()).toList();
         assertThat(components).extracting(java.lang.reflect.RecordComponent::getName)
                 .containsExactlyInAnyOrder("quizId", "options");
-        assertThat(QuizVoteRateResponse.class.getRecordComponents()[1].getGenericType().getTypeName())
+        assertThat(QuizVoteCountResponse.class.getRecordComponents()[1].getGenericType().getTypeName())
                 .contains(QuizResponse.TodayOptionResponse.class.getName());
     }
 }
