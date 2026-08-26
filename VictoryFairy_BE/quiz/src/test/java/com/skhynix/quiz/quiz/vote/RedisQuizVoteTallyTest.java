@@ -36,6 +36,7 @@ import org.springframework.data.redis.connection.ExpirationOptions;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.RedisHashCommands;
 import org.springframework.data.redis.connection.RedisKeyCommands;
+import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
@@ -64,6 +65,10 @@ class RedisQuizVoteTallyTest {
 
     @Mock
     private RedisKeyCommands keyCommands;
+
+    /** read() 는 저수준 커넥션이 아니라 고수준 Hash 연산(HGETALL)을 쓴다 — 그 경로 전용 목이다. */
+    @Mock
+    private HashOperations<String, Object, Object> hashOperations;
 
     private RedisQuizVoteTally tally;
     private ListAppender<ILoggingEvent> logAppender;
@@ -463,5 +468,73 @@ class RedisQuizVoteTallyTest {
         Map<Long, Map<Integer, Long>> result = tally.initializeAndRead(Map.of(1L, List.of(0, 1)));
 
         assertThat(result).doesNotContainKey(1L);
+    }
+
+    // ---------- read: 단건 조회(HGETALL) ----------
+
+    private void givenHash(Map<Object, Object> hash) {
+        given(redisTemplate.<Object, Object>opsForHash()).willReturn(hashOperations);
+        given(hashOperations.entries("quiz:votes:1")).willReturn(hash);
+    }
+
+    @Test
+    @DisplayName("read 는 quiz:votes:{quizId} 해시를 HGETALL 해서 0-based 보기 번호 맵으로 돌려준다")
+    void read_returnsCountsKeyedByZeroBasedOptionNo() {
+        givenHash(Map.of("0", "37", "1", "12"));
+
+        Map<Integer, Long> result = tally.read(1L);
+
+        assertThat(result).containsExactlyInAnyOrderEntriesOf(Map.of(0, 37L, 1, 12L));
+    }
+
+    @Test
+    @DisplayName("키가 없으면(TTL 만료·첫 조회) 예외가 아니라 빈 맵이다 — 호출부가 전 보기 0으로 채운다")
+    void read_missingKey_returnsEmptyMapWithoutWarning() {
+        givenHash(Map.of());
+
+        assertThat(tally.read(1L)).isEmpty();
+        assertThat(warnCount()).isZero();
+    }
+
+    @Test
+    @DisplayName("값이 정수가 아니거나 음수인 항목만 버리고 나머지는 그대로 싣는다 — 깨진 필드 하나가 "
+            + "조회 전체를 실패시키지 않는다")
+    void read_unparsableFields_dropOnlyThoseEntries() {
+        Map<Object, Object> hash = new HashMap<>();
+        hash.put("0", "37");
+        hash.put("1", "abc");
+        hash.put("2", "-1");
+        hash.put("bad", "5");
+        givenHash(hash);
+
+        assertThat(tally.read(1L)).containsExactlyInAnyOrderEntriesOf(Map.of(0, 37L));
+    }
+
+    @Test
+    @DisplayName("저장소 장애는 예외로 전파되지 않는다 — WARN 1건과 빈 맵(null 아님)으로 degrade 한다")
+    void read_storeFailure_swallowsAndReturnsEmptyMap() {
+        given(redisTemplate.<Object, Object>opsForHash()).willReturn(hashOperations);
+        willThrow(new RuntimeException("boom")).given(hashOperations).entries("quiz:votes:1");
+
+        Map<Integer, Long> result = tally.read(1L);
+
+        // null 이면 호출부가 getOrDefault 에서 NPE 를 맞는다 — 장애 때만 터지는 500 이 되므로
+        // 반환형은 반드시 빈 맵이어야 한다(QuizVoteTally 계약).
+        assertThat(result).isNotNull().isEmpty();
+        assertThat(warnCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("read 는 쓰기 명령을 섞지 않는다 — HSETNX·EXPIRE 를 얹으면 만료돼 사라진 키를 조회가 "
+            + "되살려 표가 없는 상태가 TTL 만큼 더 유지된다")
+    void read_issuesNoWriteCommands() {
+        givenHash(Map.of("0", "1"));
+
+        tally.read(1L);
+
+        verify(hashOperations, never()).put(any(), any(), any());
+        verify(hashOperations, never()).putIfAbsent(any(), any(), any());
+        verify(redisTemplate, never()).executePipelined(any(RedisCallback.class));
+        verifyNoInteractions(connection, hashCommands, keyCommands);
     }
 }

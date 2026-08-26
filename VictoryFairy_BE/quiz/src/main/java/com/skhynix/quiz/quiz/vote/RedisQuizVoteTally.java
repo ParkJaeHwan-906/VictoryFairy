@@ -25,7 +25,7 @@ import org.springframework.stereotype.Component;
  * 최종 검증이 항상 dev 프로파일 docker 기동이라, prod 전용으로 만들면 표가 실제로 쌓이는 것을 한 번도
  * 못 본 채 배포된다. 아래 예외 삼킴이 그 대가를 치러 준다(Redis 없이 맨몸 기동해도 no-op 으로 degrade).
  *
- * <p><b>왕복 수는 문제 수·보기 수와 무관한 상수다.</b> 두 경로 모두 {@code executePipelined} 안에서
+ * <p><b>왕복 수는 문제 수·보기 수와 무관한 상수다.</b> 적재·초기화 경로는 {@code executePipelined} 안에서
  * 명령을 쌓고 한 번에 흘려보낸다 — 명령 수는 필드 수만큼 늘어도 응답을 기다리는 횟수는 1 이다.
  * 문제마다·보기마다 응답을 받는 형태로 "단순화"하면 20문제 × 4보기 = 80왕복이 된다.
  *
@@ -105,6 +105,18 @@ public class RedisQuizVoteTally implements QuizVoteTally {
             // 읽기 실패는 서빙을 막지 않는다 — 호출부가 빈 결과를 전 보기 0 으로 채운다.
             // 로그는 문제마다가 아니라 요청당 1 건이다(호출이 요청당 1 회라 이 catch 도 1 회).
             log.warn("퀴즈 투표 집계 초기화·조회 실패 quizIds={}", targets.keySet(), e);
+            return Map.of();
+        }
+    }
+
+    @Override
+    public Map<Integer, Long> read(long quizId) {
+        try {
+            String key = KEY_PREFIX + quizId;
+            Map<Object, Object> hash = redisTemplate.opsForHash().entries(key);
+            return parseCounts(hash);
+        } catch (Exception e) {
+            log.warn("퀴즈 투표 집계 조회 실패 quizId={}", quizId, e);
             return Map.of();
         }
     }
