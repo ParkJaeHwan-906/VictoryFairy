@@ -1,9 +1,9 @@
 # 퀴즈(quiz) API 명세
 
 > **도메인** `quiz` — 오늘의 퀴즈 조회·개별 조회·제출(채점)·풀이 이력·좋아요.
-> **모듈** quiz (포트 8081) · **경로 접두사** `/rt/quizzes` · **엔드포인트** 5개
+> **모듈** quiz (포트 8081) · **경로 접두사** `/rt/quizzes` · **엔드포인트** 6개
 > **컨트롤러** `quiz/src/main/java/com/skhynix/quiz/quiz/controller/QuizController.java`(조회·좋아요 토글), `QuizSubmissionController.java`(제출·이력) — `/rt`는 context-path가 붙인다
-> **최종 갱신** 2026-08-20 — **공통 시스템 예외가 이제 `ApiResponse` 래퍼를 탄다**(415 미지원 Content-Type·405 잘못된 메서드·400 깨진 JSON·400 경로변수/쿼리 타입 불일치·500 미처리 예외 전부 — `web-support`의 `GlobalExceptionHandler` 신설 핸들러, 공유 컴포넌트라 quiz 쪽 코드 변경 없이 적용됨). 실제로 형태가 바뀌는 사례: `Content-Type` 없이 `POST /{quizId}/submit` 호출(415), `GET /{quizId}/submit`처럼 POST 전용 경로에 GET(405), 깨진 JSON 본문(400), `/rt/quizzes/abc/submit`처럼 `quizId`가 숫자가 아님(400). 이 도메인의 `BusinessException` 매핑(403·404·409 등)·401 엔트리포인트·SSE는 전부 불변. 자세한 내용은 [README.md](README.md#1-응답-래퍼--도메인엔드포인트마다-다르다) 참고. (직전: 2026-08-19 **`GET /rt/quizzes/today` 응답의 보기 항목에 투표 수 필드 `voteCount` 신설**(각 `options[]` 원소에 0 이상 JSON 정수, 항상 존재 — Redis 장애·키 부재·TTL 만료·값 파싱 실패 시에도 0으로 채워 200 유지). 서빙 시점 근사 스냅샷이며 갱신 경로(SSE·폴링) 없음, 총합·비율 필드 없음, 미제출 상태에서도 노출(다수결 정답 힌트 수용). 상세(`GET /{quizId}`)·제출(`POST /submit`)·이력(`GET /submissions`) 세 응답은 **불변**(voteCount 없음). 엔드포인트 5개 그대로, 신규 경로 없음. 계약 원본 `docs/requirements/quiz/quiz-vote-exposure.md`(승인됨 2026-08-19, QUIZ-VOTEVIEW-1~30).) 그 이전 이력은 각 엔드포인트 섹션의 `최종 변경` 줄에 남아 있다.
+> **최종 갱신** 2026-08-26 — **`GET /rt/quizzes/{quizId}/vote-rate` 신설**(엔드포인트 5개 → 6개). 아직 답하지 않은 문제의 보기별 투표 수를 **폴링으로 다시 받을 수 있는 유일한 경로**다 — 종전에는 `/today` 응답 한 번이 분포를 전달하는 유일한 기회였고 갱신 수단이 없었다. 응답 항목은 `/today` 와 **같은 타입**(`{no, text, voteCount}`)이고 서버가 백분율을 계산해 주지 않는다(경로 이름이 `vote-rate` 지만 값은 비율이 아니라 개수다). **자격이 없으면 404·403 이 아니라 200 + `data:null`** 이다(응답 코드로 '그 문제를 받았는지'가 드러나지 않게 함). 기존 5개 엔드포인트의 요청·응답·상태코드는 전부 불변. (직전: 2026-08-20 — **공통 시스템 예외가 이제 `ApiResponse` 래퍼를 탄다**(415 미지원 Content-Type·405 잘못된 메서드·400 깨진 JSON·400 경로변수/쿼리 타입 불일치·500 미처리 예외 전부 — `web-support`의 `GlobalExceptionHandler` 신설 핸들러, 공유 컴포넌트라 quiz 쪽 코드 변경 없이 적용됨). 실제로 형태가 바뀌는 사례: `Content-Type` 없이 `POST /{quizId}/submit` 호출(415), `GET /{quizId}/submit`처럼 POST 전용 경로에 GET(405), 깨진 JSON 본문(400), `/rt/quizzes/abc/submit`처럼 `quizId`가 숫자가 아님(400). 이 도메인의 `BusinessException` 매핑(403·404·409 등)·401 엔트리포인트·SSE는 전부 불변. 자세한 내용은 [README.md](README.md#1-응답-래퍼--도메인엔드포인트마다-다르다) 참고. (직전: 2026-08-19 **`GET /rt/quizzes/today` 응답의 보기 항목에 투표 수 필드 `voteCount` 신설**(각 `options[]` 원소에 0 이상 JSON 정수, 항상 존재 — Redis 장애·키 부재·TTL 만료·값 파싱 실패 시에도 0으로 채워 200 유지). 서빙 시점 근사 스냅샷이며 갱신 경로(SSE·폴링) 없음, 총합·비율 필드 없음, 미제출 상태에서도 노출(다수결 정답 힌트 수용). 상세(`GET /{quizId}`)·제출(`POST /submit`)·이력(`GET /submissions`) 세 응답은 **불변**(voteCount 없음). 엔드포인트 5개 그대로, 신규 경로 없음. 계약 원본 `docs/requirements/quiz/quiz-vote-exposure.md`(승인됨 2026-08-19, QUIZ-VOTEVIEW-1~30).)) 그 이전 이력은 각 엔드포인트 섹션의 `최종 변경` 줄에 남아 있다.
 > 공통 규약(응답 래퍼·인증·401 정책)은 [README.md](README.md)를 먼저 볼 것.
 
 ## 엔드포인트 목록
@@ -15,12 +15,13 @@
 | POST | [/rt/quizzes/{quizId}/submit](#post-rtquizzesquizidsubmit) | 200 | 제출·서버 채점 — 정답이면 포인트 적립 |
 | GET | [/rt/quizzes/submissions](#get-rtquizzessubmissions) | 200 | `gameId`(필수, `games.naver_game_id`)로 지목한 **경기 한 건**의 이닝별 풀이 결산 — 이닝 배열(`summary`+`quizzes[]`) + 경기 전체 요약(정답률·획득 포인트). `page` 폐지(페이징 없음), 항목에 보기(`options`)·좋아요 상태 포함 |
 | POST | [/rt/quizzes/{quizId}/like](#post-rtquizzesquizidlike) | 200 | 좋아요 토글 — 내가 제출한 문제에만 허용 |
+| GET | [/rt/quizzes/{quizId}/vote-rate](#get-rtquizzesquizidvote-rate) | 200 | 아직 답하지 않은 문제의 보기별 투표 수 — 폴링용. 자격 없으면 200 + `data:null` |
 
 ## 이 도메인의 특이사항
 
 **인증 필수.** quiz 모듈의 `SecurityConfig`는 `/`, `/error`, `GET /actuator/health/**`만 permitAll이고 그 외 `anyRequest().authenticated()`다. 무토큰 요청은 전부 401 `"인증이 필요합니다."`([README](README.md)의 401 정책).
 
-**비밀번호 변경 이전에 발급된 토큰도 이 5개 엔드포인트 전부에서 같은 401로 거절된다(2026-08-17부터).** 인증 필터(`JwtAuthenticationFilter`, `web-support` 공유 컴포넌트)가 user(8080)·quiz(8081) 양쪽에서 동일하게 동작하므로, user 쪽 `PATCH /api/users/me/password`로 비밀번호를 바꾸면 그 이전에 발급된 access 토큰은 quiz의 `/rt/**` 요청에서도 그 순간부터 401 `UNAUTHENTICATED`가 된다(토큰이 아예 없을 때와 응답 완전히 동일 — 전용 코드 없음). quiz는 이 판정을 위한 별도 코드가 없다 — `UserAccountRepository`(공유 `:domain`)를 그대로 물려받아 자동으로 적용된다. 자세한 계약은 [README.md](README.md#2-인증-방식-jwt) 참고.
+**비밀번호 변경 이전에 발급된 토큰도 이 6개 엔드포인트 전부에서 같은 401로 거절된다(2026-08-17부터).** 인증 필터(`JwtAuthenticationFilter`, `web-support` 공유 컴포넌트)가 user(8080)·quiz(8081) 양쪽에서 동일하게 동작하므로, user 쪽 `PATCH /api/users/me/password`로 비밀번호를 바꾸면 그 이전에 발급된 access 토큰은 quiz의 `/rt/**` 요청에서도 그 순간부터 401 `UNAUTHENTICATED`가 된다(토큰이 아예 없을 때와 응답 완전히 동일 — 전용 코드 없음). quiz는 이 판정을 위한 별도 코드가 없다 — `UserAccountRepository`(공유 `:domain`)를 그대로 물려받아 자동으로 적용된다. 자세한 계약은 [README.md](README.md#2-인증-방식-jwt) 참고.
 
 **전원 동일 데일리 세트.** `quizzes.quiz_date`는 **출제일**이다(생성일 아님). 시효성 없는 문제(역대기록형)는 `quiz_date=NULL` 풀에 쌓였다가 매일 편성 잡이 세트 부족분(기본 10문항, `quiz.serve.daily-count`)을 오래된 것부터 채운다. 경기 문항(gameId 귀속)만 그 경기 날짜에 고정. 모든 사용자가 같은 날 같은 세트를 받는다 — 레이팅(도입 예정)의 점수 비교 전제다. **미편성 풀 문제는 어떤 API로도 보이지 않는다**(단건 조회·제출 모두 404 — id 순회로 내일 출제분을 미리 보는 것을 막는다).
 
@@ -30,7 +31,7 @@
 
 **정답(answer)은 답하기 전엔 어떤 응답에도 없다 — 답한 후에만 공개된다.** 조회 응답(`/today`, 미답 상세)에는 `answer` 키 자체가 없다(클라이언트 개발자 도구 노출 방지, 테스트로 고정). 제출 응답과 답한 후 상세·이력에는 정답이 실린다(복기 화면 전제).
 
-**보기별 투표 수(`voteCount`, 2026-08-19 신설)는 `/today` 하나에만 있다.** 상세(`GET /{quizId}`)·제출(`POST /submit`)·이력(`GET /submissions`) 세 응답은 이번 변경으로 필드 집합이 **불변**이고 `voteCount`가 없다. `/today`의 값은 서빙 시점에 Redis 집계 키(`quiz:votes:{quizId}`, `options[].no`와 같은 0-based 축)를 초기화(`HSETNX`) 이후 읽은 **근사 스냅샷**이며, 그 문제는 (경기, 이닝)당 1회만 서빙되므로 분포도 그 순간 딱 한 번 전달된다 — 이후 갱신을 받을 폴링·SSE 경로는 없다(같은 이닝 재조회는 409). 합계가 그 문제를 받은 사람 수·`quiz_users_submit` 행 수와 일치한다는 보장이 없다(받고 아직 안 푼 사람은 빠짐, Redis 장애 중 들어온 표는 영구 유실). **미제출 상태에서도 분포가 노출된다 — 사용자가 대가(다수결 정답 힌트)를 알고 택한 동작**이다(`/today` 목록은 정의상 전부 미제출 문제라 노출 자격을 따로 검사하지 않는다). Redis 장애·키 부재·TTL 만료·필드 결손·값 파싱 실패는 전부 해당 보기 `voteCount:0`으로 채워 200이 그대로 나간다 — **`voteCount:0`은 "아무도 안 골랐다"와 "집계를 못 읽었다"를 응답만으로 구분하지 못한다**(구분은 서버 WARN 로그로만 가능, 문제당 1건). 총합·비율 필드는 없다(필요하면 클라이언트가 `voteCount`를 더한다). 자세한 내용은 [GET /today](#get-rtquizzestoday) 절 참고.
+**보기별 투표 수(`voteCount`)는 `/today` 와 `/{quizId}/vote-rate` 둘에만 있다(2026-08-26 정정 — 종전에는 `/today` 하나뿐이었다).** 상세(`GET /{quizId}`)·제출(`POST /submit`)·이력(`GET /submissions`) 세 응답은 이번 변경으로 필드 집합이 **불변**이고 `voteCount`가 없다. `/today`의 값은 서빙 시점에 Redis 집계 키(`quiz:votes:{quizId}`, `options[].no`와 같은 0-based 축)를 초기화(`HSETNX`) 이후 읽은 **근사 스냅샷**이며, 그 문제는 (경기, 이닝)당 1회만 서빙되므로 분포도 그 순간 딱 한 번 전달된다 — 이후 갱신은 **`GET /{quizId}/vote-rate` 폴링으로만** 받는다(2026-08-26 신설 — 그 전에는 갱신 경로가 아예 없었다. 같은 이닝 재조회는 여전히 409라 `/today` 로는 되받을 수 없다). 합계가 그 문제를 받은 사람 수·`quiz_users_submit` 행 수와 일치한다는 보장이 없다(받고 아직 안 푼 사람은 빠짐, Redis 장애 중 들어온 표는 영구 유실). **미제출 상태에서도 분포가 노출된다 — 사용자가 대가(다수결 정답 힌트)를 알고 택한 동작**이다(`/today` 목록은 정의상 전부 미제출 문제라 노출 자격을 따로 검사하지 않는다). Redis 장애·키 부재·TTL 만료·필드 결손·값 파싱 실패는 전부 해당 보기 `voteCount:0`으로 채워 200이 그대로 나간다 — **`voteCount:0`은 "아무도 안 골랐다"와 "집계를 못 읽었다"를 응답만으로 구분하지 못한다**(구분은 서버 WARN 로그로만 가능, 문제당 1건). 총합·비율 필드는 없다(필요하면 클라이언트가 `voteCount`를 더한다). 자세한 내용은 [GET /today](#get-rtquizzestoday) 절 참고.
 
 **채점·적립은 서버 트랜잭션 안에서 원자적이다.** 정답이면 `quizzes.score`(배점)만큼 `users_account.point`에 적립한다(비관적 락으로 동시 적립 유실 방지). `users_bq.bq_score`는 레이팅 설계 확정 전이라 건드리지 않는다. **중복 제출(409)의 판정 방식이 2026-08-12부터 바뀌었다** — 예전엔 선제 `existsBy` 검사(친절한 409) + `uk_quiz_users_submit_account_quiz` UNIQUE(동시 요청 race의 최종 중재)로 이중이었으나, 이제는 미답 행을 채우는 **조건부 UPDATE 한 방의 영향 행 수(0=중복)**가 유일한 판정 근거다. 이 때문에 409 검사가 검증 순서의 **맨 뒤**로 밀렸다(자세한 내용은 [POST 제출](#post-rtquizzesquizidsubmit) 절 참고).
 
@@ -407,6 +408,70 @@ curl -X POST http://localhost:8081/rt/quizzes/23/like -H 'Authorization: Bearer 
 # 제출 이력이 없는(또는 존재하지 않는/미편성) quizId
 curl -X POST http://localhost:8081/rt/quizzes/999999/like -H 'Authorization: Bearer eyJ...'
 # {"success":false,"data":null,"message":"좋아요는 직접 푼 문제에만 할 수 있습니다."}
+```
+
+---
+
+## GET /rt/quizzes/{quizId}/vote-rate
+> 최종 변경: 2026-08-26 — 신규.
+
+아직 답하지 않은 문제의 **보기별 투표 수**를 돌려준다. `QuizService.getQuizVoteRate(userAccountId, quizId)`.
+`/today` 는 그 문제를 (경기, 이닝)당 딱 한 번만 내려주므로 분포도 그 순간 한 번만 전달되는데, 이 엔드포인트가 **그 분포를 다시 받을 수 있는 유일한 경로**다. 답을 고민하는 동안 클라이언트가 주기적으로 호출하는 용도다.
+
+**⚠ 경로 이름은 `vote-rate` 지만 응답 값은 비율이 아니라 개수다.** 백분율을 서버가 계산해 주지 않는다 — 분모를 서버가 정하면 같은 화면에 있는 `/today` 의 개수와 이 응답의 비율이 서로 어긋날 수 있어서다. 필요하면 클라이언트가 `voteCount` 를 더해 나눈다.
+
+**인증 필요** — `Authorization: Bearer <accessToken>`
+
+**경로 변수**
+
+| 변수 | 타입 | 설명 |
+|---|---|---|
+| quizId | Long | 퀴즈 내부 PK. `/today` 응답의 `data[].id` 로 얻는다 |
+
+**요청 본문 없음. 쿼리 파라미터 없음.**
+
+**응답 200 OK** `ApiResponse<QuizVoteRateResponse>`
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| data | object \| null | 자격이 없으면 `null`(아래 참고) |
+| data.quizId | Long | 요청한 문제 id |
+| data.options | array | 보기 목록. **항목 타입이 `/today` 의 `options[]` 와 같다** |
+| data.options[].no | int | 보기 번호. **0부터 시작**(`/today` 와 같은 축 — `+1` 하면 정답 표시가 한 칸 밀린다) |
+| data.options[].text | String | 보기 지문 |
+| data.options[].voteCount | long | 그 보기를 고른 표 수(0 이상, 항상 존재) |
+
+총합·비율 필드는 없다. 정렬은 보기 번호 오름차순.
+
+**⚠ 자격이 없으면 200 + `data:null` 이다(404·403 아님).** 다음 셋은 요청자 입장에서 완전히 같은 응답으로 합쳐진다:
+
+1. 그 문제를 받은 적이 없다(`quiz_users_submit` 행 없음 — 존재하지 않는 `quizId`·미편성 풀 문제 포함)
+2. **이미 제출했다**(행의 `submit_option_id IS NOT NULL`)
+3. 그 문제에 보기가 하나도 없다(데이터 이상)
+
+상태 코드를 가르지 않는 이유는 [좋아요](#post-rtquizzesquizidlike)의 단일 403 과 같은 계열의 은닉이다 — 404·403 으로 갈리면 **응답 코드만 보고 "저 사람이 그 문제를 받았는지"를 알아낼 수 있다.** 이미 제출한 사람에게 분포를 감추는 것이 이 API 의 목적인데, 감췄다는 사실 자체가 새어 나가면 목적이 반쯤 무너진다. 클라이언트는 `data === null` 이면 폴링을 멈추면 된다.
+
+**시한(8분) 초과 미답 행은 그대로 값을 준다.** 제출은 403 이지만 분포를 못 볼 이유가 없고, 시각으로 갈리는 판정을 여기에 두면 화면이 폴링 도중 조용히 빈 응답으로 바뀐다.
+
+**값의 출처와 신뢰도**: `/today` 와 같은 Redis 집계 키(`quiz:votes:{quizId}`)를 읽은 **근사 스냅샷**이다. 다만 `/today` 와 달리 이 경로는 **읽기만 한다** — 키를 만들지도, 없는 보기를 0 으로 채우지도, TTL 을 다시 걸지도 않는다(조회가 만료된 키를 되살리면 표가 없는 상태가 TTL 만큼 더 유지되기 때문). Redis 장애·키 부재·TTL 만료(기본 12h)·값 파싱 실패는 전부 해당 보기 `voteCount:0` 으로 채워 200 이 그대로 나간다 — **`voteCount:0` 은 "아무도 안 골랐다"와 "집계를 못 읽었다"를 응답만으로 구분하지 못한다**(구분은 서버 WARN 로그로만, 요청당 1건).
+
+**실패**
+
+| 상태 | ErrorCode | 조건 |
+|---|---|---|
+| 401 | UNAUTHENTICATED | 무토큰(또는 비밀번호 변경 이전에 발급된 토큰 — 위 "이 도메인의 특이사항" 참고) |
+| 400 | (공통) | `quizId` 가 숫자가 아님(`/rt/quizzes/abc/vote-rate`) |
+
+**403·404·409 는 이 엔드포인트에서 발생하지 않는다.**
+
+```bash
+# 받았고 아직 안 푼 문제
+curl http://localhost:8081/rt/quizzes/23/vote-rate -H 'Authorization: Bearer eyJ...'
+# {"success":true,"data":{"quizId":23,"options":[{"no":0,"text":"안타","voteCount":37},{"no":1,"text":"삼진","voteCount":12}]},"message":null}
+
+# 이미 제출했거나 · 받은 적 없거나 · 존재하지 않는 quizId (셋 다 같은 응답)
+curl http://localhost:8081/rt/quizzes/999999/vote-rate -H 'Authorization: Bearer eyJ...'
+# {"success":true,"data":null,"message":null}
 ```
 
 ---
