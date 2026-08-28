@@ -52,6 +52,8 @@ spring:
   #   chat-init.sql          : (chatrooms/chats DDL) + SYSTEM 계정 + 구단별 채팅방 10개
   #   game-statuses-init.sql : 경기 상태 코드 5행(SCHEDULED/IN_PROGRESS/FINISHED/DRAW/CANCELED)
   #   quiz-type-init.sql     : 퀴즈 유형 코드 2행(객관식/O·X)
+  #   character-asset-init.sql : 캐릭터 1행 + 부위 코드 3행 + 아이템 카탈로그 23행
+  #                            + 기존 전 계정에 기본 캐릭터·기본 의상 백필
   # 종전 운영 규칙은 "사람이 infra/sql 을 직접 적용"이었으나, 테이블을 만드는 주체가 이미 이 앱
   # (ddl-auto=update)이라 만드는 쪽과 채우는 쪽이 갈라져 있었다. 둘 다 user 가 갖도록 모은다.
   # 네 파일 모두 INSERT ... WHERE NOT EXISTS / CREATE TABLE IF NOT EXISTS 뿐이라 재실행 안전이다
@@ -81,6 +83,7 @@ spring:
         - classpath:sql/chat-init.sql
         - classpath:sql/game-statuses-init.sql
         - classpath:sql/quiz-type-init.sql
+        - classpath:sql/character-asset-init.sql
 
   web:
     error:

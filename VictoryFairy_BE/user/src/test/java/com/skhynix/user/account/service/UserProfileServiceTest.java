@@ -9,6 +9,13 @@ import static org.mockito.Mockito.verify;
 
 import com.skhynix.common.error.BusinessException;
 import com.skhynix.common.error.ErrorCode;
+import com.skhynix.domain.character.entity.Character;
+import com.skhynix.domain.character.entity.CharacterItem;
+import com.skhynix.domain.character.entity.ItemType;
+import com.skhynix.domain.character.entity.UserCharacterInventory;
+import com.skhynix.domain.character.entity.UserCharacterItemInventory;
+import com.skhynix.domain.character.repository.UserCharacterInventoryRepository;
+import com.skhynix.domain.character.repository.UserCharacterItemInventoryRepository;
 import com.skhynix.domain.support.entity.UserSupportTeam;
 import com.skhynix.domain.support.repository.UserSupportTeamRepository;
 import com.skhynix.domain.team.entity.Team;
@@ -54,6 +61,12 @@ class UserProfileServiceTest {
 
     @Mock
     private SupportService supportService;
+
+    @Mock
+    private UserCharacterInventoryRepository characterInventoryRepository;
+
+    @Mock
+    private UserCharacterItemInventoryRepository characterItemInventoryRepository;
 
     @InjectMocks
     private UserProfileService userProfileService;
@@ -307,5 +320,109 @@ class UserProfileServiceTest {
         // 직접 볼 수 없다 — 그 부분은 SupportServiceTest.currentSupportedPlayers_neverLocksAccount가
         // 대신 고정한다(같은 리포지토리 인스턴스가 아니라 목 조합이 다르기 때문).
         verify(userAccountRepository, never()).findWithLockById(any());
+    }
+
+    // ---------- 캐릭터·착용 아이템 ----------
+
+    private static Character characterOf(Long id, String img) {
+        Character character = Character.builder().name("승리요정").img(img).build();
+        ReflectionTestUtils.setField(character, "id", id);
+        return character;
+    }
+
+    private static UserCharacterItemInventory wornItemOf(Long itemTypeId, String itemTypeName,
+            String usingImg) {
+        ItemType itemType = ItemType.builder().name(itemTypeName).build();
+        ReflectionTestUtils.setField(itemType, "id", itemTypeId);
+        CharacterItem item = CharacterItem.builder()
+                .character(characterOf(1L, "characters/victory-fairy.svg"))
+                .itemType(itemType)
+                .name(itemTypeName + " 아이템")
+                .displayImg("stores/x.svg")
+                .usingImg(usingImg)
+                .price(100L)
+                .build();
+        return UserCharacterItemInventory.builder()
+                .userAccount(accountWithPoint("nick", 0L))
+                .characterItem(item)
+                .active(true)
+                .build();
+    }
+
+    private void stubProfileBasics(UserAccount account) {
+        given(userAccountRepository.findById(ACCOUNT_ID)).willReturn(Optional.of(account));
+        given(userSupportTeamRepository.findWithTeamByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(Optional.empty());
+        given(userBqRepository.findByUserAccount_Id(ACCOUNT_ID)).willReturn(Optional.empty());
+        given(supportService.currentSupportedPlayers(ACCOUNT_ID)).willReturn(List.of());
+    }
+
+    @Test
+    @DisplayName("사용 중인 캐릭터의 이미지 EP 와 착용 중인 아이템의 착용용 이미지 EP 를 함께 싣는다")
+    void getMyProfile_withCharacter_includesCharacterAndWornItemEndpoints() {
+        // given
+        stubProfileBasics(accountWithPoint("nick", 0L));
+        UserCharacterInventory owned = UserCharacterInventory.builder()
+                .userAccount(accountWithPoint("nick", 0L))
+                .character(characterOf(1L, "characters/victory-fairy.svg"))
+                .active(true)
+                .build();
+        given(characterInventoryRepository
+                .findWithCharacterByUserAccount_IdAndActiveIsTrue(ACCOUNT_ID))
+                .willReturn(Optional.of(owned));
+        given(characterItemInventoryRepository.findAllByUserAccount_IdAndActiveIsTrue(ACCOUNT_ID))
+                .willReturn(List.of(wornItemOf(1L, "의상", "items/cloth/basic.svg")));
+
+        // when
+        UserAccountResponse response = userProfileService.getMyProfile(ACCOUNT_ID);
+
+        // then
+        assertThat(response.characterImgUrl()).isEqualTo("characters/victory-fairy.svg");
+        assertThat(response.characterItems()).hasSize(1);
+        assertThat(response.characterItems().get(0).itemType()).isEqualTo("의상");
+        assertThat(response.characterItems().get(0).imgUrl()).isEqualTo("items/cloth/basic.svg");
+    }
+
+    @Test
+    @DisplayName("착용 아이템은 부위 id 순으로 정렬돼 겹치는 순서가 요청마다 흔들리지 않는다")
+    void getMyProfile_wornItems_sortedByItemTypeId() {
+        // given
+        stubProfileBasics(accountWithPoint("nick", 0L));
+        given(characterInventoryRepository
+                .findWithCharacterByUserAccount_IdAndActiveIsTrue(ACCOUNT_ID))
+                .willReturn(Optional.empty());
+        // 리포지토리가 부위 순서를 보장하지 않는다는 전제로 일부러 뒤집어 준다.
+        given(characterItemInventoryRepository.findAllByUserAccount_IdAndActiveIsTrue(ACCOUNT_ID))
+                .willReturn(List.of(
+                        wornItemOf(3L, "소품", "items/item/ball.svg"),
+                        wornItemOf(1L, "의상", "items/cloth/basic.svg"),
+                        wornItemOf(2L, "모자", "items/head/cap-blue.svg")));
+
+        // when
+        UserAccountResponse response = userProfileService.getMyProfile(ACCOUNT_ID);
+
+        // then
+        assertThat(response.characterItems())
+                .extracting(item -> item.itemType())
+                .containsExactly("의상", "모자", "소품");
+    }
+
+    @Test
+    @DisplayName("캐릭터를 못 받은 계정도 200 을 유지한다 — characterImgUrl 은 null, characterItems 는 빈 배열")
+    void getMyProfile_withoutCharacter_returnsNullAndEmptyList() {
+        // given
+        stubProfileBasics(accountWithPoint("nick", 0L));
+        given(characterInventoryRepository
+                .findWithCharacterByUserAccount_IdAndActiveIsTrue(ACCOUNT_ID))
+                .willReturn(Optional.empty());
+        given(characterItemInventoryRepository.findAllByUserAccount_IdAndActiveIsTrue(ACCOUNT_ID))
+                .willReturn(List.of());
+
+        // when
+        UserAccountResponse response = userProfileService.getMyProfile(ACCOUNT_ID);
+
+        // then
+        assertThat(response.characterImgUrl()).isNull();
+        assertThat(response.characterItems()).isEmpty();
     }
 }

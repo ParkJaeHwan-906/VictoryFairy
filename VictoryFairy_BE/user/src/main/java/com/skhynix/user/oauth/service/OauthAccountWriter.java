@@ -12,6 +12,7 @@ import com.skhynix.domain.user.repository.UserOauthLinkRepository;
 import com.skhynix.domain.user.repository.UserRepository;
 import com.skhynix.user.auth.dto.TokenResponse;
 import com.skhynix.user.auth.service.AuthService;
+import com.skhynix.user.character.service.DefaultCharacterGrantService;
 import com.skhynix.user.oauth.policy.SocialAccountPolicy;
 import com.skhynix.user.oauth.store.OauthTicket;
 import java.time.Clock;
@@ -37,6 +38,7 @@ public class OauthAccountWriter {
     private final UserBqRepository userBqRepository;
     private final UserOauthLinkRepository userOauthLinkRepository;
     private final AuthService authService;
+    private final DefaultCharacterGrantService defaultCharacterGrantService;
     private final Clock clock;
 
     /**
@@ -68,6 +70,9 @@ public class OauthAccountWriter {
         userBqRepository.save(UserBq.builder()
                 .userAccount(account)
                 .build());
+
+        // 자체 가입과 같은 지급을 여기서도 한다 — 빠뜨리면 소셜로 가입한 사용자만 캐릭터가 없다.
+        defaultCharacterGrantService.grantDefaults(account);
 
         userOauthLinkRepository.save(UserOauthLink.builder()
                 .userAccount(account)
