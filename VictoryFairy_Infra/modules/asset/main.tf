@@ -9,6 +9,13 @@
 #   user-profile-img/<uuid>  확정된 프로필 이미지. 지우는 주체는 사용자(교체·탈퇴)뿐이다.
 # 두 접두사는 CloudFront 의 경로 패턴(modules/cdn)과도 짝이다 — 한쪽만 바꾸면 이미지가 404 가 된다.
 #
+# 위 둘과 성격이 다른 셋이 더 있다(var.static_prefixes) — 캐릭터 꾸미기 에셋이다:
+#   characters/<슬러그>.svg  아바타 캐릭터 원본
+#   items/<부위>/<슬러그>.svg   캐릭터에 겹치는 착용용
+#   stores/<부위>/<슬러그>.svg  상점 진열용
+# 저자가 파드가 아니라 사람이고(이 리포의 scripts/upload-character-assets.sh), 만료 규칙도
+# IRSA 쓰기 권한도 없다. 이 버킷에서 앱이 못 건드리는 유일한 영역이다.
+#
 # 왜 별도 모듈인가: fe 버킷과 라이프사이클이 다르다(배포 산출물 vs 사용자 데이터). 한 모듈에
 # 섞으면 "FE 를 재배포하려다 사용자 사진 규칙을 건드리는" 일이 생긴다(SKILL §8 단일 책임).
 # 다만 CloudFront 쪽 배선(오리진·OAC·behavior)은 배포를 소유한 modules/cdn 에 있다 —
@@ -116,20 +123,26 @@ resource "aws_s3_bucket_lifecycle_configuration" "this" {
 }
 
 # ---------------------------------------------------------------------------
-# 3) 버킷 정책 — 지정한 CloudFront 배포만, 지정한 두 접두사만 읽는다
+# 3) 버킷 정책 — 지정한 CloudFront 배포만, 지정한 접두사만 읽는다
 #
 # SourceArn 조건이 없으면 다른 계정의 CloudFront 도 이 버킷을 읽는다(fe 와 동일한 방어).
-# 리소스도 접두사 두 개로 좁혔다 — behavior 를 잘못 만들어도 그 밖의 키는 엣지로 새지 않는다.
+# 리소스도 접두사 목록으로 좁혔다 — behavior 를 잘못 만들어도 그 밖의 키는 엣지로 새지 않는다.
+#
+# ⚠ 이 목록과 modules/cdn 의 경로 패턴은 짝이다. 한쪽만 늘리면 증상이 갈린다:
+#   behavior 만 있고 정책이 없으면 403, 정책만 있고 behavior 가 없으면 FE 버킷으로 흘러가 404 다.
 # ---------------------------------------------------------------------------
 data "aws_iam_policy_document" "this" {
   statement {
     sid     = "AllowCloudFrontRead"
     actions = ["s3:GetObject"]
 
-    resources = [
-      "${aws_s3_bucket.this.arn}/${var.profile_prefix}*",
-      "${aws_s3_bucket.this.arn}/${var.temp_prefix}*",
-    ]
+    resources = concat(
+      [
+        "${aws_s3_bucket.this.arn}/${var.profile_prefix}*",
+        "${aws_s3_bucket.this.arn}/${var.temp_prefix}*",
+      ],
+      [for prefix in var.static_prefixes : "${aws_s3_bucket.this.arn}/${prefix}*"],
+    )
 
     principals {
       type        = "Service"

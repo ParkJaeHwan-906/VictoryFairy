@@ -169,13 +169,14 @@ module "cdn" {
   api_path_patterns  = local.api_path_patterns
   route53_zone_id    = module.dns.zone_id
 
-  # 두 번째 S3 오리진 = 사용자 업로드 이미지(module.asset). 새 배포를 만들지 않고 이 배포에
-  # 경로 두 개만 더 갈라 붙인다. 상대편(버킷 정책)은 이 배포 ARN 을 받아 이 배포에만 읽기를
+  # 두 번째 S3 오리진 = 사용자 업로드 이미지 + 캐릭터 꾸미기 에셋(module.asset). 새 배포를 만들지
+  # 않고 이 배포에 경로 몇 개만 더 갈라 붙인다. 상대편(버킷 정책)은 이 배포 ARN 을 받아 이 배포에만 읽기를
   # 허용한다 — 두 모듈이 서로의 출력을 주고받지만 순환은 아니다(서로 다른 리소스에 걸린다).
   asset_bucket_name                 = module.asset.bucket_name
   asset_bucket_regional_domain_name = module.asset.bucket_regional_domain_name
   asset_profile_prefix              = local.asset_profile_prefix
   asset_temp_prefix                 = local.asset_temp_prefix
+  asset_static_prefixes             = local.asset_static_prefixes
 
   # 실서비스 전환 스위치. false 인 동안은 트래픽이 그대로 ALB 로 가고 CloudFront 는 배포
   # 도메인으로만 접근된다 — 검증을 마친 뒤 true 로 바꿔 apex 를 옮긴다(문서 §4 2단계).
@@ -191,6 +192,9 @@ module "asset" {
   bucket_name    = local.asset_bucket_name
   profile_prefix = local.asset_profile_prefix
   temp_prefix    = local.asset_temp_prefix
+
+  # 캐릭터 꾸미기 에셋 — 버킷 정책의 읽기 허용 접두사에만 더한다(만료 규칙도 IRSA 쓰기 권한도 없다).
+  static_prefixes = local.asset_static_prefixes
 
   # 이 배포에서 온 요청만 버킷을 읽는다(fe 버킷과 같은 SourceArn 조건).
   cloudfront_distribution_arn = module.cdn.distribution_arn

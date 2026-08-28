@@ -38,6 +38,30 @@ variable "profile_prefix" {
   }
 }
 
+variable "static_prefixes" {
+  description = <<-EOT
+    앱이 아니라 사람이 미리 올려 두는 정적 자산의 키 접두사 목록(각각 슬래시로 끝난다).
+    캐릭터 꾸미기 에셋이 여기 해당한다 — characters/ · items/ · stores/.
+
+    profile_prefix·temp_prefix 와 성격이 다르다: 저자가 user-app 파드가 아니라 사람이고
+    (이 리포의 scripts/upload-character-assets.sh 로 올린다), 만료 규칙도 걸지 않는다. 그래서 IRSA
+    (modules/user-irsa)에도 이 접두사에 대한 쓰기 권한을 주지 않는다 — 앱이 건드릴 이유가 없다.
+
+    ⚠ 이 목록에서 빠진 접두사는 버킷 정책이 CloudFront 에게 읽기를 허용하지 않는다. 객체를
+      올려도 배포를 통해서는 403 이므로, CloudFront 경로 패턴(modules/cdn 의
+      asset_static_prefixes)과 반드시 같은 값이어야 한다.
+  EOT
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition = alltrue([
+      for prefix in var.static_prefixes : endswith(prefix, "/") && !startswith(prefix, "/")
+    ])
+    error_message = "static_prefixes 의 각 항목은 슬래시로 끝나고 슬래시로 시작하지 않아야 합니다(예: characters/)."
+  }
+}
+
 variable "tags" {
   description = "리소스에 병합할 추가 태그 (프로바이더 default_tags 위에 merge)"
   type        = map(string)
