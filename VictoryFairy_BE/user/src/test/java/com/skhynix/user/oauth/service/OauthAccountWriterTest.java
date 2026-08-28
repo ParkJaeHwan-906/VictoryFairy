@@ -20,6 +20,7 @@ import com.skhynix.domain.user.repository.UserOauthLinkRepository;
 import com.skhynix.domain.user.repository.UserRepository;
 import com.skhynix.user.auth.dto.TokenResponse;
 import com.skhynix.user.auth.service.AuthService;
+import com.skhynix.user.character.service.DefaultCharacterGrantService;
 import com.skhynix.user.oauth.policy.SocialAccountPolicy;
 import com.skhynix.user.oauth.store.OauthTicket;
 import java.time.Clock;
@@ -57,9 +58,12 @@ class OauthAccountWriterTest {
     @Mock
     private AuthService authService;
 
+    @Mock
+    private DefaultCharacterGrantService defaultCharacterGrantService;
+
     private OauthAccountWriter newWriter() {
         return new OauthAccountWriter(userRepository, userAccountRepository, userBqRepository,
-                userOauthLinkRepository, authService, CLOCK);
+                userOauthLinkRepository, authService, defaultCharacterGrantService, CLOCK);
     }
 
     private OauthTicket signupTicket(String email, boolean emailVerified) {
@@ -146,6 +150,45 @@ class OauthAccountWriterTest {
         assertThat(linkCaptor.getValue().getUserAccount()).isSameAs(savedAccount);
         assertThat(linkCaptor.getValue().getProvider()).isEqualTo(OauthProvider.GOOGLE);
         assertThat(linkCaptor.getValue().getProviderUserId()).isEqualTo("sub-1");
+    }
+
+    @Test
+    @DisplayName("소셜 가입도 자체 가입과 똑같이 기본 캐릭터·기본 의상을 지급한다 — 빠뜨리면 소셜 가입자만 "
+            + "캐릭터가 없다")
+    void createAccount_success_grantsDefaultCharacter() {
+        // given
+        OauthTicket ticket = signupTicket("fresh@example.com", true);
+        given(userRepository.existsByEmail("fresh@example.com")).willReturn(false);
+        given(userAccountRepository.existsByNickname("승리요정")).willReturn(false);
+        given(userRepository.save(any(User.class))).willAnswer(inv -> inv.getArgument(0));
+        given(userAccountRepository.save(any(UserAccount.class))).willAnswer(inv -> inv.getArgument(0));
+        given(authService.issueTokens(any(UserAccount.class), any()))
+                .willReturn(new TokenResponse("access", "refresh"));
+        OauthAccountWriter writer = newWriter();
+
+        // when
+        writer.createAccount(ticket, "승리요정");
+
+        // then: 지급 대상이 방금 저장된 그 계정이어야 한다.
+        ArgumentCaptor<UserAccount> accountCaptor = ArgumentCaptor.forClass(UserAccount.class);
+        verify(userAccountRepository).save(accountCaptor.capture());
+        verify(defaultCharacterGrantService).grantDefaults(accountCaptor.getValue());
+    }
+
+    @Test
+    @DisplayName("닉네임 중복으로 소셜 가입이 거절되면 기본 캐릭터 지급도 일어나지 않는다")
+    void createAccount_duplicateNickname_doesNotGrantDefaultCharacter() {
+        // given
+        OauthTicket ticket = signupTicket("fresh@example.com", true);
+        given(userRepository.existsByEmail("fresh@example.com")).willReturn(false);
+        given(userAccountRepository.existsByNickname("승리요정")).willReturn(true);
+        OauthAccountWriter writer = newWriter();
+
+        // when & then
+        assertThatThrownBy(() -> writer.createAccount(ticket, "승리요정"))
+                .isInstanceOf(BusinessException.class);
+
+        verify(defaultCharacterGrantService, never()).grantDefaults(any());
     }
 
     @Test
