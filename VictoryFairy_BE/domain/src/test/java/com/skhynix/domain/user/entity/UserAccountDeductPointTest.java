@@ -7,12 +7,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * {@link UserAccount#deductPoint(long)} 의 잔액 가드를 다루는 순수 단위 테스트(Spring 컨텍스트/DB 없음).
- *
- * <p>여기서 지키려는 것은 <b>음수 잔액이 생기지 않는다</b>는 것 하나다. 아이템 구매가 이 뮤테이터의
- * 유일한 호출자이고, 서비스가 먼저 잔액을 검사해 4xx 를 돌려주므로 여기까지 오는 것은 그 검사를
- * 빠뜨린 코드 경로뿐이다 — 그래서 기대 예외가 {@code BusinessException} 이 아니라
- * {@code IllegalStateException} 이다(사용자에게 보여 줄 상황이 아니라 버그).
+ * {@link UserAccount#deductPoint(long)} 의 잔액 가드. 지키려는 것은 <b>음수 잔액이 생기지 않는다</b>는
+ * 것 하나이며, 기대 예외가 {@code IllegalStateException} 인 것은 여기까지 오는 경로가 서비스의 잔액
+ * 검사를 빠뜨린 버그뿐이기 때문이다.
  */
 class UserAccountDeductPointTest {
 

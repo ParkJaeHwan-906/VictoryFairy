@@ -9,16 +9,14 @@ public interface UserCharacterInventoryRepository
         extends JpaRepository<UserCharacterInventory, Long> {
 
     /**
-     * 지금 쓰고 있는 캐릭터 행을 캐릭터까지 함께 가져온다({@code /users/me} 가 이미지 EP 를 싣는다).
+     * 지금 쓰고 있는 캐릭터 행을 캐릭터까지 함께 가져온다.
      *
-     * <p>반환형이 {@code Optional} 인 것이 "한 계정에 켜진 캐릭터는 최대 하나"라는 정책이 드러나는
-     * 유일한 자리다 — 스키마는 그것을 막지 못하므로(부분 UNIQUE 부재), 정책이 깨진 데이터는 여기서
-     * 예외로 시끄럽게 드러난다. 조용한 {@code findFirst} 로 바꾸지 말 것.
+     * <p>반환형이 {@code Optional} 인 것이 "한 계정에 켜진 캐릭터는 최대 하나"라는 정책이 드러나는 유일한
+     * 자리다 — 스키마가 막지 못하므로 깨진 데이터가 여기서 예외로 드러난다. {@code findFirst} 로 바꾸지 말 것.
      */
     @EntityGraph(attributePaths = "character")
     Optional<UserCharacterInventory> findWithCharacterByUserAccount_IdAndActiveIsTrue(
             Long userAccountId);
 
-    /** 백필·가입 지급이 이미 준 캐릭터를 다시 주지 않기 위한 검사. */
     boolean existsByUserAccount_IdAndCharacter_Id(Long userAccountId, Long characterId);
 }

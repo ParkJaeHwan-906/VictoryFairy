@@ -28,11 +28,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 /**
- * {@link DefaultCharacterGrantService} 단위 테스트(DB·스프링 컨텍스트 없음).
- *
- * <p>여기서 고정하려는 계약은 두 가지다: <b>지급되는 것은 켜진 채로 들어온다</b>는 것과,
- * <b>시드가 없어도 예외를 던지지 않는다</b>는 것이다. 후자가 깨지면 꾸미기 데이터 누락이 회원가입
- * 전체를 500 으로 세운다.
+ * {@link DefaultCharacterGrantService} 단위 테스트. 고정하려는 계약은 둘이다 — <b>지급되는 것은 켜진
+ * 채로 들어온다</b>, 그리고 <b>시드가 없어도 예외를 던지지 않는다</b>(후자가 깨지면 꾸미기 데이터 누락이
+ * 회원가입 전체를 500 으로 세운다).
  */
 @ExtendWith(MockitoExtension.class)
 class DefaultCharacterGrantServiceTest {
