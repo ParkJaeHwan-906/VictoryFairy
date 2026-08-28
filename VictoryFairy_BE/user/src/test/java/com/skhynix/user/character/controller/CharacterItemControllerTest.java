@@ -35,12 +35,9 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
- * {@link CharacterItemController}(외부 노출 경로 {@code /api/characters/items/**})의 슬라이스 테스트.
- *
- * <p>슬라이스 구성은 {@code UserAccountControllerMeTest} 와 같은 패턴이다 — 실제 {@link SecurityConfig}
- * (따라서 실제 {@code JwtAuthenticationFilter})를 태우므로 <b>401 판정을 서비스 목이 아니라 필터
- * 레벨에서</b> 검증할 수 있다. 이 세 경로는 permitAll 목록에 없어야 하고, 그 사실이 아래 401 테스트로
- * 고정된다.
+ * {@link CharacterItemController} 슬라이스 테스트. 실제 {@link SecurityConfig}(따라서 실제
+ * {@code JwtAuthenticationFilter})를 태우므로 <b>401 판정을 서비스 목이 아니라 필터 레벨에서</b>
+ * 검증한다 — 이 세 경로가 permitAll 목록에 없어야 한다는 사실이 그 테스트로 고정된다.
  */
 @WebMvcTest(CharacterItemController.class)
 @ContextConfiguration(classes = CharacterItemController.class)

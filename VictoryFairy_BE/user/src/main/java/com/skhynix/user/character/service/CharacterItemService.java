@@ -29,10 +29,9 @@ public class CharacterItemService {
 
     /**
      * 상점 + 인벤토리 통합 목록. 카탈로그 전체를 돌려주고 보유·착용 여부만 계정별로 채운다 — 두 화면이
-     * 같은 목록을 쓰므로 "안 산 것만"으로 좁히지 말 것(좁히면 인벤토리 화면이 이 API 로 못 그려진다).
+     * 같은 목록을 쓰므로 "안 산 것만"으로 좁히면 인벤토리 화면을 이 API 로 못 그린다.
      *
-     * <p>SELECT 3회로 닫는다: 카탈로그(부위 포함) + 보유 id + 착용 id. 아이템마다 보유 여부를 묻는
-     * 모양으로 바꾸면 카탈로그 크기만큼 쿼리가 늘어난다.
+     * <p>SELECT 3회로 닫는다: 카탈로그(부위 포함) + 보유 id + 착용 id.
      */
     public List<CharacterItemResponse> findAll(Long userAccountId) {
         List<CharacterItem> catalog = characterItemRepository.findAllByOrderByItemType_IdAscIdAsc();
@@ -48,13 +47,11 @@ public class CharacterItemService {
     /**
      * 아이템 구매 — 포인트 차감과 보유 행 생성이 한 트랜잭션이다.
      *
-     * <p>계정 행을 <b>가장 먼저</b> 잠근다({@code findWithLockById}). 동시 구매가 없다는 것이 사용자
-     * 전제이지만, 같은 계정으로 구매와 퀴즈 적립이 겹치면 잠금 없이는 한쪽 갱신이 통째로 유실된다
-     * (적립 경로가 이미 같은 잠금을 요구한다). 잠금을 트랜잭션 맨 앞에 두는 것은 잠금 순서를 고정해
-     * 교착을 피하기 위해서다.
+     * <p>계정 행을 <b>가장 먼저</b> 잠근다. 동시 구매가 없다는 것이 전제이지만 구매와 퀴즈 적립이 겹치면
+     * 잠금 없이는 한쪽 갱신이 통째로 유실된다. 맨 앞에 두는 것은 잠금 순서를 고정해 교착을 피하기 위해서다.
      *
-     * <p>검사 순서는 <b>존재 → 중복 보유 → 잔액</b>이다. 잔액을 먼저 보면 이미 가진 아이템을 다시
-     * 사려는 사용자에게 "포인트가 부족합니다"가 나가 원인을 오해하게 된다.
+     * <p>검사 순서는 <b>존재 → 중복 보유 → 잔액</b>이다. 잔액을 먼저 보면 이미 가진 아이템을 다시 사려는
+     * 사용자에게 "포인트가 부족합니다"가 나가 원인을 오해하게 된다.
      */
     @Transactional
     public CharacterItemPurchaseResponse purchase(Long userAccountId, Long characterItemId) {
@@ -77,7 +74,8 @@ public class CharacterItemService {
         inventoryRepository.save(UserCharacterItemInventory.builder()
                 .userAccount(account)
                 .characterItem(item)
-                // 산 아이템은 꺼진 채로 들어온다 — 근거는 CharacterItemPurchaseResponse 주석 참고.
+                // 산 아이템은 꺼진 채로 들어온다 — 자동 착용은 이미 입고 있던 같은 부위 아이템을
+                // 사용자 의사와 무관하게 벗긴다.
                 .active(false)
                 .build());
 
@@ -87,8 +85,8 @@ public class CharacterItemService {
     /**
      * 착용 on/off 토글.
      *
-     * <p>대상은 (계정, 아이템)으로만 찾는다 — 인벤토리 행 id 를 받지 않는 이유는 그것이 남의 행을 가리킬
-     * 수 있는 식별자이기 때문이다. 이 조회 자체가 소유권 검사를 겸한다.
+     * <p>대상을 (계정, 아이템)으로 찾는다 — 인벤토리 행 id 는 남의 행을 가리킬 수 있는 식별자이고, 이
+     * 조회 자체가 소유권 검사를 겸한다.
      *
      * <p>켜는 경우에만 같은 부위의 기존 착용을 끈다. <b>끄는 요청은 그것만 하고 끝낸다</b> — 끄면서 다른
      * 아이템을 대신 켜면 사용자가 요청하지 않은 착용이 생긴다.
@@ -110,8 +108,6 @@ public class CharacterItemService {
                 .ifPresent(UserCharacterItemInventory::deactivate);
         target.activate();
 
-        // 두 변경은 같은 트랜잭션의 더티 체킹으로 함께 flush 된다 — 사이에 다른 요청이 "부위에 둘이
-        // 켜진" 상태를 볼 수 없다. 순서를 위해 flush 를 끼워 넣지 말 것(UNIQUE 가 걸린 조합이 아니다).
         return new CharacterItemActiveResponse(characterItemId, true);
     }
 }

@@ -59,16 +59,16 @@ public class UserProfileService {
                 .map(UserBq::getBqScore)
                 .orElse(0L);
 
-        // 캐릭터를 못 받은 계정이면 null 이다(안전망) — 지급이 건너뛰어졌을 수 있고
-        // (DefaultCharacterGrantService), 그 계정에도 이 응답은 200 이어야 한다.
+        // 캐릭터를 못 받은 계정이면 null 이다(안전망) — 지급이 건너뛰어졌을 수 있다
+        // (DefaultCharacterGrantService).
         String characterImgUrl = characterInventoryRepository
                 .findWithCharacterByUserAccount_IdAndActiveIsTrue(userAccountId)
                 .map(UserCharacterInventory::getCharacter)
                 .map(character -> character.getImg())
                 .orElse(null);
 
-        // 부위 id 순으로 정렬해 겹치는 순서를 결정론적으로 만든다 — 정렬이 없으면 같은 사용자의
-        // 같은 착용 상태가 요청마다 다른 순서로 나가 클라이언트가 레이어를 뒤집어 그릴 수 있다.
+        // 부위 id 순 정렬이 곧 겹치는 순서다 — 없으면 같은 착용 상태가 요청마다 다른 순서로 나가
+        // 클라이언트가 레이어를 뒤집어 그릴 수 있다.
         List<EquippedCharacterItemResponse> characterItems = characterItemInventoryRepository
                 .findAllByUserAccount_IdAndActiveIsTrue(userAccountId).stream()
                 .sorted(Comparator.comparing(item -> item.getCharacterItem().getItemType().getId()))
