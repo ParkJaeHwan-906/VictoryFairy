@@ -171,13 +171,11 @@ public class UserAccount {
 
     /**
      * 포인트 차감 — 캐릭터 아이템 구매가 이 뮤테이터를 쓰는 유일한 경로다.
+     * ⚠ 락 요구는 {@link #addPoint(long)} 와 같다({@code findWithLockById} 로 잠근 뒤 호출).
      *
-     * <p>⚠ 락 요구는 {@link #addPoint(long)} 와 같다({@code findWithLockById} 로 잠근 뒤 호출).
-     *
-     * <p>잔액이 모자라면 <b>깎지 않고 던진다.</b> 잔액 검사는 서비스가 먼저 해서 사용자에게 4xx 를
-     * 돌려주므로 여기까지 오는 것은 그 검사를 빠뜨린 코드 경로뿐이고, 그래서 {@code BusinessException}
-     * 이 아니라 {@code IllegalStateException} 이다 — 사용자에게 보여 줄 상황이 아니라 버그다.
-     * 음수 잔액을 만들어 두면 그 계정은 이후 모든 적립이 빚 갚기로 흡수돼 조용히 망가진다.
+     * <p>잔액이 모자라면 <b>깎지 않고 던진다.</b> 서비스가 먼저 검사해 4xx 를 돌려주므로 여기까지 오는
+     * 것은 그 검사를 빠뜨린 버그뿐이라 {@code BusinessException} 이 아니다. 음수 잔액을 한 번 만들면 그
+     * 계정은 이후 모든 적립이 빚 갚기로 흡수돼 조용히 망가진다.
      */
     public void deductPoint(long delta) {
         if (delta < 0) {

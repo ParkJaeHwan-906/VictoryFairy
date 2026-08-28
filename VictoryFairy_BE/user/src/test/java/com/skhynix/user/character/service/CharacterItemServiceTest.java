@@ -33,12 +33,8 @@ import org.springframework.test.util.ReflectionTestUtils;
 /**
  * {@link CharacterItemService} 를 협력 객체 전부 목으로 대체해 단위로 검증한다(DB·스프링 컨텍스트 없음).
  *
- * <p>엔티티는 {@code id} 에 setter 가 없어 {@link ReflectionTestUtils#setField} 로 채운다
- * ({@code UserProfileServiceTest} 와 같은 패턴).
- *
  * <p><b>범위 밖</b>: 계정 행 비관적 잠금이 실제로 동시 갱신을 직렬화하는지는 목으로 증명할 수 없다 —
- * 여기서는 잠금 조회 메서드를 쓴다는 것까지만 고정한다(일반 {@code findById} 로 갈아끼우면 이 테스트가
- * 스텁 불일치로 깨진다).
+ * 잠금 조회 메서드를 쓴다는 것까지만 고정한다.
  */
 @ExtendWith(MockitoExtension.class)
 class CharacterItemServiceTest {

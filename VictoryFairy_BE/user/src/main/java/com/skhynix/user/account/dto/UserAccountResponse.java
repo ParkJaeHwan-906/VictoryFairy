@@ -11,9 +11,8 @@ import java.util.List;
 // profileImgUrl 은 BaseURL 을 뺀 EP 다(업로드 응답과 문자 그대로 같은 형태). 이미지가 없으면 null 이며
 // 빈 문자열도 기본 이미지 URL 도 아니다 — supportTeam 이 null 인 것과 같은 방식이다.
 // 이 record 는 /me 전용이라 필드 추가가 파괴적이지 않다(여러 곳이 공유하는 PlayerResponse 와 다르다).
-// characterImgUrl 은 프로필 사진이 아니라 아바타 캐릭터의 이미지 EP 다(둘은 별개이며 서로를
-// 대체하지 않는다). 캐릭터를 아직 못 받은 계정에서는 null 이고 characterItems 는 빈 배열이다 —
-// supportTeam 이 null 인 것과 같은 안전망이며, 그 계정도 200 을 유지한다.
+// characterImgUrl 은 프로필 사진이 아니라 아바타 캐릭터의 이미지 EP 다 — 둘은 별개이며 서로를
+// 대체하지 않는다. 캐릭터를 못 받은 계정은 null + 빈 배열이고, 그때도 200 이다(supportTeam 과 같은 안전망).
 public record UserAccountResponse(String nickname, TeamResponse supportTeam,
                                   List<PlayerResponse> supportPlayers, long point, long bqScore,
                                   String profileImgUrl, String characterImgUrl,
