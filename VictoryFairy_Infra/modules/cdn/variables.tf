@@ -30,6 +30,43 @@ variable "asset_profile_prefix" {
   }
 }
 
+variable "asset_static_prefixes" {
+  description = <<-EOT
+    사람이 미리 올려 두는 정적 자산의 키 접두사 목록(각각 슬래시로 끝난다). 캐릭터 꾸미기 에셋이
+    여기 해당한다 — characters/ · items/ · stores/. 여기서 경로 패턴 /<접두사>* 로 바뀐다.
+
+    ⚠ modules/asset 의 static_prefixes 와 반드시 같은 값이어야 한다. behavior 만 있고 버킷 정책이
+      없으면 403, 정책만 있고 behavior 가 없으면 FE 버킷으로 흘러가 404 다.
+  EOT
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition = alltrue([
+      for prefix in var.asset_static_prefixes : endswith(prefix, "/") && !startswith(prefix, "/")
+    ])
+    error_message = "asset_static_prefixes 의 각 항목은 슬래시로 끝나고 슬래시로 시작하지 않아야 합니다(예: characters/)."
+  }
+}
+
+variable "asset_static_ttl_seconds" {
+  description = <<-EOT
+    정적 자산(asset_static_prefixes)의 엣지·브라우저 캐시 시간(초). 기본 하루.
+
+    프로필 이미지처럼 1년 immutable 로 두지 않는 이유: 키가 UUID 가 아니라 고정 슬러그
+    (items/cloth/basic.svg)라 디자인 교체가 같은 키를 덮어쓴다. 1년 immutable 이면 무효화를
+    돌려도 이미 그 값을 받은 브라우저는 1년 동안 옛 그림을 계속 쓴다 — 무효화가 엣지에만 닿고
+    브라우저 캐시에는 닿지 않기 때문이다.
+  EOT
+  type        = number
+  default     = 86400
+
+  validation {
+    condition     = var.asset_static_ttl_seconds >= 0 && var.asset_static_ttl_seconds <= 31536000
+    error_message = "asset_static_ttl_seconds 는 0 이상 31536000 이하여야 합니다."
+  }
+}
+
 variable "asset_temp_prefix" {
   description = "가입 전 임시 업로드 키 접두사(슬래시로 끝난다). 여기서 경로 패턴 /<접두사>* 로 바뀐다."
   type        = string
