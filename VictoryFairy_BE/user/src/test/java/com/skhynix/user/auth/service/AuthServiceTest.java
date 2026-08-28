@@ -70,6 +70,11 @@ class AuthServiceTest {
     @Mock
     private com.skhynix.user.profileimage.service.SignupProfileImageService signupProfileImageService;
 
+    // 가입 트랜잭션이 기본 캐릭터·기본 의상 지급을 함께 하므로, 목이 없으면 @InjectMocks 가 null 을
+    // 넣어 가입 테스트 전체가 NPE 로 죽는다.
+    @Mock
+    private com.skhynix.user.character.service.DefaultCharacterGrantService defaultCharacterGrantService;
+
     @InjectMocks
     private AuthService authService;
 
@@ -402,6 +407,46 @@ class AuthServiceTest {
         verify(userAccountRepository).save(accountCaptor.capture());
         assertThat(accountCaptor.getValue().getPassword()).isEqualTo("encoded-password");
         assertThat(accountCaptor.getValue().getNickname()).isEqualTo(request.nickname());
+    }
+
+    @Test
+    @DisplayName("회원가입에 성공하면 방금 저장된 계정 인스턴스로 기본 캐릭터·기본 의상 지급을 정확히 1회 부른다")
+    void signup_allUnique_grantsDefaultCharacter() {
+        // given
+        SignupRequest request = signupRequest();
+        given(emailVerificationService.isEmailVerified(request.email())).willReturn(true);
+        given(userRepository.existsByEmail(request.email())).willReturn(false);
+        given(userRepository.existsByTel(request.tel())).willReturn(false);
+        given(userAccountRepository.existsByNickname(request.nickname())).willReturn(false);
+        given(passwordEncoder.encode(request.password())).willReturn("encoded-password");
+        given(userRepository.save(any(User.class))).willAnswer(invocation -> invocation.getArgument(0));
+        given(userAccountRepository.save(any(UserAccount.class))).willAnswer(invocation -> invocation.getArgument(0));
+
+        // when
+        authService.signup(request);
+
+        // then: 지급 대상이 '저장된 그 계정'이어야 한다 — 다른 인스턴스를 넘기면 인벤토리가 엉뚱한
+        // 계정에 붙는다.
+        var accountCaptor = org.mockito.ArgumentCaptor.forClass(UserAccount.class);
+        verify(userAccountRepository).save(accountCaptor.capture());
+        verify(defaultCharacterGrantService).grantDefaults(accountCaptor.getValue());
+    }
+
+    @Test
+    @DisplayName("닉네임 중복으로 가입이 거절되면 기본 캐릭터 지급도 일어나지 않는다")
+    void signup_duplicateNickname_doesNotGrantDefaultCharacter() {
+        // given
+        SignupRequest request = signupRequest();
+        given(emailVerificationService.isEmailVerified(request.email())).willReturn(true);
+        given(userRepository.existsByEmail(request.email())).willReturn(false);
+        given(userRepository.existsByTel(request.tel())).willReturn(false);
+        given(userAccountRepository.existsByNickname(request.nickname())).willReturn(true);
+
+        // when & then
+        assertThatThrownBy(() -> authService.signup(request))
+                .isInstanceOf(BusinessException.class);
+
+        verify(defaultCharacterGrantService, never()).grantDefaults(any());
     }
 
     @Test

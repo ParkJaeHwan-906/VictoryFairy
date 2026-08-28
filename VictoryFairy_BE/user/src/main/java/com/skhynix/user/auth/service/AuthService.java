@@ -15,6 +15,7 @@ import com.skhynix.user.auth.dto.NicknameValidationResponse;
 import com.skhynix.user.auth.dto.SignupRequest;
 import com.skhynix.user.auth.dto.TokenResponse;
 import com.skhynix.user.auth.policy.NicknamePolicy;
+import com.skhynix.user.character.service.DefaultCharacterGrantService;
 import com.skhynix.user.profileimage.service.SignupProfileImageService;
 import com.skhynix.websupport.jwt.JwtTokenProvider;
 import java.time.LocalDateTime;
@@ -37,6 +38,7 @@ public class AuthService {
     private final JwtTokenProvider tokenProvider;
     private final EmailVerificationService emailVerificationService;
     private final SignupProfileImageService signupProfileImageService;
+    private final DefaultCharacterGrantService defaultCharacterGrantService;
 
     @Transactional
     public Long signup(SignupRequest request) {
@@ -85,6 +87,10 @@ public class AuthService {
         userBqRepository.save(UserBq.builder()
                 .userAccount(account)
                 .build());
+
+        // bq 행과 같은 트랜잭션에서 기본 캐릭터·기본 의상을 지급한다. 지급 대상 시드가 없으면 가입을
+        // 막지 않고 건너뛴다 — 그 판단과 근거는 DefaultCharacterGrantService 에 있다.
+        defaultCharacterGrantService.grantDefaults(account);
 
         // 가입 성공 시 인증완료 상태를 소비(1회용) — 같은 이메일 재가입 시 재인증을 강제한다.
         emailVerificationService.consumeVerified(request.email());

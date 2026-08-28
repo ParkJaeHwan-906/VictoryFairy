@@ -3,7 +3,7 @@
 > **도메인** `account` — 로그인 계정 자체의 생명주기(탈퇴) + 내 프로필 요약 조회 + 내 프로필 수정(닉네임·비밀번호·프로필 이미지).
 > **모듈** user (포트 8080) · **경로 접두사** `/api/users` · **엔드포인트** 5개
 > **컨트롤러** `user/src/main/java/com/skhynix/user/account/controller/UserAccountController.java` (`@RequestMapping("/users")`)
-> **최종 갱신** 2026-08-20 — **`POST /api/users/me/profile-image` 신규 추가**(업로드가 곧 프로필 변경 확정, 직전 객체는 커밋 이후 best-effort로 삭제) + **`GET /api/users/me` 응답에 `profileImgUrl` 추가**(키 5개→6개, SELECT 횟수는 그대로 5회 — 이미 조회하는 계정 행의 컬럼이라 추가 조회 없음). 계약 원본 `docs/requirements/user/profile-image.md`(승인됨 2026-08-20, USER-PI-1~121). profileImgUrl 조립 예시(BaseURL+EP, 흔한 실수 포함)와 CloudFront/S3 구분, 가입 전후 EP 완전 교체 서술 보강. (직전: 2026-08-17 `PATCH /api/users/me/password` 성공 시 **그 이전에 발급된 access·refresh 토큰이 즉시 무효화됨**(`main` 84f6f4a 머지 완료, PR #425). 직전 "이전 access 토큰은 최대 3h 그대로 유효하다"는 서술을 정정.) 그 이전 이력은 각 엔드포인트 섹션의 `최종 변경` 줄에 남아 있다.
+> **최종 갱신** 2026-08-28 — **`GET /api/users/me` 응답에 `characterImgUrl`·`characterItems` 추가**(키 6개→8개). 아바타 캐릭터와 착용 중인 아이템의 이미지 **EP** 다 — `profileImgUrl`(프로필 사진)과 **별개이며 서로를 대체하지 않는다.** 캐릭터를 아직 못 받은 계정은 `characterImgUrl: null` + `characterItems: []` 로 200 을 유지한다. SELECT 는 5회→7회로 늘었다(캐릭터 1 + 착용 아이템 1). 새 도메인 [character.md](character.md)(상점·구매·착용 토글 3개)가 같은 날 신설됐고, 이 응답의 `characterItems[].imgUrl` 은 그쪽 목록의 `displayImg` 와 **다른 좌표계의 다른 파일**이다. 계약 원본 `docs/requirements/user/character-shop.md`(승인됨 2026-08-28, USER-CS-1~37). (직전: 2026-08-20 — **`POST /api/users/me/profile-image` 신규 추가**(업로드가 곧 프로필 변경 확정, 직전 객체는 커밋 이후 best-effort로 삭제) + **`GET /api/users/me` 응답에 `profileImgUrl` 추가**(키 5개→6개, SELECT 횟수는 그대로 5회 — 이미 조회하는 계정 행의 컬럼이라 추가 조회 없음). 계약 원본 `docs/requirements/user/profile-image.md`(승인됨 2026-08-20, USER-PI-1~121). profileImgUrl 조립 예시(BaseURL+EP, 흔한 실수 포함)와 CloudFront/S3 구분, 가입 전후 EP 완전 교체 서술 보강. (직전: 2026-08-17 `PATCH /api/users/me/password` 성공 시 **그 이전에 발급된 access·refresh 토큰이 즉시 무효화됨**(`main` 84f6f4a 머지 완료, PR #425). 직전 "이전 access 토큰은 최대 3h 그대로 유효하다"는 서술을 정정.) ) 그 이전 이력은 각 엔드포인트 섹션의 `최종 변경` 줄에 남아 있다.
 > 공통 규약(응답 래퍼·JWT payload·401 4종·**토큰 무효화**·**시스템 예외 래핑**)은 [README.md](README.md)를 먼저 볼 것.
 
 ## 엔드포인트 목록
@@ -80,7 +80,7 @@ curl -i -X DELETE http://localhost:8080/api/users/me \
 ---
 
 ## GET /api/users/me
-> 최종 변경: 2026-08-20 — 응답에 `profileImgUrl` 추가. 키 5개→6개, SELECT 횟수는 5회 그대로(추가 조회 없음). (직전: 2026-08-06 응답에 `supportPlayers`(현재 응원 중인 선수 목록) 추가. 키 4개→5개, SELECT 4회→5회로 정정)
+> 최종 변경: 2026-08-28 — 응답에 `characterImgUrl`·`characterItems` 추가. 키 6개→8개, SELECT 5회→7회. (직전: 2026-08-20 — 응답에 `profileImgUrl` 추가. 키 5개→6개, SELECT 횟수는 5회 그대로(추가 조회 없음).) (직전: 2026-08-06 응답에 `supportPlayers`(현재 응원 중인 선수 목록) 추가. 키 4개→5개, SELECT 4회→5회로 정정)
 
 내 요약 프로필 조회(닉네임·응원 구단·응원 선수·보유 포인트·누적 획득 점수). `UserAccountController.getMyProfile()` → `UserProfileService.getMyProfile()`(클래스 레벨 `@Transactional(readOnly = true)`, 쓰기 경로 없음 — 아래 안전망이 작동해도 행을 만들지 않는다). 응원 선수 목록은 `SupportService.currentSupportedPlayers()`에 위임한다(같은 목록을 두 곳에서 따로 만들면 한쪽만 고쳐질 때 응원 API 응답과 갈라지기 때문).
 
@@ -100,8 +100,10 @@ curl -i -X DELETE http://localhost:8080/api/users/me \
 | data.point | long(JSON 숫자) | 보유 포인트. `users_account.point` |
 | data.bqScore | long(JSON 숫자) | 누적 획득 점수. `users_bq.bq_score`. **그 계정의 `users_bq` 행이 없으면 `null`이 아니라 `0`**(배포 직후~백필 사이의 안전망, 아래 각주 참고) |
 | data.profileImgUrl | String \| null | 프로필 이미지의 **EP**(BaseURL을 뺀 오브젝트 키, `user-profile-img/{uuid}.{ext}` 형태 — 2026-08-20 신규). `users_account.profile_img_url`을 그대로 노출한다(추가 SELECT 없음). **이미지가 없으면 `null`**이며 빈 문자열도 기본 이미지 URL도 아니다(`supportTeam`이 `null`인 것과 같은 방식). 값을 실제 이미지로 쓰려면 클라이언트가 `https://victoryfairy.com/` + 이 값을 그대로 이어 붙인다(선행 슬래시·버킷명은 없다) — 자세한 내용은 아래 "profileImgUrl 값의 의미" 참고 |
+| data.characterImgUrl | String \| null | **아바타 캐릭터**의 이미지 EP(`characters/{슬러그}.svg` 형태 — 2026-08-28 신규). 프로필 사진(`profileImgUrl`)과 **별개다**: 저쪽은 사용자가 올린 사진, 이쪽은 꾸미기 캐릭터다. 캐릭터를 아직 지급받지 못한 계정에서는 `null`이며(빈 문자열도 기본 이미지도 아니다) 그 경우에도 응답은 200이다 — 지급이 건너뛰어졌을 수 있고([character-shop 요구사항](../requirements/user/character-shop.md) USER-CS-12), 시드 백필이 다음 기동에 복구한다 |
+| data.characterItems | `{itemType, imgUrl}[]` | **착용 중인** 아이템 전체(2026-08-28 신규). 없으면 `null`이 아니라 빈 배열이다. `itemType`은 부위(`의상`·`모자`·`소품` — 닫힌 집합이 아니다), `imgUrl`은 **착용용** 이미지 EP(`items/{부위}/{슬러그}.svg`). ⚠ [상점 목록](character.md)의 `displayImg`와 **바꿔 쓰면 안 된다** — 같은 아이템이지만 좌표계가 다른 별개 파일이다. 부위 id 오름차순으로 정렬돼 나가므로 클라이언트가 그 순서대로 겹쳐 그리면 된다 |
 
-`data`의 키 집합은 정확히 이 6개로 닫혀 있다(2026-08-20 이전은 5개, 2026-08-06 이전은 4개) — `id`·`uid`·`password`·`email`·`tel`·`exitAt`·`createdAt`·`updatedAt`은 응답 어디에도 없다(`UserAccount` 엔티티를 그대로 싣지 않고 전용 DTO로 조립).
+`data`의 키 집합은 정확히 이 8개로 닫혀 있다(2026-08-28 이전은 6개, 2026-08-20 이전은 5개, 2026-08-06 이전은 4개) — `id`·`uid`·`password`·`email`·`tel`·`exitAt`·`createdAt`·`updatedAt`은 응답 어디에도 없다(`UserAccount` 엔티티를 그대로 싣지 않고 전용 DTO로 조립).
 
 ### profileImgUrl 값의 의미 (프론트 필독)
 
@@ -136,15 +138,15 @@ EP        : temp/9f2c4e2a-6b3d-4a1f-8c2e-1a2b3c4d5e6f.png
 
 응원 선수·프로필 이미지가 있는 경우:
 ```json
-{"success":true,"data":{"nickname":"gildong","supportTeam":{"id":6,"name":"KIA"},"supportPlayers":[{"teamId":6,"teamName":"KIA","playerId":168,"playerName":"김도영","playerNumber":"5","playerPosition":"INFIELDER"},{"teamId":6,"teamName":"KIA","playerId":414,"playerName":"고종욱","playerNumber":null,"playerPosition":null}],"point":0,"bqScore":0,"profileImgUrl":"user-profile-img/9f1c4e2a-6b3d-4a1f-8c2e-1a2b3c4d5e6f.jpg"},"message":null}
+{"success":true,"data":{"nickname":"gildong","supportTeam":{"id":6,"name":"KIA"},"supportPlayers":[{"teamId":6,"teamName":"KIA","playerId":168,"playerName":"김도영","playerNumber":"5","playerPosition":"INFIELDER"},{"teamId":6,"teamName":"KIA","playerId":414,"playerName":"고종욱","playerNumber":null,"playerPosition":null}],"point":0,"bqScore":0,"profileImgUrl":"user-profile-img/9f1c4e2a-6b3d-4a1f-8c2e-1a2b3c4d5e6f.jpg","characterImgUrl":"characters/victory-fairy.svg","characterItems":[{"itemType":"의상","imgUrl":"items/cloth/basic.svg"},{"itemType":"모자","imgUrl":"items/head/cap-blue.svg"}]},"message":null}
 ```
 
 응원 구단·응원 선수·프로필 이미지 모두 없는 경우:
 ```json
-{"success":true,"data":{"nickname":"gildong","supportTeam":null,"supportPlayers":[],"point":0,"bqScore":0,"profileImgUrl":null},"message":null}
+{"success":true,"data":{"nickname":"gildong","supportTeam":null,"supportPlayers":[],"point":0,"bqScore":0,"profileImgUrl":null,"characterImgUrl":"characters/victory-fairy.svg","characterItems":[]},"message":null}
 ```
 
-**내부 동작(SELECT 5회 고정, 응원 이력 행 수·응원 선수 수와 무관)**: `JwtAuthenticationFilter`의 uid→id 해석(`findActiveIdByUid`) 1 + 계정 조회 1 + 응원 구단 행 조회(+구단명 LAZY 프록시 초기화) 1 + 응원 선수 목록(fetch join 1쿼리로 선수·소속 구단까지 함께 가져온다, `SupportService.currentSupportedPlayers`) 1 + 누적 점수 조회 1 = 5. 응원 선수가 0명이어도 fetch join 쿼리 자체는 나가므로 등호로 고정된 횟수다(이전 문서의 "SELECT 4회 고정"은 필터 단계를 빼고 세거나 응원 선수 조회를 2쿼리로 세던 낡은 서술 — 정정됨). `profileImgUrl`(2026-08-20 신규)은 계정 조회 시점에 이미 로딩되는 `users_account.profile_img_url` 컬럼이라 이 5회에서 늘지 않는다. DTO 조립은 서비스 트랜잭션 안에서 끝난다(`open-in-view: false`인 prod에서 컨트롤러가 지연 로딩 연관을 읽으면 `LazyInitializationException`이 나기 때문).
+**내부 동작(SELECT 7회 고정, 응원 이력 행 수·응원 선수 수·착용 아이템 수와 무관)**: `JwtAuthenticationFilter`의 uid→id 해석(`findActiveIdByUid`) 1 + 계정 조회 1 + 응원 구단 행 조회(+구단명 LAZY 프록시 초기화) 1 + 응원 선수 목록(fetch join 1쿼리로 선수·소속 구단까지 함께 가져온다, `SupportService.currentSupportedPlayers`) 1 + 누적 점수 조회 1 = 5. 응원 선수가 0명이어도 fetch join 쿼리 자체는 나가므로 등호로 고정된 횟수다(이전 문서의 "SELECT 4회 고정"은 필터 단계를 빼고 세거나 응원 선수 조회를 2쿼리로 세던 낡은 서술 — 정정됨). `profileImgUrl`(2026-08-20 신규)은 계정 조회 시점에 이미 로딩되는 `users_account.profile_img_url` 컬럼이라 이 횟수에서 늘지 않는다. 반면 `characterImgUrl`·`characterItems`(2026-08-28 신규)는 각각 별도 테이블이라 **2회를 더한다**(5→7): 사용 중인 캐릭터 1회(`@EntityGraph`로 `characters`까지 한 쿼리) + 착용 중인 아이템 1회(`@EntityGraph`로 `character_items`·`item_types`까지 한 쿼리). 착용 아이템이 0개여도 그 쿼리는 나가므로 등호로 고정된 횟수다. DTO 조립은 서비스 트랜잭션 안에서 끝난다(`open-in-view: false`인 prod에서 컨트롤러가 지연 로딩 연관을 읽으면 `LazyInitializationException`이 나기 때문).
 
 **실패**
 
