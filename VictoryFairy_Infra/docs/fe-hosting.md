@@ -18,11 +18,22 @@ CORS 도, FE 번들의 절대 URL 도 필요 없다.
                                              │           └ /rt  → quiz-app
                                              ├ /assets/* → S3 (영구 캐시)
                                              ├ /user-profile-img/*, /temp/* → S3 asset 버킷
+                                             ├ /characters/*, /items/*, /stores/* → S3 asset 버킷
                                              └ 그 외      → S3 (index.html, no-cache)
 ```
 
 `/user-profile-img/*`·`/temp/*` 두 갈래는 사용자 업로드 asset 버킷 몫이다 —
 FE 라우트를 정할 때 이 두 접두사를 피할 것(`docs/profile-image-apply.md` §8).
+
+`/characters/*`·`/items/*`·`/stores/*` 는 **같은 버킷의 다른 성격**이다(캐릭터 꾸미기 에셋).
+저자가 앱이 아니라 사람이고(`scripts/upload-character-assets.sh`), 앱은 이 접두사를 읽지도 쓰지도
+않는다 — BE 는 DB 에 담긴 EP 문자열만 내보내고 실제 파일은 브라우저가 여기서 직접 받는다.
+FE 라우트는 이 셋도 피해야 한다(총 다섯 접두사).
+
+⚠ **버킷 정책과 behavior 는 짝이다.** 한쪽만 늘리면 증상이 갈린다 — behavior 만 있고 정책이 없으면
+403, 정책만 있고 behavior 가 없으면 FE 버킷으로 흘러가 404 다. 단일 출처는
+`environments/dev/locals.tf` 의 `asset_static_prefixes` 이고, DB 시드
+(`VictoryFairy_BE/infra/sql/character-asset-init.sql`)에 박힌 EP 의 첫 세그먼트와도 일치해야 한다.
 
 ## 2. 왜 `origin.victoryfairy.com` 이 필요한가
 
@@ -116,7 +127,14 @@ S3 오브젝트에 헤더가 없거나 잘못 박혀 있어도 엣지가 덮어�
 | behavior | 브라우저 캐시 (Response Headers Policy) | 엣지 캐시 (Cache Policy) |
 |---|---|---|
 | `/assets/*` | `public, max-age=31536000, immutable` | 길게 — 파일명에 콘텐츠 해시가 있어 안전 |
+| `/user-profile-img/*` | `public, max-age=31536000, immutable` | 길게 — 키가 UUID 라 덮어쓰기가 없다 |
+| `/temp/*` | `public, max-age=300` | 짧게 — 하루면 사라지는 객체다 |
+| `/characters/*`, `/items/*`, `/stores/*` | `public, max-age=86400` | 하루 — 키가 고정 슬러그라 그림 교체가 같은 키를 덮어쓴다 |
 | 그 외 (index.html) | `no-cache` | 짧게 — 자산 해시가 적힌 곳이라 낡으면 배포가 먹히지 않는다 |
+
+⚠ 캐릭터 에셋에 `immutable` 을 붙이지 않은 것이 요점이다. 붙이면 그림을 교체한 뒤 무효화를 돌려도
+**이미 그 헤더를 받은 브라우저는 1년 동안 옛 그림을 계속 쓴다**(무효화는 엣지에만 닿는다). 이 셋은
+SVG(텍스트)라 엣지 압축도 켜 뒀다 — 이미지 behavior 두 개가 압축을 끈 것과 반대다.
 
 ## 4. 배포 파이프라인
 
