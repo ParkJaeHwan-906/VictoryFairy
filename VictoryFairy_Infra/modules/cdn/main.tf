@@ -7,6 +7,8 @@
 # 오리진이 3개인 이유: 사용자 대면 도메인을 하나로 유지하기 위해서다. CloudFront 가 진입점이 되어
 #   /api/*, /rt/*                → ALB (기존 EKS 앱)
 #   /user-profile-img/*, /temp/* → S3 asset 버킷 (사용자 업로드 이미지, modules/asset)
+#   /characters/*, /items/*, /stores/*
+#                                → S3 asset 버킷 (캐릭터 꾸미기 에셋, 같은 모듈·다른 접두사)
 #   그 외                        → S3 fe 버킷 (정적 자산)
 # 로 갈라 보내므로 FE·API·이미지가 계속 같은 오리진이고, CORS 도 FE 번들의 절대 URL 도 필요 없다.
 #
@@ -25,6 +27,10 @@ locals {
   asset_profile_path_pattern = "/${var.asset_profile_prefix}*"
   asset_temp_path_pattern    = "/${var.asset_temp_prefix}*"
 
+  # 캐릭터 꾸미기 에셋(characters/·items/·stores/). 위 둘과 같은 변환이지만 개수가 늘 수 있어
+  # 목록으로 받는다 — behavior 는 아래에서 dynamic 블록으로 편다.
+  asset_static_path_patterns = [for prefix in var.asset_static_prefixes : "/${prefix}*"]
+
   # 사용자 업로드 이미지 쪽 OAC·캐시 정책·응답 헤더 정책이 공유하는 AWS 리소스 이름.
   #
   # ⚠ 여기에 "-asset" 을 쓰지 말 것. 이 계정에는 FE 정적 자산용 victoryfairy-dev-assets 가
@@ -34,8 +40,9 @@ locals {
   #   그래서 용도가 그대로 드러나는 -profile-img 로 못 박는다.
   # (Terraform 라벨은 asset/asset_temp 그대로 둔다 — 버킷·오리진·modules/asset 과 짝을
   #  맞추기 위해서다. 콘솔에 보이는 이름만 다르며, 그 이름의 출처는 이 두 local 뿐이다.)
-  asset_name      = "${var.name_prefix}-profile-img"
-  asset_temp_name = "${var.name_prefix}-profile-img-temp"
+  asset_name        = "${var.name_prefix}-profile-img"
+  asset_temp_name   = "${var.name_prefix}-profile-img-temp"
+  asset_static_name = "${var.name_prefix}-character-asset"
 }
 
 # ---------------------------------------------------------------------------
@@ -249,6 +256,37 @@ resource "aws_cloudfront_cache_policy" "asset" {
 #   · 이 URL 은 가입 절차 몇 분 동안 본인 한 명이 한두 번 볼 뿐이라 장기 캐시의 히트가 없다.
 #   · 반대로 TTL 이 길면 S3 에서 만료된 뒤에도 엣지가 사본을 계속 내보내, "지웠는데 아직 보이는"
 #     구간이 하루 이상 길어진다. 임시 업로드에는 그쪽 위험이 더 크다.
+# 캐릭터 꾸미기 에셋 — 고정 슬러그 키(items/cloth/basic.svg)라 디자인 교체가 같은 키를 덮어쓴다.
+#   · 그래서 프로필 이미지(1년 immutable)와 같은 정책을 재사용하지 않는다. 재사용하면 브라우저가
+#     1년을 물고 있어 무효화를 돌려도 옛 그림이 남는다.
+#   · SVG 는 텍스트라 엣지 압축이 실제로 효과가 크다(프로필 이미지가 압축을 끈 것과 반대). 그래서
+#     Accept-Encoding 을 캐시 키에 넣는다 — 인코딩별로 쪼개지지만 원본이 23종뿐이라 히트율 손실이
+#     무시할 수준이다.
+#   · min_ttl 을 0 으로 둬 오리진(S3)이 보낸 Cache-Control 을 그대로 존중한다. 업로드 스크립트가
+#     max-age=86400 을 함께 올리므로 실제 TTL 의 출처는 한 곳이다.
+resource "aws_cloudfront_cache_policy" "asset_static" {
+  name        = local.asset_static_name
+  comment     = "캐릭터 꾸미기 에셋 — 고정 키라 교체 가능, 하루 캐시 + 엣지 압축"
+  min_ttl     = 0
+  default_ttl = var.asset_static_ttl_seconds
+  max_ttl     = var.asset_static_ttl_seconds
+
+  parameters_in_cache_key_and_forwarded_to_origin {
+    enable_accept_encoding_brotli = true
+    enable_accept_encoding_gzip   = true
+
+    cookies_config {
+      cookie_behavior = "none"
+    }
+    headers_config {
+      header_behavior = "none"
+    }
+    query_strings_config {
+      query_string_behavior = "none"
+    }
+  }
+}
+
 resource "aws_cloudfront_cache_policy" "asset_temp" {
   name        = local.asset_temp_name
   comment     = "가입 전 임시 업로드 — 하루살이 객체라 짧게만 담는다"
@@ -358,6 +396,30 @@ resource "aws_cloudfront_response_headers_policy" "asset" {
     items {
       header   = "Cache-Control"
       value    = "public, max-age=31536000, immutable"
+      override = true
+    }
+  }
+
+  security_headers_config {
+    content_type_options {
+      override = true
+    }
+    frame_options {
+      frame_option = "DENY"
+      override     = true
+    }
+  }
+}
+
+# immutable 을 붙이지 않는 것이 이 정책의 요점이다 — 근거는 위 cache_policy.asset_static 주석.
+resource "aws_cloudfront_response_headers_policy" "asset_static" {
+  name    = local.asset_static_name
+  comment = "캐릭터 꾸미기 에셋 — 하루 캐시(교체 가능) + 스니핑 차단"
+
+  custom_headers_config {
+    items {
+      header   = "Cache-Control"
+      value    = "public, max-age=${var.asset_static_ttl_seconds}"
       override = true
     }
   }
@@ -529,6 +591,32 @@ resource "aws_cloudfront_distribution" "this" {
 
     cache_policy_id            = aws_cloudfront_cache_policy.asset_temp.id
     response_headers_policy_id = aws_cloudfront_response_headers_policy.asset_temp.id
+  }
+
+  # 캐릭터 꾸미기 에셋 — 상점·캐릭터 이미지는 인증 없이 읽힌다. 어떤 아이템이 있는지는 상점 목록
+  # API 가 이미 전부 공개하는 정보라 숨길 것이 없고, 이미지가 토큰 뒤에 있으면 <img> 로 못 그린다.
+  #
+  # ⚠ SPA fallback 함수를 붙이지 않는다(/assets/*·프로필 이미지와 같은 이유) — 붙으면 없는 이미지가
+  #   index.html + 200 으로 돌아와 깨진 그림 대신 HTML 이 <img> 에 들어간다.
+  # ⚠ 읽기 전용이다(GET/HEAD). 이 접두사는 사람이 CLI 로 올리는 영역이라 앱조차 쓰지 않는다.
+  # ⚠ 프로필 이미지 behavior 보다 뒤에 둔다 — 경로가 서로 겹치지 않아 순서가 매칭 결과를 바꾸지는
+  #   않지만, 앞에 끼우면 기존 behavior 의 precedence 번호가 전부 밀려 배포 diff 가 커진다.
+  dynamic "ordered_cache_behavior" {
+    for_each = local.asset_static_path_patterns
+
+    content {
+      path_pattern           = ordered_cache_behavior.value
+      target_origin_id       = local.asset_origin_id
+      viewer_protocol_policy = "redirect-to-https"
+      allowed_methods        = ["GET", "HEAD"]
+      cached_methods         = ["GET", "HEAD"]
+
+      # SVG 는 텍스트라 압축이 크게 듣는다(프로필 이미지와 반대).
+      compress = true
+
+      cache_policy_id            = aws_cloudfront_cache_policy.asset_static.id
+      response_headers_policy_id = aws_cloudfront_response_headers_policy.asset_static.id
+    }
   }
 
   viewer_certificate {

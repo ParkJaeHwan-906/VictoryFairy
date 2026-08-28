@@ -30,6 +30,16 @@ locals {
   asset_profile_prefix = "user-profile-img/"
   asset_temp_prefix    = "temp/"
 
+  # 캐릭터 꾸미기 에셋. 위 둘과 같은 버킷이지만 성격이 다르다 — 저자가 파드가 아니라 사람이고
+  # (scripts/upload-character-assets.sh), 앱은 이 접두사를 읽지도 쓰지도 않는다. BE 는 DB 에 담긴
+  # EP 문자열을 그대로 내보낼 뿐이고 실제 파일은 브라우저가 CloudFront 에서 직접 받는다.
+  # 그래서 두 곳만 같은 값을 쓰면 된다(user-irsa 는 대상이 아니다):
+  #   1) modules/asset — 버킷 정책이 CloudFront 에게 읽기를 허용하는 접두사
+  #   2) modules/cdn   — 경로 패턴 /characters/*, /items/*, /stores/*
+  # ⚠ DB 시드(VictoryFairy_BE/infra/sql/character-asset-init.sql)에 박힌 EP 의 첫 세그먼트와
+  #   문자 그대로 일치해야 한다. 어긋나면 CloudFront 가 FE 버킷으로 보내 404 가 된다.
+  asset_static_prefixes = ["characters/", "items/", "stores/"]
+
   # 수집기(py-collector) 스택이 소유한 리소스의 ARN.
   # 그 스택은 VictoryFairy_AI/py-collector/deploy/lambda/terraform 에 있고 state 가
   # 달라 모듈 출력으로 받을 수 없다 — 이름 규약(그쪽 var.name = "kbo-collector")대로
