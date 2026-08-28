@@ -2,15 +2,20 @@ package com.skhynix.user.account.service;
 
 import com.skhynix.common.error.BusinessException;
 import com.skhynix.common.error.ErrorCode;
+import com.skhynix.domain.character.entity.UserCharacterInventory;
+import com.skhynix.domain.character.repository.UserCharacterInventoryRepository;
+import com.skhynix.domain.character.repository.UserCharacterItemInventoryRepository;
 import com.skhynix.domain.support.repository.UserSupportTeamRepository;
 import com.skhynix.domain.user.entity.UserAccount;
 import com.skhynix.domain.user.entity.UserBq;
 import com.skhynix.domain.user.repository.UserAccountRepository;
 import com.skhynix.domain.user.repository.UserBqRepository;
 import com.skhynix.user.account.dto.UserAccountResponse;
+import com.skhynix.user.character.dto.EquippedCharacterItemResponse;
 import com.skhynix.user.player.dto.PlayerResponse;
 import com.skhynix.user.support.service.SupportService;
 import com.skhynix.user.team.dto.TeamResponse;
+import java.util.Comparator;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -27,6 +32,8 @@ public class UserProfileService {
     // 응원 선수 목록은 리포지토리를 직접 잡지 않고 위임한다 — fetch join 조회가 이미 거기 있고,
     // 같은 목록을 두 곳에서 만들면 한쪽만 고쳐질 때 응원 API 응답과 프로필 응답이 갈라진다.
     private final SupportService supportService;
+    private final UserCharacterInventoryRepository characterInventoryRepository;
+    private final UserCharacterItemInventoryRepository characterItemInventoryRepository;
 
     // DTO 조립을 이 트랜잭션 안에서 끝낸다 — 컨트롤러로 옮기면 LAZY 프록시가 open-in-view: false 인
     // prod 에서만 LazyInitializationException 으로 터진다(dev 는 이 설정이 없어 로컬에서는 통과한다).
@@ -52,6 +59,23 @@ public class UserProfileService {
                 .map(UserBq::getBqScore)
                 .orElse(0L);
 
-        return UserAccountResponse.of(account, supportTeam, supportPlayers, bqScore);
+        // 캐릭터를 못 받은 계정이면 null 이다(안전망) — 지급이 건너뛰어졌을 수 있고
+        // (DefaultCharacterGrantService), 그 계정에도 이 응답은 200 이어야 한다.
+        String characterImgUrl = characterInventoryRepository
+                .findWithCharacterByUserAccount_IdAndActiveIsTrue(userAccountId)
+                .map(UserCharacterInventory::getCharacter)
+                .map(character -> character.getImg())
+                .orElse(null);
+
+        // 부위 id 순으로 정렬해 겹치는 순서를 결정론적으로 만든다 — 정렬이 없으면 같은 사용자의
+        // 같은 착용 상태가 요청마다 다른 순서로 나가 클라이언트가 레이어를 뒤집어 그릴 수 있다.
+        List<EquippedCharacterItemResponse> characterItems = characterItemInventoryRepository
+                .findAllByUserAccount_IdAndActiveIsTrue(userAccountId).stream()
+                .sorted(Comparator.comparing(item -> item.getCharacterItem().getItemType().getId()))
+                .map(EquippedCharacterItemResponse::from)
+                .toList();
+
+        return UserAccountResponse.of(account, supportTeam, supportPlayers, bqScore,
+                characterImgUrl, characterItems);
     }
 }
