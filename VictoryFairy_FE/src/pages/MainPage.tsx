@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getSupportGameList } from '../api';
 import type { Game } from '../api';
-import clothingStore from '../assets/clothing_store.svg';
+import CharacterAvatar from '../components/CharacterAvatar';
 import GameDetailSheet from '../components/GameDetailSheet';
 import MatchCard from '../components/MatchCard';
 import RankingPodium from '../components/RankingPodium';
@@ -16,15 +16,21 @@ import '../styles/MainPage.css';
  * MainPage — 홈 메인.
  * Figma: SWM / [Home] 홈 메인(full) (node 1443:15451)
  *
- * 위에서부터 인사말·캐릭터 자리, 승요 카드 배너, 오늘의 경기, 승리요정 랭킹 순이다.
+ * 위에서부터 야구장 히어로(인사말 · 내 캐릭터 · 꾸미기 버튼), 승요 카드 배너,
+ * 오늘의 경기, 승리요정 랭킹 순이다.
  *
- * ── 아직 없는 것 두 가지 ────────────────────────────────────────────
- * **승리요정 꾸미기 · 나만의 승요 카드 만들기**는 갈 곳이 정해지지 않아 **버튼만** 두었다
- * (마이페이지의 자리표시 메뉴와 같은 취급 — 눌러도 아무 일도 하지 않는다).
- * 헤더 오른쪽 캐릭터도 에셋이 없어 디자인의 회색 자리(`캐릭터`)를 그대로 옮겼다.
+ * ── 히어로의 캐릭터는 "내 캐릭터"다 ────────────────────────────────
+ * 자리표시가 아니라 `GET /users/me` 가 주는 실제 아바타다 —
+ * 본체(`characterImgUrl`)에 착용 중인 아이템(`characterItems`)을 겹쳐 그린다.
+ * 그리는 일은 `CharacterAvatar` 가 갖고, 이 화면은 자리만 잡는다.
  *
- * **랭킹은 아직 더미다**(`communityRanking`). 라운지와 같은 자료를 그리므로 API 가 붙으면
- * 두 화면이 같은 응답을 나눠 쓰게 된다.
+ * 왼쪽 아래 옷 버튼이 **캐릭터 꾸미기**로 간다(상점 겸 착용 화면).
+ * 착용을 바꾸고 돌아오면 그 화면이 프로필을 다시 받아 두므로 여기 그림도 함께 바뀐다.
+ *
+ * ── 아직 없는 것 ────────────────────────────────────────────────────
+ * **나만의 승요 카드 만들기**는 갈 곳이 정해지지 않아 버튼만 두었다(눌러도 아무 일도
+ * 하지 않는다). **랭킹도 아직 더미다**(`communityRanking`) — 라운지와 같은 자료를
+ * 그리므로 API 가 붙으면 두 화면이 같은 응답을 나눠 쓰게 된다.
  */
 export default function MainPage() {
   // 프로필은 새로고침하면 비어 있는 상태로 시작한다(persist 하지 않는다). 채우는 일은
@@ -78,28 +84,31 @@ export default function MainPage() {
   return (
     <main className="main-page">
       <header className="main-page__hero">
-        <div className="main-page__hero-body">
-          <h1 className="main-page__greeting">
-            {/* 프로필이 아직 없으면 이름 줄만 비운다 — 잠깐 뒤 채워진다. */}
-            {profile && `${profile.nickname}님,`}
-            <br />
-            만나서 반가워요!
-          </h1>
+        <h1 className="main-page__greeting">
+          {/* 프로필이 아직 없으면 이름 줄만 비운다 — 잠깐 뒤 채워진다. */}
+          {profile && `${profile.nickname}님,`}
+          <br />
+          만나서 반가워요!
+        </h1>
 
-          {/* 갈 곳이 정해지지 않았다 — 눌러도 아무 일도 하지 않는다 */}
-          <button className="main-page__decorate" type="button">
-            <img className="main-page__decorate-icon" src={clothingStore} alt="" />
-            <span>승리요정 꾸미기</span>
-          </button>
-        </div>
+        {/* 꾸미기로 가는 문. 디자인상 글자 없이 아이콘만이라 이름은 aria-label 로 준다. */}
+        <Link
+          className="main-page__decorate"
+          to={ROUTES.characterCustom}
+          aria-label="캐릭터 꾸미기"
+        >
+          <span className="main-page__decorate-icon" aria-hidden="true" />
+        </Link>
 
         {/*
-          캐릭터 에셋이 아직 없다. 디자인에서도 흰 상자에 "캐릭터"라고만 적혀 있어
-          그대로 옮긴다 — 임의의 그림을 넣으면 진짜가 왔을 때 무엇을 바꿔야 하는지 흐려진다.
+          프로필이 아직 없으면 `imgUrl` 이 null 이라 자리만 잡힌다 — 잠깐 뒤 채워진다.
+          캐릭터를 받지 못한 계정도 같은 모습이다(드물다, docs/character.md 참고).
         */}
-        <div className="main-page__character" aria-hidden="true">
-          캐릭터
-        </div>
+        <CharacterAvatar
+          className="main-page__character"
+          imgUrl={profile?.characterImgUrl ?? null}
+          items={profile?.characterItems ?? []}
+        />
       </header>
 
       {/* 갈 곳이 정해지지 않았다 — 눌러도 아무 일도 하지 않는다 */}
