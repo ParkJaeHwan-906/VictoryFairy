@@ -4,6 +4,17 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!--
+      본문 서체를 CSS 파싱을 기다리지 않고 곧바로 받기 시작한다(@font-face 는 global.css 에 있다).
+      한 벌뿐이라 여기서 받아 두면 첫 화면이 시스템 서체로 그려졌다 바뀌는 시간이 줄어든다.
+    -->
+    <link
+      rel="preload"
+      href="/src/fonts/PretendardVariable.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
     <title>VictoryFairy</title>
   </head>
   <body>

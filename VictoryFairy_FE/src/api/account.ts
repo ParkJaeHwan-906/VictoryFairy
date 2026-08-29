@@ -107,11 +107,16 @@ export function isSameAsCurrentPassword(error: unknown): boolean {
  * ------------------------------------------------------------------ */
 
 /**
- * GET /users/me — 내 프로필 조회(닉네임 · 응원 구단 · 응원 선수 · 포인트 · 누적 점수).
+ * GET /users/me — 내 프로필 조회(닉네임 · 응원 구단 · 응원 선수 · 포인트 · 누적 점수 · 캐릭터).
  * 읽기 전용이라 어떤 행도 만들거나 고치지 않는다. 성공 시 ApiResponse 래핑(200).
  *
  * 온보딩 중간 상태도 오류가 아니다 — 구단 미선택이면 `supportTeam: null`,
  * 응원 선수가 없으면 `supportPlayers: []`, 누적 점수 행이 없으면 `bqScore: 0` 으로 그냥 200 이 온다.
+ *
+ * 🖼️ **캐릭터에 겹쳐 그릴 착용 이미지는 이 응답만 준다**(2026-08-28 신설,
+ * `characterImgUrl` · `characterItems[].imgUrl`). 상점 목록(`getCharacterItems()`)의
+ * `displayImg` 는 진열용이라 좌표계가 다르다. 착용 토글 뒤 미리보기를 갱신하려면
+ * 이 호출을 다시 해야 한다 — 토글 응답에는 이미지가 실리지 않는다.
  *
  * 에러: 401 UNAUTHENTICATED(토큰 없음·무효, refresh 토큰 오용, 탈퇴 계정).
  * 참고: prod 는 user 앱이 관련 스키마를 만들기 전까지 500 을 낸다(배포 이슈, 계약 아님).

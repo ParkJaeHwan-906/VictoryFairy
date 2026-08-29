@@ -1,4 +1,5 @@
 import type { Player } from './player';
+import type { WornCharacterItem } from './character';
 
 /**
  * 응원 구단. 프로필에서는 아직 고르지 않았을 수 있어 nullable 로 들어간다.
@@ -13,7 +14,8 @@ export interface SupportTeam {
 /**
  * GET /users/me 의 data.
  *
- * 키는 정확히 이 6개뿐이다(2026-08-20 에 `profileImgUrl` 이 붙어 5개 → 6개) —
+ * 키는 정확히 이 8개뿐이다(2026-08-20 에 `profileImgUrl` 이 붙어 5개 → 6개,
+ * 2026-08-28 에 `characterImgUrl`·`characterItems` 가 붙어 6개 → 8개) —
  * 계정 PK·UUID·비밀번호 해시·이메일·전화번호·탈퇴 시각 같은 값은 응답 어디에도 없다.
  * 새 필드가 필요하면 백엔드 계약부터 바뀌어야 한다.
  */
@@ -44,6 +46,29 @@ export interface MyProfile {
    * 새로 생성된다). 가입 직후에는 반드시 이 값을 다시 받아 화면에 반영해야 한다.
    */
   profileImgUrl: string | null;
+  /**
+   * 아바타 캐릭터 본체 이미지의 **EP**(`characters/{슬러그}.svg`). 2026-08-28 신설.
+   * 프로필 사진(`profileImgUrl`)과 **별개 값**이다. `toAssetUrl()` 로 도메인을 붙인다.
+   *
+   * 가입에 성공하면 기본 캐릭터('승리요정')를 받으므로 보통 값이 있지만,
+   * **드물게 `null` 일 수 있다** — 꾸미기 데이터가 아직 없는 환경에서 가입하면 지급이
+   * 건너뛰어지기 때문이다(지급 실패가 회원가입을 막지 않는다). 그때도 응답은 200 이고
+   * 서버가 다음 기동에 자동으로 채운다. 화면은 이 값이 비어 있을 수 있다는 것만 감안하면 된다.
+   */
+  characterImgUrl: string | null;
+  /**
+   * **지금 착용 중인** 아이템들. 없으면 `null` 이 아니라 **빈 배열**이다
+   * (`characterImgUrl` 과 "없음" 표현이 비대칭인 점에 주의 — `supportTeam`/`supportPlayers`
+   * 와 같은 패턴이다). 기본 의상이 켜진 채로 지급되므로 보통 1건 이상이다.
+   *
+   * 🖼️ 여기 실린 `imgUrl` 이 **캐릭터에 겹쳐 그릴 착용용**(`items/...`, 160×200)이다 —
+   * 상점 목록(`GET /characters/items`)의 `displayImg`(`stores/...`, 80×80 진열용)와
+   * 바꿔 쓰면 어긋난다. **부위 순으로 정렬돼 오므로 받은 순서 그대로 겹쳐 그리면 된다.**
+   *
+   * 착용 토글(`PUT /characters/items/active`)로 이 목록이 바뀌므로,
+   * 토글 후 캐릭터 미리보기를 갱신하려면 `getMyProfile()` 을 다시 부른다.
+   */
+  characterItems: WornCharacterItem[];
 }
 
 /* ------------------------------------------------------------------ *

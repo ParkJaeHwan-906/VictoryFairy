@@ -5,6 +5,28 @@
 
 @import './tokens.css';
 
+/* ------------------------------------------------------------------ *
+ * Pretendard — 디자인의 본문 서체. 앱과 함께 배포한다.
+ *
+ * **가변 폰트 한 벌로 굵기 전부를 덮는다.** 디자인이 Regular(400) · Medium(500) ·
+ * SemiBold(600) 셋을 쓰는데, 축이 45~920 이라 파일을 굵기마다 나눠 받지 않아도 된다.
+ * 그래서 `font-synthesis` 를 끌 필요도 없다 — 브라우저가 가짜 볼드를 만들 일이 없다.
+ *
+ * 이름을 `Pretendard` 로 등록하는 이유: `--font-family-base` 의 첫 항목이 그것이고,
+ * @font-face 로 정의한 이름은 **같은 이름의 시스템 설치본보다 우선**한다. 즉 기기에
+ * Pretendard 가 깔려 있든 없든 모두가 같은 파일을 본다(디자인이 픽셀 단위라 중요하다).
+ *
+ * `swap` 이라 폰트가 오기 전에는 시스템 서체로 먼저 그려지고 도착하면 바뀐다 —
+ * 잠깐 글자가 흔들리지만, 그동안 글자가 아예 안 보이는 것(`block`)보다는 낫다.
+ * ------------------------------------------------------------------ */
+@font-face {
+  font-family: 'Pretendard';
+  font-style: normal;
+  font-weight: 45 920;
+  font-display: swap;
+  src: url('../fonts/PretendardVariable.woff2') format('woff2-variations');
+}
+
 *,
 *::before,
 *::after {

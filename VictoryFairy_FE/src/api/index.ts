@@ -127,6 +127,23 @@ export {
   OX_OPTION_NO,
 } from './quiz';
 
+// 캐릭터 꾸미기(user 모듈) 엔드포인트 함수 — 세 개 전부 인증이 필수다
+export {
+  getCharacterItems,
+  purchaseCharacterItem,
+  toggleCharacterItemActive,
+  groupCharacterItemsByType,
+  findActiveCharacterItem,
+  canPurchaseCharacterItem,
+  applyCharacterItemPurchase,
+  applyCharacterItemToggle,
+  isCharacterItemNotFound,
+  isCharacterItemAlreadyOwned,
+  isCharacterItemNotOwned,
+  isInsufficientPoint,
+  CHARACTER_ERROR_MESSAGE,
+} from './character';
+
 // 토큰 저장 추상화 — store-agent가 setTokenStorage로 zustand persist 구현 주입
 export { setTokenStorage, getTokenStorage } from './tokenStorage';
 export type { TokenStorage } from './tokenStorage';
@@ -189,6 +206,15 @@ export type {
   ChatMessagePage,
   SendChatMessageRequest,
 } from '../types/chat';
+export { CHARACTER_ITEM_TYPE } from '../types/character';
+export type {
+  CharacterItemType,
+  CharacterItem,
+  WornCharacterItem,
+  CharacterItemRequest,
+  CharacterItemPurchaseResult,
+  CharacterItemActiveResult,
+} from '../types/character';
 export type {
   QuizType,
   QuizDifficulty,
