@@ -12,6 +12,7 @@ import CompletePage from './pages/CompletePage';
 import InquiryPage from './pages/InquiryPage';
 import ProfileEditPage from './pages/ProfileEditPage';
 import AccountSettingPage from './pages/AccountSettingPage';
+import CharacterCustomPage from './pages/CharacterCustomPage';
 import QuizPage from './pages/QuizPage';
 import QuizResultPage from './pages/QuizResultPage';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -55,6 +56,8 @@ export default function App() {
         <Route path={ROUTES.profileEdit} element={<ProfileEditPage />} />
         {/* 계정 설정(비밀번호 변경)도 같은 자리 — 마이페이지에서 들어와 뒤로가기로 돌아간다 */}
         <Route path={ROUTES.accountSetting} element={<AccountSettingPage />} />
+        {/* 캐릭터 꾸미기도 NavBar 없는 전체 화면이다 — 홈의 옷 버튼으로 들어온다 */}
+        <Route path={ROUTES.characterCustom} element={<CharacterCustomPage />} />
         {/*
           하단 NavBar 가 붙는 화면들.
           레이아웃에 NavBar 를 한 번만 두어, 이 안에서 화면을 옮겨 다녀도
