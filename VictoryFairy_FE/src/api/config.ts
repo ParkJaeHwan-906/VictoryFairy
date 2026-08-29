@@ -31,15 +31,16 @@ export const GAME_BASE_URL = normalize(
 );
 
 /**
- * 이미지 CDN 루트 — 프로필 이미지를 실제로 읽어 오는 곳.
+ * 이미지 CDN 루트 — 프로필·캐릭터 이미지를 실제로 읽어 오는 곳.
  *
- * **서버는 완성된 URL 을 주지 않는다.** 프로필 이미지는 언제나 BaseURL 을 뺀
+ * **서버는 완성된 URL 을 주지 않는다.** 이미지는 언제나 BaseURL 을 뺀
  * EP(오브젝트 키, `user-profile-img/{uuid}.png`)로만 오고, 도메인을 붙이는 것은
  * 전적으로 클라이언트 몫이다 — 이 값은 백엔드 설정·코드 어디에도 없다(docs/account.md).
  *
  * API base(`.../api`)와 **다른 값이다.** 도메인이 같아도 이쪽은 CloudFront 배포이고,
- * 읽히는 경로도 `/user-profile-img/*` 와 `/temp/*` 둘뿐이다. 버킷은 퍼블릭 액세스가
- * 막혀 있어 S3 직접 주소(`....s3.ap-northeast-2.amazonaws.com`)로는 열리지 않는다.
+ * 읽히는 경로는 `/user-profile-img/*` · `/temp/*` · `/characters/*` · `/items/*` ·
+ * `/stores/*` 다섯뿐이다(뒤 셋은 2026-08-28 캐릭터 도메인과 함께 신설). 버킷은 퍼블릭
+ * 액세스가 막혀 있어 S3 직접 주소(`....s3.ap-northeast-2.amazonaws.com`)로는 열리지 않는다.
  */
 export const ASSET_BASE_URL = normalize(
   import.meta.env.VITE_ASSET_BASE_URL ?? 'https://victoryfairy.com',

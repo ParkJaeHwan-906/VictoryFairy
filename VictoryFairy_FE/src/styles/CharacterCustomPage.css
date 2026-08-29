@@ -1,0 +1,301 @@
+/**
+ * CharacterCustomPage(캐릭터 꾸미기) 스타일.
+ * Figma: SWM / [Custom] 캐릭터 꾸미기 — 머리(node 1468:17418) · 의상(1560:19311) ·
+ * 아이템(1560:21220), 기준 프레임 402 x 874.
+ *
+ * Figma 의 절대 좌표를 흐름 레이아웃으로 옮긴 값(iOS 상태 바 47px 은 다른 화면들과 같이 제외):
+ *   상단 바 0~60 → 미리보기 60~312(252) → 탭 312~354(42) → 카드 그리드 379~
+ * 상단 바는 프로필 수정 화면과 같은 컴포넌트라 값도 그대로 맞춘다(ProfileEditPage.css).
+ *
+ * 카드는 106 x 147 이 셋씩 gap 18 로 놓인다(106*3 + 18*2 = 354 = 본문 폭).
+ * 좁은 화면에서도 세 칸을 지키려고 px 대신 1fr 3칸으로 둔다.
+ */
+
+.character-custom-page {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--layout-app-width);
+  min-height: 100dvh;
+  margin-inline: auto;
+  padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+  background-color: var(--color-background-basic);
+}
+
+/* ------------------------------------------------------------------ *
+ * Bar/Top — 뒤로가기 · 타이틀 (다른 화면들과 같은 컴포넌트)
+ * 오른쪽은 디자인상 opacity 0 인 빈 버튼 → 타이틀 중앙 정렬용 스페이서로 둔다.
+ * ------------------------------------------------------------------ */
+.character-custom-page__topbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.character-custom-page__back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 60px;
+  padding: 10px;
+  border-radius: var(--radius-10);
+  overflow: clip;
+}
+
+/* `arrow_l.svg` 의 fill 이 검정이라 mask 로 오려내고 토큰 색을 입힌다. */
+.character-custom-page__back-icon {
+  width: 20px;
+  height: 20px;
+  background-color: var(--color-label-assistive);
+  -webkit-mask: url('../assets/arrow_l.svg') center / contain no-repeat;
+  mask: url('../assets/arrow_l.svg') center / contain no-repeat;
+}
+
+.character-custom-page__topbar-title {
+  min-width: 0;
+  margin: 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  text-align: center;
+}
+
+.character-custom-page__topbar-spacer {
+  flex-shrink: 0;
+  width: 60px;
+  height: 60px;
+}
+
+/* ------------------------------------------------------------------ *
+ * 미리보기 — [BG] Custom 위에 선 내 캐릭터
+ *
+ * 배경(402 x 252)은 아이보리 판 아래에 60px 짜리 노란 띠가 깔린 그림이다.
+ * 홈 히어로와 같은 이유로 높이를 박는다 — 띠의 자리가 그림 안에서 정해져 있다.
+ * ------------------------------------------------------------------ */
+.character-custom-page__stage {
+  position: relative;
+  flex: 0 0 auto;
+  height: 252px;
+  background: url('../assets/background/Sustom.svg') center / cover no-repeat;
+  overflow: hidden;
+}
+
+/* 디자인 좌표 (121, 32) — 402 폭의 정가운데다. */
+.character-custom-page__avatar {
+  position: absolute;
+  top: 32px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+/* ------------------------------------------------------------------ *
+ * Btn/Selectbar — 부위 탭
+ * 아래 실선은 바 전체에 깔리고, 선택된 탭만 그 위에 3px 주황 선을 덮는다.
+ * ------------------------------------------------------------------ */
+.character-custom-page__tabs {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  padding-inline: var(--layout-gutter);
+  border-bottom: 1px solid var(--color-line-light);
+}
+
+.character-custom-page__tab {
+  flex-shrink: 0;
+  height: 42px;
+  padding: 9px 32px;
+  /* 선택됐을 때와 높이가 같아야 글자가 튀지 않는다 — 색만 투명으로 둔다. */
+  border-bottom: 3px solid transparent;
+  color: var(--color-label-assistive);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+}
+
+.character-custom-page__tab--active {
+  border-bottom-color: var(--color-primary-normal);
+  color: var(--color-primary-normal);
+}
+
+/* ------------------------------------------------------------------ *
+ * Btn/Custom — 아이템 카드
+ * ------------------------------------------------------------------ */
+.character-custom-page__grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px 18px;
+  margin: 20px var(--layout-gutter) 0;
+  padding: 0;
+  list-style: none;
+}
+
+.character-custom-page__cell {
+  display: flex;
+  min-width: 0;
+}
+
+/*
+ * 카드 한 장. 위에서부터 그림(80) · 이름 · 표식(자물쇠/가격/체크) 순이고,
+ * 디자인의 절대 좌표(그림 top 8, 이름 bottom 47, 표식 bottom 9~10)를 세로 흐름으로 옮겼다.
+ */
+.character-custom-page__card {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  height: 147px;
+  padding: 8px 4px 9px;
+  border: 2px solid var(--color-line-lighter);
+  border-radius: var(--radius-15);
+  background-color: transparent;
+  overflow: clip;
+}
+
+.character-custom-page__card:disabled {
+  /* 응답을 기다리는 동안. 모양은 그대로 두고 누르는 것만 막는다. */
+  cursor: default;
+}
+
+/* 지금 입고 있는 것 — 주황 테두리 + 연한 주황 바탕 */
+.character-custom-page__card--active {
+  border-color: var(--color-primary-normal);
+  background-color: var(--color-background-red);
+}
+
+/* 아직 안 산 것 — 그림만 흐리다. 이름·가격 색은 아래에서 따로 낮춘다. */
+.character-custom-page__card--locked .character-custom-page__thumb {
+  opacity: 0.5;
+}
+
+.character-custom-page__thumb {
+  flex: 0 0 auto;
+  width: 80px;
+  height: 80px;
+  object-fit: contain;
+}
+
+/* "선택 안함" 카드의 대각선. 그림이 아니라 도형이라 그라데이션으로 긋는다. */
+.character-custom-page__none-graphic {
+  flex: 0 0 auto;
+  width: 80px;
+  height: 80px;
+  background: linear-gradient(
+    to bottom right,
+    transparent calc(50% - 0.5px),
+    var(--color-primary-200) calc(50% - 0.5px),
+    var(--color-primary-200) calc(50% + 0.5px),
+    transparent calc(50% + 0.5px)
+  );
+}
+
+/* Caption/Caption1 — Medium 12 / 1.4 */
+.character-custom-page__name {
+  width: 100%;
+  margin-top: auto;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  text-align: center;
+  /* 이름이 길어도 카드 높이를 밀지 않는다 — 디자인 폭(106)에 두 줄은 들어가지 않는다. */
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 안 산 것은 이름도 한 단계 옅다(디자인 gray-400) */
+.character-custom-page__card--locked .character-custom-page__name {
+  color: var(--color-label-alternative);
+}
+
+/* 카드 맨 아래 한 줄 — 체크 · 열린 자물쇠 · 닫힌 자물쇠+가격 중 하나가 온다 */
+.character-custom-page__mark {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  height: 17px;
+}
+
+/*
+ * 표식 셋 다 에셋 원본이 검정이라 mask 로 오려내고 토큰 색을 입힌다.
+ * 크기는 디자인의 Icons 상자와 같은 16px 이다.
+ */
+.character-custom-page__check,
+.character-custom-page__lock-open,
+.character-custom-page__lock-closed {
+  width: 16px;
+  height: 16px;
+}
+
+/* 지금 입고 있다는 표시 — 카드 테두리와 같은 주황 */
+.character-custom-page__check {
+  background-color: var(--color-primary-normal);
+  -webkit-mask: url('../assets/check.svg') center / contain no-repeat;
+  mask: url('../assets/check.svg') center / contain no-repeat;
+}
+
+.character-custom-page__lock-open,
+.character-custom-page__lock-closed {
+  background-color: var(--color-label-disable);
+}
+
+.character-custom-page__lock-open {
+  -webkit-mask: url('../assets/Lock_o.svg') center / contain no-repeat;
+  mask: url('../assets/Lock_o.svg') center / contain no-repeat;
+}
+
+.character-custom-page__lock-closed {
+  -webkit-mask: url('../assets/Lock_c.svg') center / contain no-repeat;
+  mask: url('../assets/Lock_c.svg') center / contain no-repeat;
+}
+
+/* Caption/Caption1 — 자물쇠와 같은 색(gray-200)이다 */
+.character-custom-page__price {
+  color: var(--color-label-disable);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+}
+
+/* ------------------------------------------------------------------ *
+ * 로딩 · 실패 · 비어 있음 · 동작 실패 안내
+ * 값은 다른 화면들의 `__status` 와 같다.
+ * ------------------------------------------------------------------ */
+.character-custom-page__status {
+  margin: 24px var(--layout-gutter);
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-body2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body2);
+  text-align: center;
+}
+
+.character-custom-page__status--error {
+  color: var(--color-error-strong);
+}
+
+/* ------------------------------------------------------------------ *
+ * 반응형 — 402px 미만(소형 단말)에서 좌우 여백을 줄인다(다른 화면과 동일).
+ * ------------------------------------------------------------------ */
+@media (max-width: 359px) {
+  .character-custom-page__tabs {
+    padding-inline: 16px;
+  }
+
+  .character-custom-page__grid,
+  .character-custom-page__status {
+    margin-inline: 16px;
+  }
+
+  /* 세 칸을 지키려고 탭의 좌우 여백을 줄인다 — 줄바꿈되면 부위가 세로로 쌓인다. */
+  .character-custom-page__tab {
+    padding-inline: 20px;
+  }
+}
