@@ -121,7 +121,10 @@
 
   /* ---------------------------------------------------------------- *
    * Typography
-   * Pretendard 는 src/fonts 에 아직 없어 시스템 폰트로 폴백된다.
+   *
+   * `Pretendard` 는 앱과 함께 배포하는 가변 폰트다(global.css 의 @font-face).
+   * 뒤의 목록은 그 파일이 아직 오지 않았거나 받지 못했을 때의 대체 서체다 —
+   * 한글이 있는 것부터 늘어놓아 폴백 중에도 글자가 깨지지 않게 한다.
    * ---------------------------------------------------------------- */
   --font-family-base: 'Pretendard', 'Pretendard Variable', -apple-system,
     BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui,
