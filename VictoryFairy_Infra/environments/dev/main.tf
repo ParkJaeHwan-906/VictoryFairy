@@ -153,6 +153,38 @@ module "dns" {
   mailjet_verification_value = "bc2f75b58109420e2abf5666cdeff8f5"
 }
 
+# ---------------------------------------------------------------------------
+# 랜딩 페이지 (Vercel 호스팅) — landing.<domain>
+#
+# apex(CloudFront→FE·API)와 무관한 별도 사이트다. 이 존에는 레코드 두 개만 두고 TLS 는
+# Vercel 이 자체 발급하므로 ACM 인증서·SAN 은 건드리지 않는다.
+#
+# ⚠ Vercel 이 권하는 "네임서버를 Vercel 로 변경" 은 택하지 않았다. 존을 옮기면 ACM 검증
+#   CNAME 2장·origin.<domain> A/TXT·Mailjet DKIM 이 함께 사라진다.
+#
+# ExternalDNS 와는 다투지 않는다 — --source=ingress 라 Ingress host 로 선언된 이름만 보고,
+# --policy=upsert-only 라 남의 레코드를 지우지도 않는다(k8s/23-external-dns.yaml).
+# ---------------------------------------------------------------------------
+resource "aws_route53_record" "landing" {
+  zone_id = module.dns.zone_id
+  name    = "landing.${var.domain_name}"
+  type    = "CNAME"
+  ttl     = 300
+
+  # Vercel 프로젝트별로 발급되는 타깃이다(공용 cname.vercel-dns.com 이 아니다).
+  records = ["3805daedc4daf81d.vercel-dns-017.com"]
+}
+
+# Vercel 도메인 소유권 검증. 이름이 _vercel.<domain> 이라 apex TXT 가 아니다 —
+# ExternalDNS 소유권 TXT(그 충돌 때문에 Mailjet SPF 를 보류 중)와 겹치지 않는다.
+resource "aws_route53_record" "landing_vercel_verify" {
+  zone_id = module.dns.zone_id
+  name    = "_vercel.${var.domain_name}"
+  type    = "TXT"
+  ttl     = 300
+  records = ["vc-domain-verify=landing.victoryfairy.com,c608bbb507d1283f36a0"]
+}
+
 # FE 정적 호스팅 — S3(원본) + CloudFront(단일 진입점).
 # CloudFront 가 /api/*·/rt/* 를 ALB 로, 나머지를 S3 로 갈라 보내므로 FE·API 가 같은 오리진으로 남는다.
 # 구성과 주의점은 docs/fe-hosting.md.
