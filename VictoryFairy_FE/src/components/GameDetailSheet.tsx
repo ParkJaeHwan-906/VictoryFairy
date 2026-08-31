@@ -5,7 +5,7 @@ import { isGameNotFound } from '../api';
 import { getLineUp } from '../api';
 import type { Game, LineUpBatter, TeamLineUp } from '../api';
 // import { getDummyLineUp } from '../data/dummyGames';
-import { getGameStateDisplay } from '../data/gameState';
+import { formatInning, getGameStateDisplay } from '../data/gameState';
 import { getTeamDisplay } from '../data/kboTeams';
 import { getPositionDisplay } from '../data/positions';
 import { useBottomSheet } from '../hooks/useBottomSheet';
@@ -74,6 +74,8 @@ export default function GameDetailSheet({ game, onClose }: GameDetailSheetProps)
 
   // 취소 경기면 칩 문구가 취소 사유로 바뀐다.
   const state = getGameStateDisplay(game);
+  // 진행 중 경기에만 붙는 이닝 문구. 값이 없으면(지금은 대부분) null 이라 VS 만 남는다.
+  const inning = formatInning(game);
 
   /* 딤 클릭 · 핸들 끌기 · Esc · 배경 스크롤 잠금은 모든 시트가 함께 쓴다. */
   const sheet = useBottomSheet(onClose);
@@ -185,7 +187,11 @@ export default function GameDetailSheet({ game, onClose }: GameDetailSheetProps)
 
           <div className="game-sheet__teams">
             <TeamColumn name={game.awayTeam} />
-            <span className="game-sheet__vs">VS</span>
+            {/* 이닝은 VS 위에 겹쳐 띄운다(MatchCard 와 같은 이유 — 시트 높이를 흔들지 않는다) */}
+            <span className="game-sheet__center">
+              {inning && <span className="game-sheet__inning">{inning}</span>}
+              <span className="game-sheet__vs">VS</span>
+            </span>
             <TeamColumn name={game.homeTeam} />
           </div>
 

@@ -20,6 +20,7 @@ import {
   reportChatMessage,
   sendChatMessage,
   subscribeChatRoom,
+  toAssetUrl,
   validateChatMessageContent,
 } from '../api';
 import type { ChatMessage, ChatRoom } from '../api';
@@ -727,8 +728,15 @@ export default function LoungeChatSheet({ onClose }: LoungeChatSheetProps) {
                     </li>
                   ) : (
                     <li className="lounge-chat__message">
-                      {/* 채팅 응답에는 발신자 프로필 사진이 없다(닉네임만 노출된다). */}
-                      <img className="lounge-chat__avatar" src={profilePlaceholder} alt="" />
+                      {/*
+                        발신자 프로필 사진(2026-08-20 신설). EP 라 도메인을 붙여 쓰고,
+                        없으면(사진 미설정·탈퇴 계정) 자리표시로 대신한다 — MyPage 와 같은 규칙이다.
+                      */}
+                      <img
+                        className="lounge-chat__avatar"
+                        src={toAssetUrl(message.profileImgUrl) ?? profilePlaceholder}
+                        alt=""
+                      />
                       <div className="lounge-chat__body">
                         <p className="lounge-chat__sender">{message.senderNickname}</p>
                         <div className="lounge-chat__bubble-row">
