@@ -156,6 +156,8 @@ module "dns" {
 # ---------------------------------------------------------------------------
 # 랜딩 페이지 (Vercel 호스팅) — landing.<domain>
 #
+# 구성과 기각한 대안(새 CloudFront·apex 하위 경로)은 docs/landing-page.md.
+#
 # apex(CloudFront→FE·API)와 무관한 별도 사이트다. 이 존에는 레코드 두 개만 두고 TLS 는
 # Vercel 이 자체 발급하므로 ACM 인증서·SAN 은 건드리지 않는다.
 #
