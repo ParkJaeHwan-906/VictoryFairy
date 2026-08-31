@@ -147,6 +147,36 @@
   text-align: center;
 }
 
+/*
+ * VS 와 그 위 이닝을 묶는 칸. 이닝은 진행 중 경기에만 생기므로 흐름에서 빼(absolute)
+ * 카드 높이에 영향을 주지 않게 한다 — 목록에서 진행 중 카드만 키가 달라지면 줄이 어긋난다.
+ * 그래서 이 칸의 크기는 이닝 유무와 무관하게 VS 하나로만 정해진다.
+ */
+.match-card__center {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+}
+
+/*
+ * 진행 중 이닝(`5회초`) — VS 바로 위 가운데.
+ * 문구가 VS 보다 넓을 수 있어 정적 위치에 기대지 않고 left/transform 으로 직접 맞춘다.
+ * 줄바꿈되면 VS 를 밀어내므로 한 줄로 묶는다.
+ */
+.match-card__inning {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 2px;
+  color: var(--color-primary-normal);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  white-space: nowrap;
+}
+
 .match-card__vs {
   flex-shrink: 0;
   color: var(--color-primary-normal);

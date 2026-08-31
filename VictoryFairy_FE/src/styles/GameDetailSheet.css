@@ -211,6 +211,28 @@
   text-align: center;
 }
 
+/* VS 와 그 위 이닝을 묶는 칸. MatchCard 와 같은 구조다(이닝은 흐름에서 빠진다). */
+.game-sheet__center {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+}
+
+/* 진행 중 이닝(`5회초`) — VS 바로 위 가운데. 목록 카드보다 한 단계 큰 글자를 쓴다. */
+.game-sheet__inning {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 2px;
+  color: var(--color-primary-normal);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  white-space: nowrap;
+}
+
 .game-sheet__vs {
   flex-shrink: 0;
   color: var(--color-primary-normal);
