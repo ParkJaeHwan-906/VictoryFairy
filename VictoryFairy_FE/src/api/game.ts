@@ -68,9 +68,12 @@ export function isGameNotFound(error: unknown): boolean {
  * `inning`·`inningHalf`(2026-08-11 신설)는 **지금 항상 `null` 이다** — 컬럼만 생겼고 값을
  * 채우는 수집기 구현이 아직 없다. 진행 중 경기라도 이닝을 못 받는다고 보고 화면을 짜야 한다.
  *
- * 형식이 어긋나면(`20260801`, `2026-13-01` 등) 400 인데, **이 400 만 `{success, data, message}`
- * 형식이 아니라 스프링 기본 오류 응답이 그대로 나간다** — `ApiError.message` 가 도메인 문구가
- * 아닐 수 있으니 문자열로 판별하지 말고 status 로만 다룬다.
+ * 형식이 어긋나면(`20260801`, `2026-13-01` 등) 400 이다. **이 400 도 2026-08-20 부터
+ * `{success, data, message}` 래퍼를 탄다**(백엔드 `GlobalExceptionHandler.handleTypeMismatch` 신설).
+ * 즉 `normalizeError` 가 다른 실패와 똑같이 본문을 파싱하지만, 실리는 문구는 도메인 오류가 아니라
+ * 타입 변환 실패 메시지다 — **여전히 문자열로 판별하지 말고 status 로만 다룬다.**
+ *
+ * `date` 를 아예 넘기지 않는 것은 오류가 아니다(200 + 서버 기준 오늘).
  */
 export function getGameList(date?: string): Promise<Game[]> {
   return userClient
@@ -96,7 +99,8 @@ export function getGameList(date?: string): Promise<Game[]> {
  * `null` 인지로 판별해야 한다.
  *
  * 에러: 401(토큰 없음·위조·만료·refresh 토큰 오용·탈퇴 계정을 구분하지 않는다).
- * 날짜 형식 오류 400 은 `getGameList` 와 같이 ApiResponse 형식이 아니다.
+ * 날짜 형식 오류 400 은 `getGameList` 와 사정이 같다(2026-08-20 부터 ApiResponse 래퍼를 탄다).
+ * 인증 여부와 무관하게 이 400 이 401 보다 먼저 나간다.
  */
 export function getSupportGameList(date?: string): Promise<Game[]> {
   return userClient
@@ -121,7 +125,8 @@ export function getSupportGameList(date?: string): Promise<Game[]> {
  * "없는 경기"(404)와 구분해서 표시해야 한다.
  *
  * 에러: 404 GAME_NOT_FOUND(`isGameNotFound`). `?gameId=` 처럼 값이 비어도 400 이 아니라 404 다.
- * 반면 `gameId` 파라미터를 아예 빠뜨리면 400 이고 그 응답만 ApiResponse 형식이 아니다 —
+ * 반면 `gameId` 파라미터를 아예 빠뜨리면 400 이다 — 이 응답도 2026-08-13 부터 ApiResponse
+ * 래퍼를 탄다(문구: `필수 요청 파라미터가 누락되었습니다: gameId`).
  * 이 함수는 인자를 필수로 받으므로 정상 호출에서는 발생하지 않는다.
  */
 export function getLineUp(gameId: string): Promise<TeamLineUp[]> {
