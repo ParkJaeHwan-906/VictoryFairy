@@ -201,6 +201,7 @@ kbo-collector (Lambda)  ──▶ S3 community/{source}/{date}/{postId}.json
   - ⚠️ 단, **`kbo-collector` Lambda 와 EventBridge 규칙은 `environments/dev` 소관이 아니다** — 같은 레포의 `collector-lambda/` 독립 스택이 소유한다(§4 한계).
 - **Kubernetes(YAML/Helm, `VictoryFairy_Infra/k8s/`)**: Deployment(user/quiz), HPA(user/quiz), taint↔toleration/nodeSelector. Spring `SPRING_PROFILES_ACTIVE=prod`. (앱 코드는 별도 레포/브랜치지만, 배포 매니페스트는 결합도가 큰 Terraform과 **같은 인프라 레포에 co-locate** — 도구/레이어 경계는 유지)
   - FE는 이 레이어에 없다. S3+CloudFront가 서비스한다(`docs/fe-hosting.md`). nginx 파드(fe-app)와 Kubernetes Dashboard는 2026-08-07 제거됐다.
+  - 랜딩 페이지도 이 레이어에 없다. Vercel 이 호스팅하고 이 레포가 소유한 것은 Route53 레코드 두 개뿐이다(`docs/landing-page.md`).
   - `40~42-batch-*.yaml` 은 **정제에 쓰이지 않는다.** 문제 생성 단계용으로 보류된 뼈대다(§4 한계).
 - **애플리케이션 코드(`VictoryFairy_AI/`, `dev_ai` 브랜치)**: 판정 로직과 **Lambda 핸들러**. 인프라는 그것을 **띄우는 함수 정의·트리거 배선·권한**을 맡는다. 트리거 판단 로직(구 컨트롤러)은 **S3 이벤트와 SQS 가 대신하므로 앱에서 사라진다.**
 - **커플링 주의**: TF의 노드그룹 `taint`/label ↔ YAML의 `toleration`/`nodeSelector`가 반드시 일치해야 한다(`workload=app|batch`, app은 taint 없음). 한쪽만 바꾸면 파드가 스케줄되지 않는다.
