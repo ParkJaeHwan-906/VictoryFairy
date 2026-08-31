@@ -1,5 +1,5 @@
 import type { Game } from '../api';
-import { getGameStateDisplay } from '../data/gameState';
+import { formatInning, getGameStateDisplay } from '../data/gameState';
 import { getTeamDisplay } from '../data/kboTeams';
 import { formatGameTime } from '../utils/date';
 import '../styles/MatchCard.css';
@@ -36,6 +36,8 @@ function TeamColumn({ name }: { name: string }) {
 export default function MatchCard({ game, onSelect }: MatchCardProps) {
   // 취소 경기면 칩 문구가 취소 사유로 바뀐다.
   const state = getGameStateDisplay(game);
+  // 진행 중 경기에만 붙는 이닝 문구. 값이 없으면(지금은 대부분) null 이라 VS 만 남는다.
+  const inning = formatInning(game);
 
   return (
     <li className="match-card">
@@ -54,7 +56,14 @@ export default function MatchCard({ game, onSelect }: MatchCardProps) {
 
         <span className="match-card__teams">
           <TeamColumn name={game.awayTeam} />
-          <span className="match-card__vs">VS</span>
+          {/*
+            이닝은 VS 위에 겹쳐 띄운다(CSS 에서 absolute) — 진행 중 경기에만 생기는 줄이라
+            흐름에 넣으면 같은 목록에서 진행 중 카드만 키가 달라져 줄이 어긋난다.
+          */}
+          <span className="match-card__center">
+            {inning && <span className="match-card__inning">{inning}</span>}
+            <span className="match-card__vs">VS</span>
+          </span>
           <TeamColumn name={game.homeTeam} />
         </span>
       </button>
