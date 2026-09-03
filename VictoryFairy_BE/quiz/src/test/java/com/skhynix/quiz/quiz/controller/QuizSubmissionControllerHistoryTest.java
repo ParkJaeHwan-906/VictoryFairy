@@ -203,6 +203,8 @@ class QuizSubmissionControllerHistoryTest {
                 .andExpect(jsonPath("$.data.summary.correctCount").value(0))
                 .andExpect(jsonPath("$.data.summary.accuracy").value(0.0))
                 .andExpect(jsonPath("$.data.summary.earnedPoint").value(0))
+                // [QUIZ-PBQ-46] 기록 없는 경기는 earnedBq도 0이다
+                .andExpect(jsonPath("$.data.summary.earnedBq").value(0))
                 .andExpect(jsonPath("$.data.innings").isArray())
                 .andExpect(jsonPath("$.data.innings.length()").value(0));
     }
@@ -216,7 +218,7 @@ class QuizSubmissionControllerHistoryTest {
         QuizSubmissionItemResponse item = new QuizSubmissionItemResponse(
                 30L, "문제 지문", "O/X", "EASY",
                 List.of(new OptionResponse(0, "O"), new OptionResponse(1, "X")),
-                0, true, false, 0, 50L,
+                0, true, false, 0, 50L, 2L,
                 LocalDateTime.of(2026, 8, 13, 19, 3, 11), false, 2L);
         InningResponse inning1 = InningResponse.of(1, List.of(item));
         InningResponse inning2 = InningResponse.of(2, List.of());
@@ -231,6 +233,8 @@ class QuizSubmissionControllerHistoryTest {
                 .andExpect(jsonPath("$.data.summary.correctCount").value(1))
                 .andExpect(jsonPath("$.data.summary.total").value(1))
                 .andExpect(jsonPath("$.data.summary.earnedPoint").value(50))
+                // [QUIZ-PBQ-46] 경기 전체 summary에 earnedBq가 실린다(문제 항목의 earnedBq 합)
+                .andExpect(jsonPath("$.data.summary.earnedBq").value(2))
                 .andExpect(jsonPath("$.data.innings.length()").value(2))
                 .andExpect(jsonPath("$.data.innings[0].inning").value(1))
                 .andExpect(jsonPath("$.data.innings[0].summary.correctCount").value(1))
@@ -254,8 +258,13 @@ class QuizSubmissionControllerHistoryTest {
                 .andExpect(jsonPath("$.data.innings[0].quizzes[0].expired").value(false))
                 .andExpect(jsonPath("$.data.innings[0].quizzes[0].answer").value(0))
                 .andExpect(jsonPath("$.data.innings[0].quizzes[0].earnedPoint").value(50))
+                // [QUIZ-PBQ-33] 문제 항목에 earnedBq가 실린다
+                .andExpect(jsonPath("$.data.innings[0].quizzes[0].earnedBq").value(2))
                 .andExpect(jsonPath("$.data.innings[0].quizzes[0].liked").value(false))
                 .andExpect(jsonPath("$.data.innings[0].quizzes[0].likeCount").value(2))
+                // [QUIZ-PBQ-34] 이닝별 summary에는 earnedBq도 earnedPoint도 없다(경기 전체 summary에만 있다)
+                .andExpect(jsonPath("$.data.innings[0].summary.earnedBq").doesNotExist())
+                .andExpect(jsonPath("$.data.innings[0].summary.earnedPoint").doesNotExist())
                 // 2회는 기록이 없어도 빈 원소로 남는다(QUIZ-SUB-33) — quizzes:[] + 0/0
                 .andExpect(jsonPath("$.data.innings[1].inning").value(2))
                 .andExpect(jsonPath("$.data.innings[1].summary.total").value(0))
@@ -275,7 +284,7 @@ class QuizSubmissionControllerHistoryTest {
         QuizSubmissionItemResponse unanswered = new QuizSubmissionItemResponse(
                 31L, "아직 안 푼 문제", "O/X", "EASY",
                 List.of(new OptionResponse(0, "O"), new OptionResponse(1, "X")),
-                null, false, true, 0, 0L,
+                null, false, true, 0, 0L, 0L,
                 LocalDateTime.of(2026, 8, 13, 19, 0), false, 0L);
         QuizSubmissionHistoryResponse response =
                 QuizSubmissionHistoryResponse.of(List.of(InningResponse.of(1, List.of(unanswered))));
@@ -288,6 +297,7 @@ class QuizSubmissionControllerHistoryTest {
                         .value(org.hamcrest.Matchers.nullValue()))
                 .andExpect(jsonPath("$.data.innings[0].quizzes[0].correct").value(false))
                 .andExpect(jsonPath("$.data.innings[0].quizzes[0].expired").value(true))
-                .andExpect(jsonPath("$.data.innings[0].quizzes[0].earnedPoint").value(0));
+                .andExpect(jsonPath("$.data.innings[0].quizzes[0].earnedPoint").value(0))
+                .andExpect(jsonPath("$.data.innings[0].quizzes[0].earnedBq").value(0));
     }
 }

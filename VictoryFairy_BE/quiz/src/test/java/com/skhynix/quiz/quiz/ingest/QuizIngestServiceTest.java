@@ -90,7 +90,7 @@ class QuizIngestServiceTest {
     private static QuizCandidate candidate(String kind, String format,
             List<QuizCandidate.Option> options, String answer, QuizCandidate.Subject subject) {
         return new QuizCandidate(EXTERNAL_ID, null, kind, "MEME_ORIGIN", format, "문제 지문?",
-                options, answer, "MEDIUM", 30, List.of("HH"), subject);
+                options, answer, "MEDIUM", 30, 2, List.of("HH"), subject);
     }
 
     private static QuizType multipleType() {
@@ -143,7 +143,7 @@ class QuizIngestServiceTest {
         assertThat(saved.getExternalId()).isEqualTo(EXTERNAL_ID);
         // 시효성 없는(게임 미귀속) 문제는 파티션 날짜가 아니라 풀로 간다 — 편성 잡이 출제일을 찍는다
         assertThat(saved.getQuizDate()).isNull();
-        assertThat(saved.getScore()).isEqualTo(30.0);
+        assertThat(saved.getPoint()).isEqualTo(30.0);
         assertThat(saved.getDifficulty()).isEqualTo("MEDIUM");
         assertThat(saved.getTemplateId()).isEqualTo("MEME_ORIGIN");
         assertThat(saved.getAnswer()).isEqualTo(0);
@@ -157,6 +157,76 @@ class QuizIngestServiceTest {
         assertThat(options).extracting(QuizOption::getContents)
                 .containsExactly("보기1", "보기2", "보기3", "보기4");
         assertThat(options).allSatisfy(option -> assertThat(option.getQuiz()).isSameAs(saved));
+    }
+
+    // ---------- 배점 분리(QUIZ-PBQ-9~13) ----------
+
+    @Test
+    @DisplayName("[QUIZ-PBQ-9] 후보 JSON에 bqReward가 있으면 그 값을 그대로 저장한다 — difficulty 매핑값"
+            + "(EASY=1)과 달라도 후보 값이 우선이다")
+    void ingest_bqRewardPresent_savesAsIsOverridingDifficultyMapping() {
+        givenNotDuplicated();
+        givenMultipleTypeSeed(multipleType());
+        givenSaveReturnsArgument();
+        QuizCandidate candidate = new QuizCandidate(EXTERNAL_ID, null, "KNOWLEDGE", "MEME_ORIGIN",
+                "MULTI4", "문제 지문?", fourOptions(), "A", "EASY", 30, 3, List.of("HH"), null);
+
+        ingestService.ingest(candidate, QUIZ_DATE);
+
+        verify(quizRepository).save(quizCaptor.capture());
+        // EASY의 매핑값은 1이지만 후보가 3을 보냈으므로 3이 저장된다(정합 판단은 상류 게이트 몫)
+        assertThat(quizCaptor.getValue().getBq()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-PBQ-10] 후보 JSON에 bqReward가 없으면 difficulty를 매핑표에 적용해 채운다"
+            + "(v3 이전 파티션 재처리 경로)")
+    void ingest_bqRewardAbsent_fallsBackToDifficultyMapping() {
+        givenNotDuplicated();
+        givenMultipleTypeSeed(multipleType());
+        givenSaveReturnsArgument();
+        QuizCandidate candidate = new QuizCandidate(EXTERNAL_ID, null, "KNOWLEDGE", "MEME_ORIGIN",
+                "MULTI4", "문제 지문?", fourOptions(), "A", "HARD", 30, null, List.of("HH"), null);
+
+        ingestService.ingest(candidate, QUIZ_DATE);
+
+        verify(quizRepository).save(quizCaptor.capture());
+        assertThat(quizCaptor.getValue().getBq()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-PBQ-11] bqReward도 difficulty 매핑도 없으면 bq를 NULL로 저장하고 적재는 성공한다"
+            + "(LOADED, 다른 컬럼은 정상)")
+    void ingest_neitherBqRewardNorMappableDifficulty_savesNullBqAndStillLoads() {
+        givenNotDuplicated();
+        givenMultipleTypeSeed(multipleType());
+        givenSaveReturnsArgument();
+        QuizCandidate candidate = new QuizCandidate(EXTERNAL_ID, null, "KNOWLEDGE", "MEME_ORIGIN",
+                "MULTI4", "문제 지문?", fourOptions(), "A", null, 30, null, List.of("HH"), null);
+
+        QuizIngestService.Result result = ingestService.ingest(candidate, QUIZ_DATE);
+
+        assertThat(result).isEqualTo(QuizIngestService.Result.LOADED);
+        verify(quizRepository).save(quizCaptor.capture());
+        Quiz saved = quizCaptor.getValue();
+        assertThat(saved.getBq()).isNull();
+        assertThat(saved.getPoint()).isEqualTo(30.0);
+        assertThat(saved.getExternalId()).isEqualTo(EXTERNAL_ID);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-PBQ-13] 후보 JSON에 pointReward가 없으면 point를 NULL로 저장한다")
+    void ingest_pointRewardAbsent_savesNullPoint() {
+        givenNotDuplicated();
+        givenMultipleTypeSeed(multipleType());
+        givenSaveReturnsArgument();
+        QuizCandidate candidate = new QuizCandidate(EXTERNAL_ID, null, "KNOWLEDGE", "MEME_ORIGIN",
+                "MULTI4", "문제 지문?", fourOptions(), "A", "MEDIUM", null, 2, List.of("HH"), null);
+
+        ingestService.ingest(candidate, QUIZ_DATE);
+
+        verify(quizRepository).save(quizCaptor.capture());
+        assertThat(quizCaptor.getValue().getPoint()).isNull();
     }
 
     // ---------- 유형 해석 ----------
@@ -404,7 +474,7 @@ class QuizIngestServiceTest {
         givenSaveReturnsArgument();
         given(gameRepository.findByNaverGameId("20260807HHKT02026")).willReturn(Optional.empty());
         QuizCandidate candidate = new QuizCandidate(EXTERNAL_ID, "20260807HHKT02026", "KNOWLEDGE",
-                "MEME_ORIGIN", "MULTI4", "문제 지문?", fourOptions(), "A", "MEDIUM", 30,
+                "MEME_ORIGIN", "MULTI4", "문제 지문?", fourOptions(), "A", "MEDIUM", 30, 2,
                 List.of("HH"), null);
 
         ingestService.ingest(candidate, QUIZ_DATE);

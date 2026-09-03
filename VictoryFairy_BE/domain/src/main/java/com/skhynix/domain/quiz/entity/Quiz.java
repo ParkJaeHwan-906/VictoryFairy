@@ -63,9 +63,11 @@ import org.hibernate.annotations.UpdateTimestamp;
  * 차단), S3 원본(근거 {@code evidence} 포함)으로의 역추적 링크이기도 하다 — {@code games.naverGameId}와
  * 같은 계열(외부 생산자의 식별자를 우리 행에 보관해야 대조가 성립한다). 사람이 직접 쓰는 퀴즈는 null.
  *
- * <p>{@code score}는 문제 배점이다. 원래 "MVP 이후"로 비워뒀으나 파이프라인이 {@code pointReward}
- * (난이도 연동, scoring.yaml이 정본)를 이미 보내고 있어 적재 시 채운다. 사람이 쓴 퀴즈는 null일 수
- * 있으므로 소비하는 쪽은 여전히 null을 다뤄야 한다.
+ * <p><b>배점은 축이 둘이다</b> — {@code point}(재화: 정답 시 {@code users_account.point} 로 적립,
+ * 캐릭터 상점에서 소비)와 {@code bq}(레이팅: 정답 시 {@code users_bq.bq_score} 로 적립). 파이프라인이
+ * 보내는 {@code pointReward}/{@code bqReward}(난이도 연동, scoring.yaml이 정본)를 적재 시 그대로 옮겨
+ * 담는다. 사람이 쓴 퀴즈는 둘 다 null일 수 있으므로 소비하는 쪽은 여전히 null을 다뤄야 한다.
+ * 두 축을 하나로 합치지 말 것 — 소비처가 다르고, 한쪽만 있는 문제(한 축 NULL)가 정상 데이터다.
  *
  * <p>{@code answer}는 정답 보기의 번호로, {@link QuizOption#getOption()}과 같은 축이다
  * (O/X는 0=O, 1=X — 후보 JSON의 A=0, B=1 순번 그대로). 보기 엔티티를 가리키는 FK가 아니라 <b>번호
@@ -145,9 +147,16 @@ public class Quiz {
     @Column(name = "answer", columnDefinition = "TINYINT", nullable = false)
     private Integer answer;
 
-    // 배점 — AI 산출물의 pointReward(난이도 연동). 사람이 쓴 퀴즈는 null 가능(클래스 javadoc 참고)
-    @Column(name = "score", nullable = true)
-    private Double score;
+    // 재화 축 배점 — AI 산출물의 pointReward. 사람이 쓴 퀴즈는 null 가능(클래스 javadoc 참고)
+    // ⚠ 값이 늘 정수여도 Double 을 Integer 로 좁히지 말 것 — 응답 JSON 의 30.0 이 30 으로 바뀌어
+    //   프론트 계약이 함께 흔들린다(컬럼명을 score→point 로 바꾸면서도 타입은 그대로 둔 이유).
+    @Column(name = "point", nullable = true)
+    private Double point;
+
+    // 레이팅 축 배점 — AI 산출물의 bqReward. 없으면 적재기가 difficulty 매핑표로 채운다
+    // (DifficultyBqMapping, quiz 모듈). 사람이 쓴 퀴즈·난이도 미상 문제는 null 가능
+    @Column(name = "bq", nullable = true)
+    private Integer bq;
 
     /**
      * AI 파이프라인 산출물의 {@code quizId}(예: {@code QZ-20260807-001}). 적재 멱등키이자 S3 원본
@@ -190,8 +199,8 @@ public class Quiz {
 
     @Builder
     private Quiz(QuizType quizType, Team team, Team opponentTeam, Player player, Game game,
-            String content, Integer answer, Double score, String externalId, LocalDate quizDate,
-            String difficulty, String templateId) {
+            String content, Integer answer, Double point, Integer bq, String externalId,
+            LocalDate quizDate, String difficulty, String templateId) {
         this.quizType = quizType;
         this.team = team;
         this.opponentTeam = opponentTeam;
@@ -199,7 +208,8 @@ public class Quiz {
         this.game = game;
         this.content = content;
         this.answer = answer;
-        this.score = score;
+        this.point = point;
+        this.bq = bq;
         this.externalId = externalId;
         this.quizDate = quizDate;
         this.difficulty = difficulty;
