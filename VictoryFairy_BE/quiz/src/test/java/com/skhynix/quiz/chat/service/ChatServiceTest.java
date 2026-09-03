@@ -26,6 +26,7 @@ import com.skhynix.quiz.chat.dto.MessageEvent;
 import com.skhynix.quiz.chat.dto.MessageResponse;
 import com.skhynix.quiz.chat.dto.PageResponse;
 import com.skhynix.quiz.chat.dto.RoomResponse;
+import com.skhynix.quiz.chat.profanity.ProfanityFilter;
 import com.skhynix.quiz.realtime.RealtimeEvent;
 import com.skhynix.quiz.realtime.RealtimeEventPublisher;
 import com.skhynix.quiz.realtime.SseEmitterRegistry;
@@ -62,6 +63,16 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  * 돌려주지 않으면 403/400으로 먼저 끝난다. {@link #givenSupportTeam}/{@link #givenNoSupportTeam}으로
  * 그 스텁을 깔고, 일치시키지 않는 테스트는 그 자체가 가드 검증이다(QUIZ-CTAC-6/9~13/15 등).
  * {@code unsubscribe()}만 예외다 — 이 경로는 구단 조회 자체를 하지 않는다(QUIZ-CTAC-21/22).
+ *
+ * <p><b>전송 경로만 구단 조회 메서드가 다르다</b>: {@code sendMessage()}는 치환어 결정에 {@code teams.code}가
+ * 필요해 {@code findWithTeamByUserAccount_IdAndOpposeIsNull}(@EntityGraph 판)을 부른다. 나머지 경로는
+ * id만 쓰므로 {@code findByUserAccount_IdAndOpposeIsNull} 그대로다 — 그래서 픽스처도
+ * {@link #givenSendSupportTeam}/{@link #givenNoSendSupportTeam}으로 갈라 둔다. 여기서 잘못된 쪽을 스텁하면
+ * 컴파일은 되지만 런타임에 400 SUPPORT_TEAM_REQUIRED로 끝난다.
+ *
+ * <p><b>마스킹은 목이다</b>: 이 클래스는 "필터 결과가 저장·응답·SSE 세 곳에 같은 문자열로 흐르는가"만 본다.
+ * 필터의 판정 자체는 {@code ProfanityFilterTest}가, 실제 데이터를 물린 종단 결과는
+ * {@link ChatServiceProfanityMaskingTest}가 검증한다.
  */
 @ExtendWith(MockitoExtension.class)
 class ChatServiceTest {
@@ -89,15 +100,22 @@ class ChatServiceTest {
     @Mock
     private SseEmitterRegistry emitterRegistry;
 
+    @Mock
+    private ProfanityFilter profanityFilter;
+
     @InjectMocks
     private ChatService chatService;
 
     private Team team() {
-        return team(SUPPORT_TEAM_ID, "두산");
+        return team(SUPPORT_TEAM_ID, "두산", "OB");
     }
 
     private Team team(Long id, String name) {
-        Team team = Team.builder().name(name).build();
+        return team(id, name, null);
+    }
+
+    private Team team(Long id, String name, String code) {
+        Team team = Team.builder().name(name).code(code).build();
         ReflectionTestUtils.setField(team, "id", id);
         return team;
     }
@@ -144,6 +162,28 @@ class ChatServiceTest {
     private void givenNoSupportTeam(Long userAccountId) {
         given(userSupportTeamRepository.findByUserAccount_IdAndOpposeIsNull(userAccountId))
                 .willReturn(Optional.empty());
+    }
+
+    /** 전송 경로 전용(구단 엔티티까지 함께 가져오는 @EntityGraph 판) 응원 구단 스텁. */
+    private void givenSendSupportTeam(Long userAccountId, Team team) {
+        UserSupportTeam support = UserSupportTeam.builder()
+                .userAccount(userAccountWithId(userAccountId, "무관"))
+                .team(team)
+                .build();
+        given(userSupportTeamRepository.findWithTeamByUserAccount_IdAndOpposeIsNull(userAccountId))
+                .willReturn(Optional.of(support));
+    }
+
+    /** 전송 경로 전용 "응원 구단 없음" 스텁. */
+    private void givenNoSendSupportTeam(Long userAccountId) {
+        given(userSupportTeamRepository.findWithTeamByUserAccount_IdAndOpposeIsNull(userAccountId))
+                .willReturn(Optional.empty());
+    }
+
+    /** 마스킹이 원문을 그대로 돌려주는 상태(금지어 없는 문장). 전송 계약 자체를 보는 테스트용. */
+    private void givenMaskUnchanged() {
+        given(profanityFilter.mask(anyString(), anyString()))
+                .willAnswer(invocation -> invocation.getArgument(0));
     }
 
     // ---------- getRooms ----------
@@ -456,7 +496,8 @@ class ChatServiceTest {
     void sendMessage_validRoomAndSender_savesWithBlindFalse() {
         Chatroom room = activeRoom(ROOM_UID);
         UserAccount sender = userAccountWithId(1L, "두산팬1", "user-profile-img/1.jpg");
-        givenSupportTeam(1L, team());
+        givenSendSupportTeam(1L, team());
+        givenMaskUnchanged();
         given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
         given(userAccountRepository.findById(1L)).willReturn(Optional.of(sender));
         given(chatRepository.saveAndFlush(any(Chat.class))).willAnswer(invocation -> invocation.getArgument(0));
@@ -482,7 +523,8 @@ class ChatServiceTest {
     void sendMessage_senderWithoutProfileImg_responseProfileImgUrlIsNull() {
         Chatroom room = activeRoom(ROOM_UID);
         UserAccount sender = userAccountWithId(1L, "(알수없음)"); // profileImgUrl 미설정 = 기본 null
-        givenSupportTeam(1L, team());
+        givenSendSupportTeam(1L, team());
+        givenMaskUnchanged();
         given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
         given(userAccountRepository.findById(1L)).willReturn(Optional.of(sender));
         given(chatRepository.saveAndFlush(any(Chat.class))).willAnswer(invocation -> invocation.getArgument(0));
@@ -499,7 +541,8 @@ class ChatServiceTest {
     void sendMessage_publishesRealtimeEventExcludingSenderWithMessageEventPayload() {
         Chatroom room = activeRoom(ROOM_UID);
         UserAccount sender = userAccountWithId(1L, "두산팬1", "user-profile-img/1.jpg");
-        givenSupportTeam(1L, team());
+        givenSendSupportTeam(1L, team());
+        givenMaskUnchanged();
         given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
         given(userAccountRepository.findById(1L)).willReturn(Optional.of(sender));
         // saveAndFlush 목이 실제 JPA persist처럼 @CreationTimestamp(createdAt)를 채워주지 않으므로,
@@ -536,7 +579,8 @@ class ChatServiceTest {
     void sendMessage_defersPublishUntilAfterCommit() {
         Chatroom room = activeRoom(ROOM_UID);
         UserAccount sender = userAccountWithId(1L, "두산팬1");
-        givenSupportTeam(1L, team());
+        givenSendSupportTeam(1L, team());
+        givenMaskUnchanged();
         given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
         given(userAccountRepository.findById(1L)).willReturn(Optional.of(sender));
         given(chatRepository.saveAndFlush(any(Chat.class))).willAnswer(invocation -> invocation.getArgument(0));
@@ -558,14 +602,16 @@ class ChatServiceTest {
     }
 
     @Test
-    @DisplayName("[AC-CHAT-14-1] sendMessage()는 존재하지 않는 방이면 404를 던지고 저장·발행 모두 하지 않는다")
+    @DisplayName("[AC-CHAT-14-1][QUIZ-CPF-7] sendMessage()는 존재하지 않는 방이면 404를 던지고 "
+            + "마스킹·저장·발행 어느 것도 하지 않는다(마스킹은 검증 4단계를 통과한 뒤 저장 직전에 온다)")
     void sendMessage_roomNotFound_throwsWithoutSavingOrPublishing() {
         given(chatroomRepository.findByUidAndDeletedAtIsNull("nope")).willReturn(Optional.empty());
 
-        assertThatThrownBy(() -> chatService.sendMessage("nope", 1L, "안녕"))
+        assertThatThrownBy(() -> chatService.sendMessage("nope", 1L, "시발"))
                 .isInstanceOf(BusinessException.class)
                 .extracting(ex -> ((BusinessException) ex).getErrorCode())
                 .isEqualTo(ErrorCode.CHATROOM_NOT_FOUND);
+        verify(profanityFilter, never()).mask(anyString(), any());
         verify(chatRepository, never()).saveAndFlush(any());
         verify(eventPublisher, never()).publish(anyString(), any());
     }
@@ -575,7 +621,8 @@ class ChatServiceTest {
     void sendMessage_publishFails_stillReturnsResponseWithoutPropagatingException() {
         Chatroom room = activeRoom(ROOM_UID);
         UserAccount sender = userAccountWithId(1L, "두산팬1");
-        givenSupportTeam(1L, team());
+        givenSendSupportTeam(1L, team());
+        givenMaskUnchanged();
         given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
         given(userAccountRepository.findById(1L)).willReturn(Optional.of(sender));
         given(chatRepository.saveAndFlush(any(Chat.class))).willAnswer(invocation -> invocation.getArgument(0));
@@ -597,7 +644,7 @@ class ChatServiceTest {
     @DisplayName("경계(요구사항 미기재, 방어 코드): 발신자 계정을 찾을 수 없으면 UNAUTHENTICATED를 던지고 저장하지 않는다")
     void sendMessage_senderNotFound_throwsUnauthenticated() {
         Chatroom room = activeRoom(ROOM_UID);
-        givenSupportTeam(1L, team());
+        givenSendSupportTeam(1L, team());
         given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
         given(userAccountRepository.findById(1L)).willReturn(Optional.empty());
 
@@ -609,32 +656,133 @@ class ChatServiceTest {
     }
 
     @Test
-    @DisplayName("[QUIZ-CTAC-11] sendMessage()는 방의 구단이 응원 구단과 다르면 403을 던지고 저장·발행하지 않는다")
+    @DisplayName("[QUIZ-CTAC-11][QUIZ-CPF-7] sendMessage()는 방의 구단이 응원 구단과 다르면 403을 던지고 "
+            + "마스킹·저장·발행하지 않는다")
     void sendMessage_teamMismatch_throwsAndNeverSavesOrPublishes() {
-        Chatroom room = activeRoom(ROOM_UID, team(OTHER_TEAM_ID, "LG"));
-        givenSupportTeam(1L, team());
+        Chatroom room = activeRoom(ROOM_UID, team(OTHER_TEAM_ID, "LG", "LG"));
+        givenSendSupportTeam(1L, team());
         given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
 
-        assertThatThrownBy(() -> chatService.sendMessage(ROOM_UID, 1L, "안녕"))
+        assertThatThrownBy(() -> chatService.sendMessage(ROOM_UID, 1L, "시발"))
                 .isInstanceOf(BusinessException.class)
                 .extracting(ex -> ((BusinessException) ex).getErrorCode())
                 .isEqualTo(ErrorCode.CHATROOM_TEAM_MISMATCH);
+        verify(profanityFilter, never()).mask(anyString(), any());
         verify(chatRepository, never()).saveAndFlush(any());
         verify(eventPublisher, never()).publish(anyString(), any());
     }
 
     @Test
-    @DisplayName("[QUIZ-CTAC-15] sendMessage()는 응원 구단이 없으면 400을 던지고 저장하지 않는다")
+    @DisplayName("[QUIZ-CTAC-15][QUIZ-CPF-7] sendMessage()는 응원 구단이 없으면 400을 던지고 마스킹·저장하지 않는다")
     void sendMessage_noSupportTeam_throwsAndNeverSaves() {
         Chatroom room = activeRoom(ROOM_UID);
         given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
-        givenNoSupportTeam(1L);
+        givenNoSendSupportTeam(1L);
 
-        assertThatThrownBy(() -> chatService.sendMessage(ROOM_UID, 1L, "안녕"))
+        assertThatThrownBy(() -> chatService.sendMessage(ROOM_UID, 1L, "시발"))
                 .isInstanceOf(BusinessException.class)
                 .extracting(ex -> ((BusinessException) ex).getErrorCode())
                 .isEqualTo(ErrorCode.SUPPORT_TEAM_REQUIRED);
+        verify(profanityFilter, never()).mask(anyString(), any());
         verify(chatRepository, never()).saveAndFlush(any());
+    }
+
+    // ---------- sendMessage: 욕설 마스킹 (QUIZ-CPF-1~7, 36) ----------
+
+    @Test
+    @DisplayName("[QUIZ-CPF-1/2/3] sendMessage()는 저장·201 응답·SSE payload 세 곳 모두에 "
+            + "마스킹된 같은 문자열을 싣는다(원문은 어디에도 남지 않는다)")
+    void sendMessage_masksContentAndUsesSameStringEverywhere() {
+        Chatroom room = activeRoom(ROOM_UID);
+        UserAccount sender = userAccountWithId(1L, "두산팬1", "user-profile-img/1.jpg");
+        givenSendSupportTeam(1L, team());
+        given(profanityFilter.mask("시발 오늘 왜 저럼", "OB")).willReturn("망곰 오늘 왜 저럼");
+        given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
+        given(userAccountRepository.findById(1L)).willReturn(Optional.of(sender));
+        given(chatRepository.saveAndFlush(any(Chat.class))).willAnswer(invocation -> invocation.getArgument(0));
+
+        MessageResponse response = chatService.sendMessage(ROOM_UID, 1L, "시발 오늘 왜 저럼");
+
+        ArgumentCaptor<Chat> chatCaptor = ArgumentCaptor.forClass(Chat.class);
+        verify(chatRepository).saveAndFlush(chatCaptor.capture());
+        ArgumentCaptor<RealtimeEvent> eventCaptor = ArgumentCaptor.forClass(RealtimeEvent.class);
+        verify(eventPublisher).publish(eq(ROOM_UID), eventCaptor.capture());
+        MessageEvent payload = (MessageEvent) eventCaptor.getValue().data();
+
+        assertThat(chatCaptor.getValue().getContent()).isEqualTo("망곰 오늘 왜 저럼");
+        assertThat(response.content()).isEqualTo("망곰 오늘 왜 저럼");
+        assertThat(payload.content()).isEqualTo("망곰 오늘 왜 저럼");
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CPF-4] sendMessage()는 마스킹 이전의 원문을 저장하지 않는다 — "
+            + "엔티티에 실리는 값은 필터 결과 하나뿐이다")
+    void sendMessage_neverStoresOriginalContent() {
+        Chatroom room = activeRoom(ROOM_UID);
+        UserAccount sender = userAccountWithId(1L, "두산팬1");
+        givenSendSupportTeam(1L, team());
+        given(profanityFilter.mask("시발", "OB")).willReturn("망곰");
+        given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
+        given(userAccountRepository.findById(1L)).willReturn(Optional.of(sender));
+        given(chatRepository.saveAndFlush(any(Chat.class))).willAnswer(invocation -> invocation.getArgument(0));
+
+        MessageResponse response = chatService.sendMessage(ROOM_UID, 1L, "시발");
+
+        ArgumentCaptor<Chat> chatCaptor = ArgumentCaptor.forClass(Chat.class);
+        verify(chatRepository).saveAndFlush(chatCaptor.capture());
+        assertThat(chatCaptor.getValue().getContent()).doesNotContain("시발");
+        assertThat(response.content()).doesNotContain("시발");
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CPF-6] content 전체가 금지어여도 거절하지 않는다 — 예외 없이 1행 저장하고 응답을 돌려준다")
+    void sendMessage_contentEntirelyProfane_isStillAccepted() {
+        Chatroom room = activeRoom(ROOM_UID);
+        UserAccount sender = userAccountWithId(1L, "두산팬1");
+        givenSendSupportTeam(1L, team());
+        given(profanityFilter.mask("시발", "OB")).willReturn("망곰");
+        given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
+        given(userAccountRepository.findById(1L)).willReturn(Optional.of(sender));
+        given(chatRepository.saveAndFlush(any(Chat.class))).willAnswer(invocation -> invocation.getArgument(0));
+
+        MessageResponse response = chatService.sendMessage(ROOM_UID, 1L, "시발");
+
+        assertThat(response.content()).isEqualTo("망곰");
+        verify(chatRepository, times(1)).saveAndFlush(any(Chat.class));
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CPF-26] 치환어 결정에 넘기는 구단은 방의 구단이 아니라 발신자의 현재 응원 구단 code 다"
+            + "(전송 경로에서는 둘이 늘 같지만, 넘기는 값의 출처는 응원 구단 쪽이다)")
+    void sendMessage_passesSenderSupportTeamCodeToFilter() {
+        Chatroom room = activeRoom(ROOM_UID);
+        UserAccount sender = userAccountWithId(1L, "두산팬1");
+        givenSendSupportTeam(1L, team());
+        given(profanityFilter.mask(anyString(), anyString())).willReturn("망곰");
+        given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
+        given(userAccountRepository.findById(1L)).willReturn(Optional.of(sender));
+        given(chatRepository.saveAndFlush(any(Chat.class))).willAnswer(invocation -> invocation.getArgument(0));
+
+        chatService.sendMessage(ROOM_UID, 1L, "시발");
+
+        verify(profanityFilter).mask("시발", "OB");
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CPF-36] 마스킹이 예외로 실패하면 저장·발행 없이 전송을 실패시킨다 — "
+            + "원문을 그대로 저장하는 fallback 은 없다(필터가 꺼진 줄 모른 채 욕설이 저장되는 것을 막는다)")
+    void sendMessage_maskingThrows_failsWithoutSaving() {
+        Chatroom room = activeRoom(ROOM_UID);
+        UserAccount sender = userAccountWithId(1L, "두산팬1");
+        givenSendSupportTeam(1L, team());
+        given(profanityFilter.mask("시발", "OB")).willThrow(new IllegalStateException("필터 데이터 손상"));
+        given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
+        given(userAccountRepository.findById(1L)).willReturn(Optional.of(sender));
+
+        assertThatThrownBy(() -> chatService.sendMessage(ROOM_UID, 1L, "시발"))
+                .isInstanceOf(IllegalStateException.class);
+        verify(chatRepository, never()).saveAndFlush(any());
+        verify(eventPublisher, never()).publish(anyString(), any());
     }
 
     // ---------- getHistory ----------
@@ -683,6 +831,26 @@ class ChatServiceTest {
 
         assertThat(result.content().get(0).profileImgUrl()).isEqualTo("user-profile-img/2.jpg");
         assertThat(result.content().get(1).profileImgUrl()).isNull();
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CPF-33] getHistory()는 저장값을 그대로 반환하고 마스킹을 다시 적용하지 않는다"
+            + "(필터 도입 이전 메시지도 소급 치환되지 않는다)")
+    void getHistory_neverReappliesMasking() {
+        Chatroom room = activeRoom(ROOM_UID);
+        givenSupportTeam(1L, team());
+        given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
+        UserAccount author = userAccountWithId(2L, "닉네임");
+        // 필터 도입 이전에 저장돼 원문 욕설이 그대로 남아 있는 과거 메시지
+        Chat legacy = chatOf(room, author, "시발 예전 메시지");
+        given(chatRepository.findByChatroomAndBlindFalseAndDeletedAtIsNullOrderByCreatedAtDesc(
+                eq(room), any(Pageable.class)))
+                .willReturn(new PageImpl<>(List.of(legacy), PageRequest.of(0, 30), 1));
+
+        PageResponse<MessageResponse> result = chatService.getHistory(ROOM_UID, 0, 1L);
+
+        assertThat(result.content().get(0).content()).isEqualTo("시발 예전 메시지");
+        verify(profanityFilter, never()).mask(anyString(), any());
     }
 
     @Test

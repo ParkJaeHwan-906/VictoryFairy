@@ -100,6 +100,45 @@ class ChatControllerSendMessageTest {
     }
 
     @Test
+    @DisplayName("[QUIZ-CPF-3/6] 금지어만 담긴 content 도 거절되지 않는다 — 201 이고 본문 data.content 는 "
+            + "서비스가 돌려준 마스킹 결과 그대로다(발신자는 SSE 에코를 안 받으므로 이 응답이 치환을 아는 유일한 지점)")
+    void sendMessage_profanityOnlyContent_returns201WithMaskedContent() throws Exception {
+        given(chatService.sendMessage(eq(ROOM_UID), eq(USER_ID), eq("시발")))
+                .willReturn(new MessageResponse(1L, "망곰", "두산팬1", null, LocalDateTime.now()));
+
+        mockMvc.perform(post("/chat/rooms/{roomUid}/messages", ROOM_UID)
+                        .with(authenticatedAs(USER_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestJson("시발")))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.content").value("망곰"));
+
+        // 컨트롤러는 원문을 그대로 서비스에 넘긴다 — 마스킹은 서비스가 검증 4단계 뒤에 한다(QUIZ-CPF-7).
+        verify(chatService).sendMessage(ROOM_UID, USER_ID, "시발");
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CPF-5] 마스킹 발생 여부를 알리는 필드가 응답에 추가되지 않는다 — "
+            + "data 의 키 집합이 종전 5개(id·content·senderNickname·profileImgUrl·createdAt) 그대로다")
+    void sendMessage_responseKeySetUnchangedByMasking() throws Exception {
+        given(chatService.sendMessage(eq(ROOM_UID), eq(USER_ID), eq("시발")))
+                .willReturn(new MessageResponse(1L, "망곰", "두산팬1", null, LocalDateTime.now()));
+
+        mockMvc.perform(post("/chat/rooms/{roomUid}/messages", ROOM_UID)
+                        .with(authenticatedAs(USER_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestJson("시발")))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.id").exists())
+                .andExpect(jsonPath("$.data.content").exists())
+                .andExpect(jsonPath("$.data.senderNickname").exists())
+                .andExpect(jsonPath("$.data.createdAt").exists())
+                .andExpect(jsonPath("$.data.masked").doesNotExist())
+                .andExpect(jsonPath("$.data.filtered").doesNotExist())
+                .andExpect(jsonPath("$.data.originalContent").doesNotExist());
+    }
+
+    @Test
     @DisplayName("[AC-CHAT-4-1] 인증 헤더 없이 메시지를 전송하면 401을 반환하고 서비스는 호출되지 않는다")
     void sendMessage_withoutAuthentication_returns401AndNeverCallsService() throws Exception {
         mockMvc.perform(post("/chat/rooms/{roomUid}/messages", ROOM_UID)

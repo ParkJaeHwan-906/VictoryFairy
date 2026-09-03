@@ -6,13 +6,16 @@ import com.skhynix.domain.chat.entity.Chat;
 import com.skhynix.domain.chat.entity.Chatroom;
 import com.skhynix.domain.chat.repository.ChatRepository;
 import com.skhynix.domain.chat.repository.ChatroomRepository;
+import com.skhynix.domain.support.entity.UserSupportTeam;
 import com.skhynix.domain.support.repository.UserSupportTeamRepository;
+import com.skhynix.domain.team.entity.Team;
 import com.skhynix.domain.user.entity.UserAccount;
 import com.skhynix.domain.user.repository.UserAccountRepository;
 import com.skhynix.quiz.chat.dto.MessageEvent;
 import com.skhynix.quiz.chat.dto.MessageResponse;
 import com.skhynix.quiz.chat.dto.PageResponse;
 import com.skhynix.quiz.chat.dto.RoomResponse;
+import com.skhynix.quiz.chat.profanity.ProfanityFilter;
 import com.skhynix.quiz.realtime.RealtimeEvent;
 import com.skhynix.quiz.realtime.RealtimeEventPublisher;
 import com.skhynix.quiz.realtime.SseEmitterRegistry;
@@ -41,6 +44,7 @@ public class ChatService {
     private final UserSupportTeamRepository userSupportTeamRepository;
     private final RealtimeEventPublisher eventPublisher;
     private final SseEmitterRegistry emitterRegistry;
+    private final ProfanityFilter profanityFilter;
 
     public List<RoomResponse> getRooms(Long teamId, Long userAccountId) {
         Long supportTeamId = currentSupportTeamId(userAccountId);
@@ -74,14 +78,20 @@ public class ChatService {
 
     @Transactional
     public MessageResponse sendMessage(String roomUid, Long senderId, String content) {
-        Chatroom room = findAccessibleRoom(roomUid, senderId);
+        AccessibleRoom access = findAccessibleRoomWithSupportTeam(roomUid, senderId);
         UserAccount sender = userAccountRepository.findById(senderId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHENTICATED));
 
+        // 마스킹은 엔티티 생성 이전에 끝낸다 — 엔티티가 필터를 부르면 domain 모듈이 필터 데이터에
+        // 의존하게 되고, 필터를 쓰지 않는 경로(탈퇴자 메시지 이관 등)까지 영향권에 들어온다.
+        // 실패는 삼키지 않는다: 원문을 그대로 저장하는 fallback 은 필터가 꺼진 줄 모른 채 욕설이
+        // 저장되는 결과를 만든다.
+        String masked = profanityFilter.mask(content, access.supportTeam().getCode());
+
         Chat chat = chatRepository.saveAndFlush(Chat.builder()
-                .chatroom(room)
+                .chatroom(access.room())
                 .userAccount(sender)
-                .content(content)
+                .content(masked)
                 .build());
 
         publishMessage(roomUid, chat, senderId);
@@ -126,6 +136,28 @@ public class ChatService {
             throw new BusinessException(ErrorCode.CHATROOM_TEAM_MISMATCH);
         }
         return room;
+    }
+
+    /**
+     * 전송 경로 전용 접근 검사. {@link #findAccessibleRoom} 과 판정·순서(404→400→403)는 같고, 응원 구단을
+     * id 가 아니라 엔티티로 돌려준다 — 치환어 결정에 {@code teams.code} 가 필요하기 때문이다.
+     *
+     * <p>구단 조회를 {@code @EntityGraph} 판으로 바꿔 join 한 번에 끝낸다. LAZY 프록시에서 {@code code} 를
+     * 읽으면 고빈도 전송 경로에 SELECT 가 한 번 더 붙는다.
+     */
+    private AccessibleRoom findAccessibleRoomWithSupportTeam(String roomUid, Long userAccountId) {
+        Chatroom room = findActiveRoom(roomUid);
+        Team supportTeam = userSupportTeamRepository
+                .findWithTeamByUserAccount_IdAndOpposeIsNull(userAccountId)
+                .map(UserSupportTeam::getTeam)
+                .orElseThrow(() -> new BusinessException(ErrorCode.SUPPORT_TEAM_REQUIRED));
+        if (!room.getTeam().getId().equals(supportTeam.getId())) {
+            throw new BusinessException(ErrorCode.CHATROOM_TEAM_MISMATCH);
+        }
+        return new AccessibleRoom(room, supportTeam);
+    }
+
+    private record AccessibleRoom(Chatroom room, Team supportTeam) {
     }
 
     private Long currentSupportTeamId(Long userAccountId) {
