@@ -123,4 +123,24 @@ public interface QuizUserSubmitRepository
             + "order by s.id asc")
     List<QuizUserSubmit> findGameSubmissions(@Param("userAccountId") Long userAccountId,
             @Param("gameId") Long gameId);
+
+    /**
+     * 그 계정의 <b>전 기간</b> 제출 행 수와 정답 행 수 — 마이페이지 누적 정답률의 재료다.
+     *
+     * <p><b>한 문장인 것이 계약이다.</b> {@code countBy...} 두 번(전체 / 정답)으로 나누면 같은 값을
+     * 얻으면서 SELECT 가 2회 늘어 "정답률 때문에 늘어나는 조회는 1회"라는 제약이 깨진다.
+     *
+     * <p>분모에 <b>조건이 없다</b> — 출제 시점에 생기는 미답 행({@code submit_option_id IS NULL})까지
+     * 전부 센다. {@code submitOption is not null} 을 붙이는 순간 "내지 않으면 틀린 것"이라는 제품 결정
+     * (엔티티 javadoc)이 뒤집혀 정답률이 조용히 부풀려진다.
+     *
+     * <p>진입 축이 {@code user_account_id} 하나라 {@code uk_quiz_users_submit_account_quiz} 의 선행
+     * 컬럼을 그대로 탄다 — 이 집계를 위해 인덱스를 새로 만들 이유가 없다.
+     *
+     * <p>⚠ 나눗셈·반올림은 여기서 하지 않는다({@link QuizSubmitAccuracyView} javadoc 참고).
+     */
+    @Query("select count(s.id) as totalCount, "
+            + "sum(case when s.isAnswer = true then 1L else 0L end) as correctCount "
+            + "from QuizUserSubmit s where s.userAccount.id = :userAccountId")
+    QuizSubmitAccuracyView aggregateAccuracy(@Param("userAccountId") Long userAccountId);
 }
