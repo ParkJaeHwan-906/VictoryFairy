@@ -44,7 +44,8 @@ import org.hibernate.annotations.UpdateTimestamp;
  * 않아 사용자 설명("정답 유/무")대로 {@code is_answer}로 명명했다.
  *
  * <p><b>{@code (user_account_id, quiz_id)} UNIQUE — 같은 문제에는 1회만 제출할 수 있다.</b>
- * "이미 푼 문제는 다시 풀 수 없다"가 확정 규칙이고 제출 기록이 점수 적립({@code users_bq.score})의
+ * "이미 푼 문제는 다시 풀 수 없다"가 확정 규칙이고 제출 기록이 점수 적립({@code users_account.point}
+ * ·{@code users_bq.bq_score} 두 축)의
  * 근거인 이상, 중복 제출(=점수 이중 적립) 차단은 앱 로직이 아니라 DB 가 보증해야 한다 — 동시 요청
  * 2건이 둘 다 existsBy 검사를 통과하는 race 를 막는 것은 이 제약뿐이다. {@code updated_at}은 정정
  * 등으로 같은 행을 갱신할 가능성을 위해 남겨둔다(새 행 재제출은 이 제약이 막는다).

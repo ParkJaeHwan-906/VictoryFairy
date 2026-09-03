@@ -11,6 +11,7 @@ public record QuizResponse(
         String question,
         String difficulty,
         Double point,
+        Integer bq,
         boolean preferred,
         List<TodayOptionResponse> options) {
 
@@ -42,7 +43,9 @@ public record QuizResponse(
                 quiz.getQuizType().getName(),
                 quiz.getContent(),
                 quiz.getDifficulty(),
-                quiz.getScore(),
+                quiz.getPoint(),
+                // point 와 같은 규칙으로 null 도 키를 남긴다 — 이 응답에는 @JsonInclude 가 없다
+                quiz.getBq(),
                 preferred,
                 options.stream().map(option -> TodayOptionResponse.from(option, votes)).toList());
     }
