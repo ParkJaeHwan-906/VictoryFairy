@@ -12,9 +12,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from validation.core.patterns import (
     CATEGORY_PATTERNS,
     EXCEPTION_PATTERN,
+    EXCEPTION_PATTERN_SPACED,
     KEYBOARD_PATTERNS,
+    STRICT_ADJACENT_PATTERNS,
 )
 from validation.core.preprocess import (
+    build_adjacency_view,
     build_match_views,
     fold_compat,
     keyboard_to_hangul,
@@ -24,6 +27,11 @@ from validation.core.preprocess import (
 
 def _detect(line: str):
     """ValidationService.validation() 과 동일한 절차: 여러 뷰를 순서대로 검사."""
+    adjacency = EXCEPTION_PATTERN_SPACED.sub("", build_adjacency_view(line))
+    for category, pattern in STRICT_ADJACENT_PATTERNS.items():
+        match = pattern.search(adjacency)
+        if match:
+            return category, match.group()
     for name, view in build_match_views(line):
         cleaned = EXCEPTION_PATTERN.sub("", view)
         patterns = KEYBOARD_PATTERNS if name == "키보드" else CATEGORY_PATTERNS
@@ -97,6 +105,8 @@ BLOCK_VARIANTS = [
     "이새기", "이새낀", "투같새",       # 새끼 연음·축약
     "씹련들아", "십련",               # 년 → 련
     "씹창", "버러지", "아가리",
+    # '새끼손'·'새끼발' 예외가 '새끼' 자체까지 풀어 주면 안 된다.
+    "이 새끼 저 새끼",
 ]
 # 공백을 제거하면 욕설과 문자열이 겹치는 정상 표현 — 예외 사전이 막아야 한다.
 ALLOW_COLLISIONS = [
@@ -116,6 +126,10 @@ ALLOW_COLLISIONS = [
     # 욕설 용법이 같은 형태라 예외로 분리되지 않는다 — 실측 검거 46 / 오탐 44.
     "이닝 좀 처먹어라",
     "삼진 3개를 처먹으며 1위팀 전승을 끊었다",
+    # 공백이 아니라 부분 문자열 겹침 — 신체 부위가 '새끼' 를 그대로 품는다.
+    # 부상 얘기는 야구 채팅에서 흔해서 오탐이 곧바로 눈에 띈다.
+    "새끼손가락 다쳤대",
+    "새끼발가락 밟혔다",
 ]
 
 
@@ -143,6 +157,33 @@ def test_degrading_words_have_own_categories():
         ("앰창", "aemchang"),
     ]:
         assert _detect(word) == (category, word), f"{word!r} -> {_detect(word)}"
+
+
+# --- 공백 엄격 단어 (strict_adjacent.json) ---------------------------------
+# 정규화가 공백을 지우기 때문에, 짧은 변형어를 일반 뷰에서 잡으면 야구 채팅의 정상
+# 문장이 대량으로 걸린다. 이 단어들만 공백을 남긴 뷰에서 검사한다.
+
+def test_blocks_strict_adjacent_words():
+    for line in ["샤갈", "싸갈", "야발"]:
+        assert _detect(line) is not None, f"차단 실패: {line!r}"
+
+
+def test_allows_strict_adjacent_words_split_by_space():
+    for line in ["야 발표 준비하자", "이야 발이 빠르네", "대타 야 발 진짜"]:
+        assert _detect(line) is None, f"오탐(차단됨): {line!r} -> {_detect(line)}"
+
+
+def test_allows_strict_adjacent_substring_expressions():
+    # 공백 조건은 통과하지만(글자가 붙어 있다) 정상 표현인 것들 — 예외 사전 담당.
+    # 어간만으로는 '싸갈겼다' · '싸갈길' 이 새어 나가 활용형까지 등록해 뒀다.
+    for line in ["샤갈 전시회 갔다왔다", "싸갈기다", "싸갈겼다", "싸갈길"]:
+        assert _detect(line) is None, f"오탐(차단됨): {line!r} -> {_detect(line)}"
+
+
+def test_strict_rule_keeps_existing_space_evasion_detection():
+    # 공백 엄격 장치가 기존 금지어까지 느슨하게 만들면 안 된다.
+    for line in ["시 발", "시  발", "ㅅ ㅂ", "개  새끼"]:
+        assert _detect(line) is not None, f"차단 실패: {line!r}"
 
 
 # --- 유니코드 호환 문자 접기 (fold_compat) ---------------------------------
