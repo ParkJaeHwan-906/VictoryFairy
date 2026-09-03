@@ -21,6 +21,7 @@ import com.skhynix.user.player.dto.PlayerResponse;
 import com.skhynix.user.team.dto.TeamResponse;
 import com.skhynix.websupport.error.GlobalExceptionHandler;
 import com.skhynix.websupport.jwt.JwtTokenProvider;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -98,16 +99,17 @@ class UserAccountControllerMeTest {
         return new UserAccountResponse("nick", new TeamResponse(6L, "KIA"),
                 List.of(playerOf(100L, "김선수")), 1200L, 340L, null,
                 "characters/victory-fairy.svg",
-                List.of(new EquippedCharacterItemResponse("의상", "items/cloth/basic.svg")));
+                List.of(new EquippedCharacterItemResponse("의상", "items/cloth/basic.svg")),
+                new BigDecimal("0.667"));
     }
 
     // ---------- 응답 본문 (USER-ME-12 ~ 20) ----------
 
     @Test
-    @DisplayName("[USER-ME-12, 13, 14, 15, 17, 18][USER-PI-65] 인증된 사용자가 요청하면 200과 ApiResponse에 담긴 "
+    @DisplayName("[USER-ME-12, 13, 14, 15, 17, 18, 37][USER-PI-65] 인증된 사용자가 요청하면 200과 ApiResponse에 담긴 "
             + "프로필을 반환하고, data의 키는 정확히 nickname·supportTeam·supportPlayers·point·bqScore·"
-            + "profileImgUrl·characterImgUrl·characterItems 8개뿐이다")
-    void getMyProfile_authenticated_returns200WithExactlyEightKeys() throws Exception {
+            + "profileImgUrl·characterImgUrl·characterItems·quizAccuracy 9개뿐이다")
+    void getMyProfile_authenticated_returns200WithExactlyNineKeys() throws Exception {
         // given
         String uid = UUID.randomUUID().toString();
         Long accountId = 1L;
@@ -121,7 +123,7 @@ class UserAccountControllerMeTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.message").doesNotExist())
-                .andExpect(jsonPath("$.data.length()").value(8))
+                .andExpect(jsonPath("$.data.length()").value(9))
                 .andExpect(jsonPath("$.data.nickname").value("nick"))
                 .andExpect(jsonPath("$.data.supportTeam.id").value(6))
                 .andExpect(jsonPath("$.data.supportTeam.name").value("KIA"))
@@ -133,7 +135,10 @@ class UserAccountControllerMeTest {
                 .andExpect(jsonPath("$.data.characterItems.length()").value(1))
                 .andExpect(jsonPath("$.data.characterItems[0].length()").value(2))
                 .andExpect(jsonPath("$.data.characterItems[0].itemType").value("의상"))
-                .andExpect(jsonPath("$.data.characterItems[0].imgUrl").value("items/cloth/basic.svg"));
+                .andExpect(jsonPath("$.data.characterItems[0].imgUrl").value("items/cloth/basic.svg"))
+                // USER-ME-41: JSON 숫자로 나가고 문자열 "0.667"이 아니다.
+                .andExpect(jsonPath("$.data.quizAccuracy").isNumber())
+                .andExpect(jsonPath("$.data.quizAccuracy").value(0.667));
     }
 
     @Test
@@ -173,7 +178,7 @@ class UserAccountControllerMeTest {
                 .willReturn(Optional.of(new ActiveAccountView(accountId, null)));
         given(userProfileService.getMyProfile(accountId))
                 .willReturn(new UserAccountResponse("nick", new TeamResponse(6L, "KIA"), List.of(), 1200L, 340L,
-                        null, "characters/victory-fairy.svg", List.of()));
+                        null, "characters/victory-fairy.svg", List.of(), BigDecimal.ZERO));
 
         // when & then
         mockMvc.perform(get("/users/me").header("Authorization", "Bearer " + token))
@@ -217,7 +222,7 @@ class UserAccountControllerMeTest {
                 .willReturn(Optional.of(new ActiveAccountView(accountId, null)));
         given(userProfileService.getMyProfile(accountId))
                 .willReturn(new UserAccountResponse("nick", null, List.of(), 0L, 0L, null,
-                        "characters/victory-fairy.svg", List.of()));
+                        "characters/victory-fairy.svg", List.of(), BigDecimal.ZERO));
 
         // when & then
         mockMvc.perform(get("/users/me").header("Authorization", "Bearer " + token))
@@ -237,13 +242,58 @@ class UserAccountControllerMeTest {
                 .willReturn(Optional.of(new ActiveAccountView(accountId, null)));
         given(userProfileService.getMyProfile(accountId))
                 .willReturn(new UserAccountResponse("nick", null, List.of(), 1200L, 0L, null,
-                        "characters/victory-fairy.svg", List.of()));
+                        "characters/victory-fairy.svg", List.of(), BigDecimal.ZERO));
 
         // when & then: jsonPath.value(1200)은 숫자 1200과만 매칭되고 문자열 "1200"과는 매칭되지 않는다
         mockMvc.perform(get("/users/me").header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.point").isNumber())
                 .andExpect(jsonPath("$.data.point").value(1200));
+    }
+
+    @Test
+    @DisplayName("[USER-ME-37, 40] 퀴즈를 한 번도 받지 않은 계정도 quizAccuracy 키를 가지며 값은 JSON 숫자 "
+            + "0이다(null·문자열·키 누락이 아니다)")
+    void getMyProfile_noQuizSubmissions_quizAccuracyKeyIsNumberZero() throws Exception {
+        // given
+        String uid = UUID.randomUUID().toString();
+        Long accountId = 1L;
+        String token = stubValidAccessToken(uid);
+        given(userAccountRepository.findActiveAuthByUid(uid))
+                .willReturn(Optional.of(new ActiveAccountView(accountId, null)));
+        given(userProfileService.getMyProfile(accountId))
+                .willReturn(new UserAccountResponse("nick", null, List.of(), 0L, 0L, null,
+                        "characters/victory-fairy.svg", List.of(), BigDecimal.ZERO));
+
+        // when & then
+        mockMvc.perform(get("/users/me").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").value(org.hamcrest.Matchers.hasKey("quizAccuracy")))
+                .andExpect(jsonPath("$.data.quizAccuracy").isNumber())
+                .andExpect(jsonPath("$.data.quizAccuracy").value(0));
+    }
+
+    @Test
+    @DisplayName("[USER-ME-41, 42] quizAccuracy는 반올림된 소수 원값 그대로 나가고 할·푼·리·백분율 표기 "
+            + "문자열 키가 응답에 없다")
+    void getMyProfile_quizAccuracy_isPlainNumberWithoutTextualNotationKeys() throws Exception {
+        // given
+        String uid = UUID.randomUUID().toString();
+        Long accountId = 1L;
+        String token = stubValidAccessToken(uid);
+        given(userAccountRepository.findActiveAuthByUid(uid))
+                .willReturn(Optional.of(new ActiveAccountView(accountId, null)));
+        given(userProfileService.getMyProfile(accountId))
+                .willReturn(new UserAccountResponse("nick", null, List.of(), 0L, 0L, null,
+                        "characters/victory-fairy.svg", List.of(), new BigDecimal("0.063")));
+
+        // when & then
+        mockMvc.perform(get("/users/me").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.quizAccuracy").isNumber())
+                .andExpect(jsonPath("$.data.quizAccuracy").value(0.063))
+                .andExpect(jsonPath("$.data.quizAccuracyText").doesNotExist())
+                .andExpect(jsonPath("$.data.length()").value(9));
     }
 
     @Test
@@ -280,7 +330,7 @@ class UserAccountControllerMeTest {
         given(userProfileService.getMyProfile(accountId)).willReturn(new UserAccountResponse(
                 "nick", new TeamResponse(6L, "KIA"), List.of(), 1200L, 340L,
                 "user-profile-img/9f1c1e2a-aaaa-4bbb-8ccc-1234567890ab.jpg",
-                "characters/victory-fairy.svg", List.of()));
+                "characters/victory-fairy.svg", List.of(), BigDecimal.ZERO));
 
         // when & then
         mockMvc.perform(get("/users/me").header("Authorization", "Bearer " + token))
