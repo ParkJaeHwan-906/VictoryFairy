@@ -4,6 +4,15 @@
 > [스펙](superpowers/specs/2026-07-28-llm-wiki-quiz-generation-design.md) 참조.
 > 이 문서는 "왜 이렇게 만들었고, 문제 하나가 어떻게 태어나는가"를 설명한다.
 
+> **후보 JSON 계약(스펙 4.3) 개정 이력** — 스펙 문서는 날짜가 붙은 그 시점의
+> 기록이라 사후 고치지 않는다. 그 뒤 바뀐 계약은 여기에 적고, 집행되는 정본은
+> 언제나 `question-gen/scripts/validate_candidates.py`(업로드 직전 게이트)다.
+>
+> | 시점 | 변경 | 비고 |
+> |---|---|---|
+> | v2 | `subject`(주제 축) 추가 | optional — 부재는 경고, 있는데 틀리면 실패 |
+> | v3 (2026-09-03) | `bqReward` 추가 | **필수**. `pointReward`와 나란한 두 번째 보상 축으로, 값은 `scoring.yaml`의 `bq` 표가 난이도로 결정한다. BE의 `quizzes.score` → `point`/`bq` 분리와 짝을 이룬다 |
+
 ## 1. 목표: 쇼츠처럼 넘기는 퀴즈
 
 만들려는 것은 시험지가 아니라 **피드**다 — 탭 한 번으로 즉답하고 다음으로 넘기는
@@ -76,7 +85,9 @@ H2H_SEASON_RECORD 템플릿 하나를 따라가 보자:
 2. 최근 7일 중복·같은 템플릿 편중 → 폐기
 3. 안전 필터: 비하·사건·사생활 언급 → 폐기
 4. 형식 검사: 보기 2개 또는 4개가 아니면 → 폐기
-5. 난이도·포인트 산정 (EASY 30P ~ EXPERT 120P)
+5. 난이도 산정 → 보상 두 축(`pointReward`·`bqReward`)을 난이도로 결정
+   (값은 [`question-gen/config/scoring.yaml`](../question-gen/config/scoring.yaml)의
+   `points`·`bq` 표가 정본 — 코드·프롬프트 어디에도 숫자를 복사해 두지 않는다)
 
 통과한 문제만 `quiz-candidates/{날짜}/*.json`으로 S3에 적재되고, BE가 가져가
 서비스에 내보낸다. 모든 문제에는 `templateId`가 찍혀 있어 나중에 "어느 유형이
