@@ -162,8 +162,10 @@ public class UserAccount {
      * 한다 — 일반 {@code findById}로 읽은 두 트랜잭션이 같은 잔액에서 각자 더하면 한쪽 적립이
      * 유실된다(lost update). 락 없는 조회 경로에 습관적으로 붙이지 말 것.
      *
-     * <p>{@code users_bq.bq_score}는 여기서 건드리지 않는다 — 레이팅 설계가 확정되기 전이라
-     * 보유 포인트({@code point})와 레이팅 점수를 미리 묶으면 나중에 풀 수 없다.
+     * <p>{@code users_bq.bq_score}는 여기서 건드리지 않는다 — 그쪽은 {@link UserBq#addBqScore(long)}
+     * 가 맡는다. 두 축은 <b>같은 정답 제출 트랜잭션에서 나란히 적립되지만</b>(재화 = 이 메서드,
+     * 레이팅 = 그 메서드) 배점이 문제마다 따로이고 한쪽만 있는 문제도 정상이라, 한 뮤테이터가
+     * 둘을 함께 움직이면 그 조합을 표현할 수 없게 된다. 락 순서는 계정 행이 먼저다.
      */
     public void addPoint(long delta) {
         this.point += delta;

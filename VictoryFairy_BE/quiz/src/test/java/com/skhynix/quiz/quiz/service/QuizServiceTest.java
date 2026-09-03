@@ -161,7 +161,23 @@ class QuizServiceTest {
                 .answer(0)
                 .quizDate(TODAY)
                 .difficulty(difficulty)
-                .score(score)
+                .point(score)
+                .build();
+        ReflectionTestUtils.setField(quiz, "id", id);
+        return quiz;
+    }
+
+    /** bq(레이팅 축)까지 지정하는 버전 — QUIZ-PBQ-26·27(/today의 bq 노출) 전용. */
+    private Quiz quizWithBq(Long id, String typeName, String content, String difficulty,
+            Double score, Integer bq) {
+        Quiz quiz = Quiz.builder()
+                .quizType(QuizType.builder().name(typeName).build())
+                .content(content)
+                .answer(0)
+                .quizDate(TODAY)
+                .difficulty(difficulty)
+                .point(score)
+                .bq(bq)
                 .build();
         ReflectionTestUtils.setField(quiz, "id", id);
         return quiz;
@@ -309,6 +325,41 @@ class QuizServiceTest {
         assertThat(result.get(0).options()).isEmpty();
         assertThat(result.get(0).point()).isNull();
         assertThat(result.get(0).difficulty()).isNull();
+    }
+
+    @Test
+    @DisplayName("[QUIZ-PBQ-26] /today 응답 항목에 bq가 JSON 정수로 실린다")
+    void getTodayQuizzes_quizWithBq_exposesBqAsInteger() {
+        Quiz quizWithBq = quizWithBq(1L, "객관식", "bq가 있는 문제", "HARD", 80.0, 3);
+        givenServable(DEFAULT_INNING);
+        given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY)).willReturn(List.of(quizWithBq));
+        givenNoExistingRows(List.of(1L));
+        givenSupportPlayers();
+        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(List.of(1L)))
+                .willReturn(List.of());
+
+        List<QuizResponse> result = quizService.getTodayQuizzes(USER_ID, GAME_ID, false);
+
+        assertThat(result.get(0).bq()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-PBQ-27] /today 응답 항목의 bq가 NULL이면 키는 남고 값만 null이다 — point가 NULL일 "
+            + "때와 같은 규칙(이 응답에는 @JsonInclude가 없다)")
+    void getTodayQuizzes_quizWithNullBq_keepsKeyWithNullValue() {
+        Quiz quizWithoutBq = quizWithBq(1L, "객관식", "bq가 없는 문제", "HARD", 80.0, null);
+        givenServable(DEFAULT_INNING);
+        given(quizRepository.findAllByQuizDateOrderByIdAsc(TODAY)).willReturn(List.of(quizWithoutBq));
+        givenNoExistingRows(List.of(1L));
+        givenSupportPlayers();
+        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(List.of(1L)))
+                .willReturn(List.of());
+
+        List<QuizResponse> result = quizService.getTodayQuizzes(USER_ID, GAME_ID, false);
+
+        assertThat(result.get(0).bq()).isNull();
+        // record 자체는 값을 null로 담을 뿐, "키가 실제로 응답에 남는다"는 직렬화 단언은
+        // QuizControllerTest(@JsonInclude 부재 확인)가 맡는다 — 여기는 서비스 계층 값 조립만 검증
     }
 
     // ---------- 오늘의 퀴즈: 선호 정렬 ----------
@@ -1315,14 +1366,14 @@ class QuizServiceTest {
 
     @Test
     @DisplayName("[AC-VOTEVIEW-4-1,5-1] /today 응답 문제 항목의 필드 집합은 기존 그대로다(id·type·"
-            + "question·difficulty·point·preferred·options) — answer·liked·likeCount·totalVotes·"
+            + "question·difficulty·point·bq·preferred·options) — answer·liked·likeCount·totalVotes·"
             + "voteRatio 같은 필드는 record에 아예 존재하지 않는다")
     void quizResponse_recordComponents_matchExactFieldSet() {
         List<String> componentNames = java.util.Arrays.stream(QuizResponse.class.getRecordComponents())
                 .map(java.lang.reflect.RecordComponent::getName)
                 .toList();
         assertThat(componentNames).containsExactlyInAnyOrder(
-                "id", "type", "question", "difficulty", "point", "preferred", "options");
+                "id", "type", "question", "difficulty", "point", "bq", "preferred", "options");
     }
 
     @Test

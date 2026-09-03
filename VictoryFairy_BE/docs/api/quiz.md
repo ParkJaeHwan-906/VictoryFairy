@@ -3,7 +3,7 @@
 > **도메인** `quiz` — 오늘의 퀴즈 조회·개별 조회·제출(채점)·풀이 이력·좋아요.
 > **모듈** quiz (포트 8081) · **경로 접두사** `/rt/quizzes` · **엔드포인트** 6개
 > **컨트롤러** `quiz/src/main/java/com/skhynix/quiz/quiz/controller/QuizController.java`(조회·좋아요 토글), `QuizSubmissionController.java`(제출·이력) — `/rt`는 context-path가 붙인다
-> **최종 갱신** 2026-08-26 — **`GET /rt/quizzes/{quizId}/vote-count` 신설**(엔드포인트 5개 → 6개). 아직 답하지 않은 문제의 보기별 투표 수를 **폴링으로 다시 받을 수 있는 유일한 경로**다 — 종전에는 `/today` 응답 한 번이 분포를 전달하는 유일한 기회였고 갱신 수단이 없었다. 응답 항목은 `/today` 와 **같은 타입**(`{no, text, voteCount}`)이고 서버가 백분율을 계산해 주지 않는다(값은 비율이 아니라 개수 그대로다 — 경로 이름도 그에 맞춰 `vote-count` 다). **자격이 없으면 404·403 이 아니라 200 + `data:null`** 이다(응답 코드로 '그 문제를 받았는지'가 드러나지 않게 함). 기존 5개 엔드포인트의 요청·응답·상태코드는 전부 불변. (직전: 2026-08-20 — **공통 시스템 예외가 이제 `ApiResponse` 래퍼를 탄다**(415 미지원 Content-Type·405 잘못된 메서드·400 깨진 JSON·400 경로변수/쿼리 타입 불일치·500 미처리 예외 전부 — `web-support`의 `GlobalExceptionHandler` 신설 핸들러, 공유 컴포넌트라 quiz 쪽 코드 변경 없이 적용됨). 실제로 형태가 바뀌는 사례: `Content-Type` 없이 `POST /{quizId}/submit` 호출(415), `GET /{quizId}/submit`처럼 POST 전용 경로에 GET(405), 깨진 JSON 본문(400), `/rt/quizzes/abc/submit`처럼 `quizId`가 숫자가 아님(400). 이 도메인의 `BusinessException` 매핑(403·404·409 등)·401 엔트리포인트·SSE는 전부 불변. 자세한 내용은 [README.md](README.md#1-응답-래퍼--도메인엔드포인트마다-다르다) 참고. (직전: 2026-08-19 **`GET /rt/quizzes/today` 응답의 보기 항목에 투표 수 필드 `voteCount` 신설**(각 `options[]` 원소에 0 이상 JSON 정수, 항상 존재 — Redis 장애·키 부재·TTL 만료·값 파싱 실패 시에도 0으로 채워 200 유지). 서빙 시점 근사 스냅샷이며 갱신 경로(SSE·폴링) 없음, 총합·비율 필드 없음, 미제출 상태에서도 노출(다수결 정답 힌트 수용). 상세(`GET /{quizId}`)·제출(`POST /submit`)·이력(`GET /submissions`) 세 응답은 **불변**(voteCount 없음). 엔드포인트 5개 그대로, 신규 경로 없음. 계약 원본 `docs/requirements/quiz/quiz-vote-exposure.md`(승인됨 2026-08-19, QUIZ-VOTEVIEW-1~30).)) 그 이전 이력은 각 엔드포인트 섹션의 `최종 변경` 줄에 남아 있다.
+> **최종 갱신** 2026-09-03 — **배점 축 분리(point/bq)와 두 축 적립.** `quizzes.score` 컬럼이 `point`로 이름만 바뀌었다(JSON 필드명·타입(Double)·값은 전부 불변 — 프론트가 관측 가능한 변화는 없다, 엔티티 필드명 `Quiz.score`→`Quiz.point`만 바뀜). 신설된 정수 배점 `bq`(널 허용, 난이도 매핑 EASY=1/MEDIUM=2/HARD=3/EXPERT=4)가 네 응답에 노출된다: `/today`(`data[].bq` 신설 — **null이어도 키가 실린다**, 이 응답 record엔 `@JsonInclude`가 없다) · `/{quizId}`(`data.bq` 신설 — **null이면 키가 생략된다**, `@JsonInclude(NON_NULL)` — `/today`와 `/{quizId}` 두 엔드포인트의 null 처리 규칙이 서로 다른 것은 의도된 것이고 이번에 통일되지 않았다, `point`가 이미 같은 방식으로 갈려 있었다) · `POST /submit`(`earnedBq`·`totalBq` 신규, 5키→7키. `totalBq`는 적립 후 누적 `users_bq.bq_score` — `GET /api/users/me`의 같은 값이 `bqScore`라는 다른 이름인 것은 알고 택한 것이다, 이 응답 안의 `earnedBq`와 짝을 맞춤) · `GET /submissions`(문제 항목에 `earnedBq`, **경기 전체 `summary`에만** `earnedBq` 추가(4키→5키) — `innings[].summary`는 3키(`correctCount`/`total`/`accuracy`) 그대로 불변). 정답 확정 시 `users_account.point`와 `users_bq.bq_score`를 **같은 트랜잭션**에서 함께 적립(계정에 `users_bq` 행이 없으면 이 트랜잭션이 만든다), 두 배점 중 하나가 NULL이거나 bq가 0 이하면 그 축만 스킵되고 다른 축은 정상 적립되며, 409(중복 제출)로 갈리면 두 축 다 롤백된다. ⚠ **정정 — 종전 문서 두 곳이 거짓이 됐다**: ①"`users_bq.bq_score`는 레이팅 설계 확정 전이라 건드리지 않는다"는 이제 사실이 아니다(정답 시 적립한다). ②`GET /submissions`의 `summary.earnedPoint` 정의였던 "`quizzes.score` 합"은 컬럼명이 `quizzes.point`로 바뀌어 "`quizzes.point` 합"으로 정정됐다(값·산식은 불변). `GET /{quizId}/vote-count`는 이번 변경과 무관(불변). 엔드포인트 6개 그대로, 신규 경로 없음. 계약 원본 `docs/requirements/quiz/quiz-point-bq-split.md`(승인됨 2026-09-03, QUIZ-PBQ-1~46). (직전: 2026-08-26 — **`GET /rt/quizzes/{quizId}/vote-count` 신설**(엔드포인트 5개 → 6개). 아직 답하지 않은 문제의 보기별 투표 수를 **폴링으로 다시 받을 수 있는 유일한 경로**다 — 종전에는 `/today` 응답 한 번이 분포를 전달하는 유일한 기회였고 갱신 수단이 없었다. 응답 항목은 `/today` 와 **같은 타입**(`{no, text, voteCount}`)이고 서버가 백분율을 계산해 주지 않는다(값은 비율이 아니라 개수 그대로다 — 경로 이름도 그에 맞춰 `vote-count` 다). **자격이 없으면 404·403 이 아니라 200 + `data:null`** 이다(응답 코드로 '그 문제를 받았는지'가 드러나지 않게 함). 기존 5개 엔드포인트의 요청·응답·상태코드는 전부 불변. (직전: 2026-08-20 — **공통 시스템 예외가 이제 `ApiResponse` 래퍼를 탄다**(415 미지원 Content-Type·405 잘못된 메서드·400 깨진 JSON·400 경로변수/쿼리 타입 불일치·500 미처리 예외 전부 — `web-support`의 `GlobalExceptionHandler` 신설 핸들러, 공유 컴포넌트라 quiz 쪽 코드 변경 없이 적용됨). 실제로 형태가 바뀌는 사례: `Content-Type` 없이 `POST /{quizId}/submit` 호출(415), `GET /{quizId}/submit`처럼 POST 전용 경로에 GET(405), 깨진 JSON 본문(400), `/rt/quizzes/abc/submit`처럼 `quizId`가 숫자가 아님(400). 이 도메인의 `BusinessException` 매핑(403·404·409 등)·401 엔트리포인트·SSE는 전부 불변. 자세한 내용은 [README.md](README.md#1-응답-래퍼--도메인엔드포인트마다-다르다) 참고. (직전: 2026-08-19 **`GET /rt/quizzes/today` 응답의 보기 항목에 투표 수 필드 `voteCount` 신설**(각 `options[]` 원소에 0 이상 JSON 정수, 항상 존재 — Redis 장애·키 부재·TTL 만료·값 파싱 실패 시에도 0으로 채워 200 유지). 서빙 시점 근사 스냅샷이며 갱신 경로(SSE·폴링) 없음, 총합·비율 필드 없음, 미제출 상태에서도 노출(다수결 정답 힌트 수용). 상세(`GET /{quizId}`)·제출(`POST /submit`)·이력(`GET /submissions`) 세 응답은 **불변**(voteCount 없음). 엔드포인트 5개 그대로, 신규 경로 없음. 계약 원본 `docs/requirements/quiz/quiz-vote-exposure.md`(승인됨 2026-08-19, QUIZ-VOTEVIEW-1~30).))) 그 이전 이력은 각 엔드포인트 섹션의 `최종 변경` 줄에 남아 있다.
 > 공통 규약(응답 래퍼·인증·401 정책)은 [README.md](README.md)를 먼저 볼 것.
 
 ## 엔드포인트 목록
@@ -12,7 +12,7 @@
 |---|---|---|---|
 | GET | [/rt/quizzes/today](#get-rtquizzestoday) | 200 | `gameId`(내 응원 구단의 오늘 `IN_PROGRESS` 경기)가 지목한 이닝의 세트 목록 — 선호 문제 우선 정렬, `preferredOnly` 필터. 서빙과 동시에 미답 행 생성(쓰기 트랜잭션), 그 이닝에 이미 받았으면 409. 보기마다 투표 수(`voteCount`, 서빙 시점 근사 스냅샷, 2026-08-19 신설) 포함 |
 | GET | [/rt/quizzes/{quizId}](#get-rtquizzesquizid) | 200 | 단건 상세 — 답하기 전엔 정답 비노출, 답한 후엔 복기 정보 + 좋아요 상태 포함. `(submitted, expired)`로 진행 중/답함/시한 초과 구분 |
-| POST | [/rt/quizzes/{quizId}/submit](#post-rtquizzesquizidsubmit) | 200 | 제출·서버 채점 — 정답이면 포인트 적립 |
+| POST | [/rt/quizzes/{quizId}/submit](#post-rtquizzesquizidsubmit) | 200 | 제출·서버 채점 — 정답이면 포인트·bq(레이팅 축, 2026-09-03 신설) 두 축 적립 |
 | GET | [/rt/quizzes/submissions](#get-rtquizzessubmissions) | 200 | `gameId`(필수, `games.naver_game_id`)로 지목한 **경기 한 건**의 이닝별 풀이 결산 — 이닝 배열(`summary`+`quizzes[]`) + 경기 전체 요약(정답률·획득 포인트). `page` 폐지(페이징 없음), 항목에 보기(`options`)·좋아요 상태 포함 |
 | POST | [/rt/quizzes/{quizId}/like](#post-rtquizzesquizidlike) | 200 | 좋아요 토글 — 내가 제출한 문제에만 허용 |
 | GET | [/rt/quizzes/{quizId}/vote-count](#get-rtquizzesquizidvote-count) | 200 | 아직 답하지 않은 문제의 보기별 투표 수 — 폴링용. 자격 없으면 200 + `data:null` |
@@ -33,7 +33,7 @@
 
 **보기별 투표 수(`voteCount`)는 `/today` 와 `/{quizId}/vote-count` 둘에만 있다(2026-08-26 정정 — 종전에는 `/today` 하나뿐이었다).** 상세(`GET /{quizId}`)·제출(`POST /submit`)·이력(`GET /submissions`) 세 응답은 이번 변경으로 필드 집합이 **불변**이고 `voteCount`가 없다. `/today`의 값은 서빙 시점에 Redis 집계 키(`quiz:votes:{quizId}`, `options[].no`와 같은 0-based 축)를 초기화(`HSETNX`) 이후 읽은 **근사 스냅샷**이며, 그 문제는 (경기, 이닝)당 1회만 서빙되므로 분포도 그 순간 딱 한 번 전달된다 — 이후 갱신은 **`GET /{quizId}/vote-count` 폴링으로만** 받는다(2026-08-26 신설 — 그 전에는 갱신 경로가 아예 없었다. 같은 이닝 재조회는 여전히 409라 `/today` 로는 되받을 수 없다). 합계가 그 문제를 받은 사람 수·`quiz_users_submit` 행 수와 일치한다는 보장이 없다(받고 아직 안 푼 사람은 빠짐, Redis 장애 중 들어온 표는 영구 유실). **미제출 상태에서도 분포가 노출된다 — 사용자가 대가(다수결 정답 힌트)를 알고 택한 동작**이다(`/today` 목록은 정의상 전부 미제출 문제라 노출 자격을 따로 검사하지 않는다). Redis 장애·키 부재·TTL 만료·필드 결손·값 파싱 실패는 전부 해당 보기 `voteCount:0`으로 채워 200이 그대로 나간다 — **`voteCount:0`은 "아무도 안 골랐다"와 "집계를 못 읽었다"를 응답만으로 구분하지 못한다**(구분은 서버 WARN 로그로만 가능, 문제당 1건). 총합·비율 필드는 없다(필요하면 클라이언트가 `voteCount`를 더한다). 자세한 내용은 [GET /today](#get-rtquizzestoday) 절 참고.
 
-**채점·적립은 서버 트랜잭션 안에서 원자적이다.** 정답이면 `quizzes.score`(배점)만큼 `users_account.point`에 적립한다(비관적 락으로 동시 적립 유실 방지). `users_bq.bq_score`는 레이팅 설계 확정 전이라 건드리지 않는다. **중복 제출(409)의 판정 방식이 2026-08-12부터 바뀌었다** — 예전엔 선제 `existsBy` 검사(친절한 409) + `uk_quiz_users_submit_account_quiz` UNIQUE(동시 요청 race의 최종 중재)로 이중이었으나, 이제는 미답 행을 채우는 **조건부 UPDATE 한 방의 영향 행 수(0=중복)**가 유일한 판정 근거다. 이 때문에 409 검사가 검증 순서의 **맨 뒤**로 밀렸다(자세한 내용은 [POST 제출](#post-rtquizzesquizidsubmit) 절 참고).
+**채점·적립은 서버 트랜잭션 안에서 원자적이다.** 정답이면 그 문제의 배점을 **두 축에 각각** 적립한다(2026-09-03부터 — `docs/requirements/quiz/quiz-point-bq-split.md`, 승인됨) — `quizzes.point`(구 `quizzes.score`, 값·타입 불변)만큼 `users_account.point`에, `quizzes.bq`(신설, 정수·널 허용)만큼 `users_bq.bq_score`에, **같은 트랜잭션 안에서 계정 행 락(`findWithLockById`)을 먼저 잡은 뒤** `users_bq` 행 락(또는 없으면 그 트랜잭션이 새로 만듦)을 잡는다(순서 고정). 두 배점은 서로를 막지 않는다 — 한쪽이 NULL이거나 `bq`가 0 이하면 그 축만 적립을 건너뛰고 다른 축은 정상 적립된다. ⚠ **정정** — 이 문서는 종전에 "`users_bq.bq_score`는 레이팅 설계 확정 전이라 건드리지 않는다"고 적었으나 이제 사실이 아니다. **중복 제출(409)의 판정 방식이 2026-08-12부터 바뀌었다** — 예전엔 선제 `existsBy` 검사(친절한 409) + `uk_quiz_users_submit_account_quiz` UNIQUE(동시 요청 race의 최종 중재)로 이중이었으나, 이제는 미답 행을 채우는 **조건부 UPDATE 한 방의 영향 행 수(0=중복)**가 유일한 판정 근거다. 이 때문에 409 검사가 검증 순서의 **맨 뒤**로 밀렸다(자세한 내용은 [POST 제출](#post-rtquizzesquizidsubmit) 절 참고).
 
 **`/today`가 응답에 실은 문제마다 그 즉시 `quiz_users_submit`에 미답 행을 만드는 것이 곧 제출 자격이다.** 그 즉시 `quiz_users_submit`에 **미답 행**(`submit_option_id IS NULL`)을 만든다(같은 트랜잭션 — 실패하면 목록도 안 준다). 그 행의 **존재가 제출 자격**이고 **`created_at`(받은 시각) + 8분이 제출 시한**이다 — **⚠ 이 8분은 이제 "받은 문제에 답을 낼 수 있는 시간"으로 [제출](#post-rtquizzesquizidsubmit) 경로에만 적용되고, 목록 재조회 판정과는 무관하다(2026-08-12 5차 개정).** `/today`를 다시 호출해도 이미 있는 행은 어떤 필드도 바뀌지 않는다 — 시한이 갱신되지 않는다.
 
@@ -44,7 +44,7 @@
 ---
 
 ## GET /rt/quizzes/today
-> 최종 변경: 2026-08-19 — **보기 항목에 투표 수 필드 `voteCount`(long, 0 이상) 신설.** `options[]` 원소가 `{no, text}` → `{no, text, voteCount}`로 넓어짐. 값은 응답 조립 시점에 Redis 집계 키(`quiz:votes:{quizId}`)를 0 초기화(`HSETNX`) 이후 읽은 **근사 스냅샷**이고 항상 존재(생략·null 없음), 갱신 경로 없음, 총합·비율 필드 없음, 미제출 상태에서도 노출(정답 유출 수용), Redis 장애·키 부재·TTL 만료·값 파싱 실패는 전부 0으로 채워 200 유지. 나머지 필드·상태코드·에러코드·엔드포인트 5개 구성은 불변. 상세·제출·이력 세 응답에는 `voteCount`가 없다(불변). 계약 원본 `docs/requirements/quiz/quiz-vote-exposure.md`(승인됨 2026-08-19, QUIZ-VOTEVIEW-1~30). (직전: 2026-08-12(5차 개정) — **`gameId` 필수 쿼리 파라미터 신설**(값은 내부 PK가 아니라 `games.naver_game_id` 문자열) + **응원 구단 경기가 `IN_PROGRESS`일 때만 세트 제공**(그 외 사유는 전부 403 `QUIZ_NOT_SERVABLE`로 합쳐짐) + **"한 이닝에 한 세트" 회차 제한 신설**(같은 이닝 재요청은 409 `QUIZ_ALREADY_SERVED_IN_INNING`). **⚠ 재조회가 폐지됐다** — 종전엔 "미답이고 시한이 남은 문제는 다시 호출해도 계속 응답에 실린다"였으나, 이제 **행이 있는 문제는 답 여부·시한과 무관하게 전부 제외된다**(FE가 받은 세트를 잃으면 되받을 수 없다는 뜻 — 가장 큰 FE 영향). 8분 시한은 이제 **제출 경로 전용**(목록 재조회 판정과 무관). 빈 배열의 뜻이 좁아짐 — "지금은 줄 수 없다"가 전부 403·409로 빠지고 "줄 수 있는데 줄 게 없다"만 남는다. **응답 필드·정렬·성공 상태코드(200)는 불변**(이닝은 여전히 응답에 없다). 계약 원본 `docs/requirements/quiz/quiz-inning-tracking.md`(5차 개정, QUIZ-INN-83~113).)
+> 최종 변경: 2026-09-03 — **각 문제 항목에 레이팅 배점 `bq`(Integer, nullable) 신설.** 정수 JSON 값 또는 `null` — **null이어도 키 자체는 항상 실린다**(이 응답 record `QuizResponse`에는 `@JsonInclude`가 없다, `GET /{quizId}`가 같은 필드를 생략하는 것과 다른 규칙). 값은 `quizzes.bq`(적재 시 후보 JSON의 `bqReward` 또는 난이도 매핑 폴백으로 채워짐) 그대로. 기존 키(`id·type·question·difficulty·point·preferred·options`)는 이름·타입·값 전부 불변(`point`는 컬럼명만 `score`→`point`로 바뀌었을 뿐 JSON 관측값은 그대로). 계약 원본 `docs/requirements/quiz/quiz-point-bq-split.md`(승인됨 2026-09-03, QUIZ-PBQ-26~27). (직전: 2026-08-19 — **보기 항목에 투표 수 필드 `voteCount`(long, 0 이상) 신설.** `options[]` 원소가 `{no, text}` → `{no, text, voteCount}`로 넓어짐. 값은 응답 조립 시점에 Redis 집계 키(`quiz:votes:{quizId}`)를 0 초기화(`HSETNX`) 이후 읽은 **근사 스냅샷**이고 항상 존재(생략·null 없음), 갱신 경로 없음, 총합·비율 필드 없음, 미제출 상태에서도 노출(정답 유출 수용), Redis 장애·키 부재·TTL 만료·값 파싱 실패는 전부 0으로 채워 200 유지. 나머지 필드·상태코드·에러코드·엔드포인트 5개 구성은 불변. 상세·제출·이력 세 응답에는 `voteCount`가 없다(불변). 계약 원본 `docs/requirements/quiz/quiz-vote-exposure.md`(승인됨 2026-08-19, QUIZ-VOTEVIEW-1~30). (직전: 2026-08-12(5차 개정) — **`gameId` 필수 쿼리 파라미터 신설**(값은 내부 PK가 아니라 `games.naver_game_id` 문자열) + **응원 구단 경기가 `IN_PROGRESS`일 때만 세트 제공**(그 외 사유는 전부 403 `QUIZ_NOT_SERVABLE`로 합쳐짐) + **"한 이닝에 한 세트" 회차 제한 신설**(같은 이닝 재요청은 409 `QUIZ_ALREADY_SERVED_IN_INNING`). **⚠ 재조회가 폐지됐다** — 종전엔 "미답이고 시한이 남은 문제는 다시 호출해도 계속 응답에 실린다"였으나, 이제 **행이 있는 문제는 답 여부·시한과 무관하게 전부 제외된다**(FE가 받은 세트를 잃으면 되받을 수 없다는 뜻 — 가장 큰 FE 영향). 8분 시한은 이제 **제출 경로 전용**(목록 재조회 판정과 무관). 빈 배열의 뜻이 좁아짐 — "지금은 줄 수 없다"가 전부 403·409로 빠지고 "줄 수 있는데 줄 게 없다"만 남는다. **응답 필드·정렬·성공 상태코드(200)는 불변**(이닝은 여전히 응답에 없다). 계약 원본 `docs/requirements/quiz/quiz-inning-tracking.md`(5차 개정, QUIZ-INN-83~113).))
 
 오늘(**KST**) 세트 중 **내가 아직 안 받은 문제만** 반환한다 — **행(`quiz_users_submit`)이 있는 문제는 답 여부·시한과 무관하게 전부 제외된다**(2026-08-12부터 — 재조회 폐지, 아래 참고). `QuizService.getTodayQuizzes(userAccountId, gameId, preferredOnly)` — "오늘"은 항상 서버가 KST 고정 클록으로 판정한다(파드 JVM은 UTC). 다른 날짜를 조회할 방법은 없다.
 
@@ -73,7 +73,8 @@
 | data[].type | String | `"객관식"` \| `"O/X"` — FE 렌더링 분기용 |
 | data[].question | String | 문제 본문 |
 | data[].difficulty | String \| null | `EASY`/`MEDIUM`/`HARD`/`EXPERT`. 사람이 쓴 퀴즈는 null 가능 |
-| data[].point | Double \| null | 배점(정답 시 적립될 포인트). null 가능 |
+| data[].point | Double \| null | 배점(정답 시 적립될 포인트, `users_account.point` 축). null 가능. **필드명·타입·값 불변**(엔티티 컬럼명만 `score`→`point`로 바뀌었을 뿐 JSON은 원래부터 `point`) |
+| data[].bq | Integer \| null (신규 2026-09-03) | 배점(정답 시 적립될 레이팅 점수, `users_bq.bq_score` 축). 난이도 매핑(EASY=1/MEDIUM=2/HARD=3/EXPERT=4) 또는 후보 JSON의 `bqReward`로 채워짐. **null이어도 키는 항상 실린다**(이 응답엔 `@JsonInclude` 없음 — `GET /{quizId}`는 다르다, 아래 참고) |
 | data[].preferred | boolean | 내 응원 구단·선수 매칭 여부(정렬 근거 그대로) |
 | data[].options | array | 보기 배열, `no` 오름차순. `no`(0-기반, **제출 시 보낼 번호**, O/X는 0=`"O"` 1=`"X"`) · `text` · `voteCount`(신규 2026-08-19, long, 0 이상) — 그 보기를 고른 사람 수. **서빙 시점 근사 스냅샷**(응답 조립 시 Redis 집계 키 `quiz:votes:{quizId}`를 0 초기화 이후 읽은 값), 항상 존재(생략·null 없음). Redis 장애·키 부재·TTL 만료·값 파싱 실패 시에도 0으로 채워짐 — **`voteCount:0`은 "아무도 안 골랐다"와 "집계를 못 읽었다"를 구분하지 않는다.** 이후 갱신되지 않고(응답은 문제당 1회뿐), 합계가 참여자 수와 일치할 보장 없음. `GET /{quizId}`·`GET /submissions`의 `options`에는 이 필드가 없다(불변) |
 
@@ -101,9 +102,10 @@
 ```bash
 curl "http://localhost:8081/rt/quizzes/today?gameId=20260812SSHT02026&preferredOnly=true" \
   -H 'Authorization: Bearer eyJ...'
-# 성공 (구성 예시 — voteCount 신설 반영, 2026-08-19)
-# {"success":true,"data":[{"id":31,"type":"O/X","question":"...","difficulty":"EASY","point":50.0,
+# 성공 (구성 예시 — bq 신설 반영, 2026-09-03)
+# {"success":true,"data":[{"id":31,"type":"O/X","question":"...","difficulty":"EASY","point":50.0,"bq":2,
 #   "preferred":true,"options":[{"no":0,"text":"O","voteCount":3},{"no":1,"text":"X","voteCount":1}]}],"message":null}
+# bq 가 NULL 인 문제도 키는 그대로 실린다: ...,"point":30.0,"bq":null,"preferred":false,...
 
 # gameId 누락 (실측)
 curl http://localhost:8081/rt/quizzes/today -H 'Authorization: Bearer eyJ...'
@@ -121,7 +123,7 @@ curl "http://localhost:8081/rt/quizzes/today?gameId=20260812SSHT02026" -H 'Autho
 ---
 
 ## GET /rt/quizzes/{quizId}
-> 최종 변경: 2026-08-12 — `expired`(boolean) 필드 신설. **`submitted`의 의미가 "받았는가"에서 "답했는가"로 재정의됨**(행이 이제 받는 순간 생기므로 행 존재만으로는 제출을 뜻하지 않는다). FE는 `(submitted, expired)` 조합으로 세 상태를 구분한다: 진행 중 `(false,false)` · 답함 `(true,*)` · 시한 초과 `(false,true)`. `myOption`·`correct`·`answer`·`liked`·`likeCount`는 여전히 **답한 경우에만** 존재(의미는 "제출한 경우"와 동일). 상태코드·에러코드 변화 없음. (직전: 2026-08-11 제출한 문제일 때 `liked`·`likeCount` 필드 추가)
+> 최종 변경: 2026-09-03 — **`bq`(Integer, nullable) 필드 신설.** `point`와 같은 자리·같은 규칙(`@JsonInclude(NON_NULL)`) — **null이면 키가 생략된다**(`/today`가 같은 필드를 null이어도 싣는 것과 다른 규칙, 두 엔드포인트를 통일한 것이 아니다). 나머지 필드·상태코드·에러코드는 불변. 계약 원본 `docs/requirements/quiz/quiz-point-bq-split.md`(승인됨 2026-09-03, QUIZ-PBQ-28~29). (직전: 2026-08-12 — `expired`(boolean) 필드 신설. **`submitted`의 의미가 "받았는가"에서 "답했는가"로 재정의됨**(행이 이제 받는 순간 생기므로 행 존재만으로는 제출을 뜻하지 않는다). FE는 `(submitted, expired)` 조합으로 세 상태를 구분한다: 진행 중 `(false,false)` · 답함 `(true,*)` · 시한 초과 `(false,true)`. `myOption`·`correct`·`answer`·`liked`·`likeCount`는 여전히 **답한 경우에만** 존재(의미는 "제출한 경우"와 동일). 상태코드·에러코드 변화 없음. (직전: 2026-08-11 제출한 문제일 때 `liked`·`likeCount` 필드 추가))
 
 단건 상세. `QuizService.getQuiz(userAccountId, quizId)`.
 
@@ -137,6 +139,7 @@ curl "http://localhost:8081/rt/quizzes/today?gameId=20260812SSHT02026" -H 'Autho
 
 | 필드 | 타입 | 설명 |
 |---|---|---|
+| data.bq | Integer (신규 2026-09-03) | 배점(정답 시 적립될 레이팅 점수, `users_bq.bq_score` 축). `point`와 같은 자리·같은 규칙 — **null이면 키가 생략된다**(`@JsonInclude(NON_NULL)`, `/today`가 null이어도 키를 싣는 것과 다른 규칙) |
 | data.submitted | boolean | **내가 답을 냈는가**(행을 받았는지가 아니다). 답 없는 행(진행 중이거나 시한 초과)은 false, 받은 적 없는 문제도 false |
 | data.expired | boolean(신규 2026-08-12) | 받아 놓고 **시한(받은 시각+8분)을 넘겼는데 아직 안 냈는가**. 답한 문제는 항상 false, 받은 적 없는 문제도 false(둘의 구분은 이 응답의 몫이 아니라 [/today](#get-rtquizzestoday) 목록의 몫) — 저장된 플래그가 아니라 **조회 시각 기준 계산**이라 같은 문제가 8분 전후로 다르게 나올 수 있다 |
 | data.myOption | int | **답한 경우에만 존재.** 내가 낸 보기 번호 |
@@ -166,10 +169,10 @@ curl "http://localhost:8081/rt/quizzes/today?gameId=20260812SSHT02026" -H 'Autho
 
 ```bash
 curl http://localhost:8081/rt/quizzes/23 -H 'Authorization: Bearer eyJ...'
-# {"success":true,"data":{"id":23,"type":"O/X","question":"...","difficulty":"EASY","point":50.0,
+# {"success":true,"data":{"id":23,"type":"O/X","question":"...","difficulty":"EASY","point":50.0,"bq":2,
 #   "quizDate":"2026-08-10","options":[{"no":0,"text":"O"},{"no":1,"text":"X"}],
 #   "submitted":false,"expired":false},"message":null}
-# (myOption·correct·answer·liked·likeCount 키 자체가 없음)
+# (myOption·correct·answer·liked·likeCount 키 자체가 없음. bq 가 NULL 인 문제라면 bq 키도 함께 생략된다)
 ```
 
 **예시 — 시한 초과(2026-08-12 신설 상태)**
@@ -186,7 +189,7 @@ curl http://localhost:8081/rt/quizzes/24 -H 'Authorization: Bearer eyJ...'
 
 ```bash
 curl http://localhost:8081/rt/quizzes/23 -H 'Authorization: Bearer eyJ...'
-# {"success":true,"data":{"id":23,"type":"O/X","question":"...","difficulty":"EASY","point":50.0,
+# {"success":true,"data":{"id":23,"type":"O/X","question":"...","difficulty":"EASY","point":50.0,"bq":2,
 #   "quizDate":"2026-08-10","options":[{"no":0,"text":"O"},{"no":1,"text":"X"}],
 #   "submitted":true,"expired":false,"myOption":0,"correct":true,"answer":0,
 #   "liked":false,"likeCount":5},"message":null}
@@ -195,7 +198,7 @@ curl http://localhost:8081/rt/quizzes/23 -H 'Authorization: Bearer eyJ...'
 ---
 
 ## POST /rt/quizzes/{quizId}/submit
-> 최종 변경: 2026-08-12 — 내부 구현이 "신규 행 INSERT"에서 "미답 행의 조건부 UPDATE"로 전환됨(제출 자격의 근거가 Redis 티켓 → `quiz_users_submit` DB 행). **판정 순서가 404→409→403→400에서 404→403→400→409로 바뀌었다** — 중복 판정이 선검사가 아니라 조건부 UPDATE의 영향 행 수(0=중복)로만 나오기 때문. **⚠ 관측 가능한 계약 변화: 이미 답한 문제에 없는 보기 번호를 보내면 종전 409였는데 이제 400이다.** 403(`QUIZ_SUBMIT_NOT_ALLOWED`)의 판정 근거도 Redis 키 존재에서 DB 행 존재+시한으로 바뀌었으나 조건·문구는 그대로다. **메서드·경로·요청 본문·성공 응답 필드는 전부 불변.**
+> 최종 변경: 2026-09-03 — **응답에 `earnedBq`·`totalBq`(둘 다 long) 신설**(5키 → 7키). 정답이면 그 문제의 `bq`만큼 `users_bq.bq_score`를 포인트와 **같은 트랜잭션**에서 함께 적립하고, `earnedBq`는 이번에 적립된 값(오답·`bq` NULL·`bq<=0`이면 0), `totalBq`는 적립 후 그 계정의 누적 `bq_score`다. **`GET /api/users/me`의 같은 값이 `bqScore`라는 다른 이름인 것은 알고 택한 것**(이 응답 안의 `earnedBq`와 짝을 맞추려 `totalBq`를 골랐다 — 통일하지 않았다). 계정에 `users_bq` 행이 없으면 이 트랜잭션이 만든다. 409(중복 제출, 조건부 UPDATE 영향 0행)로 롤백되면 이번 요청의 bq 적립도 함께 롤백된다 — **판정 순서는 이번에도 그대로**(404→403→400→계정 락·bq 적립→409). 기존 5키(`correct`·`answer`·`myOption`·`earnedPoint`·`totalPoint`)는 이름·타입·값 전부 불변. 계약 원본 `docs/requirements/quiz/quiz-point-bq-split.md`(승인됨 2026-09-03, QUIZ-PBQ-15~25·30~32). (직전: 2026-08-12 — 내부 구현이 "신규 행 INSERT"에서 "미답 행의 조건부 UPDATE"로 전환됨(제출 자격의 근거가 Redis 티켓 → `quiz_users_submit` DB 행). **판정 순서가 404→409→403→400에서 404→403→400→409로 바뀌었다** — 중복 판정이 선검사가 아니라 조건부 UPDATE의 영향 행 수(0=중복)로만 나오기 때문. **⚠ 관측 가능한 계약 변화: 이미 답한 문제에 없는 보기 번호를 보내면 종전 409였는데 이제 400이다.** 403(`QUIZ_SUBMIT_NOT_ALLOWED`)의 판정 근거도 Redis 키 존재에서 DB 행 존재+시한으로 바뀌었으나 조건·문구는 그대로다. **메서드·경로·요청 본문·성공 응답 필드(2026-08-12 시점)는 전부 불변.**)
 
 제출·채점. `QuizSubmitService.submit(userAccountId, quizId, option)` — 검증(404→403→400→계정 락·적립→409, 순서 고정) 후 채점, **이미 있는 미답 행의 답을 조건부 UPDATE로 채운다**(제출은 새 행을 만드는 일이 아니다 — 행은 `/today`가 서빙 시점에 미리 만들어 둔다).
 
@@ -222,6 +225,8 @@ curl http://localhost:8081/rt/quizzes/23 -H 'Authorization: Bearer eyJ...'
 | data.myOption | int | 내가 낸 번호(에코) |
 | data.earnedPoint | long | 이번에 적립된 포인트(오답·배점 null이면 0) |
 | data.totalPoint | long | 적립 후 보유 포인트 잔액 |
+| data.earnedBq (신규 2026-09-03) | long | 이번에 적립된 레이팅 점수(오답·`bq` null·`bq<=0`이면 0). `users_bq.bq_score`에 적립 |
+| data.totalBq (신규 2026-09-03) | long | 적립 후 누적 레이팅 점수(`users_bq.bq_score`). `GET /api/users/me`의 `bqScore`와 같은 값이지만 **이름이 다르다**(이 응답 안의 `earnedBq`와 짝을 맞추려 의도적으로 택함, 통일 아님) |
 
 **실패**
 
@@ -237,7 +242,8 @@ curl http://localhost:8081/rt/quizzes/23 -H 'Authorization: Bearer eyJ...'
 ```bash
 curl -X POST http://localhost:8081/rt/quizzes/23/submit \
   -H 'Authorization: Bearer eyJ...' -H 'Content-Type: application/json' -d '{"option":0}'
-# {"success":true,"data":{"correct":true,"answer":0,"myOption":0,"earnedPoint":50,"totalPoint":50},"message":null}
+# {"success":true,"data":{"correct":true,"answer":0,"myOption":0,"earnedPoint":50,"totalPoint":50,
+#   "earnedBq":2,"totalBq":2},"message":null}
 
 curl -X POST http://localhost:8081/rt/quizzes/23/submit \
   -H 'Authorization: Bearer eyJ...' -H 'Content-Type: application/json' -d '{"option":0}'
@@ -253,7 +259,7 @@ curl -X POST http://localhost:8081/rt/quizzes/23/submit \
 ---
 
 ## GET /rt/quizzes/submissions
-> 최종 변경: 2026-08-13 — **요청·응답 계약 전면 교체.** `page` 파라미터 **폐지**, `gameId`(필수, `games.naver_game_id` 문자열)로 조회 단위가 계정 전체에서 **경기 한 건**으로 좁혀졌다. 응답이 페이징 구조(`summary`+`PageResponse<submissions.content>`)에서 **`summary`(전체 요약, `earnedPoint` 신규) + `innings[]`(이닝별 `summary`+`quizzes[]`)**로 전면 교체됐다 — FE 파괴적 변경(BE·FE 동시 배포 전제), 계정 전체 누적 정답률을 보여주던 경로가 사라졌다(대체 없음, 후속 과제). 항목에 `options`(보기 배열) 신설, `quizDate`·`myOptionText`·`answerText` 삭제(`liked`/`likeCount`는 유지). 403 `GAME_NOT_STARTED`(신규 `ErrorCode`, 예정 경기 거절) 추가, `GAME_NOT_FOUND`(기존 코드)는 유지. 계약 원본 `docs/requirements/quiz/quiz-submission-by-inning.md`(승인됨 2026-08-13, QUIZ-SUB-1~73). (직전: 2026-08-12 `expired`(boolean) 필드 신설. `myOption`·`myOptionText`가 nullable로 완화되고 답 없는 항목도 목록에 실림, `submittedAt`이 `updated_at`(답을 낸 시각) 기준으로 재정의, 요약이 미답 문제를 오답으로 집계. 정렬 축은 `id DESC`였다 — **이번 개정으로 폐기**(아래 이닝 축으로 대체).)
+> 최종 변경: 2026-09-03 — **문제 항목에 `earnedBq`(long) 신설 + 경기 전체 `summary`에만 `earnedBq`(long) 추가**(4키 → 5키: `correctCount`·`total`·`accuracy`·`earnedPoint`·`earnedBq`). `innings[].summary`는 **3키(`correctCount`·`total`·`accuracy`) 그대로 불변**(이닝별 배점 합계는 넣지 않는다 — 기존 `earnedPoint`가 경기 전체 summary에만 있던 비대칭을 그대로 따른 것, 필요하면 클라이언트가 그 이닝의 `quizzes[].earnedBq`를 더한다). 문제 항목 필드는 13개 → **14개**로 늘었다(`earnedBq` 추가). ⚠ **정정** — 이 문서는 종전에 `summary.earnedPoint`를 "정답 행의 `quizzes.score` 합"으로 적었으나, 컬럼명이 `quizzes.point`로 바뀌어 **"`quizzes.point` 합"**으로 정정한다(산식·값은 불변). 계약 원본 `docs/requirements/quiz/quiz-point-bq-split.md`(승인됨 2026-09-03, QUIZ-PBQ-33~34·46). (직전: 2026-08-13 — **요청·응답 계약 전면 교체.** `page` 파라미터 **폐지**, `gameId`(필수, `games.naver_game_id` 문자열)로 조회 단위가 계정 전체에서 **경기 한 건**으로 좁혀졌다. 응답이 페이징 구조(`summary`+`PageResponse<submissions.content>`)에서 **`summary`(전체 요약, `earnedPoint` 신규) + `innings[]`(이닝별 `summary`+`quizzes[]`)**로 전면 교체됐다 — FE 파괴적 변경(BE·FE 동시 배포 전제), 계정 전체 누적 정답률을 보여주던 경로가 사라졌다(대체 없음, 후속 과제). 항목에 `options`(보기 배열) 신설, `quizDate`·`myOptionText`·`answerText` 삭제(`liked`/`likeCount`는 유지). 403 `GAME_NOT_STARTED`(신규 `ErrorCode`, 예정 경기 거절) 추가, `GAME_NOT_FOUND`(기존 코드)는 유지. 계약 원본 `docs/requirements/quiz/quiz-submission-by-inning.md`(승인됨 2026-08-13, QUIZ-SUB-1~73). (직전: 2026-08-12 `expired`(boolean) 필드 신설. `myOption`·`myOptionText`가 nullable로 완화되고 답 없는 항목도 목록에 실림, `submittedAt`이 `updated_at`(답을 낸 시각) 기준으로 재정의, 요약이 미답 문제를 오답으로 집계. 정렬 축은 `id DESC`였다 — **이번 개정으로 폐기**(아래 이닝 축으로 대체).))
 
 **지목한 경기 한 건**의 이닝별 풀이 결산 — 이닝 배열 + 이닝별 요약 + 경기 전체 요약. `QuizSubmitService.getHistory(userAccountId, gameId)`. "경기 하나를 관전하며 이닝마다 문제를 푼다"가 사용 단위라 조회 축도 계정이 아니라 경기이고, 순서 축이 페이지 번호가 아니라 이닝이다.
 
@@ -290,12 +296,13 @@ curl -X POST http://localhost:8081/rt/quizzes/23/submit \
 | data.summary.correctCount | long | 열거된 이닝 전체의 정답 수 합계(이닝 배열과 항상 일치 — 별도 count 쿼리가 아니라 이닝 합계로 유도) |
 | data.summary.total | long | 열거된 이닝 전체의 받은 문항 수 합계. **열거 범위 밖(진행 중인 현재 이닝 등) 행은 포함하지 않는다** |
 | data.summary.accuracy | double | `correctCount/total`(0.0~1.0), `total=0`이면 `0.0`(NaN 아님) |
-| data.summary.earnedPoint | long(신규) | 정답 행(`is_answer=true`)의 `quizzes.score` 합. **적립 원장이 아니라 표시용 근사치**(`users_account.point`는 읽지 않는다) — 배점이 사후 수정되면 실제 적립액과 어긋날 수 있음을 계약으로 인정 |
+| data.summary.earnedPoint | long | 정답 행(`is_answer=true`)의 `quizzes.point`(2026-09-03 정정 — 종전 문서는 컬럼명이 바뀌기 전 이름인 `quizzes.score`로 적혀 있었다. 산식·값은 불변) 합. **적립 원장이 아니라 표시용 근사치**(`users_account.point`는 읽지 않는다) — 배점이 사후 수정되면 실제 적립액과 어긋날 수 있음을 계약으로 인정 |
+| data.summary.earnedBq (신규 2026-09-03) | long | 정답 행의 `quizzes.bq`(0 이하는 0으로 취급) 합 — 그 경기 전체 문제 항목의 `earnedBq` 합과 같다. `earnedPoint`와 같은 성질(표시용 근사치, 적립 원장 아님). 기록이 없는 경기(`innings:[]`)면 `0` |
 | data.innings[].inning | int | 이닝 번호(1부터, 오름차순) |
-| data.innings[].summary.correctCount / total / accuracy | | 그 이닝만의 같은 산식 — **분모(`total`)는 그 이닝에 실제로 받은 문항 수**(고정 20이 아니다) |
+| data.innings[].summary.correctCount / total / accuracy | | 그 이닝만의 같은 산식 — **분모(`total`)는 그 이닝에 실제로 받은 문항 수**(고정 20이 아니다). **이닝별 요약은 이번 변경으로도 3키 그대로다 — `earnedPoint`·`earnedBq` 어느 쪽도 여기엔 없다**(경기 전체 `summary`에만 있다) |
 | data.innings[].quizzes[] | array | 그 이닝의 문제 목록. **행 `id` 오름차순(받은 순서)**. 기록 없는 이닝도 원소로 남고 `quizzes: []` |
 
-**data.innings[].quizzes[] 항목 필드**(13개 — `quizDate`·`myOptionText`·`answerText`는 삭제됨):
+**data.innings[].quizzes[] 항목 필드**(14개, 2026-09-03 `earnedBq` 추가로 13개 → 14개 — `quizDate`·`myOptionText`·`answerText`는 삭제됨):
 
 | 필드 | 타입 | 설명 |
 |---|---|---|
@@ -308,7 +315,8 @@ curl -X POST http://localhost:8081/rt/quizzes/23/submit \
 | correct | boolean | `quiz_users_submit.is_answer` 그대로(재계산 안 함 — 정답이 사후 정정돼도 당시 판정을 보존). 미답이면 `false` |
 | expired | boolean | 답 없이 시한(받은 시각+8분)을 넘겼는지. 답한 항목은 항상 `false` |
 | answer | int | 정답 보기 번호. **미답 항목에도 실린다** — 이 목록의 항목은 정의상 전부 이미 받은 문제라 감출 대상이 아니다 |
-| earnedPoint | long | 그 문제로 적립된 포인트(정답 아니면 0, `score` NULL이면 0) |
+| earnedPoint | long | 그 문제로 적립된 포인트(정답 아니면 0, `point` NULL이면 0) |
+| earnedBq (신규 2026-09-03) | long | 그 문제로 적립된 레이팅 점수(정답 아니면 0, `bq` NULL이거나 0 이하면 0). `earnedPoint`와 같은 성질(표시용 근사치, `quizzes.bq`의 현재 값을 읽는다) |
 | submittedAt | LocalDateTime | 답을 낸 시각(그 행의 `updated_at`). **미답 항목은 낸 시각이 없어 받은 시각(`created_at`)이 그대로 남는다** |
 | liked | boolean | 내 현재 좋아요 상태(항상 존재, 미답 항목도 포함 — 좋아요는 받은 문제 전체에 열려 있다) |
 | likeCount | long | `liked=true` 행 수(취소한 좋아요는 세지 않음) |
@@ -328,20 +336,21 @@ curl -X POST http://localhost:8081/rt/quizzes/23/submit \
 # 성공 — 진행 중인 경기, 1회는 결산됐고 2회는 기록이 있는 경기라 0/0으로 남는다
 curl "http://localhost:8081/rt/quizzes/submissions?gameId=20260812SSHT02026" -H 'Authorization: Bearer eyJ...'
 # {"success":true,"data":{
-#   "summary":{"correctCount":9,"total":14,"accuracy":0.642857,"earnedPoint":450},
+#   "summary":{"correctCount":9,"total":14,"accuracy":0.642857,"earnedPoint":450,"earnedBq":18},
 #   "innings":[
 #     {"inning":1,"summary":{"correctCount":9,"total":14,"accuracy":0.642857},
 #      "quizzes":[
 #        {"quizId":30,"question":"...","type":"O/X","difficulty":"EASY",
 #         "options":[{"no":0,"text":"O"},{"no":1,"text":"X"}],
 #         "myOption":0,"correct":true,"expired":false,"answer":0,
-#         "earnedPoint":50,"submittedAt":"2026-08-13T19:03:11","liked":false,"likeCount":2}]},
+#         "earnedPoint":50,"earnedBq":2,"submittedAt":"2026-08-13T19:03:11","liked":false,"likeCount":2}]},
 #     {"inning":2,"summary":{"correctCount":0,"total":0,"accuracy":0.0},"quizzes":[]}
 #   ]},"message":null}
+# (innings[].summary 는 이번 변경으로도 3키 그대로 — earnedBq 는 없다)
 
 # 그 경기에서 문제를 한 번도 받지 않은 경우 — 열거 범위가 계산돼도 통째로 접힌다(빈 이닝 원소가 아니다)
 curl "http://localhost:8081/rt/quizzes/submissions?gameId=20260812LTKT02026" -H 'Authorization: Bearer eyJ...'
-# {"success":true,"data":{"summary":{"correctCount":0,"total":0,"accuracy":0.0,"earnedPoint":0},
+# {"success":true,"data":{"summary":{"correctCount":0,"total":0,"accuracy":0.0,"earnedPoint":0,"earnedBq":0},
 #   "innings":[]},"message":null}
 
 # gameId 누락 (실측 규약)

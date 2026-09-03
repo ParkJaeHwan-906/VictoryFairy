@@ -1,5 +1,6 @@
 package com.skhynix.quiz.quiz.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.BDDMockito.given;
@@ -74,7 +75,7 @@ class QuizSubmissionControllerSubmitTest {
     @DisplayName("유효한 보기 번호로 제출하면 200과 채점 결과 JSON을 반환하고 서비스에 위임한다")
     void submit_validOption_returns200WithGradingResult() throws Exception {
         given(quizSubmitService.submit(USER_ID, QUIZ_ID, 0))
-                .willReturn(new QuizSubmitResponse(true, 0, 0, 10L, 110L));
+                .willReturn(new QuizSubmitResponse(true, 0, 0, 10L, 110L, 2L, 12L));
 
         mockMvc.perform(post("/quizzes/{quizId}/submit", QUIZ_ID)
                         .with(authenticatedAs(USER_ID))
@@ -87,12 +88,30 @@ class QuizSubmissionControllerSubmitTest {
                 .andExpect(jsonPath("$.data.myOption").value(0))
                 .andExpect(jsonPath("$.data.earnedPoint").value(10))
                 .andExpect(jsonPath("$.data.totalPoint").value(110))
+                // [QUIZ-PBQ-30,31] earnedBq·totalBq가 새로 실린다
+                .andExpect(jsonPath("$.data.earnedBq").value(2))
+                .andExpect(jsonPath("$.data.totalBq").value(12))
                 // [AC-INN-25-1] 제출 응답 필드 집합은 이닝 기능 도입 후에도 바뀌지 않는다 — inning 키가 없다
                 .andExpect(jsonPath("$.data.inning").doesNotExist())
                 // [AC-VOTEVIEW-28-1] 제출 직후 응답에도 분포를 돌려주지 않는다 — voteCount 키가 없다
                 .andExpect(jsonPath("$.data.voteCount").doesNotExist());
 
         verify(quizSubmitService).submit(USER_ID, QUIZ_ID, 0);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-PBQ-32] QuizSubmitResponse의 필드 집합은 기존 5개(correct·answer·myOption·"
+            + "earnedPoint·totalPoint)를 이름·순서 그대로 유지한 채 earnedBq·totalBq 2개만 늘어난다"
+            + "(5개 → 7개)")
+    void quizSubmitResponse_recordComponents_addsOnlyTwoBqFieldsToExistingFive() {
+        List<String> componentNames = java.util.Arrays.stream(
+                        QuizSubmitResponse.class.getRecordComponents())
+                .map(java.lang.reflect.RecordComponent::getName)
+                .toList();
+
+        assertThat(componentNames).hasSize(7);
+        assertThat(componentNames).containsExactlyInAnyOrder(
+                "correct", "answer", "myOption", "earnedPoint", "totalPoint", "earnedBq", "totalBq");
     }
 
     @Test
