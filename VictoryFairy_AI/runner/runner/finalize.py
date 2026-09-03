@@ -8,30 +8,42 @@ from pathlib import Path
 
 import yaml
 
-#: 점수·비율의 정본. 이 모듈은 숫자를 직접 적지 않는다 — 값을 바꿀 때는
-#: scoring.yaml 하나만 고치면 된다.
+#: 보상(포인트·BQ)·비율의 정본. 이 모듈은 숫자를 직접 적지 않는다 — 값을 바꿀
+#: 때는 scoring.yaml 하나만 고치면 된다.
 SCORING_PATH = (Path(__file__).resolve().parents[2]
                 / "question-gen" / "config" / "scoring.yaml")
 
 
 def load_scoring(path=SCORING_PATH):
-    """`volume.perGame`은 경기 하나당, `volume.common`은 하루 전체 슬롯이다. 각
-    quota는 파일에 적힌 난이도 순서를 그대로 채움 우선순위로 쓴다. 값이 비면
-    예외를 낸다 — 기본값으로 조용히 되돌아가면 정본과 실제 동작이 갈라진다."""
+    """`(points, bq, quota)`를 낸다. `volume.perGame`은 경기 하나당,
+    `volume.common`은 하루 전체 슬롯이다. 각 quota는 파일에 적힌 난이도 순서를
+    그대로 채움 우선순위로 쓴다. 값이 비면 예외를 낸다 — 기본값으로 조용히
+    되돌아가면 정본과 실제 동작이 갈라진다.
+
+    points와 bq의 난이도 키 집합이 다르면 그것도 예외다 — select_final이
+    재분류 난이도 하나로 두 표를 함께 조회하기 때문에, 한쪽에만 있는 난이도는
+    선별 도중 KeyError가 된다."""
     with open(path, "r", encoding="utf-8") as f:
         doc = yaml.safe_load(f) or {}
     points = doc.get("points") or {}
+    bq = doc.get("bq") or {}
     volume = doc.get("volume") or {}
-    if not points or not volume.get("perGame") or not volume.get("common"):
+    if not points or not bq or not volume.get("perGame") or not volume.get("common"):
         raise ValueError(
-            f"scoring.yaml에 points 또는 volume.perGame/common이 비어 있음: {path}")
+            f"scoring.yaml에 points/bq 또는 volume.perGame/common이 비어 있음: {path}")
     quota = {k: [(str(d), int(n)) for d, n in volume[k].items()]
              for k in ("perGame", "common")}
     quota["candidateMultiplier"] = float(volume.get("candidateMultiplier", 1.5))
-    return {str(k): int(v) for k, v in points.items()}, quota
+    points = {str(k): int(v) for k, v in points.items()}
+    bq = {str(k): int(v) for k, v in bq.items()}
+    if set(points) != set(bq):
+        raise ValueError(
+            f"scoring.yaml의 points·bq 난이도 키가 불일치: "
+            f"points={sorted(points)}, bq={sorted(bq)} ({path})")
+    return points, bq, quota
 
 
-POINTS, VOLUME = load_scoring()
+POINTS, BQ, VOLUME = load_scoring()
 KST = timezone(timedelta(hours=9))
 
 
@@ -108,8 +120,11 @@ def select_final(candidates, verdicts, entity_of, quota=None):
         if new_diff not in POINTS:
             reasons.append(f"{qid}: 난이도 재분류 값 인식 불가: {new_diff}")
             continue
+        # 난이도가 재분류되면 보상 두 축을 함께 다시 매긴다 — 한쪽만 갱신하면
+        # 업로드 직전 게이트(validate_candidates.py check 6)에서 걸린다.
         c["difficulty"] = new_diff
         c["pointReward"] = POINTS[new_diff]
+        c["bqReward"] = BQ[new_diff]
         passed.append(c)
 
     if quota is not None:
