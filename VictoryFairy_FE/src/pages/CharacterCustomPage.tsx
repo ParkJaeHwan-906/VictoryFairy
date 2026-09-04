@@ -343,6 +343,18 @@ export default function CharacterCustomPage() {
         <h1 className="character-custom-page__topbar-title">캐릭터 꾸미기</h1>
         {/* 디자인상 opacity 0 인 빈 버튼 — 타이틀을 가운데 두기 위한 자리 */}
         <span className="character-custom-page__topbar-spacer" aria-hidden="true" />
+        {/*
+          보유 포인트. 가격이 카드마다 붙어 있는데 정작 내 잔액은 살 때 뜨는 확인 시트에서야
+          보였다 — 살지 말지는 목록을 훑는 동안 정하므로 그 자리에 함께 둔다.
+
+          타이틀 중앙 정렬을 지키려고 위 스페이서를 남기고 이것만 오른쪽에 띄웠다
+          (칩 폭이 back 버튼 60px 과 달라, 흐름에 넣으면 타이틀이 왼쪽으로 밀린다).
+          구매·착용 뒤 `fetchProfile()` 이 돌기 때문에 잔액은 저절로 따라 내려간다.
+        */}
+        <p className="character-custom-page__balance">
+          <span className="character-custom-page__sr-only">보유 포인트 </span>
+          {point}P
+        </p>
       </header>
 
       {/* 미리보기. 착용을 바꾸면 프로필 재조회로 이 그림이 따라 바뀐다. */}

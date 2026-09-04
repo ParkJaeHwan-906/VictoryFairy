@@ -27,6 +27,8 @@
  * 오른쪽은 디자인상 opacity 0 인 빈 버튼 → 타이틀 중앙 정렬용 스페이서로 둔다.
  * ------------------------------------------------------------------ */
 .character-custom-page__topbar {
+  /* 보유 포인트 칩을 오른쪽에 띄우기 위한 기준 — 아래 `__balance` 주석 참고 */
+  position: relative;
   display: flex;
   flex: 0 0 auto;
   align-items: center;
@@ -67,6 +69,45 @@
   flex-shrink: 0;
   width: 60px;
   height: 60px;
+}
+
+/*
+ * 보유 포인트 칩.
+ *
+ * 흐름에 넣지 않고 절대 배치한다 — 폭이 왼쪽 back 버튼(60px)과 다르면 space-between 이
+ * 타이틀을 한쪽으로 밀기 때문이다. 위 스페이서가 자리를 지키고 이 칩이 그 위에 얹힌다.
+ * 오른쪽 여백은 back 버튼의 시각적 여백(60px 안 아이콘 20px → 20px)과 맞췄다.
+ *
+ * 색은 카드의 가격표와 같은 계열이되 한 톤 진하다 — 가격은 "치러야 할 값"이라 흐리고,
+ * 이쪽은 "지금 가진 것"이라 읽혀야 한다.
+ */
+.character-custom-page__balance {
+  position: absolute;
+  top: 50%;
+  right: 20px;
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: var(--radius-10);
+  background-color: var(--color-background-red);
+  color: var(--color-primary-normal);
+  font-size: var(--font-size-caption1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  white-space: nowrap;
+  transform: translateY(-50%);
+}
+
+/* 화면에는 감추고 보조기기에만 남기는 텍스트 */
+.character-custom-page__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 /* ------------------------------------------------------------------ *
