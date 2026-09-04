@@ -2,7 +2,9 @@ package com.skhynix.domain.user.repository;
 
 import com.skhynix.domain.user.entity.UserBq;
 import jakarta.persistence.LockModeType;
+import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -34,4 +36,49 @@ public interface UserBqRepository extends JpaRepository<UserBq, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select ub from UserBq ub where ub.userAccount.id = :userAccountId")
     Optional<UserBq> findWithLockByUserAccountId(@Param("userAccountId") Long userAccountId);
+
+    /**
+     * 그 구단을 <b>활성 응원 중</b>인 계정을 점수 내림차순·계정 id 오름차순으로 앞에서 {@code limit} 건.
+     *
+     * <p>모집단의 뿌리가 {@code users_bq} 가 아니라 {@code user_support_team} 인 이유: {@code users_bq} 에서
+     * 시작하면 행이 없는 계정이 목록에서 빠진다(그 계정은 0 점으로 <b>포함</b>돼야 한다). 같은 이유로
+     * {@code UserBq} 쪽이 left join 이고 점수는 {@code coalesce} 로 접는다.
+     *
+     * <p>⚠ {@code exit_at} 조건을 붙이지 말 것 — 탈퇴 계정을 모집단에 넣는 것이 계약이다
+     * ({@code docs/requirements/user/team-bq-ranking.md} 결정 4). 하드 삭제 시 CASCADE 로 자연히 빠진다.
+     *
+     * <p>정렬 축이 둘인 것은 결정성 때문이다 — 점수만으로 정렬하면 동점자의 순서가 요청마다 바뀔 수 있고,
+     * 상한에서 잘리는 계정이 달라진다. 순위 숫자를 여기서 매기지 않는 이유는 윈도 함수가 JPQL 에 없어서인데,
+     * 이 목록은 1 위부터의 접두이므로 호출부가 "앞 항목과 점수가 같으면 같은 순위"로 매겨도 결과가 같다.
+     */
+    @Query("select ua.nickname as nickname, ua.profileImgUrl as profileImgUrl, "
+            + "coalesce(ub.bqScore, 0L) as bqScore "
+            + "from UserSupportTeam ust join ust.userAccount ua "
+            + "left join UserBq ub on ub.userAccount.id = ua.id "
+            + "where ust.team.id = :teamId and ust.oppose is null "
+            + "order by coalesce(ub.bqScore, 0L) desc, ua.id asc")
+    List<BqRankingEntryView> findTeamRanking(@Param("teamId") Long teamId, Limit limit);
+
+    /**
+     * 그 구단 모집단에서 주어진 점수보다 <b>엄격히 높은</b> 계정 수. {@code +1} 이 곧 그 점수의 순위다
+     * (SQL {@code RANK()} 와 같은 1·1·3 방식 — 동점자는 세지 않으므로 동점 몇 명 중 하나여도 같은 순위).
+     *
+     * <p>점수를 인자로 받는 이유는 {@code /me} 가 이미 읽어 둔 값을 다시 읽지 않기 위해서다 — 계정 id 로 받아
+     * 안에서 점수를 다시 조회하면 그 경로의 SELECT 가 1 회가 아니라 2 회 늘어난다.
+     */
+    @Query("select count(ust.id) from UserSupportTeam ust "
+            + "left join UserBq ub on ub.userAccount.id = ust.userAccount.id "
+            + "where ust.team.id = :teamId and ust.oppose is null "
+            + "and coalesce(ub.bqScore, 0L) > :bqScore")
+    long countHigherInTeam(@Param("teamId") Long teamId, @Param("bqScore") long bqScore);
+
+    /**
+     * 한 계정의 순위표 재료(닉네임·이미지 EP·점수)를 한 번에. 계정과 점수 행을 따로 읽으면 SELECT 가 2 회다.
+     * {@code users_bq} 행이 없어도 계정이 있으면 0 점으로 돌아오고, 계정 자체가 없을 때만 비어 있다.
+     */
+    @Query("select ua.nickname as nickname, ua.profileImgUrl as profileImgUrl, "
+            + "coalesce(ub.bqScore, 0L) as bqScore "
+            + "from UserAccount ua left join UserBq ub on ub.userAccount.id = ua.id "
+            + "where ua.id = :userAccountId")
+    Optional<BqRankingEntryView> findRankingEntry(@Param("userAccountId") Long userAccountId);
 }
