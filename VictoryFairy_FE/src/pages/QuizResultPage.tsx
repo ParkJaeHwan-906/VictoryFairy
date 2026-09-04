@@ -28,11 +28,18 @@ import '../styles/QuizResultPage.css';
  * `HEADING_TIERS` 참고). 요약을 받아야 정해지므로 불러오는 동안에는 띄우지 않는다.
  *
  * ── 숫자의 출처 ────────────────────────────────────────────────────
- *   획득 포인트 → `summary.earnedPoint` (신규 — 페이지를 이어 받아 합칠 필요가 없어졌다)
+ *   획득 BQ   → `summary.earnedBq` (2026-09-03 신설)
  *   정답률·맞힌 수 → `summary.accuracy` · `summary.correctCount` / `summary.total`
  *   회별 게이지 → `innings[].summary` 의 같은 세 값
- * 요약의 `earnedPoint` 는 적립 원장이 아니라 이 경기 정답 배점의 합(표시용)이라
- * 마이페이지의 보유 포인트와 다른 수다.
+ *
+ * ── ⚠️ 전광판의 큰 수는 **재화가 아니다** ────────────────────────────
+ * 배점이 2026-09-03 에 두 축으로 갈렸다 — 상점에서 쓰는 **포인트(`point`)** 와 랭킹을
+ * 가르는 **BQ(`bqScore`)** 다. 이 화면이 세우는 것은 뒤쪽이다: 경기를 잘 풀면 랭킹이
+ * 오른다는 이야기라, 여기서 포인트를 보여 주면 "이만큼 벌었다"로 읽혀 상점 잔액과 어긋난다
+ * (`earnedPoint` 도 응답에 함께 오지만 이 화면은 쓰지 않는다).
+ *
+ * 그리고 `earnedBq` 는 **적립 원장이 아니라 이 경기 정답 배점의 합(표시용)** 이다 —
+ * 누적 BQ(`GET /users/me` 의 `bqScore`, 라운지 랭킹의 수)와는 다른 수다.
  */
 
 /** 게이지 칸 수. 디자인 고정값이라 정답률을 이 눈금으로 반올림해 채운다. */
@@ -235,11 +242,12 @@ export default function QuizResultPage() {
 
             <div className="quiz-result-page__board-main">
               <div className="quiz-result-page__board-col">
-                <p className="quiz-result-page__board-chip">획득 포인트</p>
+                {/* 상점 재화(포인트)가 아니라 랭킹 축이다 — 머리말 참고 */}
+                <p className="quiz-result-page__board-chip">획득 BQ</p>
                 <LedNumber
-                  value={summary.earnedPoint}
+                  value={summary.earnedBq}
                   tone="primary"
-                  label={`획득 포인트 ${summary.earnedPoint}점`}
+                  label={`획득 BQ ${summary.earnedBq}점`}
                 />
               </div>
 
