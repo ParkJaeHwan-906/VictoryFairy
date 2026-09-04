@@ -61,20 +61,6 @@ function toBattingAverage(accuracy: number): string {
 }
 
 /**
- * 정답률(`0`~`1`)을 **야구 타율 표기**로 옮긴다 — `0.667` → `.667`, `0.5` → `.500`.
- *
- * 타율은 소수점 앞 `0` 을 적지 않고 셋째 자리까지 0 을 채워 쓴다(할·푼·리). 서버가 이미
- * 셋째 자리에서 반올림해 주지만 **후행 0 은 지워서 보내므로**(`0.5` 는 `0.500` 이 아니다)
- * 자릿수 패딩은 화면 몫이다 — `toFixed(3)` 이 그 일만 한다(값은 반올림되지 않는다).
- *
- * 10할은 타율에서도 `1.000` 이라 앞자리를 남긴다.
- */
-function toBattingAverage(accuracy: number): string {
-  const text = Math.min(Math.max(accuracy, 0), 1).toFixed(3);
-  return text.startsWith('0') ? text.slice(1) : text;
-}
-
-/**
  * 선호(구단 · 선수) 수정 흐름으로 들어간다는 표식.
  * 렌더마다 새 객체를 만들지 않도록 밖에 둔다 — 라우터 state 는 값만 실어 보내면 된다.
  */
