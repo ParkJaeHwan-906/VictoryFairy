@@ -112,14 +112,8 @@ export default function LoginPage() {
 
   return (
     <main className="login-page">
-      <section className="login-page__hero" aria-hidden="true">
-        {/* 디자인에 실제 그래픽 없이 자리표시 텍스트만 존재한다 */}
-        <p className="login-page__hero-placeholder">
-          아무튼 뭔가
-          <br />
-          백그라운드 그래픽
-        </p>
-      </section>
+      {/* 장식용 배경 일러스트. 그림은 CSS(.login-page__hero)에서 깐다. */}
+      <section className="login-page__hero" aria-hidden="true" />
 
       <section className="login-page__sheet">
         <h1 className="login-page__title">
