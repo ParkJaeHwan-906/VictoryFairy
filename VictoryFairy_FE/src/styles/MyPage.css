@@ -187,6 +187,19 @@
   white-space: nowrap;
 }
 
+/* 화면에는 감추고 보조기기에만 남기는 텍스트(타율 표기를 퍼센트로 읽어 주는 자리) */
+.my-page__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
 .my-page__stat-divider {
   flex-shrink: 0;
   width: 1px;
