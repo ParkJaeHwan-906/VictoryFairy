@@ -6,6 +6,7 @@
 > **2026-08-06 2차 개정**: ①미해결 질문 1건(응원 선수 개수 상한)이 **C안(응원 API 쪽에 상한, 4명)으로 확정**돼 닫혔다 — USER-ME-36 신설, `support-selection.md` USER-SP-30~37 이 강제 주체다. ②응원 선수 조회가 **fetch join 1쿼리**로 바뀌어 USER-ME-22 의 SELECT 횟수가 **5회 고정**으로 정정됐다. ③"테스트 대응" 절을 신설했다(2026-08-06 실측). **미해결 질문은 0건이다.**
 > **2026-08-06 3차 개정(참조만)**: 응원 쓰기 경로에 계정 행 비관적 락이 도입됐다(`support-selection.md` USER-SP-38~46). **이 엔드포인트의 계약은 바뀌지 않는다** — `/me`는 읽기라 락을 타지 않는다(USER-SP-44). 그 사실을 "제약"과 "테스트 대응"에 한 줄씩 참조로만 추가했다. **USER-ME-* 번호는 신설되지 않았고 미해결 질문도 여전히 0건이다.**
 > **2026-09-03 개정(확정)**: 응답에 **내 퀴즈 정답률** 1필드가 추가된다. 노출 키가 **8개 → 9개**(USER-ME-13 정정), SELECT 가 **7회 → 8회**(USER-ME-22 정정)로 늘고 **USER-ME-37~44** 가 신설됐다. ⚠ **이 문서는 그 사이 두 번의 키 추가를 놓쳤다** — `profileImgUrl`(2026-08-20, 계약 원본 `profile-image.md` USER-PI-65~67)과 `characterImgUrl`·`characterItems`(2026-08-28, 계약 원본 `character-shop.md` USER-CS-31~35)는 각 기능의 문서에만 적히고 여기 USER-ME-13·22 는 "5개·5회"인 채로 낡아 있었다. 이번 개정에서 두 조항을 **현행 사실로 함께 정정**한다(그 세 필드 자체의 계약 원본은 여전히 각 문서다 — 여기로 옮겨 오지 않았다). **미해결 질문 3건은 같은 날 사용자 확정으로 전부 닫혔다(결정 19~22) — 현재 0건이다.**
+> **2026-09-04 정정(참조만)**: 응원 구단 내 BQ 순위(`docs/requirements/user/team-bq-ranking.md`, 승인됨, USER-RK-70~74)가 응답에 **`bqRank`** 1키를 더한다. 노출 키가 **9개 → 10개**(USER-ME-13 정정), SELECT 가 **8회 → 9회**(USER-ME-22·44 정정, 내역표 9번 추가). `bqRank` 자체의 계약 원본은 그 문서이며 여기로 옮겨 오지 않았다(`profileImgUrl`·`characterImgUrl`·`quizAccuracy` 와 같은 절차). **USER-ME-* 번호는 신설되지 않았고 미해결 질문도 여전히 0건이다.**
 
 ## 배경 / 목적
 `/api/users/me`는 지금 `DELETE`(탈퇴) 하나뿐이고, `docs/api/account.md`가 "프로필 조회·수정 엔드포인트는 아직 없다 — 이 도메인에 생길 자리다"라고 적어 둔 자리를 채운다.
@@ -115,7 +116,7 @@ WHERE NOT EXISTS (SELECT 1 FROM users_bq b WHERE b.user_account_id = ua.id);
 | ID | 유형 | 요구사항 | 인수 기준 |
 |---|---|---|---|
 | USER-ME-12 | 이벤트 | WHEN 인증된 사용자가 이 경로를 요청하면, THE 시스템 SHALL 200과 `ApiResponse` 래퍼에 담긴 요약 프로필을 반환한다 | `{"success":true,"data":{...},"message":null}` |
-| USER-ME-13 | 유비쿼터스 | THE 시스템 SHALL `data`의 키 집합을 정확히 `{nickname, supportTeam, supportPlayers, point, bqScore, profileImgUrl, characterImgUrl, characterItems, quizAccuracy}`로 한정한다 | `data`의 키가 위 **9개**뿐. `id`·`uid`·`password`·`email`·`tel`·`exitAt`·`createdAt`·`updatedAt` 키가 **응답 어디에도 없음** |
+| USER-ME-13 | 유비쿼터스 | THE 시스템 SHALL `data`의 키 집합을 정확히 `{nickname, supportTeam, supportPlayers, point, bqScore, profileImgUrl, characterImgUrl, characterItems, quizAccuracy, bqRank}`로 한정한다 | `data`의 키가 위 **10개**뿐(2026-09-04 `bqRank` 추가 — 계약 원본 `team-bq-ranking.md` USER-RK-70~72). `id`·`uid`·`password`·`email`·`tel`·`exitAt`·`createdAt`·`updatedAt` 키가 **응답 어디에도 없음** |
 | USER-ME-14 | 유비쿼터스 | THE 시스템 SHALL `nickname`에 그 계정의 `users_account.nickname` 현재 값을 담는다 | DB의 `nickname`과 응답 값이 문자 그대로 일치 |
 | USER-ME-15 | 유비쿼터스 | THE 시스템 SHALL `supportTeam`에 그 계정이 **현재 응원 중인**(`user_support_team.oppose is null`) 구단의 `{id, name}`을 담는다 | KIA 응원 중 → `"supportTeam":{"id":6,"name":"KIA"}`. 취소된(`oppose` 채워진) 구단은 반환되지 않음 |
 | USER-ME-16 | 예외 | **[안전망]** IF 그 계정에 현재 응원 중인 구단 행이 없으면, THEN THE 시스템 SHALL `supportTeam`을 `null`로 담아 200을 반환한다 | 가입 직후(구단 선택 전) 계정 → 200, `"supportTeam":null`. 400·404·500이 아니며 빈 문자열·빈 객체도 아님 |
@@ -180,7 +181,7 @@ WHERE NOT EXISTS (SELECT 1 FROM users_bq b WHERE b.user_account_id = ua.id);
 | USER-ME-41 | 유비쿼터스 | THE 시스템 SHALL `quizAccuracy`를 `0` 이상 `1` 이하의 JSON 숫자로, 소수 넷째 자리에서 **HALF_UP**(사사오입, 정확히 절반이면 올림)으로 반올림한 **소수 셋째 자리까지의 값**으로 담는다 | `2/3` → `0.667`, `1/3` → `0.333`, `1/16`(=0.0625) → `0.063`(HALF_UP — `0.062`가 아니다), `1/8` → `0.125`, 전건 정답 → `1`, 전건 오답 → `0`. 문자열 `"0.667"`이 아니다. **후행 0은 보존하지 않는다**(`0.5`는 `0.5`이지 `0.500`이 아니다) — 서버는 자릿수를 맞추려고 스케일 고정 십진 타입을 강제하지 않고, 세 자리 패딩은 프론트엔드가 한다. 1을 넘는 값·음수가 나오지 않는다 |
 | USER-ME-42 | 유비쿼터스 | THE 시스템 SHALL `quizAccuracy`를 숫자 원값 하나로만 반환하고 표기 문자열을 만들지 않는다 | 응답 어디에도 `"6할 6푼 7리"`·`"66.7%"`·`quizAccuracyText` 같은 키·값이 없다. 백분율(0~100) 스케일도 아니다 — 프론트엔드가 이 숫자의 소수 세 자리를 할·푼·리로 읽는다 |
 | USER-ME-43 | 유비쿼터스 | THE 시스템 SHALL 집계 범위를 그 계정의 **전 기간 누적**으로 하고 경기·이닝·날짜로 좁히지 않는다 | 서로 다른 두 경기에서 받은 행이 하나의 분모에 합산된다. 요청 파라미터가 여전히 0개이며(USER-ME-11) 기간·경기 필터가 없다. 경기 단위 정답률은 `GET /rt/quizzes/submissions`가 따로 갖는다 |
-| USER-ME-44 | 유비쿼터스 | THE 시스템 SHALL 이 값을 얻기 위해 SELECT 를 **1회만** 추가하고, 그 횟수를 그 계정의 `quiz_users_submit` 행 수와 무관하게 유지한다 | `show-sql` 기준 `/me` 전체 SELECT 가 **8회**(USER-ME-22). 행이 0건인 계정과 5,000건인 계정의 SELECT 횟수가 동일하다 — 행을 애플리케이션으로 끌어와 세면 이 조항이 깨진다 |
+| USER-ME-44 | 유비쿼터스 | THE 시스템 SHALL 이 값을 얻기 위해 SELECT 를 **1회만** 추가하고, 그 횟수를 그 계정의 `quiz_users_submit` 행 수와 무관하게 유지한다 | `show-sql` 기준 `/me` 전체 SELECT 가 **9회**(USER-ME-22, 2026-09-04 `bqRank` 추가로 8→9 정정 — 이 조항이 더하는 몫은 여전히 1회다). 행이 0건인 계정과 5,000건인 계정의 SELECT 횟수가 동일하다 — 행을 애플리케이션으로 끌어와 세면 이 조항이 깨진다 |
 
 **`quizAccuracy`라는 이름을 고른 근거**(2026-09-03 사용자 확정, 결정 19). 기존 키는 값의 출처를 접두로 달고 의미어를 뒤에 붙이는 형태다(`bqScore`·`profileImgUrl`·`characterImgUrl`). 접두 없는 `accuracy`는 "무엇의 정답률인지"가 이 응답 안에서 드러나지 않고, `quizCorrectRate`는 **같은 개념에 두 번째 단어를 도입한다** — `accuracy`는 이미 `GET /rt/quizzes/submissions`의 정답률 필드명으로 쓰이고 있어(`summary.accuracy`) 프론트엔드가 같은 개념을 두 이름으로 배우게 된다.
 
@@ -195,7 +196,7 @@ WHERE NOT EXISTS (SELECT 1 FROM users_bq b WHERE b.user_account_id = ua.id);
 | ID | 유형 | 요구사항 | 인수 기준 |
 |---|---|---|---|
 | USER-ME-21 | 유비쿼터스 | THE 시스템 SHALL 응답 조립에 필요한 모든 지연 로딩 연관(응원 구단명 **및 응원 선수의 소속 구단명** 포함)을 트랜잭션 경계 안에서 초기화한다 | `open-in-view: false`인 prod 프로파일 설정으로 응원 선수 1건 이상인 계정을 호출 → 200이며 `LazyInitializationException`이 발생하지 않음 |
-| USER-ME-22 | 유비쿼터스 | THE 시스템 SHALL 한 번의 요청에 대해 SELECT 를 **정확히 8회**, 그 계정의 응원 이력 행 수·**응원 선수 수**·**보유/착용 아이템 수**·**퀴즈 제출 행 수**와 무관한 고정 횟수로 수행한다 | `show-sql`(또는 Hibernate statistics)로 세었을 때 SELECT = 8. 응원 선수가 **0명**인 계정과 1명·4명인 계정, 응원 이력이 1건인 계정과 10건인 계정, 퀴즈 제출 행이 **0건**인 계정과 5,000건인 계정의 SELECT 횟수가 **모두 동일** |
+| USER-ME-22 | 유비쿼터스 | THE 시스템 SHALL 한 번의 요청에 대해 SELECT 를 **정확히 9회**, 그 계정의 응원 이력 행 수·**응원 선수 수**·**보유/착용 아이템 수**·**퀴즈 제출 행 수**·**응원 구단의 순위 모집단 크기**와 무관한 고정 횟수로 수행한다 | `show-sql`(또는 Hibernate statistics)로 세었을 때 SELECT = 9(2026-09-04 `bqRank` 추가로 8→9 정정). 응원 선수가 **0명**인 계정과 1명·4명인 계정, 응원 이력이 1건인 계정과 10건인 계정, 퀴즈 제출 행이 **0건**인 계정과 5,000건인 계정, 같은 구단 응원자가 3명인 계정과 3,000명인 계정의 SELECT 횟수가 **모두 동일** |
 
 #### USER-ME-22의 세는 기준과 내역 (2026-08-06 2차 개정으로 확정 · 2026-09-03 정정)
 
@@ -211,8 +212,9 @@ WHERE NOT EXISTS (SELECT 1 FROM users_bq b WHERE b.user_account_id = ua.id);
 | 6 | 사용 중인 캐릭터 조회(2026-08-28, `character-shop.md`) | 항상 |
 | 7 | 착용 중인 아이템 조회(2026-08-28, `character-shop.md`) | 항상 |
 | 8 | **`quiz_users_submit` 정답률 집계(2026-09-03, USER-ME-44)** | 항상 |
+| 9 | **응원 구단 내 BQ 순위 산정(2026-09-04, `team-bq-ranking.md` USER-RK-74)** — 활성 응원 구단이 없으면 순위 값은 `null`이지만 횟수 고정을 위해 조건부로 세지 않는다(구현이 구단 없음을 3번 결과로 알고 생략하더라도 "최대 9회·모집단 크기 무관"이라는 성질은 그대로다) | 항상 |
 
-**⚠ 이 내역표는 2026-09-03 개정 전까지 5행짜리로 낡아 있었다.** 6·7번은 2026-08-28 캐릭터 필드 추가로 이미 늘어 있었고(`docs/api/account.md`가 "5회→7회"로 기록), 이 문서만 정정되지 않았다. 8번이 이번 개정분이다 — **현행 7회에 1회가 더해져 8회다.**
+**⚠ 이 내역표는 2026-09-03 개정 전까지 5행짜리로 낡아 있었다.** 6·7번은 2026-08-28 캐릭터 필드 추가로 이미 늘어 있었고(`docs/api/account.md`가 "5회→7회"로 기록), 이 문서만 정정되지 않았다. 8번이 2026-09-03 개정분이고 **9번이 2026-09-04 `bqRank` 추가분이다 — 8회에 1회가 더해져 9회다.**
 
 `profileImgUrl`은 이 표에 없다(2026-08-20). 이미 조회하는 **계정 행의 컬럼**이라 추가 조회가 붙지 않았다 — 응답 키가 늘어도 SELECT 가 항상 느는 것은 아니라는 반례로 남겨 둔다.
 
@@ -305,4 +307,4 @@ WHERE NOT EXISTS (SELECT 1 FROM users_bq b WHERE b.user_account_id = ua.id);
 없음. (2026-08-06 2차 개정으로 1건이 결정 12로, **2026-09-03 개정으로 3건이 결정 19~21로** 옮겨졌다. quiz 쪽 `accuracy`와의 표현 비대칭은 질문이 아니라 **유지하기로 한 결정**이다 — 결정 22.)
 
 ---
-**이 문서의 2026-08-04분은 동결 상태 그대로다.** 2026-09-03 개정분(USER-ME-37~44 신설 + USER-ME-13·20·22 정정)도 **사용자 확정으로 닫혔다**(결정 19~22). 미해결 질문은 0건이며, 이후 변경은 새 개정 이력을 남길 것. **구현은 아직이다** — 확정된 것은 계약뿐이고, 응답이 실제로 이 모양이 되면 `docs/api/account.md`를 키 9개·SELECT 8회로 함께 갱신해야 한다(`api-documenter` 몫).
+**이 문서의 2026-08-04분은 동결 상태 그대로다.** 2026-09-03 개정분(USER-ME-37~44 신설 + USER-ME-13·20·22 정정)도 **사용자 확정으로 닫혔다**(결정 19~22). 2026-09-04에는 `team-bq-ranking.md`(승인됨)의 `bqRank` 추가를 받아 USER-ME-13·22·44와 내역표를 **키 10개·SELECT 9회**로 정정했다(신설 조항 없음). 미해결 질문은 0건이며, 이후 변경은 새 개정 이력을 남길 것. `bqRank` 구현 후 `docs/api/account.md`를 키 10개·SELECT 9회로 함께 갱신해야 한다(`api-documenter` 몫).
