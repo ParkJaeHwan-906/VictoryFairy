@@ -61,8 +61,11 @@
   white-space: nowrap;
 }
 
-/* 주황 바탕 위라 포인트는 아이보리, 이름은 흰색이다 */
-.ranking-podium__point {
+/*
+ * 랭킹 점수(BQ). 주황 바탕 위라 점수는 아이보리, 이름은 흰색이다.
+ * 상점에서 쓰는 포인트가 아니다 — 클래스 이름을 `__point` 에서 바꾼 이유다.
+ */
+.ranking-podium__score {
   margin: 0;
   color: var(--color-ivory-100);
   font-size: var(--font-size-label2);
@@ -95,7 +98,7 @@
   width: 80px;
 }
 
-.ranking-podium__item--rank1 .ranking-podium__point {
+.ranking-podium__item--rank1 .ranking-podium__score {
   line-height: var(--line-height-body4);
 }
 

@@ -57,7 +57,12 @@ export default function RankingPodium({ entries }: RankingPodiumProps) {
                 alt=""
               />
               <div className="ranking-podium__label">
-                <p className="ranking-podium__point">{entry.bqScore}p</p>
+                {/*
+                  랭킹 축인 BQ 다 — 상점에서 쓰는 포인트가 아니다. 종전에는 `1250p` 로
+                  적었는데, 마이페이지·상점의 포인트 표기(`1250P`)와 대소문자 하나만
+                  달라 같은 재화로 읽혔다. 단위를 아예 다른 글자로 갈랐다.
+                */}
+                <p className="ranking-podium__score">{entry.bqScore} BQ</p>
                 <p className="ranking-podium__name">{entry.nickname}</p>
               </div>
             </div>
