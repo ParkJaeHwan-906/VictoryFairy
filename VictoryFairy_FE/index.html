@@ -3,7 +3,22 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!--
+      확대를 막는다.
+
+      `maximum-scale=1` 과 `user-scalable=no` 는 같은 말을 두 번 하는 것처럼 보이지만,
+      브라우저마다 보는 쪽이 달라 **둘 다 있어야** 한다. 안드로이드 크롬은 앞을 보고,
+      WebView(= 앱, ../VictoryFairy_APP)는 뒤를 본다.
+
+      iOS 사파리만 예외로 둘 다 무시한다(iOS 10 부터 접근성을 이유로 일부러 그렇게
+      바뀌었다). 그쪽은 스크립트로 따로 막는다 — `src/utils/pinchZoom.ts` 참고.
+
+      더블탭 확대와 글자 드래그 같은 나머지 동작은 CSS 쪽이 맡는다(styles/global.css).
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
     <!--
       본문 서체를 CSS 파싱을 기다리지 않고 곧바로 받기 시작한다(@font-face 는 global.css 에 있다).
       한 벌뿐이라 여기서 받아 두면 첫 화면이 시스템 서체로 그려졌다 바뀌는 시간이 줄어든다.
