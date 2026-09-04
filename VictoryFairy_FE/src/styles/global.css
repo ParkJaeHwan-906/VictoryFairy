@@ -54,6 +54,65 @@ body {
 html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+
+  /*
+   * 세로 끝에서 더 당겼을 때 브라우저가 끼어드는 것을 끊는다 — 안드로이드 크롬의
+   * 당겨서 새로고침, iOS 의 고무줄 반동. 둘 다 "웹 문서를 보고 있다"는 신호다.
+   *
+   * 라운지 채팅은 지난 대화를 **직접 만든** 당겨서 부르기로 가져온다
+   * (`LoungeChatSheet`). 브라우저 새로고침이 같은 제스처에 함께 걸리면 둘이 겹쳐,
+   * 대화를 부르려던 손짓이 화면을 통째로 새로 받는 일이 된다.
+   *
+   * 시트 안쪽 스크롤 영역들은 이미 각자 `overscroll-behavior: contain` 을 걸어
+   * 두었다(GameDetailSheet 외) — 그건 스크롤 연쇄를 끊는 것이고, 여기 `none` 은
+   * 문서 바깥의 기본 동작까지 끄는 것이라 역할이 다르다.
+   */
+  overscroll-behavior: none;
+}
+
+/* ------------------------------------------------------------------ *
+ * 앱처럼 보이게 하는 나머지 — 브라우저가 웹 문서에 붙여 주는 동작 끄기.
+ *
+ * 이 화면들은 402px 프레임에 좌표를 맞춘 모바일 앱 화면이고, 실제로도 WebView 로
+ * 감싸 스토어에 올린다(`../VictoryFairy_APP`). 글자를 문질렀을 때 잡히는 파란
+ * 선택 영역, 탭할 때 씌워지는 회색 사각형, 롱프레스로 뜨는 "이미지 저장" 메뉴는
+ * 전부 그 안에서 "앱이 덜컹거린다"로 읽힌다.
+ *
+ * 핀치 확대만 CSS 로 막을 수 없어 viewport 메타(`index.html`)가 맡는다.
+ * ------------------------------------------------------------------ */
+body {
+  /*
+   * 글자 드래그 선택을 끈다. **입력칸은 아래에서 되살린다** — 거기서까지 끄면
+   * 입력한 글자를 고르지 못해 부분 수정도 붙여넣기도 막힌다.
+   */
+  -webkit-user-select: none;
+  user-select: none;
+
+  /* iOS 에서 링크·이미지를 길게 눌렀을 때 뜨는 메뉴 */
+  -webkit-touch-callout: none;
+
+  /* 탭한 자리에 안드로이드가 잠깐 씌우는 회색 사각형 */
+  -webkit-tap-highlight-color: transparent;
+
+  /*
+   * 더블탭 확대를 끄고, 그것을 기다리느라 생기던 탭 300ms 지연도 함께 없앤다.
+   * `none` 이 아니라 `manipulation` 인 이유는 **스크롤은 남겨야** 하기 때문이다.
+   * 이미 `pan-y`·`none` 을 스스로 정해 둔 곳(QuizCard·bottomSheet 등)은
+   * 더 안쪽 규칙이라 이 값에 덮이지 않는다.
+   */
+  touch-action: manipulation;
+}
+
+/*
+ * 입력 관련 요소만 선택을 되돌린다.
+ * `-webkit-touch-callout` 도 함께 되살려야 iOS 의 붙여넣기 말풍선이 뜬다.
+ */
+input,
+textarea,
+[contenteditable='true'] {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
 }
 
 body {
@@ -93,6 +152,9 @@ a {
 img {
   display: block;
   max-width: 100%;
+
+  /* 집어서 끌면 따라붙는 반투명 고스트 — 마우스가 있는 환경에서만 나던 웹의 흔적이다 */
+  -webkit-user-drag: none;
 }
 
 /* 키보드 사용자에게만 포커스 링을 노출한다 */

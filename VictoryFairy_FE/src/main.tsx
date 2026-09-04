@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 import { installAuthTokenStorage } from './stores/useAuthStore';
 import { getAppId } from './utils/appId';
+import { blockPinchZoom } from './utils/pinchZoom';
 import './styles/global.css';
 
 /*
@@ -17,6 +18,12 @@ installAuthTokenStorage();
  * 가입 전 프로필 이미지 업로드가 이 값으로만 한도를 세므로, 첫 업로드보다 먼저 있어야 한다.
  */
 getAppId();
+
+/*
+ * 모바일 사파리에서만 남아 있는 핀치 확대를 막는다. 나머지 브라우저와 앱의 WebView 는
+ * viewport 메타(`index.html`)로 이미 막혀 있어, 그쪽에서는 이 호출이 하는 일이 없다.
+ */
+blockPinchZoom();
 
 const container = document.getElementById('root');
 
