@@ -105,12 +105,13 @@ export {
 } from './chat';
 export type { ChatSubscription, ChatSubscriptionHandlers } from './chat';
 
-// 데일리 퀴즈(quiz 모듈 — 채팅과 같은 `/rt` base) 엔드포인트 함수 — 다섯 개 전부 인증이 필수다
+// 데일리 퀴즈(quiz 모듈 — 채팅과 같은 `/rt` base) 엔드포인트 함수 — 여섯 개 전부 인증이 필수다
 export {
   getTodayQuizzes,
   getQuiz,
   submitQuiz,
   getQuizSubmissions,
+  getQuizVoteCount,
   likeQuiz,
   findOption,
   isQuizNotFound,
@@ -236,4 +237,5 @@ export type {
   QuizInningResult,
   QuizSubmissionHistory,
   QuizLikeResult,
+  QuizVoteCount,
 } from '../types/quiz';

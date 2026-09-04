@@ -107,11 +107,20 @@ export function isSameAsCurrentPassword(error: unknown): boolean {
  * ------------------------------------------------------------------ */
 
 /**
- * GET /users/me — 내 프로필 조회(닉네임 · 응원 구단 · 응원 선수 · 포인트 · 누적 점수 · 캐릭터).
+ * GET /users/me — 내 프로필 조회(닉네임 · 응원 구단 · 응원 선수 · 포인트 · 누적 점수 ·
+ * 캐릭터 · 퀴즈 누적 정답률 · 구단 내 BQ 순위).
  * 읽기 전용이라 어떤 행도 만들거나 고치지 않는다. 성공 시 ApiResponse 래핑(200).
  *
  * 온보딩 중간 상태도 오류가 아니다 — 구단 미선택이면 `supportTeam: null`,
- * 응원 선수가 없으면 `supportPlayers: []`, 누적 점수 행이 없으면 `bqScore: 0` 으로 그냥 200 이 온다.
+ * 응원 선수가 없으면 `supportPlayers: []`, 누적 점수 행이 없으면 `bqScore: 0`,
+ * 퀴즈를 한 번도 안 받았으면 `quizAccuracy: 0` 으로 그냥 200 이 온다.
+ *
+ * 📊 **계정 전체 누적 정답률이 이 응답으로 돌아왔다**(2026-09-03, `quizAccuracy`).
+ * 2026-08-13 에 풀이 이력이 경기 단위로 좁혀지며 없어졌던 값이라, 경기와 무관한 통계가
+ * 필요한 화면(마이페이지)은 이제 `getQuizSubmissions()` 가 아니라 이 호출로 채운다.
+ *
+ * 🏅 **구단 내 BQ 순위도 함께 온다**(2026-09-04, `bqRank`). `getMyBqRanking()` 의 `rank`
+ * 와 같은 값이라, 순위 숫자만 필요하면 그 호출을 따로 하지 않아도 된다.
  *
  * 🖼️ **캐릭터에 겹쳐 그릴 착용 이미지는 이 응답만 준다**(2026-08-28 신설,
  * `characterImgUrl` · `characterItems[].imgUrl`). 상점 목록(`getCharacterItems()`)의

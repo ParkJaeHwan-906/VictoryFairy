@@ -10,13 +10,14 @@ import type {
   QuizSubmissionHistory,
   QuizSubmitRequest,
   QuizSubmitResult,
+  QuizVoteCount,
 } from '../types/quiz';
 
 /**
  * 데일리 퀴즈 API (quiz 모듈).
  *
  * base 가 채팅과 같은 `/rt` 라 `gameClient` 를 그대로 쓴다(경로만 `/quizzes/*`).
- * 5개 전부 인증이 필수라 모두 `requiresAuth: true` 로 보내며, 성공도 전부 `ApiResponse`
+ * 6개 전부 인증이 필수라 모두 `requiresAuth: true` 로 보내며, 성공도 전부 `ApiResponse`
  * 래핑이라 `unwrap` 으로 `data` 만 벗겨 반환한다.
  *
  * 이 도메인만의 계약 셋:
@@ -27,8 +28,11 @@ import type {
  * - **미편성 문제는 존재하지 않는 것과 구분되지 않는다**(둘 다 404). id 순회로 내일 출제분을
  *   미리 보는 것을 막기 위한 의도이며, 클라이언트가 구분할 방법은 없다.
  * - **좋아요는 답한 문제에만 허용된다.** 미존재·미편성·미답이 전부 같은 403 이다.
- * - **보기별 투표 수는 `/today` 에만 실린다**(2026-08-19). 갱신 경로가 없는 스냅샷이라
- *   화면이 "실시간"으로 따라 올릴 방법은 없다(`DailyQuizOption.voteCount` 주석 참고).
+ * - **보기별 투표 수는 `/today` 와 `/vote-count` 둘에만 실린다**(2026-08-19 · 2026-08-26).
+ *   상세·제출·이력의 `options` 에는 없다. 갱신은 `getQuizVoteCount()` 폴링으로만 된다.
+ * - **배점 축이 둘이다**(2026-09-03) — 보유 포인트(`point`)와 레이팅 점수(`bq`). 정답이면
+ *   둘을 같은 트랜잭션에서 함께 적립한다. `bq` 의 null 처리는 목록과 상세가 서로 다르다
+ *   (목록은 키를 싣고 상세는 생략 — `types/quiz.ts` 머리말 참고).
  *
  * ── 🎯 두 엔드포인트가 `gameId` 를 받는다 ────────────────────────────
  * `/today` 와 `/submissions` 는 **"지금 보고 있는 경기"를 지목해야** 부를 수 있다.
@@ -223,7 +227,7 @@ export function isQuizLikeNotAllowed(error: unknown): boolean {
 }
 
 /* ------------------------------------------------------------------ *
- * 엔드포인트 — 5개 전부 인증 필수 · 성공도 ApiResponse 래핑(200)
+ * 엔드포인트 — 6개 전부 인증 필수 · 성공도 ApiResponse 래핑(200)
  * ------------------------------------------------------------------ */
 
 /**
@@ -291,9 +295,12 @@ export function getQuiz(quizId: number): Promise<QuizDetail> {
  * **오답은 실패가 아니다** — `correct: false`, `earnedPoint: 0` 인 200 이며 `answer` 로
  * 정답을 알려준다. 실패로 다뤄야 하는 것은 아래 에러들뿐이다.
  *
- * 적립되는 것은 포인트(`point`)뿐이고 누적 점수(`bqScore`)는 건드리지 않는다.
- * 반환된 `totalPoint` 는 `GET /users/me` 의 `point` 와 같은 값이라, 유저 스토어를
- * 재조회 없이 이 값으로 갱신하면 된다.
+ * 💰 **2026-09-03 부터 두 축을 함께 적립한다** — 종전의 "포인트만 오르고 누적 점수
+ * (`bqScore`)는 건드리지 않는다"는 더 이상 사실이 아니다. 정답이면 같은 트랜잭션에서
+ * 보유 포인트와 레이팅 점수가 각각 오르고, 한쪽 배점이 없으면 그 축만 건너뛴다.
+ *
+ * 반환된 `totalPoint`·`totalBq` 는 `GET /users/me` 의 `point`·**`bqScore`** 와 같은 값이라
+ * (이름만 다르다), 유저 스토어를 재조회 없이 이 둘로 갱신하면 된다.
  *
  * **새 기록을 남기는 것이 아니라 `/today` 가 만들어 둔 미답 행을 채우는 일이다**
  * (2026-08-12). 그래서 그 행이 없거나 시한이 지났으면 403 이다.
@@ -318,8 +325,8 @@ export function submitQuiz(quizId: number, option: number): Promise<QuizSubmitRe
  *
  * ⚠️ 2026-08-13 계약이 통째로 바뀌었다. 조회 축이 계정에서 경기로 좁혀졌고(`page` 폐지,
  * `gameId` 필수) 응답이 페이지 구조에서 `summary` + `innings[]` 로 교체됐다.
- * **계정 전체 누적 정답률을 주던 경로는 사라졌고 대체 API 가 없다** — 마이페이지처럼
- * 경기와 무관한 통계가 필요한 화면은 이 함수로 만들 수 없다.
+ * **여기서 나오는 정답률은 이 경기 기준이다** — 마이페이지처럼 경기와 무관한 통계가
+ * 필요한 화면은 이 함수가 아니라 `getMyProfile()` 의 `quizAccuracy` 를 쓴다(2026-09-03 신설).
  *
  * `/today` 와 달리 **관문이 없다** — 어제 끝난 경기도, 응원하지 않는 구단의 경기도,
  * 취소된 경기도 200 이다(응답이 내 행만 담으므로 아무것도 새지 않는다). 실패는 둘뿐이고
@@ -345,6 +352,37 @@ export function getQuizSubmissions(gameId: string): Promise<QuizSubmissionHistor
       requiresAuth: true,
     })
     .then(unwrap);
+}
+
+/**
+ * GET /quizzes/{quizId}/vote-count — 보기별 투표 수만 다시 받는다(2026-08-26 신설).
+ *
+ * `/today` 가 문제를 (경기, 이닝)당 한 번만 내주므로 분포도 그때 한 번뿐이었다.
+ * **이 경로가 그 분포를 갱신할 수 있는 유일한 수단**이라, 답을 고민하는 동안 화면이
+ * 주기적으로 불러 보기의 `voteCount` 를 다시 칠하는 용도다.
+ *
+ * ⚠️ **`null` 은 실패가 아니다.** 자격이 없으면 404·403 이 아니라 **200 + `data: null`**
+ * 이 오고, 셋이 그 하나로 합쳐진다 — ① 그 문제를 받은 적 없음(없는 `quizId`·미편성 포함)
+ * ② **이미 제출함** ③ 보기가 하나도 없음(데이터 이상). 응답 코드로 "그 사람이 그 문제를
+ * 받았는지"가 새지 않게 한 은닉이라 화면이 사유를 알 방법은 없다.
+ * **`null` 을 받으면 폴링을 멈추면 된다** — 다시 부른다고 값이 생기지 않는다.
+ *
+ * ⏱️ 시한(8분)을 넘긴 미답 문제도 그대로 값을 준다. 제출만 403 이고 분포는 계속 보인다 —
+ * 폴링이 도중에 조용히 빈 응답으로 바뀌지 않게 한 설계다.
+ *
+ * ⚠️ 값은 `/today` 와 같은 근사 스냅샷이라 집계를 못 읽어도 전 보기 `0` 으로 200 이 온다.
+ * **`0` 은 "아무도 안 골랐다"와 "못 읽었다"를 구분하지 않으므로** 실패로 안내하면 안 된다
+ * (`DailyQuizOption.voteCount` 주석 참고). 총합·비율은 서버가 주지 않는다.
+ *
+ * 에러: 401 UNAUTHENTICATED, 400(`quizId` 가 숫자가 아님).
+ * **403·404·409 는 이 경로에서 나지 않는다.**
+ */
+export function getQuizVoteCount(quizId: number): Promise<QuizVoteCount | null> {
+  return gameClient
+    .get<ApiResponse<QuizVoteCount | null>>(`/quizzes/${quizId}/vote-count`, {
+      requiresAuth: true,
+    })
+    .then((res) => res.data.data ?? null);
 }
 
 /**
