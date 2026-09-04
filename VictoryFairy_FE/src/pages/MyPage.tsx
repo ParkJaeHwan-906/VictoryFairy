@@ -327,10 +327,17 @@ export default function MyPage() {
             </div>
           </div>
 
-          <button className="my-page__point-history" type="button">
-            <span>포인트 사용 내역 보기</span>
-            <span className="my-page__point-history-arrow" aria-hidden="true" />
-          </button>
+          {/*
+            내역을 줄 API 가 없어 눌러도 아무 일도 하지 않는 버튼이라 잠시 내린다.
+            상점(`CharacterCustomPage`)이 생겨 포인트가 실제로 줄기 시작한 뒤로는
+            "내역을 볼 수 있다"는 약속이 눈에 더 걸린다.
+            TODO: api-agent - 포인트 내역 조회 API 가 생기면 되살린다.
+
+            <button className="my-page__point-history" type="button">
+              <span>포인트 사용 내역 보기</span>
+              <span className="my-page__point-history-arrow" aria-hidden="true" />
+            </button>
+          */}
         </div>
       </header>
 
