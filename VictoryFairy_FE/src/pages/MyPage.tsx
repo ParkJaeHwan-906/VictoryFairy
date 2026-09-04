@@ -18,19 +18,33 @@ import '../styles/MyPage.css';
  * 문의하기(`InquiryPage`) · 약관 두 건(Notion 문서로 나가는 링크), 그리고 맨 아래
  * 로그아웃·회원 탈퇴뿐이다.
  *
- * ── ⚠️ 평균 정답률을 줄 API 가 없다(2026-08-13) ─────────────────────
- * `GET /users/me` 응답에는 정답률이 없고(키가 넷뿐 — `MyProfile` 주석 참고), 이 화면이
- * 대신 쓰던 `GET /quizzes/submissions` 의 `summary.accuracy` 는 **계정 누적이 아니라
- * 경기 한 건 기준으로 바뀌었다**(`gameId` 필수). 마이페이지에는 지목할 경기가 없어
- * 그 값을 쓸 수 없고, 대체 경로는 아직 없다(docs/quiz.md — 후속 과제).
+ * ── 성적 카드의 두 수는 **서로 다른 축**이다 ─────────────────────────
+ * 왼쪽 평균 정답률은 `quizAccuracy`(계정 누적, 2026-09-03 신설)이고, 오른쪽 내 포인트는
+ * `point` — **상점에서 쓰는 재화**다. 랭킹을 가르는 누적 점수(`bqScore`)는 이 카드에
+ * 없다. 셋이 전부 "숫자"라 섞이기 쉬우니, 값을 옮길 때 어느 축인지부터 확인한다.
+ *   - `point`   — 재화. 캐릭터를 사면 줄어든다(`CharacterCustomPage`).
+ *   - `bqScore` — 랭킹 축. 적립만 되고 줄지 않는다(라운지 랭킹 · 퀴즈 결과 화면).
  *
- * 그래서 자리는 디자인대로 남기고 값만 비워 둔다. 임의의 경기 하나를 골라 채우면
- * "평균"이라는 이름과 다른 수가 나오므로 지어내지 않는다.
- * 계정 단위 통계 API 가 생기면 여기서 그 값을 읽어 채우면 된다.
+ * 정답률은 **야구 타율 표기**로 그린다(`toBattingAverage`) — 이 앱의 숫자 중 유일하게
+ * 0~1 사이 비율이라, 퍼센트로 적으면 옆의 포인트와 자릿수가 비슷해 헷갈린다.
  */
 
 /** 앱 버전. 배포 파이프라인이 주입하기 전까지는 화면에 고정값으로 둔다. */
 const APP_VERSION = 'v 1.0.0';
+
+/**
+ * 정답률(`0`~`1`)을 **야구 타율 표기**로 옮긴다 — `0.667` → `.667`, `0.5` → `.500`.
+ *
+ * 타율은 소수점 앞 `0` 을 적지 않고 셋째 자리까지 0 을 채워 쓴다(할·푼·리). 서버가 이미
+ * 셋째 자리에서 반올림해 주지만 **후행 0 은 지워서 보내므로**(`0.5` 는 `0.500` 이 아니다)
+ * 자릿수 패딩은 화면 몫이다 — `toFixed(3)` 이 그 일만 한다(값은 반올림되지 않는다).
+ *
+ * 10할은 타율에서도 `1.000` 이라 앞자리를 남긴다.
+ */
+function toBattingAverage(accuracy: number): string {
+  const text = Math.min(Math.max(accuracy, 0), 1).toFixed(3);
+  return text.startsWith('0') ? text.slice(1) : text;
+}
 
 /**
  * 선호(구단 · 선수) 수정 흐름으로 들어간다는 표식.
@@ -283,13 +297,31 @@ export default function MyPage() {
           <div className="my-page__stats">
             <div className="my-page__stat">
               <p className="my-page__stat-label">평균 정답률</p>
-              {/* 계정 단위 정답률을 주는 API 가 사라졌다 — 위 머리말 참고 */}
-              <p className="my-page__stat-value">-</p>
+              {/*
+                프로필이 아직 안 왔을 때만 `-` 다 — 퀴즈를 한 번도 안 받은 계정은
+                `null` 이 아니라 `0` 이 오므로 `.000` 으로 그린다.
+
+                타율 표기(`.667`)는 낭독기가 "점 육육칠"로 읽어 뜻이 흐려진다.
+                그래서 눈으로 보는 글자와 읽어 줄 글자를 나눠 둔다.
+              */}
+              <p className="my-page__stat-value">
+                {profile === null ? (
+                  '-'
+                ) : (
+                  <>
+                    <span aria-hidden="true">{toBattingAverage(profile.quizAccuracy)}</span>
+                    <span className="my-page__sr-only">
+                      {Math.round(profile.quizAccuracy * 1000) / 10}퍼센트
+                    </span>
+                  </>
+                )}
+              </p>
             </div>
 
             <span className="my-page__stat-divider" aria-hidden="true" />
 
             <div className="my-page__stat">
+              {/* 랭킹 축(`bqScore`)이 아니라 **상점에서 쓰는 재화**다 — 위 머리말 참고 */}
               <p className="my-page__stat-label">내 포인트</p>
               <p className="my-page__stat-value">{profile?.point ?? 0}P</p>
             </div>
