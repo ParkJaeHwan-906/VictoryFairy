@@ -120,7 +120,7 @@
   white-space: nowrap;
 }
 
-.community-page__rank-point {
+.community-page__rank-score {
   flex-shrink: 0;
   color: var(--color-label-alternative);
   font-size: var(--font-size-label2);

@@ -35,7 +35,7 @@ const PERCENT_DOTS: readonly string[] = ['11001', '11010', '00100', '01011', '10
 type LedNumberProps = {
   /** 표시할 값. 자릿수만큼 글자가 늘어난다(앞자리를 0 으로 채우지 않는다). */
   value: number;
-  /** 켜진 점 색. 디자인은 획득 포인트가 주황, 정답률이 흰색이다. */
+  /** 켜진 점 색. 디자인은 전광판 왼쪽(획득 BQ)이 주황, 오른쪽 정답률이 흰색이다. */
   tone: 'primary' | 'white';
   /** 뒤에 붙는 기호. 지금은 퍼센트뿐이다. */
   suffix?: 'percent';
