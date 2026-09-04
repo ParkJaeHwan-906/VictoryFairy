@@ -27,7 +27,8 @@ function RankingRow({ entry, isMine = false }: { entry: BqRankingEntry; isMine?:
           />
           <span className="community-page__rank-name">{entry.nickname}</span>
         </div>
-        <span className="community-page__rank-point">{entry.bqScore}p</span>
+        {/* 시상대와 같은 이유로 `p` 가 아니라 `BQ` 다(`RankingPodium` 주석 참고) */}
+        <span className="community-page__rank-score">{entry.bqScore} BQ</span>
       </div>
     </li>
   );
