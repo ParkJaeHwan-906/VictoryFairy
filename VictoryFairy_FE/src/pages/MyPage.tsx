@@ -39,13 +39,24 @@ const APP_VERSION = 'v 1.0.0';
 const SUPPORT_EDIT_STATE: TeamSelectState = { mode: 'edit' };
 
 /**
+ * 줄 앞에 붙는 아이콘. 값은 **그림 이름이 아니라 쓰임새 이름**이다 —
+ * 실제 어떤 SVG 를 오려 쓰는지는 `MyPage.css` 의 `--row-icon` 한 줄만 보면 되고,
+ * 나중에 그림이 바뀌어도 이쪽은 손대지 않는다.
+ */
+type RowIcon =
+  'account' | 'notification' | 'sns' | 'notice' | 'inquiry' | 'privacy' | 'terms' | 'version';
+
+/** 목록 한 줄의 재료. `to`(앱 안 이동)와 `href`(바깥 문서)는 둘 중 하나만 쓰거나 둘 다 없다. */
+type MenuItem = { label: string; icon: RowIcon; to?: string; href?: string };
+
+/**
  * 설정 묶음. 계정 설정만 갈 곳이 있고(비밀번호 변경 — `AccountSettingPage`),
  * 나머지 둘은 아직 화면이 없어 화살표만 그리고 눌러도 아무 일도 없다.
  */
-const SETTING_ITEMS: readonly { label: string; to?: string }[] = [
-  { label: '계정 설정', to: ROUTES.accountSetting },
-  { label: '알림 설정' },
-  { label: 'SNS 연동' },
+const SETTING_ITEMS: readonly MenuItem[] = [
+  { label: '계정 설정', icon: 'account', to: ROUTES.accountSetting },
+  { label: '알림 설정', icon: 'notification' },
+  { label: 'SNS 연동', icon: 'sns' },
 ];
 
 /**
@@ -59,15 +70,17 @@ const SETTING_ITEMS: readonly { label: string; to?: string }[] = [
  *
  * 문의하기는 앱 안 화면(`InquiryPage`)이라 `to` 로 간다. 남은 항목은 아직 갈 곳이 없다.
  */
-const CENTER_ITEMS: readonly { label: string; to?: string; href?: string }[] = [
-  { label: '공지사항' },
-  { label: '문의하기', to: ROUTES.inquiry },
+const CENTER_ITEMS: readonly MenuItem[] = [
+  { label: '공지사항', icon: 'notice' },
+  { label: '문의하기', icon: 'inquiry', to: ROUTES.inquiry },
   {
     label: '개인정보처리방침',
+    icon: 'privacy',
     href: 'https://fate-almanac-c79.notion.site/3bead13a96fe8057b5b7c5abb0c3762c',
   },
   {
     label: '서비스 이용약관',
+    icon: 'terms',
     href: 'https://fate-almanac-c79.notion.site/3bead13a96fe80c8b3f0c6445dae13e3',
   },
 ];
@@ -100,18 +113,15 @@ type AccountAction = keyof typeof ACCOUNT_CONFIRMS;
 /**
  * 목록 한 줄.
  *
- * 아이콘은 디자인에서도 아직 자리(회색 사각형)만 잡혀 있어 그대로 옮겼다 —
- * 임의로 아이콘을 골라 넣으면 나중에 진짜 아이콘이 왔을 때 무엇을 바꿔야 하는지 흐려진다.
- *
  * 갈 곳이 있는 줄은 **버튼이 아니라 링크로 그린다** — 눌러서 어딘가로 가는 줄은 길게 눌러
  * 주소를 복사하거나 새 탭으로 여는 것이 브라우저에서 당연히 되어야 한다. `to`(앱 안)와
  * `href`(바깥 문서)를 나누는 이유는 앱 안 이동에서 새로고침이 일어나면 안 되기 때문이다.
  * 둘 다 없는 줄은 종전대로 아무 일도 하지 않는 버튼이다.
  */
-function MenuRow({ label, to, href }: { label: string; to?: string; href?: string }) {
+function MenuRow({ label, icon, to, href }: MenuItem) {
   const inner = (
     <>
-      <span className="my-page__row-icon" aria-hidden="true" />
+      <span className={`my-page__row-icon my-page__row-icon--${icon}`} aria-hidden="true" />
       <span className="my-page__row-label">{label}</span>
       <span className="my-page__row-arrow" aria-hidden="true" />
     </>
@@ -297,7 +307,7 @@ export default function MyPage() {
           <h2 className="my-page__section-title">설정</h2>
           <ul className="my-page__rows">
             {SETTING_ITEMS.map((item) => (
-              <MenuRow key={item.label} label={item.label} to={item.to} />
+              <MenuRow key={item.label} {...item} />
             ))}
           </ul>
         </section>
@@ -308,12 +318,12 @@ export default function MyPage() {
           <h2 className="my-page__section-title">센터</h2>
           <ul className="my-page__rows">
             {CENTER_ITEMS.map((item) => (
-              <MenuRow key={item.label} label={item.label} to={item.to} href={item.href} />
+              <MenuRow key={item.label} {...item} />
             ))}
             {/* 버전은 눌러 갈 곳이 없어 화살표 대신 값이 붙는다 */}
             <li>
               <div className="my-page__row my-page__row--static">
-                <span className="my-page__row-icon" aria-hidden="true" />
+                <span className="my-page__row-icon my-page__row-icon--version" aria-hidden="true" />
                 <span className="my-page__row-label">버전정보</span>
                 <span className="my-page__row-value">{APP_VERSION}</span>
               </div>

@@ -254,14 +254,54 @@
 }
 
 /*
- * 아이콘 자리. 디자인에서도 아직 회색 사각형이라 그대로 둔다 —
- * 임의로 채우면 진짜 아이콘이 왔을 때 무엇을 바꿔야 하는지 흐려진다.
+ * 목록 아이콘.
+ *
+ * 원본 SVG 는 모두 검정 단색이라 그대로 깔면 색을 못 바꾼다 → 화살표(`--row-arrow`)와
+ * 같이 mask 로 오려내고 색은 배경색으로 준다. 어떤 그림을 오릴지는 줄마다 다르므로
+ * `--row-icon` 변수 하나만 수정자 클래스에서 갈아끼운다(선언을 8벌 반복하지 않으려는 것).
+ *
+ * 그림 크기가 20 · 24 뷰박스로 섞여 있어 `contain` 으로 20px 자리에 맞춘다.
  */
 .my-page__row-icon {
   flex-shrink: 0;
   width: 20px;
   height: 20px;
-  background-color: #d9d9d9;
+  background-color: var(--color-label-normal);
+  -webkit-mask: var(--row-icon) center / contain no-repeat;
+  mask: var(--row-icon) center / contain no-repeat;
+}
+
+.my-page__row-icon--account {
+  --row-icon: url('../assets/setting.svg');
+}
+
+.my-page__row-icon--notification {
+  --row-icon: url('../assets/bell.svg');
+}
+
+.my-page__row-icon--sns {
+  --row-icon: url('../assets/link.svg');
+}
+
+.my-page__row-icon--notice {
+  --row-icon: url('../assets/megaphone.svg');
+}
+
+.my-page__row-icon--inquiry {
+  --row-icon: url('../assets/chat.svg');
+}
+
+/* 개인정보 = 지켜준다는 뜻의 방패. 잠금(Lock_c)은 꾸미기의 '잠긴 아이템' 표시라 겹치지 않게 둔다 */
+.my-page__row-icon--privacy {
+  --row-icon: url('../assets/shield.svg');
+}
+
+.my-page__row-icon--terms {
+  --row-icon: url('../assets/document.svg');
+}
+
+.my-page__row-icon--version {
+  --row-icon: url('../assets/info.svg');
 }
 
 .my-page__row-label {
