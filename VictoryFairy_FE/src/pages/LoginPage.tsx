@@ -1,22 +1,26 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ApiError, getTokenStorage, login } from '../api';
-import googleIcon from '../assets/google.svg';
-import kakaoIcon from '../assets/kakao.svg';
-import naverIcon from '../assets/naver.svg';
+// OAuth 연동 보류 — 소셜 로그인을 되살릴 때 아이콘 import 도 함께 푼다.
+// import googleIcon from '../assets/google.svg';
+// import kakaoIcon from '../assets/kakao.svg';
+// import naverIcon from '../assets/naver.svg';
 import { useAccountStore } from '../stores/useAccountStore';
 import { ROUTES } from '../routes';
 import '../styles/LoginPage.css';
 
-/**
+/*
  * 소셜 로그인 제공자.
  * 아이콘은 프로젝트 자산(`src/assets`)을 그대로 사용한다.
+ *
+ * OAuth 연동이 잠정 대기라 목록째 주석 처리한다.
+ *
+ * const SOCIAL_PROVIDERS = [
+ *   { id: 'kakao', label: '카카오로 로그인하기', icon: kakaoIcon },
+ *   { id: 'naver', label: '네이버로 로그인하기', icon: naverIcon },
+ *   { id: 'google', label: '구글로 로그인하기', icon: googleIcon },
+ * ] as const;
  */
-const SOCIAL_PROVIDERS = [
-  { id: 'kakao', label: '카카오로 로그인하기', icon: kakaoIcon },
-  { id: 'naver', label: '네이버로 로그인하기', icon: naverIcon },
-  { id: 'google', label: '구글로 로그인하기', icon: googleIcon },
-] as const;
 
 /** 입력창별 에러 문구. 해당 키가 있으면 그 입력 아래에 메시지를 노출한다. */
 type FieldMessages = {
@@ -188,24 +192,29 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <div className="login-page__divider">
-          <span className="login-page__divider-label">Sign up with</span>
-        </div>
+        {/*
+          OAuth 연동이 잠정 대기라 소셜 로그인 버튼을 내린다.
+          버튼만 지우면 "Sign up with" 구분선이 홀로 남으므로 구분선도 함께 가린다.
+          TODO: api-agent - 소셜 로그인 진입점이 정해지면 되살린다.
 
-        <ul className="login-page__socials">
-          {SOCIAL_PROVIDERS.map((provider) => (
-            <li key={provider.id}>
-              <button
-                className={`login-page__social-button login-page__social-button--${provider.id}`}
-                type="button"
-                aria-label={provider.label}
-              >
-                {/* TODO: api-agent - 소셜 로그인 진입점 연결 */}
-                <img className="login-page__social-icon" src={provider.icon} alt="" />
-              </button>
-            </li>
-          ))}
-        </ul>
+          <div className="login-page__divider">
+            <span className="login-page__divider-label">Sign up with</span>
+          </div>
+
+          <ul className="login-page__socials">
+            {SOCIAL_PROVIDERS.map((provider) => (
+              <li key={provider.id}>
+                <button
+                  className={`login-page__social-button login-page__social-button--${provider.id}`}
+                  type="button"
+                  aria-label={provider.label}
+                >
+                  <img className="login-page__social-icon" src={provider.icon} alt="" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        */}
 
         <p className="login-page__signup">
           아직 계정이 없으신가요?
