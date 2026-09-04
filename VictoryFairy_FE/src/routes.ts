@@ -42,7 +42,21 @@ export const ROUTES = {
    * 디자인에 NavBar 가 없어 레이아웃 밖 전체 화면이다.
    */
   inquiry: '/inquiry',
+  /**
+   * 공지사항 목록. 마이페이지 "센터 > 공지사항"으로 들어온다.
+   * 문의하기와 같이 NavBar 없는 전체 화면이다.
+   */
+  notice: '/notice',
+  /**
+   * 공지사항 한 건. **라우트 정의에만 쓰는 패턴**이고, 실제 주소는 `noticeDetailPath` 로 만든다.
+   */
+  noticeDetail: '/notice/:noticeId',
 } as const;
+
+/** 공지 한 건으로 가는 주소. `ROUTES.noticeDetail` 의 `:noticeId` 를 채운 값이다. */
+export function noticeDetailPath(noticeId: string): string {
+  return `/notice/${encodeURIComponent(noticeId)}`;
+}
 
 /**
  * 구단·선수 선택 화면을 **어떤 흐름에서** 열었는지.

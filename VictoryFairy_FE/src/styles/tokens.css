@@ -173,6 +173,9 @@
   --font-size-body4: 14px;
   --line-height-body4: 1.5;
 
+  /* Caption/Caption1 — Medium 12 / 1.4 (크기·행간은 Caption2 와 같고 굵기만 다르다) */
+  --font-size-caption1: 12px;
+
   /* Caption/Caption2 — Regular 12 / 1.4 */
   --font-size-caption2: 12px;
 

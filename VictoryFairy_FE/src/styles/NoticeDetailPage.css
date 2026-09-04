@@ -1,0 +1,145 @@
+/**
+ * NoticeDetailPage(공지사항 게시물) 스타일.
+ * Figma: SWM / [My] 공지사항-게시물 (node 1430:17961), 기준 프레임 402 x 874.
+ *
+ * 세로 좌표를 흐름 레이아웃으로 환산한 값(iOS 상태 바 47px 은 다른 화면들과 같이 제외):
+ *   상단 바 0~60 → 제목 묶음 60~161(위아래 여백 20, 아래 실선) → 본문 181
+ * 목록과 달리 바탕이 흰색이다 — 글을 읽는 화면이라 카드가 없다.
+ */
+
+.notice-detail-page {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--layout-app-width);
+  min-height: 100dvh;
+  margin-inline: auto;
+  padding-bottom: calc(48px + env(safe-area-inset-bottom, 0px));
+  background-color: var(--color-background-basic);
+}
+
+/* ------------------------------------------------------------------ *
+ * Bar/Top — 뒤로가기 · 타이틀 (다른 화면들과 같은 컴포넌트)
+ * ------------------------------------------------------------------ */
+.notice-detail-page__topbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.notice-detail-page__back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 60px;
+  padding: 10px;
+  border-radius: var(--radius-10);
+  overflow: clip;
+}
+
+.notice-detail-page__back-icon {
+  width: 20px;
+  height: 20px;
+  background-color: var(--color-label-assistive);
+  -webkit-mask: url('../assets/arrow_l.svg') center / contain no-repeat;
+  mask: url('../assets/arrow_l.svg') center / contain no-repeat;
+}
+
+.notice-detail-page__topbar-title {
+  min-width: 0;
+  margin: 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  text-align: center;
+}
+
+.notice-detail-page__topbar-spacer {
+  flex-shrink: 0;
+  width: 60px;
+  height: 60px;
+}
+
+/* ------------------------------------------------------------------ *
+ * 머리말 — 글 제목 · 게시일. 아래 실선이 본문과 나눈다.
+ * ------------------------------------------------------------------ */
+.notice-detail-page__head {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px var(--layout-gutter);
+  border-bottom: 1px solid var(--color-line-light);
+}
+
+.notice-detail-page__title {
+  margin: 0;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-title2);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title2);
+  overflow-wrap: anywhere;
+}
+
+.notice-detail-page__date {
+  margin: 0;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-label2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+/* ------------------------------------------------------------------ *
+ * 본문
+ *
+ * 디자인은 문단 사이를 빈 줄 하나로 벌린다 — 본문 한 줄 높이(16 × 1.5 = 24px)가
+ * 그 간격이라, 빈 문단을 두는 대신 gap 으로 같은 그림을 만든다(`NoticeBlock` 주석).
+ * ------------------------------------------------------------------ */
+.notice-detail-page__body {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 20px var(--layout-gutter) 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body2);
+  line-height: var(--line-height-body2);
+}
+
+.notice-detail-page__paragraph {
+  margin: 0;
+  font-weight: var(--font-weight-regular);
+  overflow-wrap: anywhere;
+}
+
+/* 목록은 앞의 제목 줄과 한 덩어리다 — 그 사이만 빈 줄이 없다 */
+.notice-detail-page__list-block {
+  display: flex;
+  flex-direction: column;
+}
+
+.notice-detail-page__list-title {
+  margin: 0;
+  font-weight: var(--font-weight-medium);
+}
+
+.notice-detail-page__list {
+  /* 불릿이 본문 왼쪽 끝(거터)에서 조금 들어와 걸린다 */
+  margin: 0;
+  padding-left: 24px;
+  font-weight: var(--font-weight-medium);
+}
+
+.notice-detail-page__list li {
+  overflow-wrap: anywhere;
+}
+
+/* 402px 미만(소형 단말)에서 좌우 여백을 줄인다 */
+@media (max-width: 359px) {
+  .notice-detail-page__head,
+  .notice-detail-page__body {
+    padding-inline: 16px;
+  }
+}
