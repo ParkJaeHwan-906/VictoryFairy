@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { getSupportGameList } from '../api';
-import type { Game } from '../api';
+import { getBqTopRanking, getSupportGameList } from '../api';
+import type { BqRankingEntry, Game } from '../api';
 import CharacterAvatar from '../components/CharacterAvatar';
 import GameDetailSheet from '../components/GameDetailSheet';
 import MatchCard from '../components/MatchCard';
 import RankingPodium from '../components/RankingPodium';
-import { PODIUM_RANKING } from '../data/communityRanking';
 import { ROUTES } from '../routes';
 import { useMyProfile } from '../stores/useAccountStore';
 import { getTodayInSeoul } from '../utils/date';
@@ -27,10 +26,14 @@ import '../styles/MainPage.css';
  * 왼쪽 아래 옷 버튼이 **캐릭터 꾸미기**로 간다(상점 겸 착용 화면).
  * 착용을 바꾸고 돌아오면 그 화면이 프로필을 다시 받아 두므로 여기 그림도 함께 바뀐다.
  *
+ * ── 랭킹은 시상대만 보여 준다 ──────────────────────────────────────
+ * 라운지와 같은 카드지만 부르는 경로가 다르다. 이 화면에는 4위 이하 목록이 없어
+ * TOP 3 전용(`GET /rankings/bq/top`)이면 충분하다 — 라운지는 목록까지 함께 그려야 해서
+ * TOP 10 을 받아 앞 3건을 시상대로 쓴다. "전체 보기"가 그 화면으로 가는 문이다.
+ *
  * ── 아직 없는 것 ────────────────────────────────────────────────────
  * **나만의 승요 카드 만들기**는 갈 곳이 정해지지 않아 버튼만 두었다(눌러도 아무 일도
- * 하지 않는다). **랭킹도 아직 더미다**(`communityRanking`) — 라운지와 같은 자료를
- * 그리므로 API 가 붙으면 두 화면이 같은 응답을 나눠 쓰게 된다.
+ * 하지 않는다).
  */
 export default function MainPage() {
   // 프로필은 새로고침하면 비어 있는 상태로 시작한다(persist 하지 않는다). 채우는 일은
@@ -44,6 +47,14 @@ export default function MainPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
+
+  /*
+   * 랭킹 시상대. 경기와 별개 요청이라 상태도 따로 든다 — 한쪽이 실패해도 다른 쪽은
+   * 그대로 그려야 하고, 두 절(節)이 각자의 안내문을 갖는다.
+   */
+  const [ranking, setRanking] = useState<BqRankingEntry[]>([]);
+  const [isRankingLoading, setIsRankingLoading] = useState(true);
+  const [rankingFailed, setRankingFailed] = useState(false);
 
   /*
    * 내 응원 구단 경기만 받는다 — 거르는 일은 서버가 한다(`GET /games/support`).
@@ -71,6 +82,26 @@ export default function MainPage() {
       alive = false;
     };
   }, [today]);
+
+  // 순위도 경기와 같은 규칙으로 받는다. 대상은 토큰의 응원 구단이라 넘길 값이 없다.
+  useEffect(() => {
+    let alive = true;
+
+    getBqTopRanking()
+      .then((top) => {
+        if (alive) setRanking(top);
+      })
+      .catch(() => {
+        if (alive) setRankingFailed(true);
+      })
+      .finally(() => {
+        if (alive) setIsRankingLoading(false);
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   /**
    * 응원 구단을 고른 적이 없는지 여부.
@@ -173,7 +204,25 @@ export default function MainPage() {
           </Link>
         </div>
 
-        <RankingPodium entries={PODIUM_RANKING} />
+        {isRankingLoading && <p className="main-page__status">랭킹을 불러오는 중입니다.</p>}
+
+        {rankingFailed && (
+          <p className="main-page__status main-page__status--error">
+            랭킹을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.
+          </p>
+        )}
+
+        {/*
+          모집단이 비어 있으면 빈 배열(200)이 온다 — 오류가 아니다. 구단을 고르지 않은
+          경우도 같은 빈 배열이라, 고르러 가는 길은 위 "오늘의 경기" 절이 이미 안내한다.
+        */}
+        {!isRankingLoading && !rankingFailed && ranking.length === 0 && (
+          <p className="main-page__status">아직 순위에 오른 사람이 없어요.</p>
+        )}
+
+        {!isRankingLoading && !rankingFailed && ranking.length > 0 && (
+          <RankingPodium entries={ranking} />
+        )}
       </section>
 
       {selectedGame && (

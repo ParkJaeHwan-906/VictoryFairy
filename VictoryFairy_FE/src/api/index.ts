@@ -127,6 +127,9 @@ export {
   OX_OPTION_NO,
 } from './quiz';
 
+// 순위(user 모듈) 엔드포인트 함수 — 세 개 전부 인증이 필수이고 파라미터가 0개다
+export { getBqTopRanking, getBqRanking, getMyBqRanking } from './ranking';
+
 // 캐릭터 꾸미기(user 모듈) 엔드포인트 함수 — 세 개 전부 인증이 필수다
 export {
   getCharacterItems,
@@ -215,6 +218,7 @@ export type {
   CharacterItemPurchaseResult,
   CharacterItemActiveResult,
 } from '../types/character';
+export type { BqRankingEntry } from '../types/ranking';
 export type {
   QuizType,
   QuizDifficulty,
