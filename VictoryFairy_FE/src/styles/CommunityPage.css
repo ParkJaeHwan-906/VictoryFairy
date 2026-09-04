@@ -37,6 +37,30 @@
 }
 
 /* ------------------------------------------------------------------ *
+ * Status — 불러오는 중 · 실패 · 빈 순위
+ * 디자인에 없는 상태다(랭킹이 늘 차 있는 화면으로 그려져 있다). 홈의 같은 역할
+ * 문구(`.main-page__status`)와 값을 맞춰, 두 화면을 오갈 때 어긋나 보이지 않게 한다.
+ * ------------------------------------------------------------------ */
+.community-page__status {
+  margin: 24px var(--layout-gutter);
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-body2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body2);
+  text-align: center;
+}
+
+.community-page__status--error {
+  color: var(--color-error-strong);
+}
+
+/* 구단을 고르러 가는 길. 안내문이 아니라 누를 것임을 색으로 알린다. */
+.community-page__status-link {
+  color: var(--color-primary-normal);
+  text-decoration: underline;
+}
+
+/* ------------------------------------------------------------------ *
  * Ranking — 4위 이하 목록 + 맨 아래 내 순위
  * ------------------------------------------------------------------ */
 .community-page__ranking {
