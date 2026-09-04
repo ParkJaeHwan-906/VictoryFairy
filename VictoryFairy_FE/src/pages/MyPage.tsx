@@ -71,7 +71,7 @@ const SETTING_ITEMS: readonly MenuItem[] = [
  * 문의하기는 앱 안 화면(`InquiryPage`)이라 `to` 로 간다. 남은 항목은 아직 갈 곳이 없다.
  */
 const CENTER_ITEMS: readonly MenuItem[] = [
-  { label: '공지사항', icon: 'notice' },
+  { label: '공지사항', icon: 'notice', to: ROUTES.notice },
   { label: '문의하기', icon: 'inquiry', to: ROUTES.inquiry },
   {
     label: '개인정보처리방침',
