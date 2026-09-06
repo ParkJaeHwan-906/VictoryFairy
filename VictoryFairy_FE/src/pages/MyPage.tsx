@@ -64,12 +64,13 @@ type RowIcon =
 type MenuItem = { label: string; icon: RowIcon; to?: string; href?: string };
 
 /**
- * 설정 묶음. 계정 설정만 갈 곳이 있고(비밀번호 변경 — `AccountSettingPage`),
- * 나머지 둘은 아직 화면이 없어 화살표만 그리고 눌러도 아무 일도 없다.
+ * 설정 묶음. 계정 설정(비밀번호 변경 — `AccountSettingPage`)과 알림 설정
+ * (`NotificationSettingPage`)은 갈 곳이 있고, SNS 연동은 아직 화면이 없어
+ * 화살표만 그리고 눌러도 아무 일도 없다.
  */
 const SETTING_ITEMS: readonly MenuItem[] = [
   { label: '계정 설정', icon: 'account', to: ROUTES.accountSetting },
-  { label: '알림 설정', icon: 'notification' },
+  { label: '알림 설정', icon: 'notification', to: ROUTES.notificationSetting },
   { label: 'SNS 연동', icon: 'sns' },
 ];
 

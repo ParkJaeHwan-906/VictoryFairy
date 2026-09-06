@@ -1,0 +1,160 @@
+/**
+ * NotificationSettingPage(알림 설정) 스타일.
+ * Figma: SWM / [My] 알림 설정 (node 1365:17413), 기준 프레임 402 x 874.
+ *
+ * 세로 좌표를 흐름 레이아웃으로 환산(iOS 상태 바 47px 은 다른 화면들과 같이 제외):
+ *   상단 바 0~60 → 줄 80(= 127 - 47), 줄 자체가 위아래 12px 을 물고 있다
+ * 상단 바 규격은 계정 설정 화면과 같다(AccountSettingPage.css) — 두 화면이 같은
+ * Figma 컴포넌트(Bar/Top)를 쓴다.
+ * 단색 아이콘(arrow_l)은 에셋 원본이 검정이라 mask 로 찍어 토큰 색을 입힌다.
+ */
+
+.notification-setting-page {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--layout-app-width);
+  min-height: 100dvh;
+  margin-inline: auto;
+  background-color: var(--color-background-basic);
+}
+
+/* ------------------------------------------------------------------ *
+ * Bar/Top — 뒤로가기 · 타이틀 (다른 화면들과 같은 컴포넌트)
+ * 오른쪽은 디자인상 opacity 0 인 빈 버튼 → 타이틀 중앙 정렬용 스페이서로 둔다.
+ * ------------------------------------------------------------------ */
+.notification-setting-page__topbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.notification-setting-page__back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 60px;
+  padding: 10px;
+  border-radius: var(--radius-10);
+  overflow: clip;
+}
+
+.notification-setting-page__back-icon {
+  width: 20px;
+  height: 20px;
+  background-color: var(--color-label-assistive);
+  -webkit-mask: url('../assets/arrow_l.svg') center / contain no-repeat;
+  mask: url('../assets/arrow_l.svg') center / contain no-repeat;
+}
+
+.notification-setting-page__topbar-title {
+  min-width: 0;
+  margin: 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  text-align: center;
+}
+
+.notification-setting-page__topbar-spacer {
+  flex-shrink: 0;
+  width: 60px;
+  height: 60px;
+}
+
+/* ------------------------------------------------------------------ *
+ * 설정 한 줄 — 설명 묶음 + 토글
+ *
+ * 설명 묶음에 너비를 박지 않고 남는 자리를 주는 이유는, 디자인의 277px 이 402 프레임에서
+ * "토글을 뺀 나머지"이기 때문이다. 좁은 기기에서 글이 토글을 밀지 않게만 하면 된다.
+ * 토글을 위쪽에 붙여(align-items: start) 설명이 두 줄이 되어도 첫 줄과 눈높이가 맞는다.
+ * ------------------------------------------------------------------ */
+.notification-setting-page__row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 20px;
+  padding-block: 12px;
+  padding-inline: var(--layout-gutter);
+}
+
+.notification-setting-page__text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.notification-setting-page__label {
+  margin: 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+}
+
+.notification-setting-page__description {
+  margin: 0;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+/*
+ * 권한이 없다는 안내 · 브라우저 안내. 설명문과 같은 크기지만 색으로 갈라 둔다 —
+ * 지금 알림이 오지 않는 이유라 설명문보다 먼저 읽혀야 한다.
+ */
+.notification-setting-page__note {
+  margin: 4px 0 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+/* ------------------------------------------------------------------ *
+ * Etc/Toggle — 48 x 28 (4px 안쪽에 20px 손잡이)
+ *
+ * 손잡이를 `left` 가 아니라 `translate` 로 옮긴다 — 위치 속성은 애니메이션마다
+ * 레이아웃을 다시 계산하지만 transform 은 그리기만 다시 한다.
+ * ------------------------------------------------------------------ */
+.notification-setting-page__toggle {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  width: 48px;
+  padding: 4px;
+  border-radius: var(--radius-15);
+  background-color: var(--color-label-disable);
+  transition: background-color 150ms ease;
+}
+
+.notification-setting-page__toggle[aria-checked='true'] {
+  background-color: var(--color-primary-normal);
+}
+
+.notification-setting-page__toggle-knob {
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-10);
+  background-color: var(--color-white);
+  transition: transform 150ms ease;
+}
+
+/* 48 - 4(왼쪽 여백) - 20(손잡이) - 4(오른쪽 여백) = 20px 만큼 오른쪽으로 */
+.notification-setting-page__toggle[aria-checked='true'] .notification-setting-page__toggle-knob {
+  transform: translateX(20px);
+}
+
+/* 손잡이가 미끄러지는 것을 불편해하는 사용자에게는 즉시 옮긴다. */
+@media (prefers-reduced-motion: reduce) {
+  .notification-setting-page__toggle,
+  .notification-setting-page__toggle-knob {
+    transition: none;
+  }
+}
