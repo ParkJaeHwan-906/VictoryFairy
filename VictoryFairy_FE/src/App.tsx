@@ -14,6 +14,7 @@ import NoticePage from './pages/NoticePage';
 import NoticeDetailPage from './pages/NoticeDetailPage';
 import ProfileEditPage from './pages/ProfileEditPage';
 import AccountSettingPage from './pages/AccountSettingPage';
+import NotificationSettingPage from './pages/NotificationSettingPage';
 import CharacterCustomPage from './pages/CharacterCustomPage';
 import QuizPage from './pages/QuizPage';
 import QuizResultPage from './pages/QuizResultPage';
@@ -61,6 +62,8 @@ export default function App() {
         <Route path={ROUTES.profileEdit} element={<ProfileEditPage />} />
         {/* 계정 설정(비밀번호 변경)도 같은 자리 — 마이페이지에서 들어와 뒤로가기로 돌아간다 */}
         <Route path={ROUTES.accountSetting} element={<AccountSettingPage />} />
+        {/* 알림 설정도 같은 자리 — 앱이 읽어 갈 푸시 수신 여부를 여기서 끄고 켠다 */}
+        <Route path={ROUTES.notificationSetting} element={<NotificationSettingPage />} />
         {/* 캐릭터 꾸미기도 NavBar 없는 전체 화면이다 — 홈의 옷 버튼으로 들어온다 */}
         <Route path={ROUTES.characterCustom} element={<CharacterCustomPage />} />
         {/*

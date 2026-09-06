@@ -136,19 +136,31 @@
   gap: 8px;
 }
 
+/*
+ * 성적 카드.
+ *
+ * 디자인의 여백(안쪽 56, 사이 38)은 값이 `-`·`0P` 이던 시절 그림이라, 실제 값이 들어오자
+ * 좁았다 — "2할5푼6리"(88px)가 한 칸(82.5px)을 넘겨 가운데 실선을 밀고 나갔다.
+ * 그래서 여백을 줄여 칸을 넓힌다(기준 폭에서 한 칸 124.5px).
+ *
+ * 여유를 넉넉히 두는 이유는 **글꼴이 늦게 오기 때문**이다 — Pretendard 는 `swap` 이라
+ * 도착 전에는 시스템 서체로 먼저 그려지고, 그쪽이 더 넓으면 그 순간 실선을 밀고 나간다.
+ * 360px 단말까지 그 여유가 남도록 잡았다.
+ */
 .my-page__stats {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 38px;
-  padding: 12px 56px;
+  gap: 20px;
+  padding: 12px 32px;
   border-radius: var(--radius-20);
   background-color: var(--color-surface);
 }
 
 .my-page__stat {
   display: flex;
-  flex: 0 1 100px;
+  /* 남는 폭을 반씩 나눠 갖는다 — 어느 쪽 값이 길어져도 한쪽만 밀리지 않는다 */
+  flex: 1 1 0;
   flex-direction: column;
   align-items: center;
   gap: 4px;
@@ -172,19 +184,6 @@
   line-height: var(--line-height-tight);
   letter-spacing: var(--letter-spacing-title2);
   text-align: center;
-  white-space: nowrap;
-}
-
-/* 화면에는 감추고 보조기기에만 남기는 텍스트(타율 표기를 퍼센트로 읽어 주는 자리) */
-.my-page__sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  border: 0;
-  clip-path: inset(50%);
-  overflow: hidden;
   white-space: nowrap;
 }
 
@@ -396,4 +395,27 @@
   font-weight: var(--font-weight-regular);
   line-height: var(--line-height-tight);
   text-align: center;
+}
+
+/* ------------------------------------------------------------------ *
+ * 반응형 — 402px 미만(소형 단말)
+ *
+ * 성적 카드가 기준 폭에서 이미 여유가 크지 않아, 좁아지면 긴 값("2할5푼6리")이 가운데
+ * 실선을 밀고 나간다. 머리·목록의 좌우 여백은 다른 화면과 같이 줄이고, 카드 안쪽 여백은
+ * 한 번 더 줄여 두 칸을 지킨다.
+ * ------------------------------------------------------------------ */
+@media (max-width: 359px) {
+  .my-page__header {
+    padding-inline: 16px;
+  }
+
+  .my-page__stats {
+    gap: 12px;
+    padding-inline: 16px;
+  }
+
+  .my-page__section-title,
+  .my-page__row {
+    padding-inline: 16px;
+  }
 }
