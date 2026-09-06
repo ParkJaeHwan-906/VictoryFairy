@@ -10,8 +10,8 @@
 반대로 `app.json`·`src/` 를 고치면 APK를 다시 만들어 설치해야 한다.
 
 - Expo SDK 57 / React Native 0.86 / React 19 / TypeScript 6
-- 안드로이드 패키지명 `com.victoryfairy.app` / iOS 번들 ID `com.victoryfairy.mobile`
-  — 원래 쓰려던 `com.victoryfairy.app`이 Apple에 이미 선점돼 있어 iOS만 다르다.
+- 안드로이드 패키지명 · iOS 번들 ID 모두 `com.victoryfairy.mobile`
+  — 원래 쓰려던 `com.victoryfairy.app`은 Apple·Google 양쪽에 이미 선점돼 있다.
 
 ## 필요한 것
 
