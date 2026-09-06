@@ -38,6 +38,14 @@ export const ROUTES = {
    */
   accountSetting: '/my/account',
   /**
+   * 알림 설정(푸시 알림 수신 온·오프). 마이페이지 "설정 > 알림 설정"으로 들어온다.
+   * 디자인에 NavBar 가 없어 레이아웃 밖 전체 화면이다.
+   *
+   * 여기서 끄고 켜는 값은 **앱이 읽어 가는 설정**이다(`utils/pushNotification.ts`) —
+   * 알림을 보내는 것은 웹이 아니라 앱이라, 이 화면은 값만 남기고 앱에 알린다.
+   */
+  notificationSetting: '/my/notification',
+  /**
    * 문의하기(자주 묻는 질문). 마이페이지 "센터 > 문의하기"로 들어온다.
    * 디자인에 NavBar 가 없어 레이아웃 밖 전체 화면이다.
    */
