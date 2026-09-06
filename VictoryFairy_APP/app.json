@@ -15,7 +15,7 @@
       }
     },
     "android": {
-      "package": "com.victoryfairy.app",
+      "package": "com.victoryfairy.mobile",
       "adaptiveIcon": {
         "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/android-icon-foreground.png"
