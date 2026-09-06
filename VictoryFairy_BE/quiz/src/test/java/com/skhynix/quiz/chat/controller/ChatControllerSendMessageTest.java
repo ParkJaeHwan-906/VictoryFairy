@@ -68,7 +68,7 @@ class ChatControllerSendMessageTest {
     void sendMessage_validContent_returns201AndDelegatesToService() throws Exception {
         LocalDateTime createdAt = LocalDateTime.of(2026, 7, 20, 10, 0);
         given(chatService.sendMessage(eq(ROOM_UID), eq(USER_ID), eq("안녕")))
-                .willReturn(new MessageResponse(1L, "안녕", "두산팬1", createdAt));
+                .willReturn(new MessageResponse(1L, "안녕", "두산팬1", "user-profile-img/send.jpg", createdAt));
 
         mockMvc.perform(post("/chat/rooms/{roomUid}/messages", ROOM_UID)
                         .with(authenticatedAs(USER_ID))
@@ -78,9 +78,64 @@ class ChatControllerSendMessageTest {
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.content").value("안녕"))
                 .andExpect(jsonPath("$.data.senderNickname").value("두산팬1"))
+                .andExpect(jsonPath("$.data.profileImgUrl").value("user-profile-img/send.jpg"))
                 .andExpect(jsonPath("$.data.createdAt").exists());
 
         verify(chatService).sendMessage(ROOM_UID, USER_ID, "안녕");
+    }
+
+    @Test
+    @DisplayName("[AC-CHAT-10-1 확장] 프로필 이미지가 없는 발신자의 전송 응답은 profileImgUrl이 null로 실린다"
+            + "(빈 문자열도 기본 이미지 URL도 아님)")
+    void sendMessage_senderWithoutProfileImg_responseProfileImgUrlIsNull() throws Exception {
+        given(chatService.sendMessage(eq(ROOM_UID), eq(USER_ID), eq("안녕")))
+                .willReturn(new MessageResponse(1L, "안녕", "두산팬1", null, LocalDateTime.now()));
+
+        mockMvc.perform(post("/chat/rooms/{roomUid}/messages", ROOM_UID)
+                        .with(authenticatedAs(USER_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestJson("안녕")))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.profileImgUrl").value(org.hamcrest.Matchers.nullValue()));
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CPF-3/6] 금지어만 담긴 content 도 거절되지 않는다 — 201 이고 본문 data.content 는 "
+            + "서비스가 돌려준 마스킹 결과 그대로다(발신자는 SSE 에코를 안 받으므로 이 응답이 치환을 아는 유일한 지점)")
+    void sendMessage_profanityOnlyContent_returns201WithMaskedContent() throws Exception {
+        given(chatService.sendMessage(eq(ROOM_UID), eq(USER_ID), eq("시발")))
+                .willReturn(new MessageResponse(1L, "망곰", "두산팬1", null, LocalDateTime.now()));
+
+        mockMvc.perform(post("/chat/rooms/{roomUid}/messages", ROOM_UID)
+                        .with(authenticatedAs(USER_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestJson("시발")))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.content").value("망곰"));
+
+        // 컨트롤러는 원문을 그대로 서비스에 넘긴다 — 마스킹은 서비스가 검증 4단계 뒤에 한다(QUIZ-CPF-7).
+        verify(chatService).sendMessage(ROOM_UID, USER_ID, "시발");
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CPF-5] 마스킹 발생 여부를 알리는 필드가 응답에 추가되지 않는다 — "
+            + "data 의 키 집합이 종전 5개(id·content·senderNickname·profileImgUrl·createdAt) 그대로다")
+    void sendMessage_responseKeySetUnchangedByMasking() throws Exception {
+        given(chatService.sendMessage(eq(ROOM_UID), eq(USER_ID), eq("시발")))
+                .willReturn(new MessageResponse(1L, "망곰", "두산팬1", null, LocalDateTime.now()));
+
+        mockMvc.perform(post("/chat/rooms/{roomUid}/messages", ROOM_UID)
+                        .with(authenticatedAs(USER_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestJson("시발")))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.id").exists())
+                .andExpect(jsonPath("$.data.content").exists())
+                .andExpect(jsonPath("$.data.senderNickname").exists())
+                .andExpect(jsonPath("$.data.createdAt").exists())
+                .andExpect(jsonPath("$.data.masked").doesNotExist())
+                .andExpect(jsonPath("$.data.filtered").doesNotExist())
+                .andExpect(jsonPath("$.data.originalContent").doesNotExist());
     }
 
     @Test
@@ -146,7 +201,7 @@ class ChatControllerSendMessageTest {
     @DisplayName("[AC-CHAT-12-5] 공백이 아닌 1자 content는 201로 통과한다(최소 유효 경계)")
     void sendMessage_singleCharContent_returns201() throws Exception {
         given(chatService.sendMessage(eq(ROOM_UID), eq(USER_ID), eq("a")))
-                .willReturn(new MessageResponse(1L, "a", "닉네임", LocalDateTime.now()));
+                .willReturn(new MessageResponse(1L, "a", "닉네임", null, LocalDateTime.now()));
 
         mockMvc.perform(post("/chat/rooms/{roomUid}/messages", ROOM_UID)
                         .with(authenticatedAs(USER_ID))
@@ -162,7 +217,7 @@ class ChatControllerSendMessageTest {
     void sendMessage_exactly500Chars_returns201() throws Exception {
         String content = "a".repeat(500);
         given(chatService.sendMessage(eq(ROOM_UID), eq(USER_ID), eq(content)))
-                .willReturn(new MessageResponse(1L, content, "닉네임", LocalDateTime.now()));
+                .willReturn(new MessageResponse(1L, content, "닉네임", null, LocalDateTime.now()));
 
         mockMvc.perform(post("/chat/rooms/{roomUid}/messages", ROOM_UID)
                         .with(authenticatedAs(USER_ID))
@@ -192,7 +247,7 @@ class ChatControllerSendMessageTest {
     void sendMessage_250SurrogatePairEmojis_returns201() throws Exception {
         String content = "😀".repeat(250); // 😀 x250, length() == 500
         given(chatService.sendMessage(eq(ROOM_UID), eq(USER_ID), eq(content)))
-                .willReturn(new MessageResponse(1L, content, "닉네임", LocalDateTime.now()));
+                .willReturn(new MessageResponse(1L, content, "닉네임", null, LocalDateTime.now()));
 
         mockMvc.perform(post("/chat/rooms/{roomUid}/messages", ROOM_UID)
                         .with(authenticatedAs(USER_ID))

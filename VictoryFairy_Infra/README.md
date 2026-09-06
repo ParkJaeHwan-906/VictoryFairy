@@ -33,10 +33,12 @@ VictoryFairy_Infra/
 │   ├── dev-db/               # 개발용 DB EC2(퍼블릭·/32) — 운영 백업을 매일 restore 하는 복제본
 │   ├── alb/                  # AWS Load Balancer Controller 용 IRSA (컨트롤러 파드는 Helm)
 │   ├── dns/                  # Route53 존 + ACM 인증서 + ExternalDNS IRSA
-│   ├── cdn/                  # FE 정적 버킷(S3) + CloudFront (nginx 파드 대체)
+│   ├── cdn/                  # FE 정적 버킷(S3) + CloudFront (nginx 파드 대체, asset 오리진 배선 포함)
+│   ├── asset/                # 사용자 업로드 버킷(프로필 이미지) — 퍼블릭 차단, CloudFront(OAC)만 읽음
 │   ├── ecr/                  # 앱 이미지 저장소(IMMUTABLE·scan_on_push)
 │   ├── refine-pipeline/      # 서버리스 정제 — Lambda 2개 + SQS/DLQ + DynamoDB + S3 이벤트
 │   ├── quiz-irsa/            # quiz-app 파드용 IRSA (S3 quiz-candidates 읽기 전용)
+│   ├── user-irsa/            # user-app 파드용 IRSA (asset 버킷 temp/·user-profile-img/ 읽기·쓰기·삭제)
 │   ├── fe-watchdog/          # 헬스체크 Lambda + 알람 → FE 자동 롤백 + Slack 알림
 │   └── security/             # 공용 IAM/보안그룹 (CI 배포 권한 포함)
 ├── collector-lambda/         # KBO 수집기(Lambda+ECR) 독립 스택 — 소스는 dev_ai py-collector

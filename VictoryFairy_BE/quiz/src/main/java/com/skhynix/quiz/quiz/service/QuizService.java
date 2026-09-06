@@ -13,6 +13,8 @@ import com.skhynix.domain.support.repository.UserSupportPlayerRepository;
 import com.skhynix.domain.support.repository.UserSupportTeamRepository;
 import com.skhynix.quiz.quiz.dto.QuizDetailResponse;
 import com.skhynix.quiz.quiz.dto.QuizResponse;
+import com.skhynix.quiz.quiz.dto.QuizVoteCountResponse;
+import com.skhynix.quiz.quiz.vote.QuizVoteTally;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -41,6 +43,7 @@ public class QuizService {
     private final QuizUserSubmitRepository quizUserSubmitRepository;
     private final GameRepository gameRepository;
     private final QuizLikeService quizLikeService;
+    private final QuizVoteTally quizVoteTally;
     private final Clock clock;
     private final int maxTodayCount;
 
@@ -48,7 +51,7 @@ public class QuizService {
             UserSupportTeamRepository userSupportTeamRepository,
             UserSupportPlayerRepository userSupportPlayerRepository,
             QuizUserSubmitRepository quizUserSubmitRepository, GameRepository gameRepository,
-            QuizLikeService quizLikeService,
+            QuizLikeService quizLikeService, QuizVoteTally quizVoteTally,
             Clock clock, @Value("${quiz.serve.max-today-count:20}") int maxTodayCount) {
         this.quizRepository = quizRepository;
         this.quizOptionRepository = quizOptionRepository;
@@ -57,6 +60,7 @@ public class QuizService {
         this.quizUserSubmitRepository = quizUserSubmitRepository;
         this.gameRepository = gameRepository;
         this.quizLikeService = quizLikeService;
+        this.quizVoteTally = quizVoteTally;
         this.clock = clock;
         this.maxTodayCount = maxTodayCount;
     }
@@ -132,10 +136,26 @@ public class QuizService {
         Map<Long, List<QuizOption>> optionsByQuizId = quizOptionRepository
                 .findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(quizIds).stream()
                 .collect(Collectors.groupingBy(option -> option.getQuiz().getId()));
+
+        // 응답에 실린 문제만 초기화하고, 그 결과를 같은 호출에서 읽는다 — 상한(20)에 잘려 나간 문제는
+        // 키조차 만들지 않는다(위 403·409·빈 목록 경로도 여기까지 오지 않는다). 초기화와 읽기를 한
+        // 메서드로 묶은 이유는 순서가 계약이기 때문이다: 초기화가 끝난 뒤 읽어야 "아무도 안 고른 보기도
+        // 0"이 성립하는데, 뒤집혀도 첫 서빙에서는 값이 우연히 같아 조용히 통과한다(QuizVoteTally javadoc).
+        // ⚠ Redis 는 이 트랜잭션에 참여하지 않는다 — 뒤에 롤백이 나면 값 0 짜리 필드만 남는데 그건
+        //   무해하다(표를 왜곡하지 않는다). 제출 경로와 달리 커밋 이후로 미루지 않는 이유다.
+        // 실패하면 빈 맵이 오고, 없는 값은 아래에서 0 으로 채워진다(응답 스키마는 늘 한 모양).
+        Map<Long, Map<Integer, Long>> voteCounts = quizVoteTally.initializeAndRead(quizIds.stream()
+                .filter(quizId -> !optionsByQuizId.getOrDefault(quizId, List.of()).isEmpty())
+                .collect(Collectors.toMap(quizId -> quizId,
+                        quizId -> optionsByQuizId.get(quizId).stream()
+                                .map(QuizOption::getOption)
+                                .toList())));
+
         return served.stream()
                 .map(quiz -> QuizResponse.of(quiz,
                         optionsByQuizId.getOrDefault(quiz.getId(), List.of()),
-                        isPreferred(quiz, supportTeamId, supportPlayerIds)))
+                        isPreferred(quiz, supportTeamId, supportPlayerIds),
+                        voteCounts.getOrDefault(quiz.getId(), Map.of())))
                 .toList();
     }
 
@@ -202,5 +222,39 @@ public class QuizService {
             return true;
         }
         return quiz.getPlayer() != null && supportPlayerIds.contains(quiz.getPlayer().getId());
+    }
+
+    /**
+     * 아직 답하지 않은 문제의 보기별 투표 분포. 화면이 열려 있는 동안 <b>주기적으로 다시 부르는</b>
+     * 경로라, 여기서 하는 일은 판정 1 + 보기 조회 1 + Redis 왕복 1 로 묶여 있다.
+     *
+     * <p><b>"받았고 아직 답하지 않은" 행이 있을 때만 값을 준다.</b> 그 외(받은 적 없음 · 이미 제출함 ·
+     * 문제가 없음)는 예외가 아니라 {@code null} 이고, 컨트롤러가 {@code data: null} 로 내보낸다 —
+     * 이미 낸 사람에게 분포를 감추는 것이 목적이라 404·403 으로 갈라 주면 <b>응답 코드만 보고
+     * "그 문제를 받았는지"를 알아낼 수 있다</b>(QUIZ_LIKE_NOT_ALLOWED 와 같은 계열의 은닉).
+     *
+     * <p>⚠ 시한(+8분) 초과는 여기서 걸러 내지 않는다. 시한이 지난 미답 행은 제출 경로에서 403 이지만
+     * 분포를 못 볼 이유는 없고, 시각으로 갈리는 판정을 여기에 하나 더 두면 같은 화면이 폴링 도중
+     * 조용히 빈 응답으로 바뀐다.
+     */
+    @Transactional(readOnly = true)
+    public QuizVoteCountResponse getQuizVoteCount(Long userAccountId, Long quizId) {
+        // submit_option_id 는 이 행에 있는 FK 컬럼이라, LAZY 연관이어도 null 검사에 추가 조회가 없다.
+        // (getQuiz 가 쓰는 것과 같은 판정 — 행 존재 = "받았다", 값 존재 = "답했다")
+        boolean unanswered = quizUserSubmitRepository
+                .findByUserAccount_IdAndQuiz_Id(userAccountId, quizId)
+                .filter(submit -> submit.getSubmitOption() == null)
+                .isPresent();
+        if (!unanswered) {
+            return null;
+        }
+
+        // Redis 에 없는 보기를 0 으로 채우는 근거가 이 목록이라, 표가 하나도 없거나 Redis 가 죽어도
+        // 응답에 실리는 보기 개수는 늘 같다. 보기 텍스트도 여기서 나온다(/today 와 같은 항목 모양).
+        List<QuizOption> options = quizOptionRepository.findAllByQuiz_IdOrderByOptionAsc(quizId);
+        if (options.isEmpty()) {
+            return null;
+        }
+        return QuizVoteCountResponse.of(quizId, options, quizVoteTally.read(quizId));
     }
 }

@@ -17,6 +17,18 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+  # 프로필 이미지 업로드(멀티파트) 한도.
+  #
+  # ⚠ Boot 기본값은 max-file-size 1MB 라, 이 블록이 없으면 5MiB 이미지가 컨테이너 단에서 413 이 되어
+  #   "5MiB 정확히는 통과" 경계가 깨진다.
+  # ⚠ 반대로 여기를 딱 5MiB 로 맞추지도 말 것 — 멀티파트 경계·헤더 오버헤드 때문에 5MiB 정확한
+  #   파일까지 걸린다. 여기는 명백한 초과만 거르는 1차 방어로 넉넉히 두고, 정확한 경계 판정은
+  #   실제 바이트 길이를 재는 애플리케이션(ProfileImagePolicy.MAX_SIZE_BYTES)이 한다.
+  #   두 경로 모두 같은 ErrorCode(PROFILE_IMAGE_TOO_LARGE)로 나가 응답은 구분되지 않는다.
+  servlet:
+    multipart:
+      max-file-size: 8MB
+      max-request-size: 10MB
 
 server:
   port: 8080
@@ -45,6 +57,44 @@ user:
     expired-data:
       enabled: ${USER_CLEANUP_EXPIRED_DATA_ENABLED:false}
       cron: "${USER_CLEANUP_EXPIRED_DATA_CRON:0 0 3 * * *}"
+    # 임시 프로필 이미지(temp/) 정리 스케줄러. 위와 스위치가 완전히 별개다 — 하나만 켜도 켠 쪽은
+    # 반드시 돈다(CleanupSchedulingConfig 가 두 스위치의 OR 로 스케줄링을 켠다).
+    # 기본값이 꺼짐인 이유는 위와 같다: 로컬·dev 가 원격 자원(여기서는 버킷)을 직접 본다.
+    # 만료 데이터 정리(03:00)와 한 시간 띄운 04:00 이다 — 같은 시각이면 락·부하가 겹친다.
+    temp-profile-image:
+      enabled: ${USER_CLEANUP_TEMP_PROFILE_IMAGE_ENABLED:false}
+      cron: "${USER_CLEANUP_TEMP_PROFILE_IMAGE_CRON:0 0 4 * * *}"
+
+  # 프로필 이미지 저장소(S3).
+  # ⚠ 자격증명은 여기에 없다 — 로컬은 ~/.aws, prod 파드는 IRSA 가 넣는다(ProfileImageStorageConfig).
+  # ⚠ 읽기(CloudFront BaseURL https://victoryfairy.com)는 서버가 관여하지 않는다. 서버가 돌려주는
+  #   값은 언제나 BaseURL 을 뺀 EP 이고, 조립은 클라이언트 몫이다.
+  profile-image:
+    bucket: ${USER_PROFILE_IMAGE_BUCKET:victoryfairy-asset}
+    region: ${USER_PROFILE_IMAGE_REGION:ap-northeast-2}
+
+# 소셜 로그인(OAuth) 3사.
+#
+# ⚠ 시크릿은 이 파일에 적지 않는다 — 값의 출처는 언제나 환경변수(.env / k8s Secret)다.
+# ⚠ client-id 가 비어 있는 provider 는 지원 목록에서 빠진다(그 provider 요청은 400
+#   UNSUPPORTED_OAUTH_PROVIDER). 기동은 정상적으로 되므로 "왜 카카오만 400인가"의 답은 거의 항상
+#   이 값의 누락이다.
+# ⚠ redirect-uris 는 콤마로 구분한 목록이고, 대조는 접두 일치가 아니라 문자 그대로 완전 일치다.
+#   웹 주소와 앱 커스텀 스킴을 모두 넣어야 하며, provider 콘솔의 화이트리스트와 같은 값이어야 한다
+#   (한쪽만 늘리면 provider 가 인가코드를 안 주거나 우리가 400 을 준다).
+oauth:
+  kakao:
+    client-id: ${KAKAO_CLIENT_ID:}
+    client-secret: ${KAKAO_CLIENT_SECRET:}
+    redirect-uris: ${KAKAO_REDIRECT_URIS:}
+  naver:
+    client-id: ${NAVER_CLIENT_ID:}
+    client-secret: ${NAVER_CLIENT_SECRET:}
+    redirect-uris: ${NAVER_REDIRECT_URIS:}
+  google:
+    client-id: ${GOOGLE_CLIENT_ID:}
+    client-secret: ${GOOGLE_CLIENT_SECRET:}
+    redirect-uris: ${GOOGLE_REDIRECT_URIS:}
 
 # 인증번호 메일 발신자 주소. 실제 SMTP 발송은 prod 프로파일에서만 일어난다(dev/test는 mock 로그).
 app:

@@ -17,6 +17,29 @@ locals {
   #   경로를 rewrite 하지 않는다.
   api_path_patterns = ["/api/*", "/rt/*"]
 
+  # 사용자 업로드 자산(프로필 이미지)의 단일 출처. 세 곳이 같은 값을 써야 한다:
+  #   1) modules/asset    — 버킷 이름 + temp/ 만료 규칙 + 버킷 정책이 허용하는 접두사
+  #   2) modules/cdn      — 경로 패턴 /user-profile-img/*, /temp/* (그 외는 종전대로 FE·ALB)
+  #   3) modules/user-irsa — user-app 파드가 읽고 쓸 수 있는 접두사
+  # ⚠ BE 가 만드는 S3 키와 문자 그대로 일치해야 한다. 어긋나면 업로드는 AccessDenied,
+  #   조회는 CloudFront 가 FE 버킷으로 보내 404 가 된다.
+  #
+  # ⚠ 버킷 이름만 name_prefix(victoryfairy-dev) 규약에서 벗어난다 — BE·프론트와 합의된 이름이
+  #   victoryfairy-asset 이라 그대로 못 박는다(modules/asset/variables.tf 참조).
+  asset_bucket_name    = "victoryfairy-asset"
+  asset_profile_prefix = "user-profile-img/"
+  asset_temp_prefix    = "temp/"
+
+  # 캐릭터 꾸미기 에셋. 위 둘과 같은 버킷이지만 성격이 다르다 — 저자가 파드가 아니라 사람이고
+  # (scripts/upload-character-assets.sh), 앱은 이 접두사를 읽지도 쓰지도 않는다. BE 는 DB 에 담긴
+  # EP 문자열을 그대로 내보낼 뿐이고 실제 파일은 브라우저가 CloudFront 에서 직접 받는다.
+  # 그래서 두 곳만 같은 값을 쓰면 된다(user-irsa 는 대상이 아니다):
+  #   1) modules/asset — 버킷 정책이 CloudFront 에게 읽기를 허용하는 접두사
+  #   2) modules/cdn   — 경로 패턴 /characters/*, /items/*, /stores/*
+  # ⚠ DB 시드(VictoryFairy_BE/infra/sql/character-asset-init.sql)에 박힌 EP 의 첫 세그먼트와
+  #   문자 그대로 일치해야 한다. 어긋나면 CloudFront 가 FE 버킷으로 보내 404 가 된다.
+  asset_static_prefixes = ["characters/", "items/", "stores/"]
+
   # 수집기(py-collector) 스택이 소유한 리소스의 ARN.
   # 그 스택은 VictoryFairy_AI/py-collector/deploy/lambda/terraform 에 있고 state 가
   # 달라 모듈 출력으로 받을 수 없다 — 이름 규약(그쪽 var.name = "kbo-collector")대로

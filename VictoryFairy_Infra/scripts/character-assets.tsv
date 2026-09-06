@@ -1,0 +1,32 @@
+# 캐릭터 꾸미기 에셋 매핑 — S3 키·DB 시드가 함께 쓰는 단일 출처.
+#
+# 열: 부위디렉터리 \t 슬러그 \t 상점(for shop) 원본 파일명 \t 착용(for character) 원본 파일명 \t 표시명
+#
+# ⚠ 디자이너 원본은 두 벌의 파일 이름이 서로 다르다(상점=색상명, 착용=구단명). 같은 그림인지는
+#   파일명이 아니라 SVG 의 fill 색상으로 확인해 맞춘 것이다 — 이 표가 그 대조 결과이며, 원본이
+#   갱신되면 색상으로 다시 대조할 것. 이름만 보고 짝지으면 유니폼 11종이 통째로 어긋난다.
+# ⚠ 두 벌은 좌표계가 다르다(상점 80x80 단독 / 착용 160x200 캐릭터 정합). 그래서 한 파일로 합치지
+#   않고 display_img·using_img 두 컬럼으로 나눠 보관한다.
+cloth	basic	Name=Basic.svg	[Cloth] Basic 1.svg	기본 의상
+cloth	uniform-blackline	Name=Uniform_Blackline.svg	[Uniform] KT 1.svg	블랙 라인 유니폼
+cloth	uniform-blackstripe	Name=Uniform_Blackstripe.svg	[Uniform] LG 1.svg	블랙 스트라이프 유니폼
+cloth	uniform-blueline	Name=Uniform_Blueline.svg	[Uniform] Samsung 1.svg	블루 라인 유니폼
+cloth	uniform-bluestripe	Name=Uniform_Bluestripe.svg	[Uniform] Lotte 1.svg	블루 스트라이프 유니폼
+cloth	uniform-navyline	Name=Uniform_Navyline.svg	[Uniform] NC 1.svg	네이비 라인 유니폼
+cloth	uniform-orangeline	Name=Uniform_Orangeline.svg	[Uniform] Eagles 1.svg	오렌지 라인 유니폼
+cloth	uniform-redline	Name=Uniform_Redline.svg	[Uniform] KIA 1.svg	레드 라인 유니폼
+cloth	uniform-redstripe	Name=Uniform_Redstripe.svg	[Uniform] SSG 1.svg	레드 스트라이프 유니폼
+cloth	uniform-whiteblueline	Name=Uniform_WhiteBlueline.svg	[Uniform] Bears 1.svg	화이트 블루 라인 유니폼
+cloth	uniform-whitewineline	Name=Uniform_WhiteWineline.svg	[Uniform] Kiwwom 1.svg	화이트 와인 라인 유니폼
+head	cap-blue	Cap_Blue.svg	[Cap] Blue.svg	블루 캡
+head	cap-red	Cap_Red.svg	[Cap] Red.svg	레드 캡
+head	cap-yellow	Cap_Yellow.svg	[Cap] Yellow.svg	옐로우 캡
+head	helmet-black	Helmet_Black.svg	[Helmet] Black.svg	블랙 헬멧
+head	helmet-blue	Helmet_Blue.svg	[Helmet] Blue.svg	블루 헬멧
+head	helmet-red	Helmet_Red.svg	[Helmet] Red.svg	레드 헬멧
+item	ball	Name=Ball.svg	[Item] Ball 1.svg	야구공
+item	balloon	Name=Balloon.svg	[Item] Balloon 1.svg	응원 풍선
+item	bat	Name=Bat.svg	[Item] Bat 1.svg	야구 배트
+item	glove	Name=Glove.svg	[Item] Glove 1.svg	글러브
+item	megaphone	Name=Megaphone.svg	[Item] Megaphone 1.svg	메가폰
+item	peak	Name=Peak.svg	[Item]Peak 1.svg	응원봉

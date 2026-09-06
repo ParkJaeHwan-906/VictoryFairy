@@ -28,6 +28,10 @@ import yaml
 #: import 시 그 파일에서 채운다(`--scoring`으로 다른 파일 지정 가능).
 POINTS: dict = {}
 
+#: BQ 기준표. bqReward도 pointReward와 똑같이 difficulty로 결정된다(check 6).
+#: 정본·주입 방식 모두 POINTS와 같다(scoring.yaml의 `bq` 표).
+BQ: dict = {}
+
 #: BE가 RDB로 정산 가능한 예측 지표만 허용(check 4). 스펙 6. 리스크 참조 —
 #: 선수 퍼포먼스 등 상세 스탯 예측은 정산 불가라 카탈로그에도 없음.
 METRICS = {"WIN_TEAM", "TOTAL_RUNS", "SCORE_GAP", "PITCHER_DECISION"}
@@ -42,7 +46,7 @@ FORMAT_OPTION_COUNTS = {"OX": 2, "BINARY": 2, "MULTI4": 4}
 #: 경고로만 알리고, '있는데 틀린' 것만 check 9가 하드 실패로 잡는다.
 REQUIRED_FIELDS = (
     "quizId", "kind", "type", "templateId", "format", "question",
-    "options", "difficulty", "pointReward", "status",
+    "options", "difficulty", "pointReward", "bqReward", "status",
     "createdAt", "deadlineAt", "createdBy",
 )
 
@@ -64,15 +68,29 @@ SUBJECT_SCOPES = {"PLAYER", "TEAM", "MATCHUP", "LEAGUE", "GAME"}
 
 # ── 로더 ────────────────────────────────────────────────
 
-def load_scoring(path) -> dict:
-    """파일이 없거나 `points`가 비면 예외를 낸다 — 기본값으로 조용히 되돌아가면
-    정본 파일과 실제 검사 기준이 갈라지기 때문이다(fail-closed)."""
+def load_scoring(path) -> tuple:
+    """`(points, bq)`를 낸다. 파일이 없거나 둘 중 하나가 비면 예외를 낸다 —
+    기본값으로 조용히 되돌아가면 정본 파일과 실제 검사 기준이 갈라지기
+    때문이다(fail-closed).
+
+    난이도 키 집합이 두 표에서 다르면 그것도 예외다. check 6은 difficulty 하나로
+    두 표를 함께 조회하므로, 한쪽에만 난이도가 있으면 그 난이도 후보에서
+    KeyError로 죽거나(조회 실패) 검사가 조용히 빠진다."""
     with open(path, "r", encoding="utf-8") as f:
         doc = yaml.safe_load(f) or {}
     points = doc.get("points") or {}
+    bq = doc.get("bq") or {}
     if not points:
         raise ValueError(f"scoring.yaml에 points가 비어 있음: {path}")
-    return {str(k): int(v) for k, v in points.items()}
+    if not bq:
+        raise ValueError(f"scoring.yaml에 bq가 비어 있음: {path}")
+    points = {str(k): int(v) for k, v in points.items()}
+    bq = {str(k): int(v) for k, v in bq.items()}
+    if set(points) != set(bq):
+        raise ValueError(
+            f"scoring.yaml의 points·bq 난이도 키가 불일치: "
+            f"points={sorted(points)}, bq={sorted(bq)} ({path})")
+    return points, bq
 
 
 def load_catalog(path) -> dict:
@@ -215,15 +233,22 @@ def validate_candidate(c: dict, catalog: dict, banned: list) -> list:
                 f"format이 카탈로그 템플릿과 불일치: candidate={fmt}, "
                 f"catalog={template.get('format')}")
 
-    # 6. 포인트 기준표 일치
+    # 6. 보상 기준표 일치(포인트·BQ)
     difficulty = c.get("difficulty")
     point_reward = c.get("pointReward")
+    bq_reward = c.get("bqReward")
     if difficulty not in POINTS:
         violations.append(f"difficulty 값이 올바르지 않음: {difficulty}")
-    elif point_reward != POINTS[difficulty]:
-        violations.append(
-            f"pointReward가 difficulty({difficulty}) 기준 포인트와 불일치: "
-            f"기대 {POINTS[difficulty]}, 실제 {point_reward}")
+    else:
+        if point_reward != POINTS[difficulty]:
+            violations.append(
+                f"pointReward가 difficulty({difficulty}) 기준 포인트와 불일치: "
+                f"기대 {POINTS[difficulty]}, 실제 {point_reward}")
+        # BQ는 POINTS와 난이도 키 집합이 같음이 load_scoring에서 보장된다.
+        if bq_reward != BQ[difficulty]:
+            violations.append(
+                f"bqReward가 difficulty({difficulty}) 기준 BQ와 불일치: "
+                f"기대 {BQ[difficulty]}, 실제 {bq_reward}")
 
     # 7. 금지 소재 키워드(부분 문자열 매칭)
     texts = [c.get("question") or ""]
@@ -342,9 +367,11 @@ def _default_config_path(name: str) -> str:
     return str(Path(__file__).resolve().parent.parent / "config" / name)
 
 
-#: 포인트 기준표를 import 시점에 정본(scoring.yaml)에서 채운다 — 이 모듈을 CLI가
+#: 보상 기준표를 import 시점에 정본(scoring.yaml)에서 채운다 — 이 모듈을 CLI가
 #: 아니라 직접 import해 쓰는 경로(테스트 등)에서도 같은 값이 보이도록.
-POINTS.update(load_scoring(_default_config_path("scoring.yaml")))
+_POINTS, _BQ = load_scoring(_default_config_path("scoring.yaml"))
+POINTS.update(_POINTS)
+BQ.update(_BQ)
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -358,7 +385,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--banned", default=None,
                    help="banned-topics.txt 경로(기본: question-gen/config/banned-topics.txt)")
     p.add_argument("--scoring", default=None,
-                   help="점수 기준표 YAML 경로(기본: question-gen/config/scoring.yaml)")
+                   help="보상 기준표(points·bq) YAML 경로"
+                        "(기본: question-gen/config/scoring.yaml)")
     return p
 
 
@@ -372,8 +400,11 @@ def main(argv=None) -> None:
     catalog = load_catalog(catalog_path)
     banned = load_banned(banned_path)
     if args.scoring:
+        points, bq = load_scoring(args.scoring)
         POINTS.clear()
-        POINTS.update(load_scoring(args.scoring))
+        POINTS.update(points)
+        BQ.clear()
+        BQ.update(bq)
 
     files = sorted(Path(args.dir).glob("*.json"))
     file_violations = {}

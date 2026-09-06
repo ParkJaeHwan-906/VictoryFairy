@@ -35,6 +35,14 @@ def load_exceptions() -> list[str]:
     return _load_json("exceptions.json")
 
 
+def load_strict_adjacent() -> list[str]:
+    """
+    banned_words 중 '원문에서 글자가 붙어 있을 때만' 잡을 단어 목록이다.
+    여기 적힌 단어는 일반 뷰에서 빠지고 공백 보존 뷰에서만 검사된다(patterns 참조).
+    """
+    return _load_json("strict_adjacent.json")
+
+
 def load_normalization_maps() -> tuple[dict[str, str], dict[str, str]]:
     data = _load_json("normalization.json")
     single_char = data.get("single_char", {})

@@ -97,7 +97,7 @@ data "aws_iam_policy_document" "github_actions" {
   # ⚠ s3:DeleteObject 를 일부러 주지 않는다. 배포는 --delete 없이 sync 하므로 필요가 없고,
   #   없으면 CI 권한만으로는 사이트를 지울 수 없다. 옛 자산 정리는 사람이 별도 권한으로 한다.
   #   (--delete 를 쓰면 캐시된 옛 index.html 이 참조하는 청크가 사라져 화면이 깨진다 —
-  #    docs/fe-cdn-migration.md §6)
+  #    docs/fe-hosting.md §4)
   # ⚠ ListBucket 은 버킷 ARN 에, 오브젝트 조작은 <ARN>/* 에 붙는다. 두 형태를 섞으면
   #   sync 가 조용히 전체 업로드로 퇴화하거나 AccessDenied 로 죽는다.
   dynamic "statement" {

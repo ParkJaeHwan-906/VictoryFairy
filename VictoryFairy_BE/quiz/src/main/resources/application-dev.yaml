@@ -31,9 +31,11 @@ spring:
 # ⚠ 그래서 빈 DB 에 quiz 만 띄우면 테이블은 있어도 채팅방이 0행이다. 채팅방 목록이 비어 있으면
 #   설정을 의심하기 전에 user-app 을 한 번 띄울 것.
 
-# dev 는 Redis 를 쓰지 않는다(fan-out 은 InMemoryPublisher). spring-boot-starter-data-redis 가
-# 클래스패스에 있다는 이유만으로 액추에이터가 redis 인디케이터를 켜서, 로컬에 Redis 가 없으면
-# /actuator/health 가 DOWN 으로 보인다 → 오해를 막기 위해 dev 에서만 끈다.
+# dev 의 fan-out 은 Redis 가 아니라 InMemoryPublisher 다(투표 집계 RedisQuizVoteTally 는 dev 에서도
+# 실제 Redis 를 쓰지만, 실패를 삼켜 no-op 으로 degrade 하므로 Redis 없이도 기동·요청이 멀쩡하다).
+# 그런데 spring-boot-starter-data-redis 가 클래스패스에 있다는 이유만으로 액추에이터가 redis
+# 인디케이터를 켜서, 로컬에 Redis 가 없으면 /actuator/health 가 DOWN 으로 보인다 → 오해를 막기 위해
+# dev 에서만 끈다(집계 기능과는 무관한 표시 문제다 — 이 결정은 건드리지 않는다).
 # (readiness 그룹은 원래 이 인디케이터를 보지 않으므로 ALB 헬스체크와는 무관하다.)
 management:
   health:

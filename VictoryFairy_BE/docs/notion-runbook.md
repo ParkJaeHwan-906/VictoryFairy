@@ -6,12 +6,15 @@
 
 | 모듈 | 역할 | 실행 여부 |
 | --- | --- | --- |
-| `common` | 공통 코드 모듈 | 실행 모듈 아님 |
+| `common` | 응답 래퍼·에러 코드 등 외부 의존성 없는 공통 코드 | 실행 모듈 아님 |
 | `domain` | Entity, Repository 등 도메인 모듈 | 실행 모듈 아님 |
+| `web-support` | JWT 발급/검증 필터, 전역 예외 핸들러, 401 엔트리포인트 | 실행 모듈 아님 |
 | `user` | 사용자 기능 애플리케이션 | 실행 가능 |
 | `quiz` | 퀴즈 기능 애플리케이션 | 실행 가능 |
 
-실행 가능한 애플리케이션은 `user`, `quiz` 두 개입니다.
+실행 가능한 애플리케이션은 `user`, `quiz` 두 개이며 같은 MySQL 을 공유합니다.
+`web-support` 가 인증 필터를 양쪽에 함께 넣으므로 두 앱은 **같은 `JWT_SECRET` 을 읽어야** 합니다.
+인증 계약의 상세는 [api/README.md](api/README.md) "공통 규약 2·3" 이 단일 출처입니다.
 
 ## 포트
 
@@ -25,16 +28,8 @@
 
 루트 경로의 `.env` 파일을 사용합니다.
 
-필요한 키:
-
-```properties
-DB_HOST=localhost
-DB_PORT=3306
-DB_NAME=...
-DB_USERNAME=...
-DB_PASSWORD=...
-SPRING_PROFILES_ACTIVE=dev
-```
+필요한 키는 루트 `.env.example` 이 단일 출처입니다 — `cp .env.example .env` 후 값을 채웁니다.
+(DB 접속 정보 · `SPRING_PROFILES_ACTIVE` · `JWT_SECRET` · Redis · 메일 발송)
 
 각 실행 모듈은 다음 위치의 설정 파일을 사용합니다.
 

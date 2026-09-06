@@ -70,7 +70,7 @@ module "ecr" {
   # user/quiz 는 BE Gradle 모듈과 1:1 (Dockerfile ARG MODULE).
   # pipeline 은 정제 러너 이미지 — 패턴·Bedrock Lambda 가 같은 이미지를 공유한다(ARCHITECTURE §4).
   # fe 리포지토리는 2026-08-07 제거했다. FE 는 S3+CloudFront 가 서비스하므로 이미지를 pull 할
-  # 주체(fe-app 파드)가 없어졌다(docs/fe-cdn-migration.md).
+  # 주체(fe-app 파드)가 없어졌다(docs/fe-hosting.md).
   # ⚠ 여기서 이름을 빼면 리포지토리가 destroy 된다. 이 모듈은 force_delete 를 켜지 않으므로
   #   이미지가 남아 있으면 RepositoryNotEmptyException 으로 apply 가 실패한다 —
   #   aws ecr batch-delete-image 로 먼저 비워야 한다(fe 는 그렇게 처리했다).
@@ -153,9 +153,43 @@ module "dns" {
   mailjet_verification_value = "bc2f75b58109420e2abf5666cdeff8f5"
 }
 
+# ---------------------------------------------------------------------------
+# 랜딩 페이지 (Vercel 호스팅) — landing.<domain>
+#
+# 구성과 기각한 대안(새 CloudFront·apex 하위 경로)은 docs/landing-page.md.
+#
+# apex(CloudFront→FE·API)와 무관한 별도 사이트다. 이 존에는 레코드 두 개만 두고 TLS 는
+# Vercel 이 자체 발급하므로 ACM 인증서·SAN 은 건드리지 않는다.
+#
+# ⚠ Vercel 이 권하는 "네임서버를 Vercel 로 변경" 은 택하지 않았다. 존을 옮기면 ACM 검증
+#   CNAME 2장·origin.<domain> A/TXT·Mailjet DKIM 이 함께 사라진다.
+#
+# ExternalDNS 와는 다투지 않는다 — --source=ingress 라 Ingress host 로 선언된 이름만 보고,
+# --policy=upsert-only 라 남의 레코드를 지우지도 않는다(k8s/23-external-dns.yaml).
+# ---------------------------------------------------------------------------
+resource "aws_route53_record" "landing" {
+  zone_id = module.dns.zone_id
+  name    = "landing.${var.domain_name}"
+  type    = "CNAME"
+  ttl     = 300
+
+  # Vercel 프로젝트별로 발급되는 타깃이다(공용 cname.vercel-dns.com 이 아니다).
+  records = ["3805daedc4daf81d.vercel-dns-017.com"]
+}
+
+# Vercel 도메인 소유권 검증. 이름이 _vercel.<domain> 이라 apex TXT 가 아니다 —
+# ExternalDNS 소유권 TXT(그 충돌 때문에 Mailjet SPF 를 보류 중)와 겹치지 않는다.
+resource "aws_route53_record" "landing_vercel_verify" {
+  zone_id = module.dns.zone_id
+  name    = "_vercel.${var.domain_name}"
+  type    = "TXT"
+  ttl     = 300
+  records = ["vc-domain-verify=landing.victoryfairy.com,c608bbb507d1283f36a0"]
+}
+
 # FE 정적 호스팅 — S3(원본) + CloudFront(단일 진입점).
 # CloudFront 가 /api/*·/rt/* 를 ALB 로, 나머지를 S3 로 갈라 보내므로 FE·API 가 같은 오리진으로 남는다.
-# 전환 절차·롤백은 docs/fe-cdn-migration.md.
+# 구성과 주의점은 docs/fe-hosting.md.
 module "cdn" {
   source = "../../modules/cdn"
 
@@ -169,9 +203,51 @@ module "cdn" {
   api_path_patterns  = local.api_path_patterns
   route53_zone_id    = module.dns.zone_id
 
+  # 두 번째 S3 오리진 = 사용자 업로드 이미지 + 캐릭터 꾸미기 에셋(module.asset). 새 배포를 만들지
+  # 않고 이 배포에 경로 몇 개만 더 갈라 붙인다. 상대편(버킷 정책)은 이 배포 ARN 을 받아 이 배포에만 읽기를
+  # 허용한다 — 두 모듈이 서로의 출력을 주고받지만 순환은 아니다(서로 다른 리소스에 걸린다).
+  asset_bucket_name                 = module.asset.bucket_name
+  asset_bucket_regional_domain_name = module.asset.bucket_regional_domain_name
+  asset_profile_prefix              = local.asset_profile_prefix
+  asset_temp_prefix                 = local.asset_temp_prefix
+  asset_static_prefixes             = local.asset_static_prefixes
+
   # 실서비스 전환 스위치. false 인 동안은 트래픽이 그대로 ALB 로 가고 CloudFront 는 배포
   # 도메인으로만 접근된다 — 검증을 마친 뒤 true 로 바꿔 apex 를 옮긴다(문서 §4 2단계).
   attach_apex_alias = var.fe_attach_apex_alias
+}
+
+# 사용자 업로드 자산(프로필 이미지) 버킷. 퍼블릭 차단 + OAC 를 든 CloudFront 만 읽는다.
+# 쓰는 주체는 user-app 파드(module.user_irsa 의 역할)이고, 읽는 경로는 module.cdn 의
+# /user-profile-img/*·/temp/* behavior 다.
+module "asset" {
+  source = "../../modules/asset"
+
+  bucket_name    = local.asset_bucket_name
+  profile_prefix = local.asset_profile_prefix
+  temp_prefix    = local.asset_temp_prefix
+
+  # 캐릭터 꾸미기 에셋 — 버킷 정책의 읽기 허용 접두사에만 더한다(만료 규칙도 IRSA 쓰기 권한도 없다).
+  static_prefixes = local.asset_static_prefixes
+
+  # 이 배포에서 온 요청만 버킷을 읽는다(fe 버킷과 같은 SourceArn 조건).
+  cloudfront_distribution_arn = module.cdn.distribution_arn
+}
+
+# user-app 파드용 IRSA — asset 버킷의 temp/·user-profile-img/ 읽기·쓰기·삭제 + temp/ 나열.
+# 역할 ARN 을 k8s/20-user-app.yaml 의 SA 어노테이션에 지정한다(출력 user_app_role_arn).
+# ⚠ 현재 user-app 에는 ServiceAccount 자체가 없다 — 매니페스트에 SA 를 새로 만들고
+#   Deployment 에 serviceAccountName 을 걸어야 이 권한이 파드에 닿는다(k8s-manifest 소관).
+module "user_irsa" {
+  source = "../../modules/user-irsa"
+
+  name_prefix       = local.cluster_name
+  oidc_provider_arn = module.eks.oidc_provider_arn
+  oidc_provider_url = module.eks.oidc_provider_url
+
+  asset_bucket_name = module.asset.bucket_name
+  profile_prefix    = local.asset_profile_prefix
+  temp_prefix       = local.asset_temp_prefix
 }
 
 # 상시 감시 — 배포 스모크(수십 초)가 닫힌 뒤를 맡는다.

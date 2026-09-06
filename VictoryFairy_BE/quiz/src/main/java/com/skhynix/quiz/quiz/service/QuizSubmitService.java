@@ -11,12 +11,15 @@ import com.skhynix.domain.quiz.repository.QuizOptionRepository;
 import com.skhynix.domain.quiz.repository.QuizRepository;
 import com.skhynix.domain.quiz.repository.QuizUserSubmitRepository;
 import com.skhynix.domain.user.entity.UserAccount;
+import com.skhynix.domain.user.entity.UserBq;
 import com.skhynix.domain.user.repository.UserAccountRepository;
+import com.skhynix.domain.user.repository.UserBqRepository;
 import com.skhynix.quiz.quiz.dto.QuizLikeResponse;
 import com.skhynix.quiz.quiz.dto.QuizSubmissionHistoryResponse;
 import com.skhynix.quiz.quiz.dto.QuizSubmissionHistoryResponse.InningResponse;
 import com.skhynix.quiz.quiz.dto.QuizSubmissionItemResponse;
 import com.skhynix.quiz.quiz.dto.QuizSubmitResponse;
+import com.skhynix.quiz.quiz.vote.QuizVoteTally;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -26,6 +29,8 @@ import java.util.stream.IntStream;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Service
 @RequiredArgsConstructor
@@ -42,8 +47,10 @@ public class QuizSubmitService {
     private final QuizOptionRepository quizOptionRepository;
     private final QuizUserSubmitRepository quizUserSubmitRepository;
     private final UserAccountRepository userAccountRepository;
+    private final UserBqRepository userBqRepository;
     private final GameRepository gameRepository;
     private final QuizLikeService quizLikeService;
+    private final QuizVoteTally quizVoteTally;
 
     @Transactional
     public QuizSubmitResponse submit(Long userAccountId, Long quizId, int optionNo) {
@@ -65,13 +72,18 @@ public class QuizSubmitService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.QUIZ_OPTION_NOT_FOUND));
 
         boolean correct = Objects.equals(quiz.getAnswer(), optionNo);
+        // ⚠ 락 순서 고정: 계정 행이 먼저다(항상 트랜잭션의 가장 앞 — findWithLockById javadoc).
+        //   아래 bq 적립이 users_bq 행을 두 번째로 잠그며, 이 순서가 뒤집히는 경로를 만들지 말 것.
         UserAccount account = userAccountRepository.findWithLockById(userAccountId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHENTICATED));
-        // score 는 nullable(사람이 쓴 퀴즈) — 배점 없는 문제의 정답은 적립 0 으로 다룬다
-        long earnedPoint = correct && quiz.getScore() != null ? Math.round(quiz.getScore()) : 0L;
+        // 두 배점 다 nullable(사람이 쓴 퀴즈·난이도 미상) — 배점 없는 문제의 정답은 그 축만 적립 0
+        // 이고 다른 축은 정상 적립된다(두 축이 서로를 막지 않는다)
+        long earnedPoint = correct && quiz.getPoint() != null ? Math.round(quiz.getPoint()) : 0L;
         if (earnedPoint > 0) {
             account.addPoint(earnedPoint);
         }
+        long earnedBq = correct && quiz.getBq() != null && quiz.getBq() > 0 ? quiz.getBq() : 0L;
+        long totalBq = accrueBq(account, earnedBq);
 
         // 조건부 UPDATE 한 방이 원자적 판정이다 — 동시에 들어온 두 제출 중 하나만 1 을 받는다.
         // 시한 조건을 여기서도 거는 이유: 위 검사와 이 문장 사이에 시한이 지나는 경우까지 닫는다.
@@ -81,8 +93,62 @@ public class QuizSubmitService {
         if (filled == 0) {
             throw new BusinessException(ErrorCode.QUIZ_ALREADY_SUBMITTED);
         }
+        // 여기까지 왔다는 건 이 제출이 그 문제의 유일한 확정이라는 뜻이다(409 로 갈린 쪽은 위에서
+        // 롤백된다) — 표를 더할 자격은 이 지점에서만 생긴다.
+        incrementVoteAfterCommit(quizId, optionNo);
         return new QuizSubmitResponse(correct, quiz.getAnswer(), optionNo, earnedPoint,
-                account.getPoint());
+                account.getPoint(), earnedBq, totalBq);
+    }
+
+    /**
+     * 레이팅 축 적립. 포인트 적립과 <b>같은 트랜잭션</b>이라 아래 조건부 UPDATE 가 0 행이면(409)
+     * 이 적립도 함께 롤백된다 — 두 축이 갈리는 경로를 만들지 않기 위해 별도 커밋·커밋 후 훅을
+     * 쓰지 않는다(집계 증가와 다른 점).
+     *
+     * <p>적립할 것이 없으면(오답·배점 NULL·0 이하) <b>행을 잠그지도 만들지도 않는다</b> — 응답에
+     * 실을 누적치만 읽는다. 없는 행을 그때 만들면 오답 한 번으로 빈 행이 생겨 "가입 트랜잭션이
+     * 만든다"는 원래 규칙과 무의미하게 어긋난다.
+     *
+     * <p>행이 없는 계정에 적립할 때는 이 트랜잭션이 행을 만든다. 건너뛰면 그 적립분이 영구히
+     * 사라지고 {@code GET /api/users/me} 의 {@code bqScore:0} 안전망이 유실 사실까지 덮는다.
+     * UNIQUE 충돌 창은 없다 — 여기 도달한 시점에 계정 행 락으로 같은 계정의 동시 제출이 이미
+     * 직렬화돼 있다.
+     */
+    private long accrueBq(UserAccount account, long earnedBq) {
+        if (earnedBq <= 0) {
+            return userBqRepository.findByUserAccount_Id(account.getId())
+                    .map(UserBq::getBqScore)
+                    .orElse(0L);
+        }
+        UserBq userBq = userBqRepository.findWithLockByUserAccountId(account.getId())
+                .orElseGet(() -> userBqRepository.save(
+                        UserBq.builder().userAccount(account).build()));
+        userBq.addBqScore(earnedBq);
+        return userBq.getBqScore();
+    }
+
+    /**
+     * 집계 증가를 <b>커밋 이후</b>로 미룬다. 이유는 두 가지다 — ① 이 트랜잭션은 포인트 적립 때문에
+     * {@code findWithLockById} 로 계정 행 락을 쥐고 있어, 여기서 Redis 왕복을 하면 락 보유 구간이
+     * 네트워크 지연만큼 늘어난다 ② 커밋에 실패한 제출은 정의상 표를 만들지 않는다.
+     *
+     * <p>남는 실패 창은 "커밋 성공 직후 ~ 훅 실행 전 인스턴스 종료" 하나이고, 그때 잃는 한 표는
+     * 보정하지 않는다(정본은 {@code quiz_users_submit}).
+     *
+     * <p>동기화가 없는 호출 경로(트랜잭션 밖 직접 호출·단위 테스트)에서는 미룰 곳이 없으므로 그대로
+     * 실행한다 — 등록 가능 여부를 확인하지 않으면 {@code IllegalStateException} 이 난다.
+     */
+    private void incrementVoteAfterCommit(long quizId, int optionNo) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            quizVoteTally.increment(quizId, optionNo);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                quizVoteTally.increment(quizId, optionNo);
+            }
+        });
     }
 
     @Transactional(readOnly = true)

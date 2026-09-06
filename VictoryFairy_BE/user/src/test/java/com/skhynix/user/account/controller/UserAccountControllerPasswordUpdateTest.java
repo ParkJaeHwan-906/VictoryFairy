@@ -72,6 +72,11 @@ class UserAccountControllerPasswordUpdateTest {
     @MockitoBean
     private UserAccountRepository userAccountRepository;
 
+    // 컨트롤러가 프로필 이미지 업로드용 AccountProfileImageService도 생성자로 받아, 없으면 컨텍스트
+    // 로딩이 실패한다(이 클래스 테스트는 비밀번호 수정만 다뤄 상호작용은 없음).
+    @MockitoBean
+    private com.skhynix.user.profileimage.service.AccountProfileImageService accountProfileImageService;
+
     private String stubValidAccessToken(String uid) {
         String token = "access-token-for-" + uid;
         given(jwtTokenProvider.validateToken(token)).willReturn(true);

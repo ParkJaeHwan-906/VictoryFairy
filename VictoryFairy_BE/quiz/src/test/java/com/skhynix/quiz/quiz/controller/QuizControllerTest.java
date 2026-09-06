@@ -13,8 +13,11 @@ import com.skhynix.common.error.BusinessException;
 import com.skhynix.common.error.ErrorCode;
 import com.skhynix.domain.user.repository.UserAccountRepository;
 import com.skhynix.quiz.global.config.SecurityConfig;
+import com.skhynix.quiz.quiz.dto.OptionResponse;
 import com.skhynix.quiz.quiz.dto.QuizDetailResponse;
 import com.skhynix.quiz.quiz.dto.QuizResponse;
+import com.skhynix.quiz.quiz.dto.QuizResponse.TodayOptionResponse;
+import com.skhynix.quiz.quiz.dto.QuizVoteCountResponse;
 import com.skhynix.quiz.quiz.service.QuizLikeService;
 import com.skhynix.quiz.quiz.service.QuizService;
 import com.skhynix.websupport.error.GlobalExceptionHandler;
@@ -153,14 +156,14 @@ class QuizControllerTest {
             + "(정답 미노출 계약 + /today 좋아요 집계 비용 없음)")
     void getTodayQuizzes_authenticated_returns200WithoutAnswerKey() throws Exception {
         given(quizService.getTodayQuizzes(USER_ID, GAME_ID, false)).willReturn(List.of(
-                new QuizResponse(1L, "객관식", "2025 정규시즌 우승 구단은?", "MEDIUM", 30.0, true,
-                        List.of(new QuizResponse.OptionResponse(0, "LG"),
-                                new QuizResponse.OptionResponse(1, "한화"),
-                                new QuizResponse.OptionResponse(2, "삼성"),
-                                new QuizResponse.OptionResponse(3, "KT"))),
-                new QuizResponse(2L, "O/X", "문동주는 한화 소속이다?", "EASY", 10.0, false,
-                        List.of(new QuizResponse.OptionResponse(0, "O"),
-                                new QuizResponse.OptionResponse(1, "X")))));
+                new QuizResponse(1L, "객관식", "2025 정규시즌 우승 구단은?", "MEDIUM", 30.0, 2, true,
+                        List.of(new TodayOptionResponse(0, "LG", 3L),
+                                new TodayOptionResponse(1, "한화", 0L),
+                                new TodayOptionResponse(2, "삼성", 0L),
+                                new TodayOptionResponse(3, "KT", 0L))),
+                new QuizResponse(2L, "O/X", "문동주는 한화 소속이다?", "EASY", 10.0, 1, false,
+                        List.of(new TodayOptionResponse(0, "O", 0L),
+                                new TodayOptionResponse(1, "X", 0L)))));
 
         MvcResult result = mockMvc.perform(get("/quizzes/today").param("gameId", GAME_ID)
                         .with(authenticatedAs(USER_ID)))
@@ -172,19 +175,31 @@ class QuizControllerTest {
                 .andExpect(jsonPath("$.data[0].question").value("2025 정규시즌 우승 구단은?"))
                 .andExpect(jsonPath("$.data[0].difficulty").value("MEDIUM"))
                 .andExpect(jsonPath("$.data[0].point").value(30.0))
+                // [QUIZ-PBQ-26] bq는 JSON 정수로 실린다(문제별로 다른 값 — 밀림 없이 매핑됨을 함께 확인)
+                .andExpect(jsonPath("$.data[0].bq").value(2))
+                .andExpect(jsonPath("$.data[1].bq").value(1))
                 .andExpect(jsonPath("$.data[0].preferred").value(true))
                 .andExpect(jsonPath("$.data[0].options.length()").value(4))
                 .andExpect(jsonPath("$.data[0].options[0].no").value(0))
                 .andExpect(jsonPath("$.data[0].options[0].text").value("LG"))
+                // [AC-VOTEVIEW-1-1,1-2,2-1] voteCount는 값이 0이어도 키가 생략되지 않고, 문자열이 아닌
+                // JSON 정수로 실린다
+                .andExpect(jsonPath("$.data[0].options[0].voteCount").value(3))
+                .andExpect(jsonPath("$.data[0].options[1].voteCount").value(0))
                 .andExpect(jsonPath("$.data[1].type").value("O/X"))
                 .andExpect(jsonPath("$.data[1].preferred").value(false))
                 .andExpect(jsonPath("$.data[1].options.length()").value(2))
+                .andExpect(jsonPath("$.data[1].options[0].voteCount").value(0))
+                .andExpect(jsonPath("$.data[1].options[1].voteCount").value(0))
                 .andExpect(jsonPath("$.data[0].answer").doesNotExist())
                 .andExpect(jsonPath("$.data[1].answer").doesNotExist())
                 .andExpect(jsonPath("$.data[0].liked").doesNotExist())
                 .andExpect(jsonPath("$.data[0].likeCount").doesNotExist())
                 .andExpect(jsonPath("$.data[1].liked").doesNotExist())
                 .andExpect(jsonPath("$.data[1].likeCount").doesNotExist())
+                // [AC-VOTEVIEW-5-1] 이번 변경으로 추가된 필드는 voteCount 하나뿐 — 총합·비율 필드가 없다
+                .andExpect(jsonPath("$.data[0].totalVotes").doesNotExist())
+                .andExpect(jsonPath("$.data[0].voteRatio").doesNotExist())
                 // [AC-INN-15-1] /today 응답 필드 집합은 이닝 기능 도입 후에도 바뀌지 않는다 — inning 키가 없다
                 .andExpect(jsonPath("$.data[0].inning").doesNotExist())
                 .andExpect(jsonPath("$.data[1].inning").doesNotExist())
@@ -193,8 +208,30 @@ class QuizControllerTest {
         // "answer" 라는 문자열 자체가 응답 본문 어디에도 없어야 한다(isAnswer·answerRate 류까지 차단)
         String body = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertThat(body).doesNotContain("answer");
+        // "voteCount":3 형태로 실려야 한다(문자열 "3"이 아니다) — AC-VOTEVIEW-2-1
+        assertThat(body).contains("\"voteCount\":3");
+        assertThat(body).doesNotContain("\"voteCount\":\"3\"");
         // AC-LIKE-31-2: /today 처리 중 QuizLikeService 를 아예 호출하지 않는다(집계 쿼리도 발생 안 함)
         verifyNoInteractions(quizLikeService);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-PBQ-27] /today 응답 항목의 bq가 NULL이면 키는 응답에 남고 값만 null이다"
+            + "(point가 NULL일 때와 같은 규칙 — 이 응답에는 @JsonInclude가 없어 키 생략이 아니다)")
+    void getTodayQuizzes_quizWithNullBq_returns200WithBqKeyPresentButNull() throws Exception {
+        given(quizService.getTodayQuizzes(USER_ID, GAME_ID, false)).willReturn(List.of(
+                new QuizResponse(1L, "객관식", "bq 미상 문제", null, null, null, false,
+                        List.of(new TodayOptionResponse(0, "O", 0L)))));
+
+        MvcResult result = mockMvc.perform(get("/quizzes/today").param("gameId", GAME_ID)
+                        .with(authenticatedAs(USER_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].bq").value(org.hamcrest.Matchers.nullValue()))
+                .andReturn();
+
+        // 키 생략이 아니라 값이 null로 실린 것임을 본문에서 직접 확인한다
+        String body = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(body).contains("\"bq\":null");
     }
 
     @Test
@@ -247,10 +284,14 @@ class QuizControllerTest {
                 .andExpect(jsonPath("$.data.likeCount").doesNotExist())
                 // [AC-INN-25-2] 상세 응답도 이닝 기능과 무관 — inning 키가 없다
                 .andExpect(jsonPath("$.data.inning").doesNotExist())
+                // [AC-VOTEVIEW-27-1] 상세 응답 필드 집합은 투표 수 노출과 무관 — voteCount 계열 키가 없다
+                .andExpect(jsonPath("$.data.options[0].voteCount").doesNotExist())
+                .andExpect(jsonPath("$.data.options[1].voteCount").doesNotExist())
                 .andReturn();
 
         String body = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertThat(body).doesNotContain("answer");
+        assertThat(body).doesNotContain("voteCount");
     }
 
     @Test
@@ -265,10 +306,15 @@ class QuizControllerTest {
                 .andExpect(jsonPath("$.data.myOption").value(1))
                 .andExpect(jsonPath("$.data.correct").value(false))
                 .andExpect(jsonPath("$.data.answer").value(0))
+                // [QUIZ-PBQ-28] bq는 JSON 정수로 실린다
+                .andExpect(jsonPath("$.data.bq").value(2))
                 .andExpect(jsonPath("$.data.liked").value(true))
                 .andExpect(jsonPath("$.data.likeCount").value(5))
                 // [AC-INN-25-2] 제출한 문제 상세도 마찬가지로 inning 키가 없다
-                .andExpect(jsonPath("$.data.inning").doesNotExist());
+                .andExpect(jsonPath("$.data.inning").doesNotExist())
+                // [AC-VOTEVIEW-27-1] 제출한 문제 상세도 voteCount 계열 키가 없다
+                .andExpect(jsonPath("$.data.options[0].voteCount").doesNotExist())
+                .andExpect(jsonPath("$.data.options[1].voteCount").doesNotExist());
     }
 
     @Test
@@ -285,6 +331,24 @@ class QuizControllerTest {
                 .andExpect(jsonPath("$.data.myOption").doesNotExist())
                 .andExpect(jsonPath("$.data.correct").doesNotExist())
                 .andExpect(jsonPath("$.data.answer").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("[QUIZ-PBQ-29] 상세 대상 문제의 bq가 NULL이면 응답에 bq 키 자체가 없다"
+            + "(NON_NULL 규칙 — point가 NULL일 때와 동일)")
+    void getQuiz_nullBq_returns200WithoutBqKey() throws Exception {
+        QuizDetailResponse nullBq = new QuizDetailResponse(1L, "객관식", "2025 정규시즌 우승 구단은?",
+                "MEDIUM", 30.0, null, TODAY, QuizDetailResponseFixture.OPTIONS,
+                false, false, null, null, null, null, null);
+        given(quizService.getQuiz(USER_ID, 1L)).willReturn(nullBq);
+
+        MvcResult result = mockMvc.perform(get("/quizzes/1").with(authenticatedAs(USER_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.bq").doesNotExist())
+                .andReturn();
+
+        String body = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(body).doesNotContain("\"bq\"");
     }
 
     @Test
@@ -310,23 +374,78 @@ class QuizControllerTest {
     /** 상세 응답 픽스처 — 미제출/제출의 차이(마지막 세 필드)만 다르게 재사용한다. */
     private static class QuizDetailResponseFixture {
 
-        private static final List<QuizResponse.OptionResponse> OPTIONS = List.of(
-                new QuizResponse.OptionResponse(0, "LG"),
-                new QuizResponse.OptionResponse(1, "한화"));
+        private static final List<OptionResponse> OPTIONS = List.of(
+                new OptionResponse(0, "LG"),
+                new OptionResponse(1, "한화"));
 
         static QuizDetailResponse unsubmitted() {
             return new QuizDetailResponse(1L, "객관식", "2025 정규시즌 우승 구단은?", "MEDIUM",
-                    30.0, TODAY, OPTIONS, false, false, null, null, null, null, null);
+                    30.0, 2, TODAY, OPTIONS, false, false, null, null, null, null, null);
         }
 
         static QuizDetailResponse unsubmittedExpired() {
             return new QuizDetailResponse(1L, "객관식", "2025 정규시즌 우승 구단은?", "MEDIUM",
-                    30.0, TODAY, OPTIONS, false, true, null, null, null, null, null);
+                    30.0, 2, TODAY, OPTIONS, false, true, null, null, null, null, null);
         }
 
         static QuizDetailResponse submitted() {
             return new QuizDetailResponse(1L, "객관식", "2025 정규시즌 우승 구단은?", "MEDIUM",
-                    30.0, TODAY, OPTIONS, true, false, 1, false, 0, true, 5L);
+                    30.0, 2, TODAY, OPTIONS, true, false, 1, false, 0, true, 5L);
         }
+    }
+
+    // ---------- GET /quizzes/{quizId}/vote-count ----------
+
+    @Test
+    @DisplayName("인증 없이 투표 현황을 요청하면 401을 반환한다")
+    void getQuizVoteCount_withoutAuthentication_returns401() throws Exception {
+        mockMvc.perform(get("/quizzes/1/vote-count"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false));
+
+        verifyNoInteractions(quizService);
+    }
+
+    @Test
+    @DisplayName("미답 상태면 200과 보기별 투표 수를 반환한다(항목 필드는 /today 와 같은 no·text·voteCount)")
+    void getQuizVoteCount_unanswered_returnsCountsPerOption() throws Exception {
+        given(quizService.getQuizVoteCount(USER_ID, 1L)).willReturn(
+                new QuizVoteCountResponse(1L, List.of(
+                        new TodayOptionResponse(0, "안타", 37L),
+                        new TodayOptionResponse(1, "삼진", 12L))));
+
+        mockMvc.perform(get("/quizzes/1/vote-count").with(authenticatedAs(USER_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.quizId").value(1))
+                .andExpect(jsonPath("$.data.options.length()").value(2))
+                .andExpect(jsonPath("$.data.options[0].no").value(0))
+                .andExpect(jsonPath("$.data.options[0].text").value("안타"))
+                .andExpect(jsonPath("$.data.options[0].voteCount").value(37))
+                .andExpect(jsonPath("$.data.options[1].voteCount").value(12))
+                // 서버가 백분율을 만들어 내보내지 않는다 — /today 와 같은 개수 그대로다
+                .andExpect(jsonPath("$.data.options[0].rate").doesNotExist())
+                .andExpect(jsonPath("$.data.totalVoteCount").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("자격이 없으면(받은 적 없음·이미 제출함) 상태 코드를 가르지 않고 200 + data:null 이다 "
+            + "— 404·403 으로 갈리면 응답 코드만으로 그 문제를 받았는지가 드러난다")
+    void getQuizVoteCount_notEligible_returns200WithNullData() throws Exception {
+        given(quizService.getQuizVoteCount(USER_ID, 1L)).willReturn(null);
+
+        mockMvc.perform(get("/quizzes/1/vote-count").with(authenticatedAs(USER_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("quizId 가 숫자가 아니면 400이고 서비스는 호출되지 않는다")
+    void getQuizVoteCount_nonNumericQuizId_returns400() throws Exception {
+        mockMvc.perform(get("/quizzes/abc/vote-count").with(authenticatedAs(USER_ID)))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(quizService);
     }
 }

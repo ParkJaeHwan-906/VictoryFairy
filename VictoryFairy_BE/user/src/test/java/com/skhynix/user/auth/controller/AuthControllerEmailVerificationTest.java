@@ -68,6 +68,11 @@ class AuthControllerEmailVerificationTest {
     @MockitoBean
     private UserAccountRepository userAccountRepository;
 
+    // AuthController가 가입 전 임시 프로필 이미지 업로드용 TempProfileImageService도 생성자로 받아,
+    // 없으면 컨텍스트 로딩이 실패한다(이 클래스 테스트는 그 경로와 상호작용하지 않음).
+    @MockitoBean
+    private com.skhynix.user.profileimage.service.TempProfileImageService tempProfileImageService;
+
     // ---------- POST /auth/email/send-code ----------
 
     @Test
@@ -312,7 +317,7 @@ class AuthControllerEmailVerificationTest {
                 .willThrow(new BusinessException(ErrorCode.EMAIL_NOT_VERIFIED));
         String json = objectMapper.writeValueAsString(new com.skhynix.user.auth.dto.SignupRequest(
                 "홍길동", "01012345678", "unverified@example.com",
-                com.skhynix.domain.user.entity.Gender.MALE, "nickname", "abc123!@"));
+                com.skhynix.domain.user.entity.Gender.MALE, "nickname", "abc123!@", null));
 
         // when & then
         mockMvc.perform(post("/auth/signup")

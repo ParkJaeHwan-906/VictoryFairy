@@ -59,6 +59,61 @@ public enum ErrorCode {
     PLAYER_NOT_IN_SUPPORT_TEAM(400, "응원하는 구단 소속 선수만 선택할 수 있습니다."),
     SUPPORT_PLAYER_LIMIT_EXCEEDED(400, "응원 선수는 최대 4명까지 선택할 수 있습니다."),
 
+    // 400 Bad Request - 프로필 이미지 업로드
+    PROFILE_IMAGE_REQUIRED(400, "프로필 이미지를 첨부해 주세요."),
+    // 판정 근거는 확장자·요청 Content-Type이 아니라 파일 선두 바이트다(둘 다 클라이언트가 자유로이
+    // 정하는 값이라 실행 파일을 a.png로 위장하는 것을 못 막는다).
+    INVALID_PROFILE_IMAGE_FORMAT(400, "JPG, PNG, WEBP 이미지만 업로드할 수 있습니다."),
+    // 가입 요청의 profileImgUrl 거절 사유 넷(temp 접두가 아님·형태가 어긋남·255자 초과·그 객체가
+    // 버킷에 없음)을 한 문구로 합친 코드 — 사유를 나눠 주면 "그 EP가 실재하는가"를 응답으로 물어볼
+    // 수 있게 되어 남의 EP 존재 여부를 탐색할 수 있다(QUIZ_LIKE_NOT_ALLOWED와 같은 계열의 은닉).
+    INVALID_PROFILE_IMAGE_ENDPOINT(400, "유효하지 않은 프로필 이미지입니다."),
+    // 값의 형식(UUID 등)은 검증하지 않는다 — 비어 있지만 않으면 통과다(서버가 발급하는 값이 아니다).
+    INVALID_APP_ID(400, "앱 식별자가 필요합니다."),
+
+    // 400 Bad Request - 소셜 로그인(OAuth)
+    // "지원하지 않는다"는 판정의 근거가 둘이다: 우리가 아예 모르는 provider(apple 등)와, 아는데
+    // 클라이언트 자격증명이 주입되지 않아 호출 자체가 불가능한 provider. 둘을 한 문구로 합치는 이유는
+    // 사용자가 할 수 있는 일이 "다른 수단으로 로그인"으로 같기 때문이다(설정 누락은 서버 로그가 알린다).
+    UNSUPPORTED_OAUTH_PROVIDER(400, "지원하지 않는 소셜 로그인입니다."),
+    // ⚠ 이 검사는 provider 호출보다 반드시 앞이다 — 검증 없이 넘기면 인가코드를 임의 주소로 빼돌리는
+    //   경로가 열린다. 대조는 접두 일치가 아니라 문자 그대로 완전 일치여야 한다
+    //   (https://victoryfairy.com 을 접두로 검사하면 https://victoryfairy.com.evil.com 이 통과한다).
+    INVALID_OAUTH_REDIRECT_URI(400, "허용되지 않은 리다이렉트 주소입니다."),
+    // 가입 티켓·링크 티켓·입력 티켓 세 종류가 공용으로 쓴다. 티켓 종류를 문구로 가르지 않는 것은
+    // 의도다 — 어느 티켓이 죽었든 사용자가 할 조치는 "소셜 로그인부터 다시"로 같고, 종류를 알려 주면
+    // 티켓 문자열을 넣어 보는 것만으로 어느 단계의 티켓이 살아 있는지 탐색할 수 있다.
+    INVALID_OAUTH_TICKET(400, "소셜 인증 정보가 만료되었습니다. 다시 로그인해 주세요."),
+    // provider 가 이메일을 주지 않아 발급된 입력 티켓인데 본문에 이메일이 없는 경우.
+    // EMAIL_NOT_VERIFIED("이메일 인증이 완료되지 않았습니다.")를 재사용하지 않는 이유는 그 문구가
+    // 사용자가 주소를 이미 입력했다는 전제를 깔아 실제로 해야 할 일(주소 입력)을 가리기 때문이다.
+    // 형식이 어긋난 값은 여기까지 오지 않는다 — DTO 의 @Email 이 잡는 일반 검증 400 이다
+    // (링크 티켓 요청은 이 필드가 없어야 정상이라 @NotBlank 를 걸 수 없어 서비스가 판정한다).
+    OAUTH_EMAIL_REQUIRED(400, "이메일 주소를 입력해 주세요."),
+
+    // 401 Unauthorized - 소셜 로그인(OAuth)
+    // 만료된 코드·이미 사용된 코드·provider 가 판정한 redirect URI 불일치 세 사유를 합친 코드.
+    // 어느 쪽이든 클라이언트의 올바른 행동은 인가코드를 새로 받아 다시 시도하는 것 하나뿐이다.
+    INVALID_OAUTH_CODE(401, "소셜 인증에 실패했습니다. 다시 시도해 주세요."),
+
+    // 409 Conflict - 소셜 로그인(OAuth)
+    // 이메일로 해석된 계정에 '같은 provider 의 다른 식별자' 연동이 이미 있는 경우.
+    // 그대로 INSERT 하면 uk_users_oauth_link_account_provider 위반이라 어차피 실패한다 — 그 실패를
+    // 500 이 아니라 안내 가능한 409 로 바꾸는 자리다.
+    OAUTH_PROVIDER_ALREADY_LINKED(409, "이미 다른 소셜 계정이 연결되어 있습니다."),
+    // 자체 가입의 인증번호 발송이 '소셜로만 가입된' 이메일을 만난 경우 — DUPLICATE_EMAIL 을 세분화한
+    // 것이다. 그 계정은 비밀번호가 잠긴 값이라 자체 로그인이 영원히 성립하지 않는데, "이미 사용 중"만
+    // 보면 사용자는 남이 쓰는 주소로 오해하고 실제로 할 수 있는 일(소셜 버튼)을 못 찾는다.
+    // ⚠ 이 경로에서만 세분화하는 이유: 자체 가입의 발송은 이미 409 로 가입 사실을 알려 주고 있어
+    //   추가로 새는 정보가 provider 이름뿐이다. 로그인(INVALID_CREDENTIALS)은 존재를 감추는 계약이라
+    //   같은 안내를 붙이면 계정 열거가 된다 — 그쪽으로 옮기지 말 것.
+    SOCIAL_ACCOUNT_ONLY(409, "소셜 로그인으로 가입된 이메일입니다. 가입할 때 사용한 소셜 계정으로 로그인해 주세요."),
+
+    // 502 Bad Gateway - 소셜 로그인(OAuth)
+    // 이 저장소 최초의 502. 500 으로 묶지 않는 이유는 원인이 이 서버가 아니라 외부 의존이고,
+    // 클라이언트의 올바른 행동(같은 요청을 잠시 후 재시도)이 500 과 다르기 때문이다.
+    OAUTH_PROVIDER_UNAVAILABLE(502, "소셜 로그인 제공자와 통신할 수 없습니다. 잠시 후 다시 시도해 주세요."),
+
     // 404 Not Found
     CHATROOM_NOT_FOUND(404, "존재하지 않는 채팅방입니다."),
     CHAT_MESSAGE_NOT_FOUND(404, "존재하지 않는 메시지입니다."),
@@ -67,6 +122,19 @@ public enum ErrorCode {
     GAME_NOT_FOUND(404, "존재하지 않는 경기입니다."),
     // 미편성(quiz_date NULL) 풀 문제도 404 — 편성 전 문제의 존재는 외부에 노출하지 않는다
     QUIZ_NOT_FOUND(404, "존재하지 않는 퀴즈입니다."),
+    CHARACTER_ITEM_NOT_FOUND(404, "존재하지 않는 아이템입니다."),
+    // ⚠ 위 코드와 합치지 말 것 — 목록 API 가 카탈로그 전체를 having 과 함께 돌려주므로 "없는 아이템"과
+    //   "안 산 아이템"은 이미 구분 가능한 상태이고, 뭉치면 FE 가 "구매하기"를 띄울지 "다시 시도"를
+    //   띄울지 판단할 근거를 잃는다.
+    CHARACTER_ITEM_NOT_OWNED(404, "보유하지 않은 아이템입니다."),
+
+    // 400 Bad Request - 아이템 구매
+    INSUFFICIENT_POINT(400, "보유 포인트가 부족합니다."),
+
+    // 409 Conflict - 아이템 구매
+    // 재구매는 잘못된 요청이 아니라 이미 그 상태에 도달해 있다는 뜻이라 409 다(QUIZ_ALREADY_SUBMITTED
+    // 와 같은 성격).
+    CHARACTER_ITEM_ALREADY_OWNED(409, "이미 보유한 아이템입니다."),
 
     // 400 Bad Request - 퀴즈 제출
     QUIZ_OPTION_NOT_FOUND(400, "존재하지 않는 보기 번호입니다."),
@@ -79,6 +147,12 @@ public enum ErrorCode {
     // 일시적 상태 충돌(409)이고, 저쪽은 지금 그 자원을 받을 자격이 없는 것(403)이다.
     QUIZ_ALREADY_SERVED_IN_INNING(409, "이번 이닝에는 이미 문제를 받았습니다."),
 
+    // 413 Content Too Large - 프로필 이미지 업로드
+    // 이 저장소 최초의 413. 400으로 묶지 않는 이유: 고칠 대상이 입력값의 "형식"이 아니라 요청 본문의
+    // "크기"이고, 이 응답은 컨트롤러에 닿기도 전에 멀티파트 해석 단계에서 나간다(web-support의
+    // GlobalExceptionHandler.handleMaxUploadSizeExceeded).
+    PROFILE_IMAGE_TOO_LARGE(413, "이미지 크기는 5MB를 넘을 수 없습니다."),
+
     // 429 Too Many Requests - 이메일 인증
     EMAIL_SEND_COOLDOWN(429, "인증번호를 방금 발송했습니다. 잠시 후 다시 시도해 주세요."),
 
@@ -88,7 +162,19 @@ public enum ErrorCode {
     // 상대 자원이 없고 막는 주체는 내 계정의 시간 제한이다(EMAIL_SEND_COOLDOWN과 같은 성격).
     // ⚠ 메시지의 "30"은 기간의 단일 출처인 NicknameChangeCooldownPolicy.COOLDOWN_DAYS와 같은 값이어야
     //   한다 — :common은 앱 모듈을 참조할 수 없어 상수로 조립할 수 없으니 한쪽만 고치지 말 것.
-    NICKNAME_CHANGE_COOLDOWN(429, "닉네임은 30일에 한 번만 변경할 수 있습니다.");
+    NICKNAME_CHANGE_COOLDOWN(429, "닉네임은 30일에 한 번만 변경할 수 있습니다."),
+
+    // 429 Too Many Requests - 비인증 프로필 이미지 업로드(appId 기준 10회)
+    // 창이 30분 고정이라 "잠시 후"가 문자 그대로 사실이다 — 갱신형(sliding)으로 바꾸면 계속 올리는
+    // 사용자가 영영 풀리지 않아 이 문구가 거짓이 된다.
+    PROFILE_IMAGE_UPLOAD_LIMIT_EXCEEDED(429, "이미지 등록 횟수를 초과했습니다. 잠시 후 다시 시도해 주세요."),
+
+    // 500 Internal Server Error - 처리되지 않은 예외의 최종 방어선
+    // (web-support GlobalExceptionHandler.handleUnexpected). 이 코드를 BusinessException 으로 던지지 말 것 —
+    // "예상하고 정의한 실패"에 500 을 쓰는 순간 이 문구가 거짓이 되고 로그도 남지 않는다.
+    // ⚠ 원인을 문구로 나누지 않는 것이 의도다: 예외 클래스명·내부 경로·SQL 은 응답이 아니라 서버 로그에만
+    //   남긴다(응답에 실으면 스택트레이스를 감춘 의미가 없어진다).
+    INTERNAL_SERVER_ERROR(500, "서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
 
     private final int status;
     private final String message;

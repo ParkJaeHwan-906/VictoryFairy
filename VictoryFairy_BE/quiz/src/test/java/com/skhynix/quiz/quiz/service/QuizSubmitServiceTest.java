@@ -7,9 +7,11 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.skhynix.common.error.BusinessException;
 import com.skhynix.common.error.ErrorCode;
@@ -24,11 +26,14 @@ import com.skhynix.domain.quiz.repository.QuizOptionRepository;
 import com.skhynix.domain.quiz.repository.QuizRepository;
 import com.skhynix.domain.quiz.repository.QuizUserSubmitRepository;
 import com.skhynix.domain.user.entity.UserAccount;
+import com.skhynix.domain.user.entity.UserBq;
 import com.skhynix.domain.user.repository.UserAccountRepository;
+import com.skhynix.domain.user.repository.UserBqRepository;
 import com.skhynix.quiz.quiz.dto.QuizLikeResponse;
 import com.skhynix.quiz.quiz.dto.QuizSubmissionHistoryResponse;
 import com.skhynix.quiz.quiz.dto.QuizSubmissionItemResponse;
 import com.skhynix.quiz.quiz.dto.QuizSubmitResponse;
+import com.skhynix.quiz.quiz.vote.QuizVoteTally;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -44,6 +49,8 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * {@link QuizSubmitService} 단위 테스트 — 협력 객체 전부 Mockito 목, DB·Spring 컨텍스트 없음.
@@ -78,10 +85,16 @@ class QuizSubmitServiceTest {
     private UserAccountRepository userAccountRepository;
 
     @Mock
+    private UserBqRepository userBqRepository;
+
+    @Mock
     private GameRepository gameRepository;
 
     @Mock
     private QuizLikeService quizLikeService;
+
+    @Mock
+    private QuizVoteTally quizVoteTally;
 
     @InjectMocks
     private QuizSubmitService quizSubmitService;
@@ -91,7 +104,7 @@ class QuizSubmitServiceTest {
                 .quizType(QuizType.builder().name("객관식").build())
                 .content("문제 " + id)
                 .answer(answer)
-                .score(score)
+                .point(score)
                 .quizDate(quizDate)
                 .difficulty("EASY")
                 .build();
@@ -101,6 +114,32 @@ class QuizSubmitServiceTest {
 
     private Quiz publishedQuiz(Integer answer, Double score) {
         return quiz(QUIZ_ID, answer, score, LocalDate.of(2026, 8, 8));
+    }
+
+    /** bq(레이팅 축)까지 지정하는 버전 — QUIZ-PBQ 적립 테스트 전용. */
+    private Quiz quiz(Long id, Integer answer, Double score, Integer bq, LocalDate quizDate) {
+        Quiz quiz = Quiz.builder()
+                .quizType(QuizType.builder().name("객관식").build())
+                .content("문제 " + id)
+                .answer(answer)
+                .point(score)
+                .bq(bq)
+                .quizDate(quizDate)
+                .difficulty("EASY")
+                .build();
+        ReflectionTestUtils.setField(quiz, "id", id);
+        return quiz;
+    }
+
+    private Quiz publishedQuizWithBq(Integer answer, Double score, Integer bq) {
+        return quiz(QUIZ_ID, answer, score, bq, LocalDate.of(2026, 8, 8));
+    }
+
+    /** 이미 누적치를 가진 {@link UserBq} 행 — 락 조회 스텁에 쓴다. */
+    private UserBq userBq(UserAccount account, long score) {
+        UserBq userBq = UserBq.builder().userAccount(account).build();
+        ReflectionTestUtils.setField(userBq, "bqScore", score);
+        return userBq;
     }
 
     private QuizOption option(Quiz quiz, int no, String text) {
@@ -230,6 +269,280 @@ class QuizSubmitServiceTest {
         assertThat(response.earnedPoint()).isZero();
         assertThat(response.totalPoint()).isEqualTo(5L);
         assertThat(account.getPoint()).isEqualTo(5L);
+    }
+
+    // ---------- 두 축 적립(QUIZ-PBQ-15~25) ----------
+
+    @Test
+    @DisplayName("[QUIZ-PBQ-16] 정답이고 bq가 있으면 users_bq.bq_score가 그만큼 늘고 응답에 earnedBq·"
+            + "totalBq가 실린다")
+    void submit_correctAnswerWithBq_accruesBqScoreAndReturnsEarnedAndTotal() {
+        Quiz quiz = publishedQuizWithBq(0, 10.0, 3);
+        QuizOption option = option(quiz, 0, "정답 보기");
+        UserAccount account = account(5L);
+        UserBq userBq = userBq(account, 7L);
+        QuizUserSubmit served = unansweredRow(quiz, QuizSubmitWindow.now().minusMinutes(1));
+        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(quiz));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
+                .willReturn(Optional.of(served));
+        given(quizOptionRepository.findFirstByQuiz_IdAndOptionOrderByIdAsc(QUIZ_ID, 0))
+                .willReturn(Optional.of(option));
+        given(userAccountRepository.findWithLockById(USER_ID)).willReturn(Optional.of(account));
+        given(userBqRepository.findWithLockByUserAccountId(USER_ID)).willReturn(Optional.of(userBq));
+        given(quizUserSubmitRepository.fillAnswer(anyLong(), anyLong(), any(), anyBoolean(),
+                any(), any())).willReturn(1);
+
+        QuizSubmitResponse response = quizSubmitService.submit(USER_ID, QUIZ_ID, 0);
+
+        assertThat(response.earnedBq()).isEqualTo(3L);
+        assertThat(response.totalBq()).isEqualTo(10L);
+        assertThat(userBq.getBqScore()).isEqualTo(10L);
+        // point 적립은 bq와 별도로 그대로 이루어진다 — 두 축이 서로를 막지 않는다
+        assertThat(response.earnedPoint()).isEqualTo(10L);
+        assertThat(account.getPoint()).isEqualTo(15L);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-PBQ-17] 문제의 bq가 NULL이면 정답이어도 bq_score는 그대로다 — point는 정상 적립되고 "
+            + "락 조회(findWithLockByUserAccountId)는 아예 일어나지 않는다")
+    void submit_correctAnswerWithNullBq_leavesBqScoreUnchangedWithoutLocking() {
+        Quiz quiz = publishedQuizWithBq(0, 10.0, null);
+        QuizOption option = option(quiz, 0, "정답 보기");
+        UserAccount account = account(5L);
+        UserBq userBq = userBq(account, 7L);
+        QuizUserSubmit served = unansweredRow(quiz, QuizSubmitWindow.now().minusMinutes(1));
+        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(quiz));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
+                .willReturn(Optional.of(served));
+        given(quizOptionRepository.findFirstByQuiz_IdAndOptionOrderByIdAsc(QUIZ_ID, 0))
+                .willReturn(Optional.of(option));
+        given(userAccountRepository.findWithLockById(USER_ID)).willReturn(Optional.of(account));
+        given(userBqRepository.findByUserAccount_Id(USER_ID)).willReturn(Optional.of(userBq));
+        given(quizUserSubmitRepository.fillAnswer(anyLong(), anyLong(), any(), anyBoolean(),
+                any(), any())).willReturn(1);
+
+        QuizSubmitResponse response = quizSubmitService.submit(USER_ID, QUIZ_ID, 0);
+
+        assertThat(response.earnedBq()).isZero();
+        assertThat(response.totalBq()).isEqualTo(7L);
+        assertThat(userBq.getBqScore()).isEqualTo(7L);
+        assertThat(response.earnedPoint()).isEqualTo(10L);
+        assertThat(account.getPoint()).isEqualTo(15L);
+        verify(userBqRepository, never()).findWithLockByUserAccountId(anyLong());
+    }
+
+    @Test
+    @DisplayName("[QUIZ-PBQ-18] 문제의 point가 NULL이면 정답이어도 point는 그대로이고, bq는 정상 적립된다 "
+            + "— 한 축의 부재가 다른 축을 막지 않는다")
+    void submit_correctAnswerWithNullPoint_leavesPointUnchangedButAccruesBq() {
+        Quiz quiz = publishedQuizWithBq(0, null, 3);
+        QuizOption option = option(quiz, 0, "정답 보기");
+        UserAccount account = account(5L);
+        UserBq userBq = userBq(account, 0L);
+        QuizUserSubmit served = unansweredRow(quiz, QuizSubmitWindow.now().minusMinutes(1));
+        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(quiz));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
+                .willReturn(Optional.of(served));
+        given(quizOptionRepository.findFirstByQuiz_IdAndOptionOrderByIdAsc(QUIZ_ID, 0))
+                .willReturn(Optional.of(option));
+        given(userAccountRepository.findWithLockById(USER_ID)).willReturn(Optional.of(account));
+        given(userBqRepository.findWithLockByUserAccountId(USER_ID)).willReturn(Optional.of(userBq));
+        given(quizUserSubmitRepository.fillAnswer(anyLong(), anyLong(), any(), anyBoolean(),
+                any(), any())).willReturn(1);
+
+        QuizSubmitResponse response = quizSubmitService.submit(USER_ID, QUIZ_ID, 0);
+
+        assertThat(response.earnedPoint()).isZero();
+        assertThat(response.totalPoint()).isEqualTo(5L);
+        assertThat(account.getPoint()).isEqualTo(5L);
+        assertThat(response.earnedBq()).isEqualTo(3L);
+        assertThat(response.totalBq()).isEqualTo(3L);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-PBQ-19] bq가 0이면 정답이어도 적립하지 않는다 — 락 조회 없이 현재 누적치만 읽어 "
+            + "totalBq에 싣는다")
+    void submit_correctAnswerWithZeroBq_doesNotAccrueAndSkipsLock() {
+        Quiz quiz = publishedQuizWithBq(0, 10.0, 0);
+        QuizOption option = option(quiz, 0, "정답 보기");
+        UserAccount account = account(5L);
+        UserBq userBq = userBq(account, 7L);
+        QuizUserSubmit served = unansweredRow(quiz, QuizSubmitWindow.now().minusMinutes(1));
+        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(quiz));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
+                .willReturn(Optional.of(served));
+        given(quizOptionRepository.findFirstByQuiz_IdAndOptionOrderByIdAsc(QUIZ_ID, 0))
+                .willReturn(Optional.of(option));
+        given(userAccountRepository.findWithLockById(USER_ID)).willReturn(Optional.of(account));
+        given(userBqRepository.findByUserAccount_Id(USER_ID)).willReturn(Optional.of(userBq));
+        given(quizUserSubmitRepository.fillAnswer(anyLong(), anyLong(), any(), anyBoolean(),
+                any(), any())).willReturn(1);
+
+        QuizSubmitResponse response = quizSubmitService.submit(USER_ID, QUIZ_ID, 0);
+
+        assertThat(response.earnedBq()).isZero();
+        assertThat(response.totalBq()).isEqualTo(7L);
+        assertThat(userBq.getBqScore()).isEqualTo(7L);
+        verify(userBqRepository, never()).findWithLockByUserAccountId(anyLong());
+    }
+
+    @Test
+    @DisplayName("[QUIZ-PBQ-20] 오답이면 point·bq_score 어느 쪽도 늘지 않고 응답은 두 축 모두 0이다")
+    void submit_wrongAnswerWithBq_earnsNothingOnEitherAxis() {
+        Quiz quiz = publishedQuizWithBq(0, 10.0, 3);
+        QuizOption wrong = option(quiz, 1, "오답 보기");
+        UserAccount account = account(5L);
+        UserBq userBq = userBq(account, 7L);
+        QuizUserSubmit served = unansweredRow(quiz, QuizSubmitWindow.now().minusMinutes(1));
+        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(quiz));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
+                .willReturn(Optional.of(served));
+        given(quizOptionRepository.findFirstByQuiz_IdAndOptionOrderByIdAsc(QUIZ_ID, 1))
+                .willReturn(Optional.of(wrong));
+        given(userAccountRepository.findWithLockById(USER_ID)).willReturn(Optional.of(account));
+        given(userBqRepository.findByUserAccount_Id(USER_ID)).willReturn(Optional.of(userBq));
+        given(quizUserSubmitRepository.fillAnswer(anyLong(), anyLong(), any(), anyBoolean(),
+                any(), any())).willReturn(1);
+
+        QuizSubmitResponse response = quizSubmitService.submit(USER_ID, QUIZ_ID, 1);
+
+        assertThat(response.earnedPoint()).isZero();
+        assertThat(response.earnedBq()).isZero();
+        assertThat(response.totalPoint()).isEqualTo(5L);
+        assertThat(response.totalBq()).isEqualTo(7L);
+        assertThat(account.getPoint()).isEqualTo(5L);
+        assertThat(userBq.getBqScore()).isEqualTo(7L);
+        verify(userBqRepository, never()).findWithLockByUserAccountId(anyLong());
+    }
+
+    @Test
+    @DisplayName("[QUIZ-PBQ-23] 존재하지 않는 문제(404)는 users_bq 리포지토리를 전혀 건드리지 않는다")
+    void submit_missingQuiz_neverTouchesBqRepository() {
+        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> quizSubmitService.submit(USER_ID, QUIZ_ID, 0))
+                .isInstanceOf(BusinessException.class);
+
+        verifyNoInteractions(userBqRepository);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-PBQ-23] /today 미경유(403)는 users_bq 리포지토리를 전혀 건드리지 않는다")
+    void submit_noRow_neverTouchesBqRepository() {
+        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(publishedQuizWithBq(0, 10.0, 3)));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
+                .willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> quizSubmitService.submit(USER_ID, QUIZ_ID, 0))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.QUIZ_SUBMIT_NOT_ALLOWED));
+
+        verifyNoInteractions(userBqRepository);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-PBQ-23] 없는 보기 번호(400)는 계정 락은 물론 users_bq 리포지토리도 전혀 건드리지 "
+            + "않는다")
+    void submit_invalidOption_neverTouchesBqRepository() {
+        Quiz quiz = publishedQuizWithBq(0, 10.0, 3);
+        QuizUserSubmit served = unansweredRow(quiz, QuizSubmitWindow.now().minusMinutes(1));
+        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(quiz));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
+                .willReturn(Optional.of(served));
+        given(quizOptionRepository.findFirstByQuiz_IdAndOptionOrderByIdAsc(QUIZ_ID, 9))
+                .willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> quizSubmitService.submit(USER_ID, QUIZ_ID, 9))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.QUIZ_OPTION_NOT_FOUND));
+
+        verifyNoInteractions(userBqRepository);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-PBQ-24] 계정 행 락(findWithLockById)이 bq 행 락(findWithLockByUserAccountId)보다 "
+            + "먼저 걸린다 — 락 순서가 뒤집히면 데드락이 나므로 순서 자체를 회귀 고정한다")
+    void submit_correctAnswerWithBq_locksAccountRowBeforeBqRow() {
+        Quiz quiz = publishedQuizWithBq(0, 10.0, 3);
+        QuizOption option = option(quiz, 0, "정답 보기");
+        UserAccount account = account(0L);
+        UserBq userBq = userBq(account, 0L);
+        QuizUserSubmit served = unansweredRow(quiz, QuizSubmitWindow.now().minusMinutes(1));
+        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(quiz));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
+                .willReturn(Optional.of(served));
+        given(quizOptionRepository.findFirstByQuiz_IdAndOptionOrderByIdAsc(QUIZ_ID, 0))
+                .willReturn(Optional.of(option));
+        given(userAccountRepository.findWithLockById(USER_ID)).willReturn(Optional.of(account));
+        given(userBqRepository.findWithLockByUserAccountId(USER_ID)).willReturn(Optional.of(userBq));
+        given(quizUserSubmitRepository.fillAnswer(anyLong(), anyLong(), any(), anyBoolean(),
+                any(), any())).willReturn(1);
+
+        quizSubmitService.submit(USER_ID, QUIZ_ID, 0);
+
+        InOrder order = inOrder(userAccountRepository, userBqRepository);
+        order.verify(userAccountRepository).findWithLockById(USER_ID);
+        order.verify(userBqRepository).findWithLockByUserAccountId(USER_ID);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-PBQ-21, 단위 테스트 한계 표시] 두 축 적립이 조건부 UPDATE(fillAnswer)보다 먼저 "
+            + "같은 호출 안에서 일어난다 — @Transactional 경계 자체(진짜 롤백까지 같은 트랜잭션인지)는 "
+            + "Mockito 단위 테스트로 증명되지 않아 순서만 고정한다(실제 원자성 검증은 DB 테스트 몫)")
+    void submit_correctAnswerWithBq_appliesBothAxesBeforeConditionalUpdate() {
+        Quiz quiz = publishedQuizWithBq(0, 10.0, 3);
+        QuizOption option = option(quiz, 0, "정답 보기");
+        UserAccount account = account(5L);
+        UserBq userBq = userBq(account, 7L);
+        QuizUserSubmit served = unansweredRow(quiz, QuizSubmitWindow.now().minusMinutes(1));
+        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(quiz));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
+                .willReturn(Optional.of(served));
+        given(quizOptionRepository.findFirstByQuiz_IdAndOptionOrderByIdAsc(QUIZ_ID, 0))
+                .willReturn(Optional.of(option));
+        given(userAccountRepository.findWithLockById(USER_ID)).willReturn(Optional.of(account));
+        given(userBqRepository.findWithLockByUserAccountId(USER_ID)).willReturn(Optional.of(userBq));
+        given(quizUserSubmitRepository.fillAnswer(anyLong(), anyLong(), any(), anyBoolean(),
+                any(), any())).willReturn(1);
+
+        quizSubmitService.submit(USER_ID, QUIZ_ID, 0);
+
+        InOrder order = inOrder(userAccountRepository, userBqRepository, quizUserSubmitRepository);
+        order.verify(userAccountRepository).findWithLockById(USER_ID);
+        order.verify(userBqRepository).findWithLockByUserAccountId(USER_ID);
+        order.verify(quizUserSubmitRepository).fillAnswer(anyLong(), anyLong(), any(), anyBoolean(),
+                any(), any());
+        assertThat(account.getPoint()).isEqualTo(15L);
+        assertThat(userBq.getBqScore()).isEqualTo(10L);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-PBQ-25] 적립 대상 계정에 users_bq 행이 없으면 같은 트랜잭션에서 1건 생성하고 "
+            + "bqScore를 적립액으로 채운다")
+    void submit_correctAnswerWithBq_createsUserBqRowWhenMissing() {
+        Quiz quiz = publishedQuizWithBq(0, 10.0, 3);
+        QuizOption option = option(quiz, 0, "정답 보기");
+        UserAccount account = account(0L);
+        QuizUserSubmit served = unansweredRow(quiz, QuizSubmitWindow.now().minusMinutes(1));
+        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(quiz));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
+                .willReturn(Optional.of(served));
+        given(quizOptionRepository.findFirstByQuiz_IdAndOptionOrderByIdAsc(QUIZ_ID, 0))
+                .willReturn(Optional.of(option));
+        given(userAccountRepository.findWithLockById(USER_ID)).willReturn(Optional.of(account));
+        given(userBqRepository.findWithLockByUserAccountId(USER_ID)).willReturn(Optional.empty());
+        given(userBqRepository.save(any(UserBq.class))).willAnswer(inv -> inv.getArgument(0));
+        given(quizUserSubmitRepository.fillAnswer(anyLong(), anyLong(), any(), anyBoolean(),
+                any(), any())).willReturn(1);
+
+        QuizSubmitResponse response = quizSubmitService.submit(USER_ID, QUIZ_ID, 0);
+
+        assertThat(response.earnedBq()).isEqualTo(3L);
+        assertThat(response.totalBq()).isEqualTo(3L);
+        ArgumentCaptor<UserBq> savedCaptor = ArgumentCaptor.forClass(UserBq.class);
+        verify(userBqRepository).save(savedCaptor.capture());
+        assertThat(savedCaptor.getValue().getUserAccount()).isSameAs(account);
+        assertThat(savedCaptor.getValue().getBqScore()).isEqualTo(3L);
     }
 
     @Test
@@ -932,6 +1245,82 @@ class QuizSubmitServiceTest {
         assertThat(response.summary().earnedPoint()).isEqualTo(50L);
     }
 
+    // ---------- QUIZ-PBQ-33/34/46: 이력의 earnedBq ----------
+
+    @Test
+    @DisplayName("[QUIZ-PBQ-33,46] 이력 항목의 earnedBq는 정답 행의 bq 값이고, 오답·bq NULL·bq<=0 행은 "
+            + "0으로 세며, 경기 전체 summary.earnedBq는 문제 항목들의 earnedBq 합과 같다")
+    void getHistory_earnedBq_sumsOnlyPositiveCorrectRowsAndTreatsOthersAsZero() {
+        Game finished = game("FINISHED", null, 1);
+        UserAccount account = account(0L);
+        Quiz correctBq = quiz(10L, 0, 50.0, 3, LocalDate.of(2026, 8, 12));
+        Quiz correctNullBq = quiz(20L, 0, 50.0, null, LocalDate.of(2026, 8, 12));
+        Quiz correctZeroBq = quiz(40L, 0, 50.0, 0, LocalDate.of(2026, 8, 12));
+        Quiz wrongBq = quiz(30L, 0, 50.0, 5, LocalDate.of(2026, 8, 12));
+        QuizUserSubmit correct1 = submitInInning(account, correctBq, option(correctBq, 0, "정답"),
+                true, 1, LocalDateTime.of(2026, 8, 12, 19, 0), LocalDateTime.of(2026, 8, 12, 19, 1));
+        QuizUserSubmit correctNoBq = submitInInning(account, correctNullBq,
+                option(correctNullBq, 0, "정답"), true, 1,
+                LocalDateTime.of(2026, 8, 12, 19, 5), LocalDateTime.of(2026, 8, 12, 19, 6));
+        QuizUserSubmit correctZero = submitInInning(account, correctZeroBq,
+                option(correctZeroBq, 0, "정답"), true, 1,
+                LocalDateTime.of(2026, 8, 12, 19, 7), LocalDateTime.of(2026, 8, 12, 19, 8));
+        QuizUserSubmit wrong = submitInInning(account, wrongBq, option(wrongBq, 1, "오답"), false, 1,
+                LocalDateTime.of(2026, 8, 12, 19, 10), LocalDateTime.of(2026, 8, 12, 19, 11));
+        given(gameRepository.findWithStatusByNaverGameId(GAME_ID)).willReturn(Optional.of(finished));
+        given(quizUserSubmitRepository.findGameSubmissions(USER_ID, GAME_PK))
+                .willReturn(List.of(correct1, correctNoBq, correctZero, wrong));
+        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(any()))
+                .willReturn(List.of());
+        given(quizLikeService.likesOf(org.mockito.ArgumentMatchers.eq(USER_ID), any()))
+                .willReturn(Map.of());
+
+        QuizSubmissionHistoryResponse response = quizSubmitService.getHistory(USER_ID, GAME_ID);
+
+        List<QuizSubmissionItemResponse> items = response.innings().get(0).quizzes();
+        assertThat(items).extracting(QuizSubmissionItemResponse::quizId,
+                        QuizSubmissionItemResponse::earnedBq)
+                .containsExactlyInAnyOrder(
+                        org.assertj.core.groups.Tuple.tuple(10L, 3L),
+                        org.assertj.core.groups.Tuple.tuple(20L, 0L),
+                        org.assertj.core.groups.Tuple.tuple(40L, 0L),
+                        org.assertj.core.groups.Tuple.tuple(30L, 0L));
+        assertThat(response.summary().earnedBq()).isEqualTo(3L);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-PBQ-34] 이닝별 summary 키 집합은 correctCount·total·accuracy뿐이다 — earnedBq도 "
+            + "earnedPoint도 없다(경기 전체 summary에만 있다)")
+    void getHistory_inningSummary_neverHasEarnedFieldsWhereasOverallSummaryDoes() {
+        Game finished = game("FINISHED", null, 1);
+        UserAccount account = account(0L);
+        Quiz quiz = quiz(10L, 0, 50.0, 3, LocalDate.of(2026, 8, 12));
+        QuizUserSubmit submit = submitInInning(account, quiz, option(quiz, 0, "정답"), true, 1,
+                LocalDateTime.of(2026, 8, 12, 19, 0), LocalDateTime.of(2026, 8, 12, 19, 1));
+        given(gameRepository.findWithStatusByNaverGameId(GAME_ID)).willReturn(Optional.of(finished));
+        given(quizUserSubmitRepository.findGameSubmissions(USER_ID, GAME_PK))
+                .willReturn(List.of(submit));
+        given(quizOptionRepository.findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(any()))
+                .willReturn(List.of());
+        given(quizLikeService.likesOf(org.mockito.ArgumentMatchers.eq(USER_ID), any()))
+                .willReturn(Map.of());
+
+        QuizSubmissionHistoryResponse response = quizSubmitService.getHistory(USER_ID, GAME_ID);
+
+        List<String> inningSummaryFields = java.util.Arrays.stream(
+                        QuizSubmissionHistoryResponse.InningSummary.class.getRecordComponents())
+                .map(java.lang.reflect.RecordComponent::getName)
+                .toList();
+        assertThat(inningSummaryFields).containsExactlyInAnyOrder("correctCount", "total", "accuracy");
+        List<String> overallSummaryFields = java.util.Arrays.stream(
+                        QuizSubmissionHistoryResponse.Summary.class.getRecordComponents())
+                .map(java.lang.reflect.RecordComponent::getName)
+                .toList();
+        assertThat(overallSummaryFields).containsExactlyInAnyOrder(
+                "correctCount", "total", "accuracy", "earnedPoint", "earnedBq");
+        assertThat(response.summary().earnedBq()).isEqualTo(3L);
+    }
+
     // ---------- QUIZ-SUB-43: correct는 isAnswer 그대로, 재계산하지 않는다 ----------
 
     @Test
@@ -1199,5 +1588,203 @@ class QuizSubmitServiceTest {
                 .findAllByQuiz_IdInOrderByQuizIdAscOptionAsc(any());
         verify(quizLikeService, times(2))
                 .likesOf(org.mockito.ArgumentMatchers.eq(USER_ID), any());
+    }
+
+    // ---------- 투표 집계(docs/requirements/quiz/quiz-vote-tally.md) ----------
+
+    @Test
+    @DisplayName("[AC-VOTE-6-1,6-2] 오답 제출도 정답 제출과 마찬가지로 그 문제·보기에 대해 increment()를 "
+            + "호출한다 — 동기화가 활성화되지 않은 이 단위 테스트에서는 즉시 호출된다(정답 여부와 무관)")
+    void submit_wrongAnswer_stillIncrementsVoteTally() {
+        Quiz quiz = publishedQuiz(0, 10.0);
+        QuizOption wrong = option(quiz, 1, "오답 보기");
+        QuizUserSubmit served = unansweredRow(quiz, QuizSubmitWindow.now().minusMinutes(1));
+        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(quiz));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
+                .willReturn(Optional.of(served));
+        given(quizOptionRepository.findFirstByQuiz_IdAndOptionOrderByIdAsc(QUIZ_ID, 1))
+                .willReturn(Optional.of(wrong));
+        given(userAccountRepository.findWithLockById(USER_ID)).willReturn(Optional.of(account(0L)));
+        given(quizUserSubmitRepository.fillAnswer(anyLong(), anyLong(), any(), anyBoolean(),
+                any(), any())).willReturn(1);
+
+        QuizSubmitResponse response = quizSubmitService.submit(USER_ID, QUIZ_ID, 1);
+
+        assertThat(response.correct()).isFalse();
+        verify(quizVoteTally).increment(QUIZ_ID, 1);
+    }
+
+    @Test
+    @DisplayName("[AC-VOTE-6-1] 정답 제출은 그 문제·정답 보기 번호로 increment()가 호출된다")
+    void submit_correctAnswer_incrementsVoteTallyWithChosenOption() {
+        Quiz quiz = publishedQuiz(0, 10.0);
+        QuizOption correct = option(quiz, 0, "정답 보기");
+        QuizUserSubmit served = unansweredRow(quiz, QuizSubmitWindow.now().minusMinutes(1));
+        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(quiz));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
+                .willReturn(Optional.of(served));
+        given(quizOptionRepository.findFirstByQuiz_IdAndOptionOrderByIdAsc(QUIZ_ID, 0))
+                .willReturn(Optional.of(correct));
+        given(userAccountRepository.findWithLockById(USER_ID)).willReturn(Optional.of(account(0L)));
+        given(quizUserSubmitRepository.fillAnswer(anyLong(), anyLong(), any(), anyBoolean(),
+                any(), any())).willReturn(1);
+
+        quizSubmitService.submit(USER_ID, QUIZ_ID, 0);
+
+        verify(quizVoteTally).increment(QUIZ_ID, 0);
+    }
+
+    @Test
+    @DisplayName("[AC-VOTE-7-1,7-2] fillAnswer가 0행을 반환해 409로 거절되면(중복 제출) 집계가 증가하지 "
+            + "않는다")
+    void submit_fillAnswerReturnsZero_neverIncrementsVoteTally() {
+        Quiz quiz = publishedQuiz(0, 10.0);
+        QuizOption option = option(quiz, 0, "정답 보기");
+        QuizUserSubmit served = unansweredRow(quiz, QuizSubmitWindow.now().minusMinutes(1));
+        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(quiz));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
+                .willReturn(Optional.of(served));
+        given(quizOptionRepository.findFirstByQuiz_IdAndOptionOrderByIdAsc(QUIZ_ID, 0))
+                .willReturn(Optional.of(option));
+        given(userAccountRepository.findWithLockById(USER_ID)).willReturn(Optional.of(account(0L)));
+        given(quizUserSubmitRepository.fillAnswer(anyLong(), anyLong(), any(), anyBoolean(),
+                any(), any())).willReturn(0);
+
+        assertThatThrownBy(() -> quizSubmitService.submit(USER_ID, QUIZ_ID, 0))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.QUIZ_ALREADY_SUBMITTED));
+
+        verifyNoInteractions(quizVoteTally);
+    }
+
+    @Test
+    @DisplayName("[AC-VOTE-8-1] 404 QUIZ_NOT_FOUND로 거절되면 집계에 손대지 않는다")
+    void submit_notFound_neverInteractsWithVoteTally() {
+        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> quizSubmitService.submit(USER_ID, QUIZ_ID, 0))
+                .isInstanceOf(BusinessException.class);
+
+        verifyNoInteractions(quizVoteTally);
+    }
+
+    @Test
+    @DisplayName("[AC-VOTE-8-1,9-1] 403 QUIZ_SUBMIT_NOT_ALLOWED(행 없음 또는 미답+시한초과)로 거절되면 "
+            + "집계에 손대지 않는다 — 시한 초과로 인한 미제출 확정도 이 경로다")
+    void submit_submitNotAllowed_neverInteractsWithVoteTally() {
+        Quiz quiz = publishedQuiz(0, 10.0);
+        QuizUserSubmit expired = unansweredRow(quiz, QuizSubmitWindow.now().minusMinutes(9));
+        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(quiz));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
+                .willReturn(Optional.of(expired));
+
+        assertThatThrownBy(() -> quizSubmitService.submit(USER_ID, QUIZ_ID, 0))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.QUIZ_SUBMIT_NOT_ALLOWED));
+
+        verifyNoInteractions(quizVoteTally);
+    }
+
+    @Test
+    @DisplayName("[AC-VOTE-8-1] 400 QUIZ_OPTION_NOT_FOUND(없는 보기)로 거절되면 집계에 손대지 않는다")
+    void submit_optionNotFound_neverInteractsWithVoteTally() {
+        Quiz quiz = publishedQuiz(0, 10.0);
+        QuizUserSubmit served = unansweredRow(quiz, QuizSubmitWindow.now().minusMinutes(1));
+        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(quiz));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
+                .willReturn(Optional.of(served));
+        given(quizOptionRepository.findFirstByQuiz_IdAndOptionOrderByIdAsc(QUIZ_ID, 9))
+                .willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> quizSubmitService.submit(USER_ID, QUIZ_ID, 9))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.QUIZ_OPTION_NOT_FOUND));
+
+        verifyNoInteractions(quizVoteTally);
+    }
+
+    @Test
+    @DisplayName("[AC-VOTE-27-1,27-2] 트랜잭션 동기화가 활성 상태면 증가는 즉시 일어나지 않고, 커밋 콜백"
+            + "(afterCommit)이 실행돼야 비로소 일어난다 — 등록은 계정 락 획득·조건부 UPDATE(fillAnswer) "
+            + "이후, 메서드의 마지막 단계에서 이뤄진다")
+    void submit_withActiveTransactionSynchronization_incrementsOnlyAfterCommitCallback() {
+        Quiz quiz = publishedQuiz(0, 10.0);
+        QuizOption option = option(quiz, 0, "정답 보기");
+        QuizUserSubmit served = unansweredRow(quiz, QuizSubmitWindow.now().minusMinutes(1));
+        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(quiz));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
+                .willReturn(Optional.of(served));
+        given(quizOptionRepository.findFirstByQuiz_IdAndOptionOrderByIdAsc(QUIZ_ID, 0))
+                .willReturn(Optional.of(option));
+        given(userAccountRepository.findWithLockById(USER_ID)).willReturn(Optional.of(account(0L)));
+        given(quizUserSubmitRepository.fillAnswer(anyLong(), anyLong(), any(), anyBoolean(),
+                any(), any())).willReturn(1);
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            quizSubmitService.submit(USER_ID, QUIZ_ID, 0);
+
+            // 커밋 전에는 아직 어떤 필드도 증가하지 않았다
+            verifyNoInteractions(quizVoteTally);
+
+            List<TransactionSynchronization> syncs =
+                    TransactionSynchronizationManager.getSynchronizations();
+            assertThat(syncs).hasSize(1);
+            syncs.forEach(TransactionSynchronization::afterCommit);
+
+            verify(quizVoteTally).increment(QUIZ_ID, 0);
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
+    @DisplayName("[AC-VOTE-27-1] 등록된 커밋 콜백을 끝까지 실행하지 않으면(=커밋되지 않고 롤백된 것과 같은 "
+            + "상황) 그 제출은 끝까지 증가를 일으키지 않는다")
+    void submit_registeredSynchronizationNeverCommitted_neverIncrementsVoteTally() {
+        Quiz quiz = publishedQuiz(0, 10.0);
+        QuizOption option = option(quiz, 0, "정답 보기");
+        QuizUserSubmit served = unansweredRow(quiz, QuizSubmitWindow.now().minusMinutes(1));
+        given(quizRepository.findById(QUIZ_ID)).willReturn(Optional.of(quiz));
+        given(quizUserSubmitRepository.findByUserAccount_IdAndQuiz_Id(USER_ID, QUIZ_ID))
+                .willReturn(Optional.of(served));
+        given(quizOptionRepository.findFirstByQuiz_IdAndOptionOrderByIdAsc(QUIZ_ID, 0))
+                .willReturn(Optional.of(option));
+        given(userAccountRepository.findWithLockById(USER_ID)).willReturn(Optional.of(account(0L)));
+        given(quizUserSubmitRepository.fillAnswer(anyLong(), anyLong(), any(), anyBoolean(),
+                any(), any())).willReturn(1);
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            quizSubmitService.submit(USER_ID, QUIZ_ID, 0);
+            // afterCommit을 의도적으로 부르지 않는다 — 실제 롤백 시 Spring은 afterCommit을 부르지 않는다
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+
+        verifyNoInteractions(quizVoteTally);
+    }
+
+    @Test
+    @DisplayName("[AC-VOTE-31-1] QuizSubmitService는 StringRedisTemplate을 직접 필드로 갖지 않는다 — "
+            + "집계는 포트(QuizVoteTally) 하나로만 접근한다")
+    void quizSubmitService_hasNoDirectStringRedisTemplateField() {
+        boolean hasDirectRedisField = java.util.Arrays
+                .stream(QuizSubmitService.class.getDeclaredFields())
+                .anyMatch(field -> field.getType().getSimpleName().equals("StringRedisTemplate"));
+        assertThat(hasDirectRedisField).isFalse();
+    }
+
+    @Test
+    @DisplayName("[AC-VOTE-5-1] 풀이 이력 조회(getHistory)는 집계 포트를 전혀 호출하지 않는다 — 이 조회 "
+            + "응답은 Redis 상태와 무관하다")
+    void getHistory_neverInteractsWithVoteTally() {
+        Game finished = game("FINISHED", null, 1);
+        given(gameRepository.findWithStatusByNaverGameId(GAME_ID)).willReturn(Optional.of(finished));
+        given(quizUserSubmitRepository.findGameSubmissions(USER_ID, GAME_PK)).willReturn(List.of());
+
+        quizSubmitService.getHistory(USER_ID, GAME_ID);
+
+        verifyNoInteractions(quizVoteTally);
     }
 }

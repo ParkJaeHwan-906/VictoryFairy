@@ -50,7 +50,7 @@ class QuizTest {
                 .player(player)
                 .content("이 선수의 2026 시즌 홈런 수는?")
                 .answer(2)
-                .score(1.5)
+                .point(1.5)
                 .build();
 
         // then
@@ -59,7 +59,7 @@ class QuizTest {
         assertThat(quiz.getPlayer()).isSameAs(player);
         assertThat(quiz.getContent()).isEqualTo("이 선수의 2026 시즌 홈런 수는?");
         assertThat(quiz.getAnswer()).isEqualTo(2);
-        assertThat(quiz.getScore()).isEqualTo(1.5);
+        assertThat(quiz.getPoint()).isEqualTo(1.5);
     }
 
     @Test
@@ -117,7 +117,8 @@ class QuizTest {
     }
 
     @Test
-    @DisplayName("score·externalId·difficulty는 지정하지 않으면 null로 남는다(사람이 쓴 퀴즈 경로)")
+    @DisplayName("[QUIZ-PBQ-5] point·bq·externalId·difficulty는 지정하지 않으면 null로 남는다"
+            + "(사람이 쓴 퀴즈 경로 — 두 배점 축이 서로 독립적으로 null 가능하다)")
     void optionalFields_areNullWhenNotGiven() {
         // given
         Quiz quiz = Quiz.builder()
@@ -127,10 +128,28 @@ class QuizTest {
                 .build();
 
         // then
-        assertThat(quiz.getScore()).isNull();
+        assertThat(quiz.getPoint()).isNull();
+        assertThat(quiz.getBq()).isNull();
         assertThat(quiz.getExternalId()).isNull();
         assertThat(quiz.getDifficulty()).isNull();
         assertThat(quiz.getTemplateId()).isNull();
+    }
+
+    @Test
+    @DisplayName("[QUIZ-PBQ-5] builder(bq=3)으로 생성하면 getBq()가 3을 반환한다 — point와 별개 축이라 "
+            + "point가 null이어도 bq만 채울 수 있다")
+    void builder_wiresBqIndependentlyOfPoint() {
+        // when
+        Quiz quiz = Quiz.builder()
+                .quizType(newQuizType("객관식"))
+                .content("bq만 있는 문제")
+                .answer(0)
+                .bq(3)
+                .build();
+
+        // then
+        assertThat(quiz.getBq()).isEqualTo(3);
+        assertThat(quiz.getPoint()).isNull();
     }
 
     @Test
@@ -188,7 +207,7 @@ class QuizTest {
                 .quizType(newQuizType("객관식"))
                 .content("강백호가 FA로 새로 합류한 팀은?")
                 .answer(0)
-                .score(80.0)
+                .point(80.0)
                 .externalId("QZ-20260807-001")
                 .quizDate(LocalDate.of(2026, 8, 7))
                 .difficulty("HARD")
@@ -200,6 +219,6 @@ class QuizTest {
         assertThat(quiz.getQuizDate()).isEqualTo(LocalDate.of(2026, 8, 7));
         assertThat(quiz.getDifficulty()).isEqualTo("HARD");
         assertThat(quiz.getTemplateId()).isEqualTo("CAREER_PATH");
-        assertThat(quiz.getScore()).isEqualTo(80.0);
+        assertThat(quiz.getPoint()).isEqualTo(80.0);
     }
 }

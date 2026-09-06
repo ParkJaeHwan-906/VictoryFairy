@@ -14,14 +14,20 @@ import com.skhynix.user.auth.dto.TokenResponse;
 import com.skhynix.user.auth.policy.PasswordPolicy;
 import com.skhynix.user.auth.service.AuthService;
 import com.skhynix.user.auth.service.EmailVerificationService;
+import com.skhynix.user.profileimage.dto.ProfileImageResponse;
+import com.skhynix.user.profileimage.service.TempProfileImageService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequiredArgsConstructor
@@ -31,6 +37,28 @@ public class AuthController {
 
     private final AuthService authService;
     private final EmailVerificationService emailVerificationService;
+    private final TempProfileImageService tempProfileImageService;
+
+    /**
+     * 가입 전 프로필 이미지 업로드 — 이 저장소에서 <b>인증 없이 쓰기가 되는 유일한 경로</b>다.
+     *
+     * <p>여기에 둔 것이 곧 보안 설정이다: {@code /auth/**} 는 이미 전부 permitAll 이라 SecurityConfig
+     * 를 건드리지 않아도 열린다. ⚠ 경로를 {@code /users/**} 아래로 옮기면 401 이 되고, 거기에 여는
+     * 줄을 추가하는 순간 기존 공개 줄(전부 GET 한정)의 성격이 깨진다.
+     *
+     * <p>유효한 access 토큰이 함께 와도 동작이 달라지지 않는다 — 저장 위치는 언제나 {@code temp/}
+     * 이고 계정 컬럼은 갱신되지 않는다(토큰이 있으면 결과가 달라지는 {@code GET /players} 와 반대다).
+     *
+     * <p>{@code image} 는 {@code @RequestPart(required = false)} 다. 파트가 없을 때와 이름이 다를 때를
+     * 스프링이 던지는 예외 대신 같은 400 으로 흡수하기 위해서다. {@code appId} 는 파일이 아닌 파트라
+     * {@code @RequestParam} 으로 받는다(멀티파트의 일반 파트는 요청 파라미터로 노출된다).
+     */
+    @PostMapping(path = "/profile-image", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<ApiResponse<ProfileImageResponse>> uploadTempProfileImage(
+            @RequestParam(name = "appId", required = false) String appId,
+            @RequestPart(name = "image", required = false) MultipartFile image) {
+        return ResponseEntity.ok(ApiResponse.ok(tempProfileImageService.upload(appId, image)));
+    }
 
     @PostMapping("/email/send-code")
     public ResponseEntity<ApiResponse<Void>> sendEmailCode(@Valid @RequestBody EmailSendCodeRequest request) {

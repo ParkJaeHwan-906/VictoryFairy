@@ -98,4 +98,58 @@ class CleanupExecutionLockTest {
         // then
         verify(redisTemplate).execute(any(RedisScript.class), any(java.util.List.class), eq(token));
     }
+
+    // ---------- USER-PI-90: 회차(잡)마다 다른 락 키 ----------
+
+    @Test
+    @DisplayName("[USER-PI-90] 만료 데이터 정리(expired-data)와 임시 프로필 이미지 정리(temp-profile-image)는 "
+            + "서로 다른 락 키를 쓴다 — 같은 키를 쓰면 한 회차가 길어졌을 때 다른 회차가 \"선점됨\"으로 "
+            + "오인돼 건너뛴다")
+    void tryAcquire_differentJobs_useDifferentKeys() {
+        // given
+        given(redisTemplate.opsForValue()).willReturn(valueOperations);
+        given(valueOperations.setIfAbsent(anyString(), anyString(), any(Duration.class)))
+                .willReturn(true);
+
+        // when
+        lock.tryAcquire(CleanupExecutionLock.EXPIRED_DATA_JOB);
+        lock.tryAcquire(CleanupExecutionLock.TEMP_PROFILE_IMAGE_JOB);
+
+        // then
+        org.mockito.ArgumentCaptor<String> keyCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(valueOperations, org.mockito.Mockito.times(2))
+                .setIfAbsent(keyCaptor.capture(), anyString(), any(Duration.class));
+        assertThat(keyCaptor.getAllValues()).hasSize(2);
+        assertThat(keyCaptor.getAllValues().get(0)).isNotEqualTo(keyCaptor.getAllValues().get(1));
+    }
+
+    @Test
+    @DisplayName("[USER-PI-90] 무인자 tryAcquire()는 EXPIRED_DATA_JOB과 같은 키를 쓴다"
+            + "(기존 호출자·기존 키를 그대로 두는 단축 형태)")
+    void tryAcquire_noArgOverload_usesSameKeyAsExpiredDataJob() {
+        // given
+        given(redisTemplate.opsForValue()).willReturn(valueOperations);
+        given(valueOperations.setIfAbsent(anyString(), anyString(), any(Duration.class)))
+                .willReturn(true);
+
+        // when
+        lock.tryAcquire();
+        lock.tryAcquire(CleanupExecutionLock.EXPIRED_DATA_JOB);
+
+        // then
+        org.mockito.ArgumentCaptor<String> keyCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(valueOperations, org.mockito.Mockito.times(2))
+                .setIfAbsent(keyCaptor.capture(), anyString(), any(Duration.class));
+        assertThat(keyCaptor.getAllValues().get(0)).isEqualTo(keyCaptor.getAllValues().get(1));
+    }
+
+    @Test
+    @DisplayName("release(job, token)도 job에 대응하는 키로 원자적 스크립트를 실행한다")
+    void release_withJob_executesScriptAgainstJobSpecificKey() {
+        // when
+        lock.release(CleanupExecutionLock.TEMP_PROFILE_IMAGE_JOB, "token-xyz");
+
+        // then
+        verify(redisTemplate).execute(any(RedisScript.class), any(java.util.List.class), eq("token-xyz"));
+    }
 }

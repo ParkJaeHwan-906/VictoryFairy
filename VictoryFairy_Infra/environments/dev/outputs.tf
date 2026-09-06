@@ -63,6 +63,16 @@ output "fe_cloudfront_distribution_id" {
   value       = module.cdn.distribution_id
 }
 
+output "asset_bucket_name" {
+  description = "사용자 업로드(프로필 이미지) S3 버킷 이름. BE 의 업로드 대상 버킷 설정 값."
+  value       = module.asset.bucket_name
+}
+
+output "user_app_role_arn" {
+  description = "user-app 파드 IRSA 역할 ARN. k8s/20-user-app.yaml 에 ServiceAccount(victoryfairy/user-app)를 만들어 eks.amazonaws.com/role-arn 어노테이션 값으로 넣고, Deployment 에 serviceAccountName: user-app 을 건다."
+  value       = module.user_irsa.user_app_role_arn
+}
+
 output "watchdog_alarm_names" {
   description = "상시 감시 알람 이름 목록. FE 알람만 자동 롤백을 유발한다."
   value       = module.fe_watchdog.alarm_names
@@ -79,7 +89,7 @@ output "watchdog_sns_topic_arn" {
 }
 
 output "fe_cloudfront_domain_name" {
-  description = "FE CloudFront 배포 도메인(d*.cloudfront.net). apex 를 옮기기 전에 이 주소로 직접 접속해 검증한다(docs/fe-cdn-migration.md §4 1단계)."
+  description = "FE CloudFront 배포 도메인(d*.cloudfront.net). apex 를 거치지 않고 배포를 직접 찌를 때 쓴다 — 다만 Host 가 apex 가 아니면 /api/*·/rt/* 는 ALB 규칙과 어긋나 404 다(docs/fe-hosting.md §2)."
   value       = module.cdn.distribution_domain_name
 }
 

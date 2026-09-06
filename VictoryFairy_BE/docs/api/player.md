@@ -3,7 +3,7 @@
 > **도메인** `player` — KBO 선수 참조 데이터 및 이름 검색.
 > **모듈** user (포트 8080) · **경로 접두사** `/api/players` · **엔드포인트** 1개
 > **컨트롤러** `user/src/main/java/com/skhynix/user/player/controller/PlayerController.java` (`@RequestMapping("/players")`)
-> **최종 갱신** 2026-08-06 — **응답 항목 키가 바뀐 파괴적 변경**: `{id, name}` → `{teamId, teamName, playerId, playerName, playerNumber, playerPosition}`. 소속 구단·등번호·포지션이 추가됐고 기존 `id`·`name` 키는 **사라졌다**(직전 변경: 2026-08-04 적용 구단 오버라이딩)
+> **최종 갱신** 2026-08-20 — `teamId` 타입 변환 실패 400의 응답 형태 정정(래퍼 없음 → `ApiResponse` 래퍼, `GlobalExceptionHandler.handleTypeMismatch` 신설). 응답 필드·엔드포인트는 불변. (직전: 2026-08-06 **응답 항목 키가 바뀐 파괴적 변경**: `{id, name}` → `{teamId, teamName, playerId, playerName, playerNumber, playerPosition}`. 소속 구단·등번호·포지션이 추가됐고 기존 `id`·`name` 키는 **사라졌다**(직전 변경: 2026-08-04 적용 구단 오버라이딩))
 > 공통 규약(응답 래퍼·401 정책)은 [README.md](README.md)를 먼저 볼 것.
 > 요구사항: `docs/requirements/user/player-lookup-team-fallback.md`(USER-PLF-1~21)
 
@@ -101,7 +101,7 @@ KBO 선수 목록 조회 및 이름 검색. `PlayerController` → `PlayerServic
 
 | 상태 | 코드 | 조건 |
 |---|---|---|
-| 400 | (래퍼 없음) | `teamId`가 숫자가 아님(예: `?teamId=abc`). **토큰·응원 구단 유무와 무관하게 항상 400**이다 — 컨트롤러 진입 전 타입 변환 실패라 오버라이딩 판단(응원 구단 조회)에 도달하지 못하고, `GlobalExceptionHandler`가 아니라 Spring 기본 `DefaultHandlerExceptionResolver`가 처리한다 — **이 응답만 `ApiResponse` 래퍼가 아니다** |
+| 400 | (`ApiResponse` 래퍼, ErrorCode 없음) | `teamId`가 숫자가 아님(예: `?teamId=abc`). **토큰·응원 구단 유무와 무관하게 항상 400**이다 — 컨트롤러 진입 전 타입 변환 실패라 오버라이딩 판단(응원 구단 조회)에 도달하지 못하지만, 2026-08-20부터 `GlobalExceptionHandler.handleTypeMismatch`(공유 컴포넌트 신설)가 잡아 **`ApiResponse` 래퍼를 붙인다**(종전엔 Spring 기본 `DefaultHandlerExceptionResolver`가 처리해 래퍼가 없었다 — 정정됨) |
 | 401 | UNAUTHENTICATED | `GET` 이외의 메서드로 이 경로 요청(`permitAll`이 GET으로만 좁혀져 있음 — 405 아님) |
 
 **`name`에는 400이 없다.** 문자열이라 타입 변환이 실패할 수 없고, 길이·문자 종류 제약도 걸지 않는다. 어떤 값을 줘도 200이며 일치하는 선수가 없으면 빈 배열이다.

@@ -5,5 +5,7 @@ public record QuizSubmitResponse(
         int answer,
         int myOption,
         long earnedPoint,
-        long totalPoint) {
+        long totalPoint,
+        long earnedBq,
+        long totalBq) {
 }

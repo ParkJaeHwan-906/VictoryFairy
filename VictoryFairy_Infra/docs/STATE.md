@@ -23,7 +23,7 @@
 두 리소스는 **Terraform 밖에서 수동 생성**했다(2026-07-23). 백엔드 저장소 자체를
 Terraform으로 만들면 닭-달걀 문제가 생기므로 의도된 예외다(태그 `ManagedBy=Manual-Backend`).
 
-## 3. 새 기기 온보딩 (이관 완료 후)
+## 2. 새 기기 온보딩
 
 ```bash
 cd VictoryFairy_Infra/environments/dev
@@ -32,7 +32,7 @@ terraform init                                  # S3 백엔드 연결
 terraform plan                                  # 변경 없으면 "no changes"가 정상
 ```
 
-## 4. 안전 수칙
+## 3. 안전 수칙
 
 - **plan이 "전체 신규 생성"으로 나오면 즉시 중단.** state에 연결되지 않았다는 신호다
   (이관 미완료·자격증명 문제·잘못된 디렉터리). 그 상태의 apply는 인프라 중복 생성 사고다.

@@ -39,4 +39,49 @@ class UserBqTest {
         assertThat(userBq.getCreatedAt()).isNull();
         assertThat(userBq.getUpdatedAt()).isNull();
     }
+
+    // ---------- addBqScore — QUIZ-PBQ-16·19의 엔티티 측 근거 ----------
+    // (docs/requirements/quiz/quiz-point-bq-split.md, quiz 모듈의 QuizSubmitService가 유일한 호출자)
+
+    @Test
+    @DisplayName("[QUIZ-PBQ-16] 양수 delta는 bqScore에 그대로 더해진다")
+    void addBqScore_positiveDelta_addsToScore() {
+        // given
+        UserBq userBq = UserBq.builder().userAccount(newUserAccount("nickname")).build();
+
+        // when
+        userBq.addBqScore(3L);
+        userBq.addBqScore(2L);
+
+        // then
+        assertThat(userBq.getBqScore()).isEqualTo(5L);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-PBQ-19] delta가 0이면 bqScore가 그대로다(적립 없음)")
+    void addBqScore_zeroDelta_doesNotChangeScore() {
+        // given
+        UserBq userBq = UserBq.builder().userAccount(newUserAccount("nickname")).build();
+        userBq.addBqScore(5L);
+
+        // when
+        userBq.addBqScore(0L);
+
+        // then
+        assertThat(userBq.getBqScore()).isEqualTo(5L);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-PBQ-19] delta가 음수여도 예외 없이 무시되고 bqScore가 그대로다")
+    void addBqScore_negativeDelta_isIgnoredWithoutException() {
+        // given
+        UserBq userBq = UserBq.builder().userAccount(newUserAccount("nickname")).build();
+        userBq.addBqScore(5L);
+
+        // when
+        userBq.addBqScore(-1L);
+
+        // then
+        assertThat(userBq.getBqScore()).isEqualTo(5L);
+    }
 }

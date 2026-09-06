@@ -88,7 +88,8 @@ public class QuizIngestService {
                 .game(game)
                 .content(candidate.question())
                 .answer(answerIndex)
-                .score(candidate.pointReward() == null ? null : candidate.pointReward().doubleValue())
+                .point(candidate.pointReward() == null ? null : candidate.pointReward().doubleValue())
+                .bq(resolveBq(candidate))
                 .externalId(candidate.quizId())
                 .quizDate(gameBound ? quizDate : null)
                 .difficulty(candidate.difficulty())
@@ -105,6 +106,17 @@ public class QuizIngestService {
         }
         quizOptionRepository.saveAll(options);
         return Result.LOADED;
+    }
+
+    /**
+     * 레이팅 축 배점 결정. 후보가 준 값이 <b>항상 우선</b>이고(난이도와 어긋나도 그대로 저장한다 —
+     * 값의 정합은 업로드 직전 게이트가 책임진다. 여기서 한 번 더 판정하면 두 판정이 반드시 갈린다),
+     * 값이 없을 때만 난이도로 채운다. 둘 다 실패하면 null 이며 적재는 성공한다.
+     */
+    private Integer resolveBq(QuizCandidate candidate) {
+        return candidate.bqReward() != null
+                ? candidate.bqReward()
+                : DifficultyBqMapping.bqOf(candidate.difficulty());
     }
 
     private QuizType resolveQuizType(QuizCandidate candidate) {
