@@ -216,7 +216,15 @@ UIApplication.shared.open(URL(string: "instagram-stories://share?source_applicat
 오류도 나지 않고 편집기도 열리지 않아서, 모르고 보면 "아무 일도 안 일어난다".
 
 - 비밀이 아니다. 요청의 출처 표시라 APK에 평문으로 들어가도 된다
-  → `EXPO_PUBLIC_INSTAGRAM_APP_ID` (`.env`)
+  → `EXPO_PUBLIC_INSTAGRAM_APP_ID`
+- **값을 두 곳에 둬야 한다.** `.env`는 gitignore 대상이라 EAS 빌드에 따라가지
+  않는다 — 거기만 넣으면 로컬 빌드에서는 되고 스토어에 올라가는 빌드에서는 조용히
+  실패한다. 웹 주소·API 주소와 같은 사정이라 같은 방법을 쓴다.
+
+  | 어디 | 무엇을 위해 |
+  |---|---|
+  | `eas.json`의 `build.preview.env` · `build.production.env` | EAS가 만드는 빌드 |
+  | `.env` (gitignore) | 로컬 `expo run:android` |
 - **앱 심사는 필요 없다.** 심사가 필요한 건 스토리에 링크를 다는
   `contentURL`(스와이프업) 기능뿐이고, 스티커 공유는 대상이 아니다
 - 값이 없으면 앱은 웹에 "공유 불가"로 답한다. 틀린 ID로 조용히 실패하느니
