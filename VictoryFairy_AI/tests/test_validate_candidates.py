@@ -25,6 +25,7 @@ def ok_knowledge():
             "answer": "A",
             "evidence": {"source": "wiki/stats/season.md#상대전적", "quote": "LG 7-4 두산"},
             "settlement": None, "difficulty": "MEDIUM", "pointReward": 50,
+            "bqReward": 2,
             "status": "PENDING", "createdAt": "2026-07-30T00:00:00Z",
             "deadlineAt": "2026-07-30T07:30:00Z", "createdBy": "AI_ENGINE"}
 
@@ -90,6 +91,20 @@ def test_disabled_or_unknown_template_rejected():
 def test_point_must_match_difficulty():
     c = ok_knowledge(); c["pointReward"] = 999
     assert vc.validate_candidate(c, CATALOG, BANNED)
+
+
+def test_bq_must_match_difficulty():
+    # 보상 두 축은 각각 검사된다 — pointReward가 맞아도 bqReward만 틀리면 실패.
+    c = ok_knowledge(); c["bqReward"] = 999
+    violations = vc.validate_candidate(c, CATALOG, BANNED)
+    assert any("bqReward" in v for v in violations)
+    assert not any("pointReward" in v for v in violations)
+
+
+def test_bq_reward_is_required():
+    c = ok_knowledge(); del c["bqReward"]
+    violations = vc.validate_candidate(c, CATALOG, BANNED)
+    assert any("필수 필드 누락" in v and "bqReward" in v for v in violations)
 
 
 def test_banned_topic_rejected():

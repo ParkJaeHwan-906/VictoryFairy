@@ -1,0 +1,31 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+  <!--
+    안드로이드 11부터는 다른 앱이 깔려 있는지 기본적으로 볼 수 없다. 선언하지 않으면
+    resolveActivity()가 인스타가 있어도 null을 돌려주어 "설치되지 않음"으로 오인한다.
+  -->
+  <queries>
+    <package android:name="com.instagram.android" />
+  </queries>
+
+  <application>
+    <!--
+      스티커를 파일로 넘기기 위한 통로. 인텐트에 file:// 를 담으면 안드로이드 7부터
+      FileUriExposedException 으로 죽으므로 content:// 로 감싸 건넨다. 권한은 인텐트에
+      한 번만 붙여 인스타에게만 열어 준다(exported=false).
+
+      authorities 를 앱 패키지 아래에 두는 건 규약이 아니라 충돌 방지다 — 한 기기에
+      같은 authority 를 쓰는 앱이 둘이면 나중에 깔리는 쪽이 설치에 실패한다.
+    -->
+    <provider
+      android:name="androidx.core.content.FileProvider"
+      android:authorities="${applicationId}.instagramshare.fileprovider"
+      android:exported="false"
+      android:grantUriPermissions="true">
+      <meta-data
+        android:name="android.support.FILE_PROVIDER_PATHS"
+        android:resource="@xml/instagram_share_file_paths" />
+    </provider>
+  </application>
+
+</manifest>

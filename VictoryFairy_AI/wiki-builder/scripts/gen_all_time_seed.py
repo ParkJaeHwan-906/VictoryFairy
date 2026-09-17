@@ -101,8 +101,6 @@ YAML_HEADER = """\
 # ── 내부 헬퍼 ────────────────────────────────────────────────
 
 def _find_col(headers: list, keywords: tuple, exclude: set) -> "int | None":
-    """headers에서 exclude 인덱스를 건너뛰고, keywords 중 하나라도 부분
-    문자열로 포함하는 첫 열의 인덱스를 반환한다. 없으면 None."""
     for i, h in enumerate(headers):
         if i in exclude:
             continue
@@ -112,8 +110,6 @@ def _find_col(headers: list, keywords: tuple, exclude: set) -> "int | None":
 
 
 def _is_numeric(cell) -> bool:
-    """셀 값이 숫자로 보이는지(쉼표 제거 후 float 변환 가능 여부). 빈 문자열/
-    None은 숫자가 아니다."""
     if cell is None:
         return False
     try:
@@ -124,8 +120,6 @@ def _is_numeric(cell) -> bool:
 
 
 def _find_value_col(headers: list, first_row: list, exclude: set) -> "int | None":
-    """rank/name 열과 `_VALUE_EXCLUDED_HEADERS`를 제외한 나머지 중, 첫 행
-    기준으로 숫자로 보이는 첫 열의 인덱스. 없으면 None."""
     for i, h in enumerate(headers):
         if i in exclude or h in _VALUE_EXCLUDED_HEADERS:
             continue
@@ -135,10 +129,8 @@ def _find_value_col(headers: list, first_row: list, exclude: set) -> "int | None
 
 
 def _extract_category_body(page: str, table: dict, top_n: int) -> "dict | None":
-    """표 하나에서 카테고리 본문(`{"title","sourcePage","rankBasis","entries"}`)을
-    추출한다. name 열 또는 value 열을 못 찾거나 유효한 행이 하나도 없으면
-    None(그 표는 카테고리로 만들지 않는다 — 파싱 잡음 억제, stderr에 경고
-    1줄을 남기고 스킵한다)."""
+    """name 열 또는 value 열을 못 찾거나 유효한 행이 하나도 없으면 None — 그 표는
+    카테고리로 만들지 않는다(파싱 잡음 억제, 모듈 docstring 참고)."""
     headers = table.get("headers") or []
     rows = table.get("rows") or []
     if not headers or not rows:
@@ -187,13 +179,8 @@ def _extract_category_body(page: str, table: dict, top_n: int) -> "dict | None":
 # ── 공개 API ─────────────────────────────────────────────────
 
 def seed_from_snapshots(snapshots: dict, top_n: int = 10) -> dict:
-    """kbo-records 스냅샷 dict(`{page_slug: snapshot_dict}`)를 역대 기록
-    시드로 변환한다. `PAGE_KO`에 없는 페이지는 무시한다(history-* 외
-    페이지는 이 스크립트의 대상이 아님).
-
-    `asOf`는 처리 대상이 된 스냅샷들의 `date` 중 최댓값(가장 최근 수집일).
-    스냅샷이 하나도 없으면 None. 카테고리는 페이지 슬러그 사전순으로
-    정렬해 결정적으로 나열한다(같은 입력이면 항상 같은 순서).
+    """카테고리는 페이지 슬러그 사전순으로 정렬해 결정적으로 나열한다(같은 입력이면
+    항상 같은 순서).
     """
     relevant = {page: snap for page, snap in snapshots.items() if page in PAGE_KO and snap}
     dates = [snap.get("date") for snap in relevant.values() if snap.get("date")]
@@ -233,9 +220,6 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: "list | None" = None) -> None:
-    """CLI 진입점. `--kbo-dir`를 `load_snapshots_dir`(Task 5)로 읽어
-    `seed_from_snapshots`를 호출하고, 결과를 YAML로 `--out`에 쓴다.
-    출력 앞에는 항상 `YAML_HEADER`(v0 초안 경고 + 검수 규칙 주석)를 붙인다."""
     args = _build_arg_parser().parse_args(argv)
 
     snapshots = load_snapshots_dir(args.kbo_dir)

@@ -57,8 +57,8 @@ class ChatControllerHistoryTest {
     @DisplayName("[AC-CHAT-18-1] 히스토리 첫 페이지를 요청하면 200과 서비스가 만든 페이지(최신순)를 그대로 반환한다")
     void getHistory_firstPage_returns200WithServicePage() throws Exception {
         List<MessageResponse> messages = List.of(
-                new MessageResponse(2L, "최신", "닉1", LocalDateTime.of(2026, 7, 20, 12, 0)),
-                new MessageResponse(1L, "이전", "닉2", LocalDateTime.of(2026, 7, 20, 11, 0)));
+                new MessageResponse(2L, "최신", "닉1", "user-profile-img/1.jpg", LocalDateTime.of(2026, 7, 20, 12, 0)),
+                new MessageResponse(1L, "이전", "닉2", null, LocalDateTime.of(2026, 7, 20, 11, 0)));
         PageResponse<MessageResponse> page = new PageResponse<>(messages, 0, 30, 50L, 2, true);
         given(chatService.getHistory(eq(ROOM_UID), eq(0), eq(USER_ID))).willReturn(page);
 
@@ -67,6 +67,9 @@ class ChatControllerHistoryTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content.length()").value(2))
                 .andExpect(jsonPath("$.data.content[0].content").value("최신"))
+                // profileImgUrl: 값이 있는 계정은 그대로, 없는 계정(탈퇴자 이관 등)은 null 유지(별도 분기 없음).
+                .andExpect(jsonPath("$.data.content[0].profileImgUrl").value("user-profile-img/1.jpg"))
+                .andExpect(jsonPath("$.data.content[1].profileImgUrl").value(org.hamcrest.Matchers.nullValue()))
                 .andExpect(jsonPath("$.data.size").value(30))
                 .andExpect(jsonPath("$.data.totalElements").value(50))
                 .andExpect(jsonPath("$.data.hasNext").value(true));
@@ -91,7 +94,7 @@ class ChatControllerHistoryTest {
     void getHistory_exactly30Messages_returnsAllWithNoNextPage() throws Exception {
         List<MessageResponse> messages = new ArrayList<>();
         for (int i = 0; i < 30; i++) {
-            messages.add(new MessageResponse((long) i, "메시지" + i, "닉", LocalDateTime.now()));
+            messages.add(new MessageResponse((long) i, "메시지" + i, "닉", null, LocalDateTime.now()));
         }
         PageResponse<MessageResponse> page = new PageResponse<>(messages, 0, 30, 30L, 1, false);
         given(chatService.getHistory(eq(ROOM_UID), eq(0), eq(USER_ID))).willReturn(page);

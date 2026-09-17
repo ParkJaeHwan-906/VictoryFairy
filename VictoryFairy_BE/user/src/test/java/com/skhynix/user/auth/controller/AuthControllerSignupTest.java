@@ -81,8 +81,13 @@ class AuthControllerSignupTest {
     @MockitoBean
     private EmailVerificationService emailVerificationService;
 
+    // AuthController가 가입 전 임시 프로필 이미지 업로드용 TempProfileImageService도 생성자로 받아,
+    // 없으면 컨텍스트 로딩이 실패한다(이 클래스 테스트는 그 경로와 상호작용하지 않음).
+    @MockitoBean
+    private com.skhynix.user.profileimage.service.TempProfileImageService tempProfileImageService;
+
     private SignupRequest requestWithPassword(String password) {
-        return new SignupRequest("홍길동", "01012345678", "test@example.com", Gender.MALE, "nickname", password);
+        return new SignupRequest("홍길동", "01012345678", "test@example.com", Gender.MALE, "nickname", password, null);
     }
 
     @Test

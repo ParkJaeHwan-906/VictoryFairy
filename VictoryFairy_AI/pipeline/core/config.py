@@ -13,12 +13,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class PipelineSettings(BaseSettings):
-    """배치 러너(pipeline)가 사용하는 환경 설정.
-
-    - S3_BUCKET: 입력·출력에 공통으로 쓰는 단일 버킷명(PIPE-S3IO-1). 값이 없으면
-      러너가 실행 중단 + 명확한 에러를 낸다(러너 쪽에서 명시적으로 검사한다 —
-      여기서 필수값으로 강제하면 pydantic 기본 에러 메시지만 나와 불친절하다).
-    - AWS_REGION: S3 클라이언트 리전(PIPE-S3IO-5). 기본값은 ap-northeast-2.
+    """S3_BUCKET 값이 없으면 러너가 실행 중단 + 명확한 에러를 낸다(러너 쪽에서 명시적으로
+    검사한다 — 여기서 필수값으로 강제하면 pydantic 기본 에러 메시지만 나와 불친절하다).
     """
 
     S3_BUCKET: Optional[str] = None

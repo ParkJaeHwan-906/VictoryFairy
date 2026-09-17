@@ -18,6 +18,28 @@ import type { ApiResponse } from './api';
  * | `false` | `false` | 아직 답할 수 있음(또는 받은 적 없음) |
  * | `true`  | `false` | 답함 — 복기 필드가 실린다 |
  * | `false` | `true`  | 시한 초과 — 제출하면 영구히 403, 복구 경로 없음 |
+ *
+ * ── 2026-08-19 `/today` 보기에 투표 수가 붙었다 ────────────────────────
+ * `GET /quizzes/today` 의 `options[]` 에만 `voteCount` 가 실린다. 상세·제출·이력의
+ * `options` 에는 없으므로 보기 타입을 `QuizOption` / `DailyQuizOption` 둘로 나눠 두었다.
+ *
+ * ── 2026-08-26 투표 수를 다시 받는 경로가 생겼다 ───────────────────────
+ * `GET /quizzes/{quizId}/vote-count` 가 같은 `DailyQuizOption` 모양으로 분포만 준다.
+ * 스냅샷이 서빙 한 번으로 끝나던 종전과 달리 **폴링으로 갱신할 수 있다**(`QuizVoteCount`).
+ *
+ * ── 2026-09-03 배점 축이 둘로 갈렸다(point / bq) ───────────────────────
+ * 포인트(`point`) 옆에 레이팅 점수 `bq` 가 생겼고, 정답이면 둘을 **같은 트랜잭션에서
+ * 함께 적립**한다. 그래서 제출 결과에 `earnedBq`·`totalBq` 가, 풀이 이력의 문제 항목과
+ * 경기 전체 요약에 `earnedBq` 가 붙었다(이닝별 요약은 3키 그대로다).
+ *
+ * ⚠️ **`bq` 의 null 처리 규칙이 엔드포인트마다 다르다** — 목록(`/today`)은 null 이어도
+ * 키를 싣고, 단건 상세는 null 이면 키를 생략한다. 서버가 통일하지 않은 것이라
+ * 타입도 그대로 옮긴다(`DailyQuiz.bq` 는 `number | null`, 상세는 `bq?: number`).
+ *
+ * ── 2026-08-13 풀이 이력이 "경기 한 건의 이닝별 결산"이 됐다 ──────────
+ * `GET /quizzes/submissions` 의 조회 축이 계정에서 **경기**로 좁혀지고(`gameId` 필수),
+ * 응답이 페이지 구조에서 `summary` + `innings[]` 로 바뀌었다. 항목에는 `options` 가
+ * 실리고 텍스트 두 필드(`myOptionText`·`answerText`)와 `quizDate` 가 빠졌다.
  */
 
 /** 렌더링 분기용 유형. `"O/X"` 는 보기 2개(0=O, 1=X)인 객관식과 같은 모양으로 내려온다. */
@@ -32,6 +54,26 @@ export interface QuizOption {
   text: string;
 }
 
+/**
+ * `GET /quizzes/today` 의 보기 하나 — 투표 수가 함께 실린다(2026-08-19 신설).
+ *
+ * **이 필드는 `/today` 에만 있다.** 상세·제출·이력의 `options` 는 `QuizOption` 그대로라,
+ * 타입을 나눠 두어 없는 쪽에서 읽으려 하면 컴파일에서 걸리게 한다.
+ */
+export interface DailyQuizOption extends QuizOption {
+  /**
+   * 그 보기를 고른 사람 수(0 이상). 서버가 항상 싣는다 — 생략도 null 도 없다.
+   *
+   * **서빙 시점의 근사 스냅샷이다.** 갱신 경로(SSE·폴링)가 없어 화면이 들고 있는 값은
+   * 문제를 받은 순간에 멈춰 있고, 보기별 합이 참여자 수와 같다는 보장도 없다.
+   *
+   * ⚠️ 집계(Redis)를 못 읽었을 때도 `0` 으로 채워 200 이 온다 — **`0` 은 "아무도 안
+   * 골랐다"와 "집계를 못 읽었다"를 구분하지 않는다**(docs/quiz.md). 그래서 전부 `0` 인
+   * 경우를 "아직 아무 표도 없다"로만 읽어야 하고, 실패로 안내하면 안 된다.
+   */
+  voteCount: number;
+}
+
 /** 목록·상세가 공유하는 문제 본문. 정답 관련 필드는 여기에 없다. */
 interface QuizBase {
   /** 퀴즈 식별자. 상세 조회·제출이 이 값으로 문제를 지목한다. */
@@ -40,7 +82,11 @@ interface QuizBase {
   question: string;
   /** **null 가능** — 사람이 직접 쓴 퀴즈. */
   difficulty: QuizDifficulty | null;
-  /** 배점(정답 시 적립될 포인트). **null 가능** — 배지·안내 문구에서 null 처리 필수. */
+  /**
+   * 배점 — **보유 포인트 축**(정답 시 적립될 포인트). **null 가능**, 배지·안내 문구에서
+   * null 처리 필수. 2026-09-03 에 서버 컬럼명이 `score` → `point` 로 바뀌었지만
+   * JSON 이름·타입·값은 그 전부터 이대로였다(관측값 불변).
+   */
   point: number | null;
   /** `no` 오름차순. */
   options: QuizOption[];
@@ -52,8 +98,18 @@ interface QuizBase {
  * 그래서 `submitted`·`quizDate` 가 없다.
  */
 export interface DailyQuiz extends QuizBase {
+  /**
+   * 배점 — **레이팅 점수 축**(정답 시 적립될 `bqScore`). 2026-09-03 신설.
+   * 난이도 매핑(EASY 1 / MEDIUM 2 / HARD 3 / EXPERT 4) 또는 출제 후보의 값으로 채워진다.
+   *
+   * ⚠️ 이 응답은 **null 이어도 키를 싣는다** — 같은 필드를 null 이면 생략하는
+   * 단건 상세(`bq?: number`)와 규칙이 다르다. 서버가 일부러 통일하지 않았다.
+   */
+  bq: number | null;
   /** 내 응원 구단·선수와 매칭되는지 여부. 정렬 근거이자 뱃지 표시용. */
   preferred: boolean;
+  /** 투표 수가 함께 실린 보기 목록. 이 응답에만 `voteCount` 가 있다. */
+  options: DailyQuizOption[];
 }
 
 /**
@@ -61,6 +117,11 @@ export interface DailyQuiz extends QuizBase {
  * `myOption`·`correct`·`answer`·`liked`·`likeCount` 다섯 키가 통째로 없다.
  */
 export interface UnsolvedQuizDetail extends QuizBase {
+  /**
+   * 레이팅 배점. **값이 없으면 키가 아예 빠진다**(2026-09-03 신설) — 목록(`DailyQuiz.bq`)이
+   * null 이어도 키를 싣는 것과 규칙이 다르니, 여기서는 `undefined` 를 함께 다뤄야 한다.
+   */
+  bq?: number;
   /** 출제일(`yyyy-MM-dd`). 생성일이 아니다. */
   quizDate: string;
   submitted: false;
@@ -76,6 +137,8 @@ export interface UnsolvedQuizDetail extends QuizBase {
 
 /** 상세 조회 — 답한 경우. 복기용 정보와 좋아요 상태가 함께 실린다. */
 export interface SolvedQuizDetail extends QuizBase {
+  /** 미답 상세와 같다 — **값이 없으면 키가 빠진다**(`UnsolvedQuizDetail.bq` 주석 참고). */
+  bq?: number;
   quizDate: string;
   submitted: true;
   /** 답한 문제는 시한을 따지지 않는다 — 서버가 항상 `false` 로 준다. */
@@ -108,7 +171,13 @@ export interface QuizSubmitRequest {
   option: number;
 }
 
-/** 채점 결과. 채점·포인트 적립·제출 기록이 한 트랜잭션에서 끝난 뒤의 상태다. */
+/**
+ * 채점 결과. 채점·적립·제출 기록이 한 트랜잭션에서 끝난 뒤의 상태다.
+ *
+ * **2026-09-03 부터 두 축을 함께 적립한다**(5키 → 7키) — 보유 포인트(`point`)와
+ * 레이팅 점수(`bqScore`)가 같은 트랜잭션에서 각각 오른다. 한쪽 배점이 없으면
+ * 그 축만 건너뛰고 다른 축은 정상 적립된다.
+ */
 export interface QuizSubmitResult {
   correct: boolean;
   /** 정답 보기 번호(오답이어도 실린다). */
@@ -119,79 +188,136 @@ export interface QuizSubmitResult {
   earnedPoint: number;
   /** 적립 후 보유 포인트 잔액. `GET /users/me` 의 `point` 와 같은 값이다. */
   totalPoint: number;
+  /** 이번에 적립된 레이팅 점수. 오답이거나 `bq` 가 null·0 이하면 `0`. 2026-09-03 신설. */
+  earnedBq: number;
+  /**
+   * 적립 후 누적 레이팅 점수. `GET /users/me` 의 **`bqScore`** 와 같은 값인데
+   * **이름만 다르다**(같은 응답 안의 `earnedBq` 와 짝을 맞춘 것이지 통일이 아니다).
+   * 2026-09-03 신설.
+   */
+  totalBq: number;
 }
 
 /**
- * 페이지와 무관한 **전체** 요약.
+ * 이닝 하나의 결산. 산식은 경기 전체 요약과 같고 `earnedPoint` 만 없다.
  *
- * ⚠️ 분모(`total`)에 **답하지 않은 문제도 들어가고 오답으로 친다**(2026-08-12, 제품 결정).
- * 그래서 `/today` 로 문제를 받은 직후 정답률이 뚝 떨어졌다가 풀수록 올라간다 —
- * 화면에 그대로 띄우면 "왜 갑자기 떨어졌냐"는 오해를 산다.
+ * ⚠️ 분모(`total`)에 **답하지 않은 문제도 들어가고 오답으로 친다**(2026-08-12, 제품 결정) —
+ * 그 이닝에 **받은** 문항 수이지 답한 수가 아니다(고정 20도 아니다).
  */
-export interface QuizSubmissionSummary {
-  /** 받은 문제 수(현재 페이지가 아니다). 답하지 않은 것도 센다. */
+export interface QuizInningSummary {
+  /** 그 이닝에 받은 문제 수. 답하지 않은 것도 센다. */
   total: number;
   correctCount: number;
-  /** 정답률 `0.0`~`1.0`. 받은 문제가 0건이면 `0.0`(null 아님). */
+  /** 정답률 `0.0`~`1.0`. `total = 0` 이면 `0.0`(null 아님). */
   accuracy: number;
 }
 
 /**
- * 풀이 이력 1건.
+ * 경기 한 건의 전체 요약 — 열거된 이닝 전체의 합.
+ *
+ * ⚠️ **계정 누적이 아니라 이 경기 기준이다**(2026-08-13 계약 교체).
+ * 계정 전체 누적 정답률은 2026-09-03 부터 `GET /users/me` 의 `quizAccuracy` 가 준다 —
+ * 자릿수·범위가 서로 다르니(그쪽은 셋째 자리 반올림) 두 값을 같은 수로 다루면 안 된다.
+ */
+export interface QuizGameSummary extends QuizInningSummary {
+  /**
+   * 정답 문항의 배점 합.
+   *
+   * **적립 원장이 아니라 표시용 근사치**다 — 서버가 `users_account.point` 를 읽지 않고
+   * 이 경기의 정답 행만 더해 만든 값이라, 보유 포인트(`GET /users/me` 의 `point`)와는
+   * 다른 수다. 화면에서 "이 경기로 얻은 포인트"로만 써야 한다.
+   */
+  earnedPoint: number;
+  /**
+   * 정답 문항의 레이팅 배점 합(2026-09-03 신설). `earnedPoint` 와 같은 성질의
+   * 표시용 근사치이고, 기록이 없는 경기(`innings: []`)면 `0` 이다.
+   *
+   * ⚠️ **경기 전체 요약에만 있다** — 이닝별 요약(`QuizInningSummary`)은 3키 그대로다.
+   * 이닝 단위 합이 필요하면 그 이닝 `quizzes[].earnedBq` 를 화면이 더해야 한다.
+   */
+  earnedBq: number;
+}
+
+/**
+ * 이닝 하나에서 받은 문제 1건.
  *
  * **"제출한 문제" 목록이 아니라 "받은 문제" 목록이다**(2026-08-12) — 진행 중이거나
- * 시한을 넘긴 문제도 함께 실린다. 그래서 내가 낸 답 두 필드가 `null` 일 수 있다.
+ * 시한을 넘긴 문제도 함께 실리고, 그때 `myOption` 이 `null` 이다.
+ *
+ * ⚠️ 2026-08-13 부터 **답 텍스트 두 필드(`myOptionText`·`answerText`)가 사라지고**
+ * 대신 `options` 배열이 실린다 — 화면이 번호로 보기를 찾아 써야 한다.
  */
 export interface QuizSubmission {
   quizId: number;
   question: string;
   type: QuizType;
   difficulty: QuizDifficulty | null;
-  /** 출제일(`yyyy-MM-dd`). */
-  quizDate: string;
+  /** `/today` 의 `options` 와 같은 모양(0-기반). 답 텍스트는 여기서 번호로 찾는다. */
+  options: QuizOption[];
   /** **null 가능** — 아직 답하지 않았거나 시한을 넘긴 항목. */
   myOption: number | null;
-  /** **null 가능** — `myOption` 과 함께 빈다. */
-  myOptionText: string | null;
   /** 답하지 않은 항목은 `false` 다("내지 않으면 틀린 것"). */
   correct: boolean;
   /** 받아 놓고 시한을 넘겼는지. 답한 항목은 `false`. */
   expired: boolean;
+  /** 정답 보기 번호. **미답 항목에도 실린다**(이미 끝난 문제라 감출 이유가 없다). */
   answer: number;
-  answerText: string;
   earnedPoint: number;
+  /** 그 문제로 적립된 레이팅 점수(2026-09-03 신설). 오답·`bq` 없음·0 이하면 `0`. */
+  earnedBq: number;
   /**
    * LocalDateTime 문자열. 타임존 오프셋이 없다(예: "2026-08-08T21:15:03").
    *
    * **답을 낸 시각**이다. 다만 답하지 않은 항목에는 받은 시각이 실리므로,
    * 이 값 하나로 "답한 시각"이라고 단정해 쓰면 안 된다 — `myOption` 유무로 갈라야 한다.
-   * (정렬 축은 이 값이 아니라 `quizId` 내림차순이다.)
    */
   submittedAt: string;
-  /** 이력 항목에는 답 여부와 무관하게 항상 실린다. */
+  /** 이력 항목에는 답 여부와 무관하게 항상 실린다(좋아요는 받은 문제 전체에 열려 있다). */
   liked: boolean;
   likeCount: number;
 }
 
 /**
- * 풀이 이력 페이지.
- * 채팅 히스토리(`ChatMessagePage`)와 같은 `PageResponse` 구조이며 크기만 30이 아니라 20이다.
+ * 이닝 하나의 결산 묶음.
+ *
+ * 기록이 하나도 없는 이닝도 원소로 남는다 — `quizzes: []` + `0/0` 이다.
+ * (원소 수가 곧 서버가 열거한 이닝 수이며, 진행 중 경기의 현재 이닝은 빠진다.)
  */
-export interface QuizSubmissionPage {
-  /** 최신순. */
-  content: QuizSubmission[];
-  page: number;
-  /** 서버 고정값 20. */
-  size: number;
-  totalElements: number;
-  totalPages: number;
-  hasNext: boolean;
+export interface QuizInningResult {
+  /** 이닝 번호(1부터, 오름차순). */
+  inning: number;
+  summary: QuizInningSummary;
+  /** 받은 순서(행 `id` 오름차순). */
+  quizzes: QuizSubmission[];
 }
 
-/** `GET /quizzes/submissions` 응답 — 전체 요약 + 현재 페이지. */
+/**
+ * `GET /quizzes/submissions?gameId=…` 응답 — 경기 한 건의 이닝별 결산.
+ *
+ * ⚠️ **`innings: []` 는 서로 다른 셋을 한 모양으로 덮는다** — ① 그 경기에 내 기록이 0건
+ * ② 이닝 값이 아직 없음(수집 지연 방어) ③ 진행 중이고 1회라 결산할 완료 이닝이 없음.
+ * 서버가 사유를 주지 않으므로 화면도 하나의 문구로 안내한다.
+ */
 export interface QuizSubmissionHistory {
-  summary: QuizSubmissionSummary;
-  submissions: QuizSubmissionPage;
+  summary: QuizGameSummary;
+  innings: QuizInningResult[];
+}
+
+/**
+ * `GET /quizzes/{quizId}/vote-count` 응답 — 보기별 투표 수만 다시 받는다(2026-08-26 신설).
+ *
+ * `/today` 는 문제를 (경기, 이닝)당 한 번만 내주므로 분포도 그때 한 번 실린다.
+ * **이 경로가 그 분포를 다시 받을 수 있는 유일한 수단**이라, 답을 고민하는 동안
+ * 화면이 주기적으로 불러 `DailyQuizOption.voteCount` 를 갱신하는 용도다.
+ *
+ * 항목이 `/today` 의 보기와 **같은 타입**이라 파싱을 따로 만들 필요가 없다.
+ * 다만 **비율은 서버가 주지 않는다** — 총합도 백분율도 없으니 필요하면 화면이 더해 나눈다.
+ */
+export interface QuizVoteCount {
+  /** 요청한 문제 id(에코). */
+  quizId: number;
+  /** `no` 오름차순. 표가 없는 보기도 `voteCount: 0` 으로 함께 실린다. */
+  options: DailyQuizOption[];
 }
 
 /**
@@ -206,7 +332,7 @@ export interface QuizLikeResult {
 }
 
 /* ------------------------------------------------------------------ *
- * 래핑된 응답 별칭 — 5개 전부 성공도 ApiResponse로 감싼다
+ * 래핑된 응답 별칭 — 6개 전부 성공도 ApiResponse로 감싼다
  * ------------------------------------------------------------------ */
 
 export type DailyQuizListApiResponse = ApiResponse<DailyQuiz[]>;
@@ -214,3 +340,5 @@ export type QuizDetailApiResponse = ApiResponse<QuizDetail>;
 export type QuizSubmitResultApiResponse = ApiResponse<QuizSubmitResult>;
 export type QuizSubmissionHistoryApiResponse = ApiResponse<QuizSubmissionHistory>;
 export type QuizLikeResultApiResponse = ApiResponse<QuizLikeResult>;
+/** 자격이 없으면 오류가 아니라 `data: null` 이 온다 — `null` 이 타입에 함께 들어간 이유다. */
+export type QuizVoteCountApiResponse = ApiResponse<QuizVoteCount | null>;

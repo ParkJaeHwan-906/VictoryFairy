@@ -1,19 +1,42 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { ApiError, getTeamList, isSupportTeamNotFound, selectSupportTeam } from '../api';
 import type { Team } from '../api';
+import ConfirmSheet from '../components/ConfirmSheet';
 import { getTeamDisplay } from '../data/kboTeams';
-import { ROUTES, type PlayerSelectState } from '../routes';
+import { ROUTES, readSupportFlowMode, type PlayerSelectState } from '../routes';
+import { useAccountStore, useSupportTeam } from '../stores/useAccountStore';
 import '../styles/TeamSelectPage.css';
 
 /**
- * TeamSelectPage — 온보딩 "선호 구단 선택" 화면.
+ * TeamSelectPage — "선호 구단 선택" 화면.
  * Figma: SWM / [Onboarding] 선호 구단 선택-기본 (node 296:1536)
  *              [Onboarding] 선호 구단 선택-선택완료 (node 406:3387)
  *
  * 두 노드는 별개 화면이 아니라 같은 화면의 두 상태다 — 하나를 고르면
  * 고른 카드만 강조되고 나머지는 흐려지며, 하단 CTA 가 활성화된다.
+ *
+ * ── 온보딩과 수정이 같은 화면을 쓴다 ──────────────────────────────────
+ * 마이페이지 "○○ 응원중!" 에서도 이 화면으로 들어온다(`mode: 'edit'`). 화면도 API 도
+ * 같고 다른 것은 셋뿐이다 — 지금 응원 중인 구단이 미리 선택돼 있고, **구단을 실제로 바꿀 때
+ * 한 번 더 묻고**, 저장 뒤 스토어를 갱신한다. 다음 화면(선수 선택)으로 가는 것은 같다.
+ * ──────────────────────────────────────────────────────────────────────
+ *
+ * 🚨 **구단이 바뀌면 그 계정의 응원 선수가 전원 자동 취소된다**(docs/support.md).
+ * API 응답에는 그 사실을 알리는 필드가 없어 화면이 책임진다 — 바꾸기 전에 확인 시트로
+ * 알리고, 저장 뒤 프로필을 다시 받아 비워진 선수 목록을 스토어에 반영한다.
  */
+
+/**
+ * 구단 변경 확인 시트 문구.
+ * 줄은 디자인이 끊어 둔 그대로 넘긴다(`ConfirmSheet` 의 `description` 주석 참고).
+ */
+const TEAM_CHANGE_CONFIRM = {
+  title: '응원 구단을 바꿀까요?',
+  description: ['구단을 바꾸면 지금 응원 중인', '선수 선택이 모두 해제돼요.'],
+  confirmLabel: '구단 바꾸기',
+  pendingLabel: '저장 중…',
+} as const;
 
 /**
  * 디자인의 줄 배치(2 · 3 · 3 · 2). 균등 그리드가 아니라 가운데로 모이는
@@ -40,6 +63,11 @@ function chunkIntoRows<T>(items: T[], sizes: number[]): T[][] {
 
 export default function TeamSelectPage() {
   const navigate = useNavigate();
+  const mode = readSupportFlowMode(useLocation().state);
+  const isEdit = mode === 'edit';
+  /** 지금 응원 중인 구단. 수정 흐름에서 미리 선택해 두고, 바뀌었는지 판정하는 기준이다. */
+  const currentTeam = useSupportTeam();
+  const fetchProfile = useAccountStore((state) => state.fetchProfile);
 
   const [teams, setTeams] = useState<Team[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -50,6 +78,22 @@ export default function TeamSelectPage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   /** 값을 올릴 때마다 구단 목록을 다시 받는다 — 저장이 404(없는 구단)로 떨어졌을 때 쓴다. */
   const [reloadKey, setReloadKey] = useState(0);
+  /** 구단 변경 확인 시트를 띄울지. 수정 흐름에서 **실제로 구단이 바뀔 때만** 뜬다. */
+  const [isConfirming, setIsConfirming] = useState(false);
+
+  /*
+   * 수정 흐름은 지금 응원 중인 구단이 선택된 채로 시작한다 — 무엇을 바꾸는 중인지
+   * 보이지 않으면 고르기 전과 후를 구별할 수 없다.
+   * 새로고침으로 이 주소에 바로 들어오면 프로필이 아직 없을 수 있어 도착한 뒤에 채우고,
+   * 사용자가 이미 다른 구단을 골랐다면 늦게 온 응답이 그것을 덮지 않도록 한 번만 넣는다.
+   */
+  const [isSeeded, setIsSeeded] = useState(false);
+  useEffect(() => {
+    if (!isEdit || isSeeded || currentTeam === null) return;
+
+    setSelectedId(currentTeam.id);
+    setIsSeeded(true);
+  }, [isEdit, isSeeded, currentTeam]);
 
   useEffect(() => {
     // 화면을 벗어난 뒤 늦게 도착한 응답으로 상태를 건드리지 않도록 막는다.
@@ -92,7 +136,15 @@ export default function TeamSelectPage() {
 
     try {
       const team = await selectSupportTeam(selectedId);
-      const state: PlayerSelectState = { teamId: team.id, teamName: team.name };
+      /*
+       * 수정 흐름은 여기서 프로필을 다시 받는다.
+       * 구단이 바뀌었다면 서버가 응원 선수를 전원 취소한 뒤라, 다음 화면이 채워 넣을
+       * "지금 응원 중인 선수"도 그 이후의 값이어야 한다. 갱신하지 않고 넘기면
+       * 이미 해제된 선수들이 선택된 것처럼 보인다.
+       */
+      if (isEdit) await fetchProfile();
+
+      const state: PlayerSelectState = { teamId: team.id, teamName: team.name, mode };
 
       navigate(ROUTES.playerSelect, { state });
     } catch (error: unknown) {
@@ -110,6 +162,8 @@ export default function TeamSelectPage() {
       }
 
       setIsSubmitting(false);
+      /* 시트를 닫아야 그 아래 화면의 오류 문구가 보인다 */
+      setIsConfirming(false);
     }
 
     // 성공 경로에서는 되돌리지 않는다 — 화면이 넘어갈 때까지 CTA 를 잠가 둔다.
@@ -117,6 +171,26 @@ export default function TeamSelectPage() {
 
   const rows = chunkIntoRows(teams, ROW_SIZES);
   const hasSelection = selectedId !== null;
+  /**
+   * 지금 고른 것이 응원 구단을 **실제로 바꾸는** 선택인지.
+   *
+   * 같은 구단을 다시 고른 경우는 서버가 아무것도 건드리지 않으므로(멱등) 묻지 않는다 —
+   * 응원 선수가 지워지는 것은 구단이 달라졌을 때뿐이다.
+   */
+  const isTeamChanging =
+    isEdit && currentTeam !== null && hasSelection && selectedId !== currentTeam.id;
+
+  /** CTA. 응원 선수가 함께 지워지는 경우에만 한 번 더 묻고, 나머지는 곧장 저장한다. */
+  const handleSubmitClick = () => {
+    if (!hasSelection || isSubmitting) return;
+
+    if (isTeamChanging) {
+      setIsConfirming(true);
+      return;
+    }
+
+    void handleSubmit();
+  };
 
   return (
     <div className="team-select-page">
@@ -207,12 +281,21 @@ export default function TeamSelectPage() {
       <button
         className="team-select-page__submit"
         type="button"
-        onClick={handleSubmit}
+        onClick={handleSubmitClick}
         disabled={!hasSelection || isSubmitting}
         aria-busy={isSubmitting}
       >
         {isSubmitting ? '저장 중...' : '다음으로'}
       </button>
+
+      {isConfirming && (
+        <ConfirmSheet
+          {...TEAM_CHANGE_CONFIRM}
+          isPending={isSubmitting}
+          onConfirm={() => void handleSubmit()}
+          onClose={() => setIsConfirming(false)}
+        />
+      )}
     </div>
   );
 }

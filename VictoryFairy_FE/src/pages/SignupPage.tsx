@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import profileImage from '../assets/profile_img.svg';
 import '../styles/SignupPage.css';
@@ -6,9 +6,14 @@ import {
   ApiError,
   checkNicknameDuplicate,
   getTokenStorage,
+  isInvalidProfileImageEndpoint,
   login,
+  PROFILE_IMAGE_ACCEPT,
   sendEmailCode,
   signup,
+  toProfileImageMessage,
+  uploadSignupProfileImage,
+  validateProfileImageFile,
 } from '../api';
 import type { Gender, NicknameValidationResponse } from '../api';
 import EmailVerifySheet from '../components/EmailVerifySheet';
@@ -138,6 +143,62 @@ export default function SignupPage() {
     gender !== null &&
     !isSubmitting;
 
+  /*
+   * 프로필 사진.
+   *
+   * 계정이 아직 없어 사진을 계정에 붙일 수 없다 — 고르는 즉시 `temp/` 로 올려 EP 만
+   * 받아 두었다가, 가입 요청에 실어 보내야 비로소 계정 사진이 된다. 그래서 이 화면이
+   * 들고 있는 것은 **파일이 아니라 EP** 다.
+   */
+  /** 가입 요청에 실을 EP(`temp/{uuid}.ext`). 사진을 안 골랐으면 null. */
+  const [profileImgUrl, setProfileImgUrl] = useState<string | null>(null);
+  /**
+   * 미리보기 주소. 방금 고른 **로컬 파일**로 만든다 — 올라간 `temp/` EP 도 CDN 으로
+   * 읽히지만, 갓 올린 객체를 곧바로 부르면 CDN 이 아직 모를 수 있어 로컬이 확실하다.
+   */
+  const [profilePreview, setProfilePreview] = useState<string | null>(null);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
+  /** 파일 선택창을 여는 통로. 기본 파일 입력은 디자인과 달라 숨겨 두고 배지로 연다. */
+  const imageInputRef = useRef<HTMLInputElement>(null);
+
+  /* 미리보기로 만든 로컬 주소는 바뀌거나 화면을 떠날 때 반드시 돌려준다. */
+  useEffect(() => {
+    if (profilePreview === null) return;
+
+    return () => URL.revokeObjectURL(profilePreview);
+  }, [profilePreview]);
+
+  const handleImageChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null;
+
+    /*
+     * 값을 비워야 같은 파일을 다시 골랐을 때도 change 가 온다 —
+     * 업로드가 실패해 다시 시도하는 경우가 정확히 그렇다.
+     */
+    event.target.value = '';
+    if (file === null) return;
+
+    // 형식·크기는 서버가 다시 보지만, 여기서 걸러 왕복과 업로드 한도를 아낀다.
+    const invalid = validateProfileImageFile(file);
+    if (invalid !== null) {
+      setImageError(invalid);
+      return;
+    }
+
+    setIsUploadingImage(true);
+    setImageError(null);
+
+    try {
+      setProfileImgUrl(await uploadSignupProfileImage(file));
+      setProfilePreview(URL.createObjectURL(file));
+    } catch (cause: unknown) {
+      setImageError(toProfileImageMessage(cause));
+    } finally {
+      setIsUploadingImage(false);
+    }
+  };
+
   /**
    * 가입 → 로그인 → 구단 선택.
    *
@@ -167,6 +228,7 @@ export default function SignupPage() {
         gender,
         nickname: trimmedNickname,
         password,
+        profileImgUrl,
       });
 
       if (!created) {
@@ -181,6 +243,19 @@ export default function SignupPage() {
       // 뒤로 가기로 가입 폼에 돌아오면 이미 만들어진 계정을 또 만들려 하게 된다 — 이력을 갈아끼운다.
       navigate(ROUTES.teamSelect, { replace: true });
     } catch (cause: unknown) {
+      /*
+       * 올려 둔 사진이 이미 없다(만료됐거나 다른 가입에 쓰였다). 들고 있어 봐야 계속
+       * 400 이므로 비우고 다시 고르게 한다 — 계정은 아직 만들어지지 않았다.
+       */
+      if (!isSignedUp && isInvalidProfileImageEndpoint(cause)) {
+        setProfileImgUrl(null);
+        setProfilePreview(null);
+        setImageError('사진이 만료됐어요. 다시 올려 주세요.');
+        setSubmitError('사진을 다시 올린 뒤 가입해 주세요.');
+        setIsSubmitting(false);
+        return;
+      }
+
       setNeedsManualLogin(isSignedUp);
       setSubmitError(toSubmitMessage(cause, isSignedUp));
       setIsSubmitting(false);
@@ -261,16 +336,47 @@ export default function SignupPage() {
       </header>
 
       <div className="signup-page__profile">
-        <img className="signup-page__avatar" src={profileImage} alt="" />
-        {/* <button
+        <img
+          className="signup-page__avatar"
+          src={profilePreview ?? profileImage}
+          alt={profilePreview === null ? '' : '고른 프로필 사진'}
+        />
+
+        {/*
+          디자인의 ＋ 배지가 파일 선택창을 연다. 파일 입력 자체는 생김새를 맞출 수 없어
+          숨겨 두고, 배지가 대신 눌러 준다(라벨 대신 버튼을 쓰는 이유는 올리는 동안
+          잠가야 하기 때문이다 — 라벨은 disabled 가 없다).
+        */}
+        <button
           className="signup-page__avatar-edit"
           type="button"
-          aria-label="프로필 사진 변경"
-        > */}
-          {/* TODO: react-agent - 이미지 업로드 진입점 연결 */}
-          {/* <span className="signup-page__avatar-edit-icon" aria-hidden="true" />
-        </button> */}
+          aria-label={profileImgUrl === null ? '프로필 사진 추가' : '프로필 사진 변경'}
+          onClick={() => imageInputRef.current?.click()}
+          disabled={isUploadingImage || isSubmitting}
+        >
+          <span className="signup-page__avatar-edit-icon" aria-hidden="true" />
+        </button>
+
+        <input
+          ref={imageInputRef}
+          type="file"
+          accept={PROFILE_IMAGE_ACCEPT}
+          onChange={(event) => void handleImageChange(event)}
+          hidden
+        />
       </div>
+
+      {/* 올리는 중 · 실패 안내. 둘 다 사진 바로 아래 같은 자리에 온다. */}
+      {(isUploadingImage || imageError !== null) && (
+        <p
+          className={`signup-page__image-status${
+            imageError !== null ? ' signup-page__image-status--error' : ''
+          }`}
+          role={imageError !== null ? 'alert' : 'status'}
+        >
+          {imageError ?? '사진을 올리는 중이에요…'}
+        </p>
+      )}
 
       <form className="signup-page__form" onSubmit={handleSubmit} noValidate>
         {/*

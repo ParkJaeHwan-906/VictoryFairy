@@ -147,9 +147,7 @@ _UNIT_LABELS = {
 
 
 def build_user_message(items: Sequence[JudgeItem]) -> str:
-    """판정 대상 항목들을 번호가 붙은 사용자 메시지로 렌더한다.
-
-    캐시 breakpoint **뒤에** 놓이는 가변부다(PIPE-2SB-65). 게시글 메타(engagement·
+    """캐시 breakpoint **뒤에** 놓이는 가변부다(PIPE-2SB-65). 게시글 메타(engagement·
     sourceUrl·author 등)는 담지 않는다 — 판정 대상 텍스트와 `unit_kind` 뿐이다
     (PIPE-2SB-45).
     """
@@ -164,9 +162,7 @@ def build_user_message(items: Sequence[JudgeItem]) -> str:
 
 
 def build_system_blocks(use_cache: bool = True) -> list:
-    """Converse API 의 system 블록을 만든다.
-
-    캐시 breakpoint 를 시스템 프롬프트 **뒤**에 둬 접두부가 캐싱되게 한다
+    """캐시 breakpoint 를 시스템 프롬프트 **뒤**에 둬 접두부가 캐싱되게 한다
     (PIPE-2SB-64/65). 판정 대상 텍스트는 그 뒤 user 메시지로 가므로 프리픽스가
     호출마다 동일하다.
     """

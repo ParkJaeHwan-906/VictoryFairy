@@ -63,10 +63,16 @@
   height: 60px;
 }
 
-/* Title/Title1 — "오늘 경기 감각이 정말 좋았어요!" */
+/*
+ * Title/Title1 — 정답률 구간별 축하 문구(예: "오늘 경기 감각이 / 정말 좋았어요!").
+ *
+ * 줄바꿈 위치를 디자인이 정해 두어 문구가 `\n` 을 품고 오므로 `pre-line` 으로 살린다.
+ * 폭이 좁아 한 줄이 더 넘칠 때는 그 자리에서 자연스럽게 한 번 더 접힌다.
+ */
 .quiz-result-page__heading {
   flex-shrink: 0;
   margin: 20px 0 0;
+  white-space: pre-line;
   padding-inline: var(--layout-gutter);
   color: var(--color-label-normal);
   font-size: var(--font-size-title1);
@@ -235,6 +241,23 @@
   width: 100%;
   padding: 16px 0;
   text-align: left;
+}
+
+/*
+ * 문제를 하나도 받지 않은 회차(0/0). 행은 남기되 열 것이 없어 누를 수 없다 —
+ * 게이지가 비어 있는 것만으로는 "못 눌러요"가 읽히지 않아 화살표까지 흐린다.
+ */
+.quiz-result-page__inning:disabled {
+  cursor: default;
+}
+
+.quiz-result-page__inning:disabled .quiz-result-page__inning-label,
+.quiz-result-page__inning:disabled .quiz-result-page__inning-score {
+  color: var(--color-label-assistive);
+}
+
+.quiz-result-page__inning:disabled .quiz-result-page__inning-arrow {
+  opacity: 0.4;
 }
 
 .quiz-result-page__inning-label {

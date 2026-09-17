@@ -5,6 +5,28 @@
 
 @import './tokens.css';
 
+/* ------------------------------------------------------------------ *
+ * Pretendard — 디자인의 본문 서체. 앱과 함께 배포한다.
+ *
+ * **가변 폰트 한 벌로 굵기 전부를 덮는다.** 디자인이 Regular(400) · Medium(500) ·
+ * SemiBold(600) 셋을 쓰는데, 축이 45~920 이라 파일을 굵기마다 나눠 받지 않아도 된다.
+ * 그래서 `font-synthesis` 를 끌 필요도 없다 — 브라우저가 가짜 볼드를 만들 일이 없다.
+ *
+ * 이름을 `Pretendard` 로 등록하는 이유: `--font-family-base` 의 첫 항목이 그것이고,
+ * @font-face 로 정의한 이름은 **같은 이름의 시스템 설치본보다 우선**한다. 즉 기기에
+ * Pretendard 가 깔려 있든 없든 모두가 같은 파일을 본다(디자인이 픽셀 단위라 중요하다).
+ *
+ * `swap` 이라 폰트가 오기 전에는 시스템 서체로 먼저 그려지고 도착하면 바뀐다 —
+ * 잠깐 글자가 흔들리지만, 그동안 글자가 아예 안 보이는 것(`block`)보다는 낫다.
+ * ------------------------------------------------------------------ */
+@font-face {
+  font-family: 'Pretendard';
+  font-style: normal;
+  font-weight: 45 920;
+  font-display: swap;
+  src: url('../fonts/PretendardVariable.woff2') format('woff2-variations');
+}
+
 *,
 *::before,
 *::after {
@@ -15,6 +37,82 @@ html,
 body {
   margin: 0;
   padding: 0;
+}
+
+/*
+ * 글자 크기를 브라우저가 임의로 키우지 못하게 못박는다.
+ *
+ * iOS Safari 만 이 값의 기본이 `auto` 라 텍스트 자동 확대(text autosizing)가 살아 있다 —
+ * 가로 모드로 돌리거나 특정 flex 블록 안에서 본문 글자를 제멋대로 키운다. 이 디자인은
+ * 402px 프레임 기준으로 좌표를 픽셀까지 맞춰 둔 것이라(tokens.css 참고) 글자가 조금만
+ * 커져도 카드 안 배치가 통째로 밀린다. 크롬(데스크톱·안드로이드)에는 없는 동작이라
+ * 그쪽만 보고 있으면 끝까지 드러나지 않는다.
+ *
+ * 사용자가 시스템 글꼴 크기를 키우는 것은 이 값과 무관하게 그대로 따른다 —
+ * 막는 것은 브라우저의 자동 보정뿐이다.
+ */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+
+  /*
+   * 세로 끝에서 더 당겼을 때 브라우저가 끼어드는 것을 끊는다 — 안드로이드 크롬의
+   * 당겨서 새로고침, iOS 의 고무줄 반동. 둘 다 "웹 문서를 보고 있다"는 신호다.
+   *
+   * 라운지 채팅은 지난 대화를 **직접 만든** 당겨서 부르기로 가져온다
+   * (`LoungeChatSheet`). 브라우저 새로고침이 같은 제스처에 함께 걸리면 둘이 겹쳐,
+   * 대화를 부르려던 손짓이 화면을 통째로 새로 받는 일이 된다.
+   *
+   * 시트 안쪽 스크롤 영역들은 이미 각자 `overscroll-behavior: contain` 을 걸어
+   * 두었다(GameDetailSheet 외) — 그건 스크롤 연쇄를 끊는 것이고, 여기 `none` 은
+   * 문서 바깥의 기본 동작까지 끄는 것이라 역할이 다르다.
+   */
+  overscroll-behavior: none;
+}
+
+/* ------------------------------------------------------------------ *
+ * 앱처럼 보이게 하는 나머지 — 브라우저가 웹 문서에 붙여 주는 동작 끄기.
+ *
+ * 이 화면들은 402px 프레임에 좌표를 맞춘 모바일 앱 화면이고, 실제로도 WebView 로
+ * 감싸 스토어에 올린다(`../VictoryFairy_APP`). 글자를 문질렀을 때 잡히는 파란
+ * 선택 영역, 탭할 때 씌워지는 회색 사각형, 롱프레스로 뜨는 "이미지 저장" 메뉴는
+ * 전부 그 안에서 "앱이 덜컹거린다"로 읽힌다.
+ *
+ * 핀치 확대만 CSS 로 막을 수 없어 viewport 메타(`index.html`)가 맡는다.
+ * ------------------------------------------------------------------ */
+body {
+  /*
+   * 글자 드래그 선택을 끈다. **입력칸은 아래에서 되살린다** — 거기서까지 끄면
+   * 입력한 글자를 고르지 못해 부분 수정도 붙여넣기도 막힌다.
+   */
+  -webkit-user-select: none;
+  user-select: none;
+
+  /* iOS 에서 링크·이미지를 길게 눌렀을 때 뜨는 메뉴 */
+  -webkit-touch-callout: none;
+
+  /* 탭한 자리에 안드로이드가 잠깐 씌우는 회색 사각형 */
+  -webkit-tap-highlight-color: transparent;
+
+  /*
+   * 더블탭 확대를 끄고, 그것을 기다리느라 생기던 탭 300ms 지연도 함께 없앤다.
+   * `none` 이 아니라 `manipulation` 인 이유는 **스크롤은 남겨야** 하기 때문이다.
+   * 이미 `pan-y`·`none` 을 스스로 정해 둔 곳(QuizCard·bottomSheet 등)은
+   * 더 안쪽 규칙이라 이 값에 덮이지 않는다.
+   */
+  touch-action: manipulation;
+}
+
+/*
+ * 입력 관련 요소만 선택을 되돌린다.
+ * `-webkit-touch-callout` 도 함께 되살려야 iOS 의 붙여넣기 말풍선이 뜬다.
+ */
+input,
+textarea,
+[contenteditable='true'] {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
 }
 
 body {
@@ -54,6 +152,9 @@ a {
 img {
   display: block;
   max-width: 100%;
+
+  /* 집어서 끌면 따라붙는 반투명 고스트 — 마우스가 있는 환경에서만 나던 웹의 흔적이다 */
+  -webkit-user-drag: none;
 }
 
 /* 키보드 사용자에게만 포커스 링을 노출한다 */

@@ -40,6 +40,42 @@ function formatCancelReason(reason: string): string {
   return reason.replace(/^(.+?)\s*취소$/, '$1 취소');
 }
 
+/** 이닝 초/말 → 표시 접미사. `DISPLAY` 와 같은 이유로 Record<string, …> 라 미지의 값도 안전하다. */
+const INNING_HALF_LABEL: Record<string, string> = {
+  TOP: '초',
+  BOTTOM: '말',
+};
+
+/**
+ * 진행 중 경기의 이닝 문구를 만든다 — `inning: 5` · `inningHalf: 'TOP'` → `5회초`.
+ *
+ * **표시 형태는 서버가 정하지 않는다**(docs/game.md) — 두 값을 합치는 건 이 계층의 몫이다.
+ *
+ * `getGameStateDisplay` 와 같이 경기를 통째로 받아 `IN_PROGRESS` 일 때만 문구를 낸다.
+ * 다른 상태에서는 서버도 두 값을 채우지 않지만, 상태를 여기서 한 번 더 막아 두면
+ * 호출부가 끝난 경기에 이닝을 얹는 실수를 할 수 없다(`cancelReason` fallback 과 같은 논리다).
+ *
+ * ⚠️ **지금은 진행 중 경기라도 거의 항상 `null` 이 돌아온다** — 컬럼만 생겼고 값을 채우는
+ * py-collector 구현이 아직 없다(docs/game.md). 값이 없는 쪽이 당분간 정상 경로이므로,
+ * 호출부는 `null` 을 오류가 아니라 "표시할 것이 없다"로 조용히 다뤄야 한다.
+ *
+ * 한쪽만 온 수집 중간 상태도 다룬다 — 번호만 있으면 `5회` 로 줄이고, 초/말만 있고 번호가
+ * 없으면 그것만으로는 뜻이 서지 않으므로 `null` 이다.
+ */
+export function formatInning(
+  game: Pick<Game, 'gameState' | 'inning' | 'inningHalf'>,
+): string | null {
+  if (game.gameState !== 'IN_PROGRESS') return null;
+
+  const { inning, inningHalf } = game;
+  // 정상값은 1~11 이다(DB CHECK). 그래도 0·소수 같은 값이 오면 그리지 않는다 —
+  // 칩과 달리 이 문구는 숫자가 그대로 노출돼 이상한 값이 곧바로 보이기 때문이다.
+  if (inning === null || !Number.isInteger(inning) || inning < 1) return null;
+
+  const half = inningHalf ? (INNING_HALF_LABEL[inningHalf] ?? '') : '';
+  return `${inning}회${half}`;
+}
+
 /**
  * 취소 경기는 칩에 `label` 대신 **취소 사유**를 싣는다("경기 취소" → "폭염 취소").
  *

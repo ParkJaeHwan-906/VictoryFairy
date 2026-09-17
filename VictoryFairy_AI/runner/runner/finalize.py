@@ -8,32 +8,42 @@ from pathlib import Path
 
 import yaml
 
-#: 점수·비율의 정본. 이 모듈은 숫자를 직접 적지 않는다 — 값을 바꿀 때는
-#: scoring.yaml 하나만 고치면 된다.
+#: 보상(포인트·BQ)·비율의 정본. 이 모듈은 숫자를 직접 적지 않는다 — 값을 바꿀
+#: 때는 scoring.yaml 하나만 고치면 된다.
 SCORING_PATH = (Path(__file__).resolve().parents[2]
                 / "question-gen" / "config" / "scoring.yaml")
 
 
 def load_scoring(path=SCORING_PATH):
-    """`scoring.yaml` → `(points dict, volume dict)`.
+    """`(points, bq, quota)`를 낸다. `volume.perGame`은 경기 하나당,
+    `volume.common`은 하루 전체 슬롯이다. 각 quota는 파일에 적힌 난이도 순서를
+    그대로 채움 우선순위로 쓴다. 값이 비면 예외를 낸다 — 기본값으로 조용히
+    되돌아가면 정본과 실제 동작이 갈라진다.
 
-    `volume.perGame`은 경기 하나당, `volume.common`은 하루 전체 슬롯이다. 각
-    quota는 파일에 적힌 난이도 순서를 그대로 채움 우선순위로 쓴다. 값이 비면
-    예외를 낸다 — 기본값으로 조용히 되돌아가면 정본과 실제 동작이 갈라진다."""
+    points와 bq의 난이도 키 집합이 다르면 그것도 예외다 — select_final이
+    재분류 난이도 하나로 두 표를 함께 조회하기 때문에, 한쪽에만 있는 난이도는
+    선별 도중 KeyError가 된다."""
     with open(path, "r", encoding="utf-8") as f:
         doc = yaml.safe_load(f) or {}
     points = doc.get("points") or {}
+    bq = doc.get("bq") or {}
     volume = doc.get("volume") or {}
-    if not points or not volume.get("perGame") or not volume.get("common"):
+    if not points or not bq or not volume.get("perGame") or not volume.get("common"):
         raise ValueError(
-            f"scoring.yaml에 points 또는 volume.perGame/common이 비어 있음: {path}")
+            f"scoring.yaml에 points/bq 또는 volume.perGame/common이 비어 있음: {path}")
     quota = {k: [(str(d), int(n)) for d, n in volume[k].items()]
              for k in ("perGame", "common")}
     quota["candidateMultiplier"] = float(volume.get("candidateMultiplier", 1.5))
-    return {str(k): int(v) for k, v in points.items()}, quota
+    points = {str(k): int(v) for k, v in points.items()}
+    bq = {str(k): int(v) for k, v in bq.items()}
+    if set(points) != set(bq):
+        raise ValueError(
+            f"scoring.yaml의 points·bq 난이도 키가 불일치: "
+            f"points={sorted(points)}, bq={sorted(bq)} ({path})")
+    return points, bq, quota
 
 
-POINTS, VOLUME = load_scoring()
+POINTS, BQ, VOLUME = load_scoring()
 KST = timezone(timedelta(hours=9))
 
 
@@ -81,10 +91,7 @@ def _fill(bucket, verdicts, quota, label):
 
 
 def select_final(candidates, verdicts, entity_of, quota=None):
-    """verdict 순회로 폐기 사유 리스트를 만들고, 통과분의 difficulty·pointReward를
-    재매핑한 뒤 물량 슬롯을 fun 내림차순으로 채운다.
-
-    `quota`를 주지 않으면 후보를 `gameId`로 묶어 **경기별로 따로** 슬롯을
+    """`quota`를 주지 않으면 후보를 `gameId`로 묶어 **경기별로 따로** 슬롯을
     적용한다 — 경기 문항(gameId 있음)은 `volume.perGame`, 공통 문항(gameId
     없음)은 `volume.common`. 한 경기의 재료가 부족해도 다른 경기 몫이 줄지
     않는다. `quota`를 직접 주면 후보 전체에 그 슬롯 하나만 적용한다.
@@ -113,8 +120,11 @@ def select_final(candidates, verdicts, entity_of, quota=None):
         if new_diff not in POINTS:
             reasons.append(f"{qid}: 난이도 재분류 값 인식 불가: {new_diff}")
             continue
+        # 난이도가 재분류되면 보상 두 축을 함께 다시 매긴다 — 한쪽만 갱신하면
+        # 업로드 직전 게이트(validate_candidates.py check 6)에서 걸린다.
         c["difficulty"] = new_diff
         c["pointReward"] = POINTS[new_diff]
+        c["bqReward"] = BQ[new_diff]
         passed.append(c)
 
     if quota is not None:
@@ -162,9 +172,7 @@ def _kst_to_utc_iso(date_str: str, hhmm: str, minus_hours: float = 0) -> str:
 
 
 def assign_and_write(final, entity_of, work: Path, today: str, reasons: "list | None" = None) -> list:
-    """(templateId, entity) 사전순 정렬 → QZ-{YYYYMMDD}-{NNN} 부여 → 파일로 쓴다.
-
-    PREDICTION인데 game_schedule에서 매치되는 startTime을 못 찾으면 그 후보는
+    """PREDICTION인데 game_schedule에서 매치되는 startTime을 못 찾으면 그 후보는
     번호를 소비하지 않고 건너뛴다(쓰지 않음) — `reasons`가 주어지면 폐기 사유를
     한 줄 append한다(Task 7이 요약에 싣는 용도, 반환형은 list[Path] 그대로 유지)."""
     ordered = sorted(final, key=lambda c: (c["templateId"], entity_of.get(c["quizId"], "")))

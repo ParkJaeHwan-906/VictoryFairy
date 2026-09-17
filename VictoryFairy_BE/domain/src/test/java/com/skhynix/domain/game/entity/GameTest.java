@@ -175,6 +175,33 @@ class GameTest {
     }
 
     @Test
+    @DisplayName("[회귀][AC-SUB-28-1,28-2,28-3] lastInning은 읽기 전용 매핑이라 Builder 파라미터가 "
+            + "없다 — 다른 필드를 전부 채워 build해도 getLastInning()은 항상 null이다(이 앱은 값을 "
+            + "만들지 않고 py-collector가 채운 값을 읽기만 한다)")
+    void builder_hasNoLastInningParameter_alwaysLeavesItNull() {
+        // given
+        GameStatus finished = newGameStatus("FINISHED");
+
+        // when
+        // ⚠ Game.builder()에는 애초에 .lastInning(...) 메서드 자체가 없다 — 호출하려 하면
+        //   컴파일이 안 된다(진짜 방지선). 아래 단언은 그 사실이 실제로 지켜지고 있음을
+        //   런타임에서도 보여주는 확인이며, 누군가 lastInning을 Builder 파라미터로 옮기면(회귀)
+        //   이 테스트를 그 새 builder 메서드를 호출하도록 고쳐야 함을 리뷰에서 알아챌 신호가 된다.
+        Game game = Game.builder()
+                .gameDate(LocalDateTime.of(2026, 8, 13, 18, 30))
+                .homeTeam(newTeam("두산 베어스"))
+                .awayTeam(newTeam("LG 트윈스"))
+                .homeScore(5)
+                .awayScore(3)
+                .gameStatus(finished)
+                .currentInning(null)
+                .build();
+
+        // then
+        assertThat(game.getLastInning()).isNull();
+    }
+
+    @Test
     @DisplayName("[회귀] InningHalf의 ORDINAL 저장 순서는 TOP=0, BOTTOM=1로 고정된다 — "
             + "선언 순서가 바뀌면 DB에 이미 저장된 값의 의미가 조용히 뒤집히므로 이 테스트가 그 변경을 막는다")
     void inningHalf_ordinalOrder_isFixedTopZeroBottomOne() {

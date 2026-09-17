@@ -6,7 +6,7 @@
     1. 소문자화
     2. 다중 문자 치환 (여러 글자 → 한 글자)   ← 단일 치환보다 먼저
     3. 단일 문자 치환 (숫자/유사문자 → 표준 문자)
-    4. 공백 제거
+    4. 공백 제거 (keep_spaces=True 면 한 칸으로 압축만)
     5. 특수문자 제거
 """
 
@@ -36,7 +36,6 @@ _COMPAT_JAMO = frozenset(chr(code) for code in range(0x3131, 0x3164))  # ㄱ-ㅎ
 
 
 def fold_compat(text: str) -> str:
-    """유니코드 호환 문자를 표준 문자로 접는다(한글 자모·음절은 보존)."""
     folded = "".join(
         ch if ch in _COMPAT_JAMO else unicodedata.normalize("NFKC", ch) for ch in text
     )
@@ -60,6 +59,8 @@ _NORMALIZATION_TABLE = str.maketrans(SINGLE_CHAR_NORMALIZATION_MAP)
 _WHITESPACE_PATTERN = re.compile(r"\s+")
 # 한글(자모 포함) / 영문 / 숫자 를 제외한 나머지 문자를 특수문자로 간주해 제거
 _SPECIAL_CHAR_PATTERN = re.compile(r"[^0-9a-zㄱ-ㅎㅏ-ㅣ가-힣]")
+# 공백 보존 뷰용: 공백 한 칸(U+0020)만 살려 둔다.
+_SPECIAL_CHAR_KEEP_SPACE_PATTERN = re.compile(r"[^0-9a-zㄱ-ㅎㅏ-ㅣ가-힣 ]")
 
 # --- 다중 뷰 매칭용 보조 정규식 ---
 _DIGIT_PATTERN = re.compile(r"[0-9]")  # 숫자 제거(압축 뷰)
@@ -67,8 +68,7 @@ _NON_HANGUL_PATTERN = re.compile(r"[^ㄱ-ㅎㅏ-ㅣ가-힣]")  # 한글(자모)�
 _NON_LATIN_PATTERN = re.compile(r"[^a-z]")  # 라틴 소문자만 남김
 
 
-def preprocess(text: str) -> str:
-    """입력 문장을 정규화한 문자열로 반환한다."""
+def preprocess(text: str, *, keep_spaces: bool = False) -> str:
     # 0) 유니코드 호환 문자 접기 — 소문자화보다 먼저.
     #    'Ⓢ' 같은 호환 문자는 접어야 대문자 'S' 가 드러나 lower() 가 먹는다.
     text = fold_compat(text)
@@ -84,12 +84,15 @@ def preprocess(text: str) -> str:
     # 3) 단일 문자 치환 (숫자/유사문자 → 표준 문자)
     text = text.translate(_NORMALIZATION_TABLE)
 
-    # 4) 공백 제거
-    text = _WHITESPACE_PATTERN.sub("", text)
+    # 4~5) 공백·특수문자 제거 (치환하지 않고 통째로 삭제)
+    #      keep_spaces 면 공백은 한 칸으로 압축만 하고 남긴다 — 원문에서 글자가
+    #      실제로 붙어 있었는지를 판정하려면 이 정보가 필요하다(build_adjacency_view).
+    if keep_spaces:
+        text = _WHITESPACE_PATTERN.sub(" ", text)
+        return _SPECIAL_CHAR_KEEP_SPACE_PATTERN.sub("", text)
 
-    # 5) 특수문자 제거 (치환하지 않고 통째로 삭제)
-    text = _SPECIAL_CHAR_PATTERN.sub("", text)
-    return text
+    text = _WHITESPACE_PATTERN.sub("", text)
+    return _SPECIAL_CHAR_PATTERN.sub("", text)
 
 
 # --- 두벌식 키보드 역매핑: 한/영 키를 안 누르고 친 표기('tlqkf' → '시발') 복원 ---
@@ -120,7 +123,6 @@ _JONG_SPLIT = {combined: parts for parts, combined in _JONG_COMBINE.items()}
 
 
 def keyboard_to_hangul(latin: str) -> str:
-    """두벌식 자판 기준으로 영문 키 입력을 한글로 조합해 되돌린다('tlqkf' → '시발')."""
     jamos = [_KB_LAYOUT[ch] for ch in latin if ch in _KB_LAYOUT]
     out: list[str] = []
     lead = vowel = tail = None
@@ -170,22 +172,24 @@ def keyboard_to_hangul(latin: str) -> str:
     return "".join(out)
 
 
+def build_adjacency_view(text: str) -> str:
+    """
+    공백만 지우지 않은 정규화 뷰.
+
+    build_match_views()의 여섯 뷰는 전부 공백을 지운다. 짧은 욕설 변형어('야발' 등)를
+    그 뷰에서 잡으면 야구 채팅의 정상 문장이 대량으로 걸린다 — "야 발표 준비하자",
+    "이야 발이 빠르네", "대타 야 발 진짜" 가 모두 붙어서 '야발'이 된다. 그래서 이런
+    단어는 이 뷰에서만 검사한다. 등록어 자체에는 공백이 없으므로, 공백이 남아 있는
+    뷰에서 매칭됐다는 것은 곧 원문에서 글자가 붙어 있었다는 뜻이다.
+
+    한글/영어/키보드 뷰는 비한글·비라틴 문자를 지우면서 공백도 함께 지워 인접성을
+    깨므로 이 판정에 쓸 수 없다.
+    """
+    return preprocess(text, keep_spaces=True)
+
+
 def build_match_views(text: str) -> list[tuple[str, str]]:
-    """욕설 매칭을 위해 입력을 여러 형태(뷰)로 변환한 목록을 반환한다.
-
-    단일 정규화만으로는 한글 사이에 낀 기호·숫자(예: '씨@발' → '씨a발')를 놓치므로,
-    같은 문장을 여러 각도로 변형해 각각 매칭한다(다중 패스). 한 형태에서 놓친 우회
-    표기를 다른 형태에서 잡는 것이 목적이다.
-
-        1. 원문   : 정규화 이전(소문자화·공백 제거만) — 치환이 훼손할 수 있는 표기 방어
-        2. 정규화 : 표준 정규화본(preprocess) — 치환·특수문자 제거까지 적용
-        3. 압축   : 정규화본에서 숫자 제거 — 숫자 노이즈로 끊긴 표기 병합
-        4. 한글   : 정규화본에서 한글(자모)만 — 한글 사이 라틴/숫자 노이즈 제거('씨@발' → '씨발')
-        5. 영어   : 정규화본에서 라틴 문자만 — 로마자 표기('sibal') 격리
-        6. 키보드 : 영어 뷰를 두벌식 자판으로 되돌림 — 한/영 키 미전환 표기('tlqkf' → '시발')
-
-    반환 순서가 곧 매칭 우선순위이며, 값이 같은 뷰는 앞선 것만 남긴다(중복 제거).
-
+    """
     주의:
     - 4(한글)·5(영어) 뷰는 단어 경계를 없애므로, 한글 사이에 라틴/숫자를 억지로 끼운
       비정상 표기에서 드물게 오탐이 날 수 있다. 정상 표현은 exceptions.json으로 보정.

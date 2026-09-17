@@ -38,7 +38,12 @@ GITHUB_REPO = os.environ.get("GITHUB_REPO", "")
 # {"user": "/api/actuator/health/readiness", ...} — healthcheck 와 같은 값을 받는다.
 API_TARGETS = json.loads(os.environ.get("API_TARGETS", "{}"))
 
-ASSET_RE = re.compile(r"assets/index-[A-Za-z0-9]+\.js")
+# ⚠ healthcheck.py 의 entry_bundle 과 반드시 같은 방식이어야 한다. 두 함수가 각각 zip 으로
+#   묶여 배포되므로 코드를 공유할 수 없다 — 한쪽만 고치면 점검과 진단이 어긋난다(#317 이 그랬다).
+#   파일명 형식을 가정하지 않는 이유는 healthcheck.py 의 주석을 볼 것.
+SCRIPT_RE = re.compile(r"<script\b([^>]*)>", re.IGNORECASE)
+SRC_RE = re.compile(r"""\bsrc=["']([^"']+)["']""", re.IGNORECASE)
+TYPE_MODULE_RE = re.compile(r"""\btype=["']module["']""", re.IGNORECASE)
 
 # ⚠ 표시 이름(@박재환)은 알림을 울리지 않는다 — 일반 텍스트로만 보인다.
 #   반드시 사용자 ID 로 <@U...> 형태여야 멘션이 된다.
@@ -86,6 +91,18 @@ def _status(path):
         return 0, ""
 
 
+def entry_bundle(html):
+    """index.html 이 부르는 진입 스크립트 경로. 없으면 None. (healthcheck.py 와 동일)"""
+    for attrs in SCRIPT_RE.findall(html):
+        if not TYPE_MODULE_RE.search(attrs):
+            continue
+        m = SRC_RE.search(attrs)
+        if m:
+            path = m.group(1)
+            return path if path.startswith("/") else "/" + path
+    return None
+
+
 def probe():
     """알람 시점의 실제 증상을 모은다.
 
@@ -101,15 +118,12 @@ def probe():
     rows.append(("진입점", "/", code))
 
     # 번들 참조는 index.html 에서 뽑는다 — 버전이 바뀌면 파일명도 바뀌므로 고정할 수 없다.
-    asset = None
-    if code == 200:
-        m = ASSET_RE.search(body)
-        asset = m.group(0) if m else None
+    asset = entry_bundle(body) if code == 200 else None
     if asset:
-        acode, _ = _status(f"/{asset}")
-        rows.append(("번들", f"/{asset}", acode))
+        acode, _ = _status(asset)
+        rows.append(("번들", asset, acode))
     else:
-        rows.append(("번들", "index.html 에서 참조를 찾지 못함", 0))
+        rows.append(("번들", "index.html 에 모듈 스크립트가 없음", 0))
 
     rows.append(("딥링크", "/login", _status("/login")[0]))
 

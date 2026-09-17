@@ -229,7 +229,18 @@
   transition: background-color 0.15s ease-in-out;
 }
 
-.player-select-page__remove:hover .player-select-page__remove-icon,
+/*
+ * hover 는 진짜 포인터가 있을 때만 건다 — iOS Safari 는 탭한 요소에 `:hover` 를 걸고
+ * 다른 곳을 탭할 때까지 유지해서, 한 번 지운 선수 자리의 X 가 계속 짙은 채로 남는다
+ * (같은 이유의 자세한 설명은 QuizCard.css 의 보기 버튼 주석 참고).
+ */
+@media (hover: hover) and (pointer: fine) {
+  .player-select-page__remove:hover .player-select-page__remove-icon {
+    background-color: var(--color-label-neutral);
+  }
+}
+
+.player-select-page__remove:active .player-select-page__remove-icon,
 .player-select-page__remove:focus-visible .player-select-page__remove-icon {
   background-color: var(--color-label-neutral);
 }

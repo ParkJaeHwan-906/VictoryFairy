@@ -3,7 +3,7 @@
     "name": "승리요정",
     "slug": "victory-fairy",
     "scheme": "victoryfairy",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -12,10 +12,13 @@
       "supportsTablet": false,
       "config": {
         "usesNonExemptEncryption": false
+      },
+      "infoPlist": {
+        "LSApplicationQueriesSchemes": ["instagram-stories"]
       }
     },
     "android": {
-      "package": "com.victoryfairy.app",
+      "package": "com.victoryfairy.mobile",
       "adaptiveIcon": {
         "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/android-icon-foreground.png"

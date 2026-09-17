@@ -12,6 +12,7 @@ def _cand(nn, template, diff="EASY", quote="- OB: 2연승", source="wiki/stats/s
             "question": "q?", "options": [{"id": "A", "text": "O"}, {"id": "B", "text": "X"}],
             "answer": "A", "evidence": {"source": source, "quote": quote},
             "settlement": None, "difficulty": diff, "pointReward": 30,
+            "bqReward": 1,
             "status": "PENDING", "createdAt": "", "deadlineAt": "", "createdBy": "AI_ENGINE"}
 
 
@@ -39,7 +40,10 @@ def test_select_final_drops_by_verdict_and_remaps_points():
                 "RAW-03": dict(_ok(), duplicate=True)}
     final, reasons = select_final(cands, verdicts, {})
     assert [c["quizId"] for c in final] == ["RAW-01"]
-    assert final[0]["difficulty"] == "MEDIUM" and final[0]["pointReward"] == 50
+    # EASY(30P/1BQ)로 생성된 후보가 MEDIUM으로 재분류되면 보상 두 축이 함께 따라온다 —
+    # 한쪽만 갱신되면 업로드 직전 게이트(validate_candidates check 6)에서 걸린다.
+    assert final[0]["difficulty"] == "MEDIUM"
+    assert final[0]["pointReward"] == 50 and final[0]["bqReward"] == 2
     assert len(reasons) == 2                       # fun<4, duplicate
 
 

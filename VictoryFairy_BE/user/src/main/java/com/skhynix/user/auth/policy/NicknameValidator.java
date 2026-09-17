@@ -5,11 +5,7 @@ import jakarta.validation.ConstraintValidatorContext;
 import java.util.Optional;
 import org.hibernate.validator.constraintvalidation.HibernateConstraintValidatorContext;
 
-/**
- * {@link ValidNickname}의 검증기. {@link PasswordValidator}를 그대로 미러링한다({@code null} 처리,
- * EL 인젝션 방지를 위한 메시지 파라미터 사용 이유 등은 {@link PasswordValidator} 참고). 판정·메시지는
- * {@link NicknamePolicy#findViolation(String)}에 위임한다.
- */
+// 메시지 파라미터를 쓰는 이유는 PasswordValidator 참고(템플릿 직접 삽입 금지).
 public class NicknameValidator implements ConstraintValidator<ValidNickname, String> {
 
     /** 위반 메시지를 실어 나르는 메시지 파라미터 이름. */

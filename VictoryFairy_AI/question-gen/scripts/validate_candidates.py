@@ -10,9 +10,7 @@
 `question-gen/config/banned-topics.txt`로 안전 규칙(스펙 4.2, 사건사고·법적
 논란·사생활·건강 소재 금지)의 결정적 부분(키워드 부분 문자열 매칭)을 검사한다.
 
-파일 구성: 상수(POINTS/METRICS/그 외) → 로더 2개(load_catalog/load_banned) →
-validate_candidate(검사 9항목) + candidate_warnings(경고 — exit code 미반영) →
-CLI(main). stdlib + PyYAML만 사용(boto3 금지).
+stdlib + PyYAML만 사용(boto3 금지).
 """
 
 import argparse
@@ -30,6 +28,10 @@ import yaml
 #: import 시 그 파일에서 채운다(`--scoring`으로 다른 파일 지정 가능).
 POINTS: dict = {}
 
+#: BQ 기준표. bqReward도 pointReward와 똑같이 difficulty로 결정된다(check 6).
+#: 정본·주입 방식 모두 POINTS와 같다(scoring.yaml의 `bq` 표).
+BQ: dict = {}
+
 #: BE가 RDB로 정산 가능한 예측 지표만 허용(check 4). 스펙 6. 리스크 참조 —
 #: 선수 퍼포먼스 등 상세 스탯 예측은 정산 불가라 카탈로그에도 없음.
 METRICS = {"WIN_TEAM", "TOTAL_RUNS", "SCORE_GAP", "PITCHER_DECISION"}
@@ -44,7 +46,7 @@ FORMAT_OPTION_COUNTS = {"OX": 2, "BINARY": 2, "MULTI4": 4}
 #: 경고로만 알리고, '있는데 틀린' 것만 check 9가 하드 실패로 잡는다.
 REQUIRED_FIELDS = (
     "quizId", "kind", "type", "templateId", "format", "question",
-    "options", "difficulty", "pointReward", "status",
+    "options", "difficulty", "pointReward", "bqReward", "status",
     "createdAt", "deadlineAt", "createdBy",
 )
 
@@ -66,23 +68,33 @@ SUBJECT_SCOPES = {"PLAYER", "TEAM", "MATCHUP", "LEAGUE", "GAME"}
 
 # ── 로더 ────────────────────────────────────────────────
 
-def load_scoring(path) -> dict:
-    """`scoring.yaml`의 `points`를 `{difficulty: 점수}`로 반환한다.
+def load_scoring(path) -> tuple:
+    """`(points, bq)`를 낸다. 파일이 없거나 둘 중 하나가 비면 예외를 낸다 —
+    기본값으로 조용히 되돌아가면 정본 파일과 실제 검사 기준이 갈라지기
+    때문이다(fail-closed).
 
-    파일이 없거나 `points`가 비면 예외를 낸다 — 기본값으로 조용히 되돌아가면
-    정본 파일과 실제 검사 기준이 갈라지기 때문이다(fail-closed)."""
+    난이도 키 집합이 두 표에서 다르면 그것도 예외다. check 6은 difficulty 하나로
+    두 표를 함께 조회하므로, 한쪽에만 난이도가 있으면 그 난이도 후보에서
+    KeyError로 죽거나(조회 실패) 검사가 조용히 빠진다."""
     with open(path, "r", encoding="utf-8") as f:
         doc = yaml.safe_load(f) or {}
     points = doc.get("points") or {}
+    bq = doc.get("bq") or {}
     if not points:
         raise ValueError(f"scoring.yaml에 points가 비어 있음: {path}")
-    return {str(k): int(v) for k, v in points.items()}
+    if not bq:
+        raise ValueError(f"scoring.yaml에 bq가 비어 있음: {path}")
+    points = {str(k): int(v) for k, v in points.items()}
+    bq = {str(k): int(v) for k, v in bq.items()}
+    if set(points) != set(bq):
+        raise ValueError(
+            f"scoring.yaml의 points·bq 난이도 키가 불일치: "
+            f"points={sorted(points)}, bq={sorted(bq)} ({path})")
+    return points, bq
 
 
 def load_catalog(path) -> dict:
-    """질문 템플릿 카탈로그 YAML(리스트)을 읽어 `{id: 항목dict}`로 반환한다.
-
-    항목에 `enabled` 키가 없으면 기본값 True를 채운다(카탈로그 주석 규칙)."""
+    """항목에 `enabled` 키가 없으면 기본값 True를 채운다(카탈로그 주석 규칙)."""
     with open(path, "r", encoding="utf-8") as f:
         raw = yaml.safe_load(f) or []
     catalog = {}
@@ -94,9 +106,6 @@ def load_catalog(path) -> dict:
 
 
 def load_banned(path) -> list:
-    """banned-topics.txt(줄당 1키워드)를 읽어 키워드 리스트로 반환한다.
-
-    빈 줄과 `#` 주석 줄은 제거한다."""
     keywords = []
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
@@ -110,10 +119,7 @@ def load_banned(path) -> list:
 # ── 검사 ────────────────────────────────────────────────
 
 def _kst_date_deadline_bounds(yyyymmdd: str):
-    """gameId 앞 8자리 날짜(YYYYMMDD, KST 기준 경기일)의 00:00~23:59:59 KST를
-    UTC ISO(`YYYY-MM-DDTHH:MM:SSZ`) 문자열 경계 (lo, hi)로 변환한다(양끝 포함).
-
-    이 경계는 "그 날짜에 열리는 경기의 마감이 상식적으로 그 날 안에 있는가"만
+    """이 경계는 "그 날짜에 열리는 경기의 마감이 상식적으로 그 날 안에 있는가"만
     보는 보수적 sanity 검사용이다 — candidate JSON에는 경기 실제 시작시각이 없어
     (game_schedule payload.startTime과 대조하려면 별도 파일이 필요) 정확한 "시작
     2시간 전" 대조는 여기서 하지 않는다(generation-rules.md의 deadlineAt 산정
@@ -125,29 +131,7 @@ def _kst_date_deadline_bounds(yyyymmdd: str):
 
 
 def validate_candidate(c: dict, catalog: dict, banned: list) -> list:
-    """quiz-candidates 항목 하나를 검사해 위반 메시지 리스트를 반환한다.
-    빈 리스트면 통과. 검사 9항목:
-
-    1. 필수 필드 존재
-    2. format이 OX/BINARY/MULTI4 중 하나 + options 개수·id·text 규칙
-    3. KNOWLEDGE → answer/evidence 필수 + settlement은 None
-    4. PREDICTION → settlement 필수(gameId·정산 가능 metric) + answer/evidence는 None
-    5. templateId가 카탈로그에 존재 + enabled + kind/format이 카탈로그와 일치
-    6. pointReward가 POINTS[difficulty]와 일치
-    7. question·모든 option text에 banned 키워드가 없음
-    8. PREDICTION → (a) top-level gameId가 settlement.gameId와 일치
-                    (b) deadlineAt이 gameId 날짜(KST)의 유효 범위(그날 00:00~23:59:59
-                        KST) 안에 있는지 보수적 sanity 검사(정확한 경기 시작시각
-                        대조는 LLM 검증 패스 몫 — _kst_date_deadline_bounds 참고)
-    9. 팀코드 화이트리스트(top-level teamCodes 귀속 축) + subject(주제 축, v2):
-       subject가 '있을 때만' — scope 값·카탈로그 subjectScope 선언 일치·scope별
-       카디널리티(PLAYER→playerIds≥1 / TEAM→teamCodes 1개·playerIds 빔 /
-       MATCHUP→teamCodes 2개 / LEAGUE→전부 빔 / GAME→gameId 필수, 그 외 scope는
-       gameId null)·subject.teamCodes 화이트리스트·정답 유출(subject 팀 이름이
-       정답 보기 문면에 등장) 검사. subject '부재'는 위반이 아니다(구계약 v1
-       공존 — candidate_warnings()가 경고로만 알린다)
-
-    각 필드가 아예 없거나 타입이 다른 경우에도 예외를 던지지 않고 위반으로
+    """각 필드가 아예 없거나 타입이 다른 경우에도 예외를 던지지 않고 위반으로
     기록한 뒤 나머지 검사를 계속한다(부분 실패로 전체 검사가 죽지 않도록)."""
     violations = []
 
@@ -249,15 +233,22 @@ def validate_candidate(c: dict, catalog: dict, banned: list) -> list:
                 f"format이 카탈로그 템플릿과 불일치: candidate={fmt}, "
                 f"catalog={template.get('format')}")
 
-    # 6. 포인트 기준표 일치
+    # 6. 보상 기준표 일치(포인트·BQ)
     difficulty = c.get("difficulty")
     point_reward = c.get("pointReward")
+    bq_reward = c.get("bqReward")
     if difficulty not in POINTS:
         violations.append(f"difficulty 값이 올바르지 않음: {difficulty}")
-    elif point_reward != POINTS[difficulty]:
-        violations.append(
-            f"pointReward가 difficulty({difficulty}) 기준 포인트와 불일치: "
-            f"기대 {POINTS[difficulty]}, 실제 {point_reward}")
+    else:
+        if point_reward != POINTS[difficulty]:
+            violations.append(
+                f"pointReward가 difficulty({difficulty}) 기준 포인트와 불일치: "
+                f"기대 {POINTS[difficulty]}, 실제 {point_reward}")
+        # BQ는 POINTS와 난이도 키 집합이 같음이 load_scoring에서 보장된다.
+        if bq_reward != BQ[difficulty]:
+            violations.append(
+                f"bqReward가 difficulty({difficulty}) 기준 BQ와 불일치: "
+                f"기대 {BQ[difficulty]}, 실제 {bq_reward}")
 
     # 7. 금지 소재 키워드(부분 문자열 매칭)
     texts = [c.get("question") or ""]
@@ -355,9 +346,7 @@ def validate_candidate(c: dict, catalog: dict, banned: list) -> list:
 
 
 def candidate_warnings(c: dict, catalog: dict) -> list:
-    """하드 실패는 아니지만 알려야 하는 경고 리스트(현재: subject 부재).
-
-    subject(주제 축)는 v2에서 추가된 optional 필드다 — 부재를 위반으로 만들면
+    """subject(주제 축)는 v2에서 추가된 optional 필드다 — 부재를 위반으로 만들면
     S3에 이미 쌓인 구계약(v1) 후보가 전부 죽으므로, 카탈로그 subjectScope 선언
     여부와 무관하게 부재는 경고만 출력하고 exit code에는 반영하지 않는다(이행기
     완화 — 생성 루틴이 generation-rules.md §11을 따르기 시작하면 자연히
@@ -375,13 +364,14 @@ def candidate_warnings(c: dict, catalog: dict) -> list:
 # ── CLI ──────────────────────────────────────────────────
 
 def _default_config_path(name: str) -> str:
-    """이 스크립트 기준(`question-gen/scripts/`) 상대경로로 config 파일을 찾는다."""
     return str(Path(__file__).resolve().parent.parent / "config" / name)
 
 
-#: 포인트 기준표를 import 시점에 정본(scoring.yaml)에서 채운다 — 이 모듈을 CLI가
+#: 보상 기준표를 import 시점에 정본(scoring.yaml)에서 채운다 — 이 모듈을 CLI가
 #: 아니라 직접 import해 쓰는 경로(테스트 등)에서도 같은 값이 보이도록.
-POINTS.update(load_scoring(_default_config_path("scoring.yaml")))
+_POINTS, _BQ = load_scoring(_default_config_path("scoring.yaml"))
+POINTS.update(_POINTS)
+BQ.update(_BQ)
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -395,17 +385,14 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--banned", default=None,
                    help="banned-topics.txt 경로(기본: question-gen/config/banned-topics.txt)")
     p.add_argument("--scoring", default=None,
-                   help="점수 기준표 YAML 경로(기본: question-gen/config/scoring.yaml)")
+                   help="보상 기준표(points·bq) YAML 경로"
+                        "(기본: question-gen/config/scoring.yaml)")
     return p
 
 
 def main(argv=None) -> None:
-    """CLI 진입점. `--dir`의 `*.json`을 전부 로드해 검사하고 파일별 위반을
-    출력한 뒤 요약을 찍는다. JSON 파싱 실패도 위반으로 취급하고, 같은
-    디렉토리 내 quizId 중복도 검사한다. 위반이 하나라도 있으면 `sys.exit(1)`,
-    없으면 `sys.exit(0)`(routine이 이 exit code로 업로드 여부를 결정한다).
-    경고(candidate_warnings — subject 부재 등)는 출력만 하고 exit code에
-    반영하지 않는다."""
+    """위반이 하나라도 있으면 `sys.exit(1)`,
+    없으면 `sys.exit(0)`(routine이 이 exit code로 업로드 여부를 결정한다)."""
     args = _build_arg_parser().parse_args(argv)
 
     catalog_path = args.catalog or _default_config_path("question-templates.yaml")
@@ -413,8 +400,11 @@ def main(argv=None) -> None:
     catalog = load_catalog(catalog_path)
     banned = load_banned(banned_path)
     if args.scoring:
+        points, bq = load_scoring(args.scoring)
         POINTS.clear()
-        POINTS.update(load_scoring(args.scoring))
+        POINTS.update(points)
+        BQ.clear()
+        BQ.update(bq)
 
     files = sorted(Path(args.dir).glob("*.json"))
     file_violations = {}

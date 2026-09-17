@@ -2,15 +2,22 @@ package com.skhynix.user.game.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 
 import com.skhynix.domain.game.entity.Game;
 import com.skhynix.domain.game.entity.GameStatus;
 import com.skhynix.domain.game.entity.InningHalf;
 import com.skhynix.domain.game.repository.GameRepository;
 import com.skhynix.domain.stadium.entity.Stadium;
+import com.skhynix.domain.support.entity.UserSupportTeam;
+import com.skhynix.domain.support.repository.UserSupportTeamRepository;
 import com.skhynix.domain.team.entity.Team;
+import com.skhynix.domain.user.entity.UserAccount;
 import com.skhynix.user.game.dto.GameResponse;
 import java.time.Clock;
 import java.time.Instant;
@@ -19,6 +26,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -52,11 +60,14 @@ class GameServiceTest {
     @Mock
     private GameRepository gameRepository;
 
+    @Mock
+    private UserSupportTeamRepository userSupportTeamRepository;
+
     private GameService gameService;
 
     @BeforeEach
     void setUp() {
-        gameService = new GameService(gameRepository, FIXED_CLOCK);
+        gameService = new GameService(gameRepository, userSupportTeamRepository, FIXED_CLOCK);
     }
 
     private Team teamOf(String name) {
@@ -69,6 +80,13 @@ class GameServiceTest {
         Team team = teamOf(name);
         ReflectionTestUtils.setField(team, "id", id);
         return team;
+    }
+
+    // UserSupportTeam.team의 id만 서비스가 읽으므로(findByUserAccount_IdAndTeam_Id 는 프록시 초기화 없이
+    // id 접근만 함) team은 teamOf(id, name)으로 충분하다.
+    private UserSupportTeam activeSupportTeamOf(Team team) {
+        UserAccount account = UserAccount.builder().build();
+        return UserSupportTeam.builder().userAccount(account).team(team).build();
     }
 
     private GameStatus statusOf(String name) {
@@ -361,7 +379,7 @@ class GameServiceTest {
     void getGames_dateOmitted_usesTodayFromClock() {
         // given: KST 2026-08-01T09:00:00 (= UTC 2026-08-01T00:00:00)로 clock 고정
         Clock fixedClock = Clock.fixed(Instant.parse("2026-08-01T00:00:00Z"), ZoneId.of("Asia/Seoul"));
-        GameService service = new GameService(gameRepository, fixedClock);
+        GameService service = new GameService(gameRepository, userSupportTeamRepository, fixedClock);
         given(gameRepository.findAllByGameDateGreaterThanEqualAndGameDateLessThanOrderByGameDateAsc(
                 any(), any())).willReturn(Collections.emptyList());
 
@@ -385,7 +403,7 @@ class GameServiceTest {
     void getGames_dateOmitted_utcKstDateBoundary_targetsKstDateNotUtcDate() {
         // given: UTC 자정을 넘겨 KST 날짜가 하루 앞서가는 순간으로 clock 고정
         Clock fixedClock = Clock.fixed(Instant.parse("2026-08-01T15:30:00Z"), ZoneId.of("Asia/Seoul"));
-        GameService service = new GameService(gameRepository, fixedClock);
+        GameService service = new GameService(gameRepository, userSupportTeamRepository, fixedClock);
         given(gameRepository.findAllByGameDateGreaterThanEqualAndGameDateLessThanOrderByGameDateAsc(
                 any(), any())).willReturn(Collections.emptyList());
 
@@ -400,5 +418,278 @@ class GameServiceTest {
 
         assertThat(startCaptor.getValue()).isEqualTo(LocalDateTime.of(2026, 8, 2, 0, 0, 0));
         assertThat(endCaptor.getValue()).isEqualTo(LocalDateTime.of(2026, 8, 3, 0, 0, 0));
+    }
+
+    // ---------- getSupportTeamGames(Long, LocalDate) — docs/requirements/user/support-team-games.md ----------
+
+    private static final Long ACCOUNT_ID = 1L;
+
+    @Test
+    @DisplayName("[USER-GSP-6, USER-GSP-8] 활성 응원 구단이 있으면 그 구단 id와 반개구간 경계값을 "
+            + "그대로 GameRepository에 넘긴다")
+    void getSupportTeamGames_activeSupportTeam_passesTeamIdAndHalfOpenIntervalToRepository() {
+        // given
+        LocalDate date = LocalDate.of(2026, 8, 1);
+        Team supportedTeam = teamOf(6L, "KIA");
+        given(userSupportTeamRepository.findByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(Optional.of(activeSupportTeamOf(supportedTeam)));
+        given(gameRepository.findAllByTeamAndGameDateRange(anyLong(), any(), any()))
+                .willReturn(Collections.emptyList());
+
+        // when
+        gameService.getSupportTeamGames(ACCOUNT_ID, date);
+
+        // then
+        ArgumentCaptor<Long> teamIdCaptor = ArgumentCaptor.forClass(Long.class);
+        ArgumentCaptor<LocalDateTime> startCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
+        ArgumentCaptor<LocalDateTime> endCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(gameRepository).findAllByTeamAndGameDateRange(
+                teamIdCaptor.capture(), startCaptor.capture(), endCaptor.capture());
+
+        assertThat(teamIdCaptor.getValue()).isEqualTo(6L);
+        assertThat(startCaptor.getValue()).isEqualTo(LocalDateTime.of(2026, 8, 1, 0, 0, 0));
+        assertThat(endCaptor.getValue()).isEqualTo(LocalDateTime.of(2026, 8, 2, 0, 0, 0));
+    }
+
+    @Test
+    @DisplayName("[USER-GSP-4] 리포지토리가 홈 경기와 원정 경기를 함께 반환하면 둘 다 GameResponse로 "
+            + "매핑돼 응답에 포함된다")
+    void getSupportTeamGames_homeAndAwayGamesBothReturned_mapsAllToResponse() {
+        // given: 응원 구단(KIA, id=6)이 한 경기에서는 홈, 다른 경기에서는 원정이다.
+        LocalDate date = LocalDate.of(2026, 8, 1);
+        Team supportedTeam = teamOf(6L, "KIA");
+        given(userSupportTeamRepository.findByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(Optional.of(activeSupportTeamOf(supportedTeam)));
+
+        Game homeGame = Game.builder()
+                .gameDate(LocalDateTime.of(2026, 8, 1, 14, 0))
+                .homeTeam(teamOf(6L, "KIA"))
+                .awayTeam(teamOf(3L, "LG"))
+                .stadium(stadiumOf("광주기아챔피언스필드"))
+                .homeScore(4)
+                .awayScore(2)
+                .gameStatus(statusOf("FINISHED"))
+                .naverGameId("20260801HTLG02026")
+                .build();
+        Game awayGame = Game.builder()
+                .gameDate(LocalDateTime.of(2026, 8, 1, 18, 30))
+                .homeTeam(teamOf(1L, "SSG"))
+                .awayTeam(teamOf(6L, "KIA"))
+                .stadium(stadiumOf("인천SSG랜더스필드"))
+                .homeScore(1)
+                .awayScore(3)
+                .gameStatus(statusOf("FINISHED"))
+                .naverGameId("20260801SKHT02026")
+                .build();
+        given(gameRepository.findAllByTeamAndGameDateRange(6L, date.atStartOfDay(), date.plusDays(1).atStartOfDay()))
+                .willReturn(List.of(homeGame, awayGame));
+
+        // when
+        List<GameResponse> result = gameService.getSupportTeamGames(ACCOUNT_ID, date);
+
+        // then
+        assertThat(result).extracting(GameResponse::gameId)
+                .containsExactly("20260801HTLG02026", "20260801SKHT02026");
+        assertThat(result.get(0).homeTeamId()).isEqualTo(6L);
+        assertThat(result.get(1).awayTeamId()).isEqualTo(6L);
+    }
+
+    @Test
+    @DisplayName("[USER-GSP-7] 리포지토리가 준 gameDate 오름차순을 서비스가 재정렬하지 않고 그대로 반환한다")
+    void getSupportTeamGames_doesNotReorderRepositoryResult() {
+        // given
+        LocalDate date = LocalDate.of(2026, 8, 1);
+        Team supportedTeam = teamOf(6L, "KIA");
+        given(userSupportTeamRepository.findByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(Optional.of(activeSupportTeamOf(supportedTeam)));
+        Game earlyGame = gameOf(LocalDateTime.of(2026, 8, 1, 14, 0), "KIA", "LG", 4, 2, "FINISHED",
+                "20260801HTLG02026");
+        Game lateGame = gameOf(LocalDateTime.of(2026, 8, 1, 18, 30), "KIA", "두산", 1, 3, "IN_PROGRESS",
+                "20260801HTOB02026");
+        given(gameRepository.findAllByTeamAndGameDateRange(6L, date.atStartOfDay(), date.plusDays(1).atStartOfDay()))
+                .willReturn(List.of(earlyGame, lateGame));
+
+        // when
+        List<GameResponse> result = gameService.getSupportTeamGames(ACCOUNT_ID, date);
+
+        // then
+        assertThat(result).extracting(GameResponse::gameId)
+                .containsExactly("20260801HTLG02026", "20260801HTOB02026");
+    }
+
+    @Test
+    @DisplayName("[USER-GSP-15] 대상 날짜에 응원 구단 경기가 없으면 빈 리스트를 반환한다")
+    void getSupportTeamGames_noGamesOnDate_returnsEmptyList() {
+        // given
+        LocalDate date = LocalDate.of(2026, 8, 4);
+        Team supportedTeam = teamOf(6L, "KIA");
+        given(userSupportTeamRepository.findByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(Optional.of(activeSupportTeamOf(supportedTeam)));
+        given(gameRepository.findAllByTeamAndGameDateRange(6L, date.atStartOfDay(), date.plusDays(1).atStartOfDay()))
+                .willReturn(Collections.emptyList());
+
+        // when
+        List<GameResponse> result = gameService.getSupportTeamGames(ACCOUNT_ID, date);
+
+        // then
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("[USER-GSP-16, USER-GSP-17] 활성 응원 구단이 없으면(취소 상태 포함) GameRepository를 "
+            + "전혀 호출하지 않고 빈 리스트를 반환한다")
+    void getSupportTeamGames_noActiveSupportTeam_returnsEmptyListWithoutQueryingGameRepository() {
+        // given
+        LocalDate date = LocalDate.of(2026, 8, 1);
+        given(userSupportTeamRepository.findByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(Optional.empty());
+
+        // when
+        List<GameResponse> result = gameService.getSupportTeamGames(ACCOUNT_ID, date);
+
+        // then
+        assertThat(result).isEmpty();
+        verifyNoInteractions(gameRepository);
+    }
+
+    @Test
+    @DisplayName("[USER-GSP-22] 응원 구단 조회는 요청당 정확히 1회만 수행한다(경기 건수와 무관)")
+    void getSupportTeamGames_queriesSupportTeamRepositoryExactlyOnce() {
+        // given
+        LocalDate date = LocalDate.of(2026, 8, 1);
+        Team supportedTeam = teamOf(6L, "KIA");
+        given(userSupportTeamRepository.findByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(Optional.of(activeSupportTeamOf(supportedTeam)));
+        Game g1 = gameOf(LocalDateTime.of(2026, 8, 1, 14, 0), "KIA", "LG", 4, 2, "FINISHED", "20260801HTLG02026");
+        Game g2 = gameOf(LocalDateTime.of(2026, 8, 1, 18, 30), "KIA", "두산", 1, 3, "IN_PROGRESS", "20260801HTOB02026");
+        given(gameRepository.findAllByTeamAndGameDateRange(6L, date.atStartOfDay(), date.plusDays(1).atStartOfDay()))
+                .willReturn(List.of(g1, g2));
+
+        // when
+        gameService.getSupportTeamGames(ACCOUNT_ID, date);
+
+        // then
+        verify(userSupportTeamRepository, times(1)).findByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID);
+        verify(gameRepository, times(1)).findAllByTeamAndGameDateRange(anyLong(), any(), any());
+        verifyNoMoreInteractions(userSupportTeamRepository);
+    }
+
+    @Test
+    @DisplayName("[USER-GSP-23] 이 조회는 어떤 응원 구단 리포지토리의 쓰기 메서드도 호출하지 않는다"
+            + "(조회 전용 — findByUserAccount_IdAndOpposeIsNull 외 상호작용 없음)")
+    void getSupportTeamGames_noWriteInteractionsWithSupportTeamRepository() {
+        // given
+        LocalDate date = LocalDate.of(2026, 8, 1);
+        Team supportedTeam = teamOf(6L, "KIA");
+        given(userSupportTeamRepository.findByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(Optional.of(activeSupportTeamOf(supportedTeam)));
+        given(gameRepository.findAllByTeamAndGameDateRange(anyLong(), any(), any()))
+                .willReturn(Collections.emptyList());
+
+        // when
+        gameService.getSupportTeamGames(ACCOUNT_ID, date);
+
+        // then: findByUserAccount_IdAndOpposeIsNull 호출 하나만 있고 save 등 다른 상호작용이 없다
+        verify(userSupportTeamRepository).findByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID);
+        verifyNoMoreInteractions(userSupportTeamRepository);
+    }
+
+    @Test
+    @DisplayName("[USER-GSP-11] date가 주어지면 오늘이 아니라 그 날짜로 조회한다(clock을 참조하지 않는다)")
+    void getSupportTeamGames_dateProvided_usesGivenDateNotToday() {
+        // given: FIXED_CLOCK은 2026-08-01이지만 요청 date는 다른 날(2026-08-09)이다.
+        LocalDate date = LocalDate.of(2026, 8, 9);
+        Team supportedTeam = teamOf(6L, "KIA");
+        given(userSupportTeamRepository.findByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(Optional.of(activeSupportTeamOf(supportedTeam)));
+        given(gameRepository.findAllByTeamAndGameDateRange(anyLong(), any(), any()))
+                .willReturn(Collections.emptyList());
+
+        // when
+        gameService.getSupportTeamGames(ACCOUNT_ID, date);
+
+        // then
+        verify(gameRepository).findAllByTeamAndGameDateRange(
+                6L, LocalDateTime.of(2026, 8, 9, 0, 0, 0), LocalDateTime.of(2026, 8, 10, 0, 0, 0));
+    }
+
+    @Test
+    @DisplayName("[USER-GSP-10] date가 없으면 고정된 clock 기준 오늘의 반개구간을 GameRepository에 넘긴다")
+    void getSupportTeamGames_dateOmitted_usesTodayFromClock() {
+        // given: FIXED_CLOCK은 KST 2026-08-01T09:00:00(= UTC 2026-08-01T00:00:00)
+        Team supportedTeam = teamOf(6L, "KIA");
+        given(userSupportTeamRepository.findByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(Optional.of(activeSupportTeamOf(supportedTeam)));
+        given(gameRepository.findAllByTeamAndGameDateRange(anyLong(), any(), any()))
+                .willReturn(Collections.emptyList());
+
+        // when
+        gameService.getSupportTeamGames(ACCOUNT_ID, null);
+
+        // then
+        verify(gameRepository).findAllByTeamAndGameDateRange(
+                6L, LocalDateTime.of(2026, 8, 1, 0, 0, 0), LocalDateTime.of(2026, 8, 2, 0, 0, 0));
+    }
+
+    @Test
+    @DisplayName("[회귀][USER-GSP-10] UTC로는 8/1이지만 KST로는 8/2로 넘어간 순간에 date를 생략하면 "
+            + "조회 대상은 8/1이 아니라 8/2다(GameService.getGames의 UTC/KST 경계 회귀 테스트와 같은 패턴)")
+    void getSupportTeamGames_dateOmitted_utcKstDateBoundary_targetsKstDateNotUtcDate() {
+        // given: UTC 자정을 넘겨 KST 날짜가 하루 앞서가는 순간으로 clock 고정
+        Clock fixedClock = Clock.fixed(Instant.parse("2026-08-01T15:30:00Z"), ZoneId.of("Asia/Seoul"));
+        GameService service = new GameService(gameRepository, userSupportTeamRepository, fixedClock);
+        Team supportedTeam = teamOf(6L, "KIA");
+        given(userSupportTeamRepository.findByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(Optional.of(activeSupportTeamOf(supportedTeam)));
+        given(gameRepository.findAllByTeamAndGameDateRange(anyLong(), any(), any()))
+                .willReturn(Collections.emptyList());
+
+        // when
+        service.getSupportTeamGames(ACCOUNT_ID, null);
+
+        // then: KST 기준 오늘은 8/2다(UTC 기준이면 8/1로 잘못 조회된다)
+        verify(gameRepository).findAllByTeamAndGameDateRange(
+                6L, LocalDateTime.of(2026, 8, 2, 0, 0, 0), LocalDateTime.of(2026, 8, 3, 0, 0, 0));
+    }
+
+    @Test
+    @DisplayName("[USER-GSP-3] 매핑되는 13개 필드(구장 없음, 취소 사유 포함)가 GET /api/games의 매핑 규칙과 "
+            + "동일하게 적용된다 — 이 경로 전용 가공·대체값이 없다")
+    void getSupportTeamGames_mapsAllFieldsSameAsGetGames() {
+        // given
+        LocalDate date = LocalDate.of(2026, 8, 9);
+        Team supportedTeam = teamOf(6L, "KIA");
+        given(userSupportTeamRepository.findByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(Optional.of(activeSupportTeamOf(supportedTeam)));
+        Game canceled = Game.builder()
+                .gameDate(LocalDateTime.of(2026, 8, 9, 18, 0, 0))
+                .homeTeam(teamOf(6L, "KIA"))
+                .awayTeam(teamOf(3L, "LG"))
+                .gameStatus(statusOf("CANCELED"))
+                .cancelReason("우천취소")
+                .naverGameId("20260809HTLG02026")
+                .build();
+        given(gameRepository.findAllByTeamAndGameDateRange(6L, date.atStartOfDay(), date.plusDays(1).atStartOfDay()))
+                .willReturn(List.of(canceled));
+
+        // when
+        List<GameResponse> result = gameService.getSupportTeamGames(ACCOUNT_ID, date);
+
+        // then
+        assertThat(result).hasSize(1);
+        GameResponse response = result.get(0);
+        assertThat(response.gameId()).isEqualTo("20260809HTLG02026");
+        assertThat(response.stadium()).isNull();
+        assertThat(response.homeTeam()).isEqualTo("KIA");
+        assertThat(response.homeTeamId()).isEqualTo(6L);
+        assertThat(response.awayTeam()).isEqualTo("LG");
+        assertThat(response.awayTeamId()).isEqualTo(3L);
+        assertThat(response.homeTeamScore()).isNull();
+        assertThat(response.awayTeamScore()).isNull();
+        assertThat(response.gameDate()).isEqualTo(LocalDateTime.of(2026, 8, 9, 18, 0, 0));
+        assertThat(response.gameState()).isEqualTo("CANCELED");
+        assertThat(response.cancelReason()).isEqualTo("우천취소");
+        assertThat(response.inning()).isNull();
+        assertThat(response.inningHalf()).isNull();
     }
 }

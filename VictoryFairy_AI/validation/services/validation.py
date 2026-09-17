@@ -1,9 +1,11 @@
 from validation.core.patterns import (
     CATEGORY_PATTERNS,
     EXCEPTION_PATTERN,
+    EXCEPTION_PATTERN_SPACED,
     KEYBOARD_PATTERNS,
+    STRICT_ADJACENT_PATTERNS,
 )
-from validation.core.preprocess import build_match_views
+from validation.core.preprocess import build_adjacency_view, build_match_views
 from validation.schemas.validation import ValidationRequest, ValidationResponse
 
 # 카테고리 코드 → 사용자에게 보여줄 한글 라벨
@@ -25,21 +27,14 @@ _CATEGORY_LABELS: dict[str, str] = {
 
 
 class ValidationService:
-    """
-    문장 검증 서비스
-    - 문장 내 욕설 필터링 (정규 표현식 기반)
-    - 입력을 여러 형태(원문/정규화/압축/한글/영어)로 변환해 각각 매칭한다(다중 패스).
-      한 형태에서 놓친 우회 표기(예: '씨@발')를 다른 형태('씨발')에서 잡기 위함이다.
-    - 매칭 전 예외 표현(정상 표현)을 제거해 오탐을 방지한다.
-    """
-
     def validation(self, request: ValidationRequest) -> ValidationResponse:
-        """
-        문장 내 비속어를 카테고리별 정규식으로 필터링한다.
+        # 공백 엄격 단어는 공백을 남긴 뷰에서만 검사한다(아래 여섯 뷰는 공백을 지운다).
+        adjacency = EXCEPTION_PATTERN_SPACED.sub("", build_adjacency_view(request.line))
+        for category, pattern in STRICT_ADJACENT_PATTERNS.items():
+            match = pattern.search(adjacency)
+            if match:
+                return self._reject(category, match.group())
 
-        - request: ValidationRequest
-        - return: ValidationResponse
-        """
         # 입력을 여러 뷰(원문·정규화·압축·한글·영어·키보드)로 변환해 순서대로 검사한다.
         for view_name, view in build_match_views(request.line):
             # 오탐 방지: 정상 표현(예: '보지도 못했다')을 먼저 제거한다.
@@ -52,15 +47,19 @@ class ValidationService:
             for category, pattern in patterns.items():
                 match = pattern.search(cleaned)
                 if match:
-                    label = _CATEGORY_LABELS.get(category, category)
-                    return ValidationResponse(
-                        is_valid=False,
-                        message=f"{label}이(가) 감지되었습니다: '{match.group()}'",
-                    )
+                    return self._reject(category, match.group())
 
         return ValidationResponse(
             is_valid=True,
             message="검증을 통과했습니다.",
+        )
+
+    @staticmethod
+    def _reject(category: str, word: str) -> ValidationResponse:
+        label = _CATEGORY_LABELS.get(category, category)
+        return ValidationResponse(
+            is_valid=False,
+            message=f"{label}이(가) 감지되었습니다: '{word}'",
         )
 
 

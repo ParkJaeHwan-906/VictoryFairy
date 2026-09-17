@@ -72,9 +72,14 @@ UPDATE users               SET created_at = created_at + INTERVAL 9 HOUR,
                                updated_at = updated_at + INTERVAL 9 HOUR;
 
 -- exit_at 은 탈퇴 완료 시각(NULL 이면 활성 — NULL 은 그대로 NULL 이다)
-UPDATE users_account       SET created_at = created_at + INTERVAL 9 HOUR,
-                               updated_at = updated_at + INTERVAL 9 HOUR,
-                               exit_at    = exit_at    + INTERVAL 9 HOUR;
+-- nickname_changed_at 을 빠뜨리면 판정 기준만 9시간 앞으로 뛰어 쿨다운이 30일이 아니라
+--   29일 15시간이 된다. 에러도 로그도 남지 않아 관측되지 않는다.
+-- ⚠ password_changed_epoch_second 는 여기에 넣지 말 것 — 벽시계가 아니라 epoch 초(절대 시각)라
+--   존 전환의 영향을 받지 않는다. 9시간을 더하면 그 계정의 access 토큰이 9시간 동안 전부 무효가 된다.
+UPDATE users_account       SET created_at         = created_at         + INTERVAL 9 HOUR,
+                               updated_at         = updated_at         + INTERVAL 9 HOUR,
+                               exit_at            = exit_at            + INTERVAL 9 HOUR,
+                               nickname_changed_at = nickname_changed_at + INTERVAL 9 HOUR;
 
 UPDATE users_bq            SET created_at = created_at + INTERVAL 9 HOUR,
                                updated_at = updated_at + INTERVAL 9 HOUR;

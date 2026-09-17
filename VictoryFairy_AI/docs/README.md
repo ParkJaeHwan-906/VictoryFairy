@@ -11,15 +11,12 @@
 | [harness-strategy.md](harness-strategy.md) | 하네스 전략 (모듈 선택 Hook, 컨텍스트 격리 원칙) |
 | [feature-strategy.md](feature-strategy.md) | 기능 전략 (검열 / 추출 / 사전 / 집계 방향과 근거) |
 | [deployment.md](deployment.md) | 배포 (모듈별 Docker 컨테이너, docker compose) |
+| [SCHEDULES.md](SCHEDULES.md) | 수집·정제·생성 잡의 하루 흐름과 크론 |
+| [question-generation.md](question-generation.md) | 퀴즈 생성 (템플릿·점수·선별 규칙) |
 | [modules/validation.md](modules/validation.md) | validation 모듈 — 기능 단위별 구조 |
+| [modules/bedrock.md](modules/bedrock.md) | bedrock 모듈 — 기능 단위별 구조 + 모델·리전 한계 |
 | [modules/analysis.md](modules/analysis.md) | analysis 모듈 — 기능 단위별 구조 |
 | [modules/pipeline.md](modules/pipeline.md) | pipeline 모듈 — 기능 단위별 구조 |
-
-## 모듈 3종 요약
-
-- **validation** — 입력 문장 검열(욕설·비속어 필터). 정규화 + 룰/정규식.
-- **analysis** — 검열 통과 문장에서 형태소(명사·동사) + 개체명(이름·지명·기관·날짜) 추출.
-- **pipeline** — 파일 기반 배치 러너(검열 → 분석 → 집계).
 
 ## 하네스 사용법 (요약)
 

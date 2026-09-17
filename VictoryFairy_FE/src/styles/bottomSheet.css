@@ -1,0 +1,62 @@
+/**
+ * 모든 바텀시트가 함께 쓰는 동작 스타일 — 끌어내리기와 내려가며 닫기.
+ *
+ * 생김새(높이 · 모서리 · 색)는 각 시트의 CSS 가 그대로 갖고, 여기에는 움직임만 둔다.
+ * 짝이 되는 로직은 `hooks/useBottomSheet.ts` 이며, 시트 요소에 두 클래스를 함께 건다:
+ * `.x-sheet__sheet .bottom-sheet-panel` 처럼.
+ */
+
+/* 시트가 아래로 빠져나가는 동안 화면 밖으로 삐져나오지 않게 자른다. */
+.bottom-sheet-root {
+  overflow: hidden;
+}
+
+/* ------------------------------------------------------------------ *
+ * 딤 — 시트가 내려가는 동안 함께 걷힌다
+ * ------------------------------------------------------------------ */
+.bottom-sheet-dim {
+  transition: opacity 200ms ease-out;
+}
+
+.bottom-sheet-root[data-closing] .bottom-sheet-dim {
+  opacity: 0;
+}
+
+/* ------------------------------------------------------------------ *
+ * 시트 — 끌린 자리에서 이어서 내려가거나 제자리로 돌아온다
+ * ------------------------------------------------------------------ */
+.bottom-sheet-panel {
+  /* 시간(240ms)은 useBottomSheet 의 CLOSE_MS 와 같아야 한다. */
+  transition: transform 240ms cubic-bezier(0.32, 0.72, 0, 1);
+  will-change: transform;
+}
+
+/* 끄는 동안에는 손가락을 그대로 따라간다 — 전환이 끼면 늦게 끌려온다. */
+.bottom-sheet-panel[data-dragging] {
+  transition: none;
+}
+
+/* 올라오는 도중에 닫아도 즉시 내려간다(rise 애니메이션이 transform 을 붙잡고 있다). */
+.bottom-sheet-panel[data-closing] {
+  animation: none;
+}
+
+/* ------------------------------------------------------------------ *
+ * 핸들 — 잡아서 아래로 끌 수 있는 회색 막대
+ * ------------------------------------------------------------------ */
+.bottom-sheet-handle {
+  /* 세로로 끌 때 브라우저가 스크롤로 가져가지 않게 한다. */
+  touch-action: none;
+  cursor: grab;
+}
+
+.bottom-sheet-handle:active {
+  cursor: grabbing;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bottom-sheet-dim,
+  .bottom-sheet-panel {
+    transition: none;
+  }
+}

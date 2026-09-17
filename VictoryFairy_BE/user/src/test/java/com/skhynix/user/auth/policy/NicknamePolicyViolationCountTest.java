@@ -44,7 +44,7 @@ class NicknamePolicyViolationCountTest {
     }
 
     private SignupRequest requestWithNickname(String nickname) {
-        return new SignupRequest("홍길동", "01012345678", "test@example.com", Gender.MALE, nickname, "abc123!@");
+        return new SignupRequest("홍길동", "01012345678", "test@example.com", Gender.MALE, nickname, "abc123!@", null);
     }
 
     private Set<ConstraintViolation<SignupRequest>> nicknameViolations(String nickname) {

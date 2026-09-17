@@ -53,3 +53,14 @@ export function formatKoreanDate(date: string): string {
 export function formatGameTime(gameDate: string): string {
   return gameDate.slice(11, 16);
 }
+
+/**
+ * 요일 없이 날짜만 읽는 표기. 예) `2026-08-16` → `2026년 8월 16일`
+ *
+ * `formatKoreanDate`(`2026년 8월 16일 (토)`)와 갈라 쓴다 — 채팅 날짜 구분선은
+ * 대화 사이에 가로선과 함께 끼는 한 줄이라 요일까지 넣으면 선이 그만큼 짧아진다.
+ */
+export function formatKoreanDay(date: string): string {
+  const [year, month, day] = date.split('-').map(Number);
+  return `${year}년 ${month}월 ${day}일`;
+}

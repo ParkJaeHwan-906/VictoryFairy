@@ -3,19 +3,18 @@ package com.skhynix.quiz.chat.dto;
 import com.skhynix.domain.chat.entity.Chat;
 import java.time.LocalDateTime;
 
-/**
- * SSE {@code message} 이벤트의 {@code data:} payload. {@code id}는 {@code Chat} PK — 실시간 전달은
- * at-most-once라 클라이언트가 히스토리 재조회로 수렴하는데, 그때 SSE로 이미 받은 메시지를 식별해 중복
- * 렌더를 막는 데 쓰인다. 신고 API의 {@code messageId}도 이 값이다.
- */
-public record MessageEvent(Long id, String content, String senderNickname, LocalDateTime createdAt,
-                           String roomUid) {
+// profileImgUrl 은 MessageResponse 와 같은 값·같은 형태(BaseURL 을 뺀 EP, 없으면 null)다.
+// 히스토리에만 실으면 SSE 로 방금 도착한 메시지만 아바타가 비었다가 새로고침해야 채워지므로 함께 싣는다.
+public record MessageEvent(Long id, String content, String senderNickname, String profileImgUrl,
+                           LocalDateTime createdAt, String roomUid) {
 
     public static MessageEvent of(Chat chat, String roomUid) {
         return new MessageEvent(
                 chat.getId(),
                 chat.getContent(),
                 chat.getUserAccount().getNickname(),
+                // 전송 트랜잭션이 이미 로딩해 둔 발신자 계정이라 여기서 SELECT 가 추가되지 않는다.
+                chat.getUserAccount().getProfileImgUrl(),
                 chat.getCreatedAt(),
                 roomUid);
     }

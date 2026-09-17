@@ -66,7 +66,7 @@ from bedrock import (
 
 from pipeline.core.config import pipeline_settings
 from pipeline.run_validation import today_kst
-from pipeline.spend_counter import (  # noqa: F401 — main() 계약 유지를 위한 re-export
+from pipeline.spend_counter import (
     BedrockCostCounterUnavailable,
     DynamoDBSpendCounter,
 )
@@ -92,18 +92,13 @@ class BedrockRunnerSettings(BaseSettings):
     """`run_bedrock` 러너 전용 설정 — 오케스트레이션(배치 크기·비용 상한·날짜)이며
     모델 호출 설정(`bedrock.core.config.BedrockSettings`)과는 경계가 다르다(PIPE-2SB-15
     대칭: bedrock 모듈이 S3를 모르듯, 여기 설정도 모델 파라미터를 모른다).
-
-    아래 다수는 문서상 "(가정 키명)"·"승인 후 확정 항목"으로 남겨진 값이다 — 계약이 아니라
-    구현 시 정하는 값이므로 기본값을 두되 전부 env로 override 가능하게 했다.
     """
 
     # PIPE-2SB-37/38: 미주입 시 today_kst() 폴백(main()에서 처리).
     BATCH_DATE: Optional[str] = None
 
-    # 누적 소비액 카운터(DynamoDB). 구 Redis `bedrock_spend_usd` 를 대체한다 —
-    # Lambda 는 VPC 밖이라 클러스터 안의 ClusterIP Redis 에 도달하지 못한다.
-    # ⚠️ 작업 집합(`pending:*`) 설정은 Lambda 전환으로 폐기됐다. 단계 전이를 S3 이벤트와
-    #    SQS 가 담당하므로 "다음 단계 대기 목록"을 우리가 셀 이유가 없다.
+    # 누적 소비액 카운터(DynamoDB). Lambda 는 VPC 밖이라 클러스터 안의 ClusterIP Redis 에
+    # 도달하지 못한다.
     BUDGET_TABLE_NAME: Optional[str] = None
 
     # 비용 상한(사용자 확정 $30/일). 소프트 상한이다 — 마지막 배치 1회분만큼 초과할 수 있다.
@@ -135,28 +130,11 @@ runner_settings = BedrockRunnerSettings()
 
 
 def _die(message: str) -> None:
-    """명확한 에러를 남기고 0이 아닌 종료 코드로 중단한다(PIPE-2SB-22)."""
     print(f"오류: {message}", file=sys.stderr)
     sys.exit(1)
 
 
-# 누적 소비액 카운터는 `pipeline/spend_counter.py` 로 옮겼다.
-#
-# 구현이 여기 있었을 때는 Redis 백엔드(`INCRBYFLOAT`)였고, 같은 클래스가 작업 집합
-# (`pending:bedrock` SREM)도 함께 다뤘다. Lambda 전환으로 둘 다 바뀌었다:
-#   - 저장소  Redis -> DynamoDB (Lambda 는 VPC 밖이라 ClusterIP Redis 에 못 닿는다)
-#   - 작업 집합  폐기 (단계 전이를 S3 이벤트·SQS 가 담당)
-#
-# `BedrockCostCounterUnavailable` 을 여기서 re-export 한다 — 이 모듈의 `main()` 이
-# 그 예외를 잡아 `_die()` 로 이어받는 계약이 그대로 유지되기 때문이다.
-
-
 def _estimate_cost_usd(usage) -> float:
-    """토큰 사용량에 단가를 곱해 소비액을 추정한다(PIPE-2SB-61/62).
-
-    단가는 코드 상수가 아니라 `runner_settings`(env)에서 읽는다 — 미확인 가정치이며
-    실제 청구액과 다를 수 있다(문서 "알려진 한계" 참고, 실청구액과 주기적으로 대조할 것).
-    """
     return (
         usage.input_tokens / 1000.0 * runner_settings.BEDROCK_PRICE_INPUT_PER_1K_USD
         + usage.output_tokens / 1000.0 * runner_settings.BEDROCK_PRICE_OUTPUT_PER_1K_USD
@@ -166,20 +144,13 @@ def _estimate_cost_usd(usage) -> float:
 
 
 def _body_slot(post: dict) -> tuple:
-    """게시글의 본문 판정 단위를 결정한다(PIPE-2SB-8/8b).
-
-    반환: (slot_unit, slot_text) — `slot_unit`은 산출물 `reasons[].unit` 표기용으로
-    "body" 또는 "title"(PIPE-2SB-13). Bedrock 서비스에는 이 값과 무관하게 항상
-    `unit_kind="body"`로 보낸다(PIPE-2SB-8b — title이 본문 자리를 대신하므로).
-
-    pattern success 객체는 body/title이 둘 다 비어 있으면 애초에 만들어지지
+    """pattern success 객체는 body/title이 둘 다 비어 있으면 애초에 만들어지지
     않으므로(PIPE-S3IO-33) 정상적으로는 title이 비어 있지 않다. 다만 v1 규칙으로
-    쌓인 과거 산출물이 섞여 있을 수 있어(문서 "알려진 한계") title도 비어 있으면
-    빈 문자열을 그대로 흘려보낸다 — 크래시하지 않는 것이 계약이다.
+    쌓인 과거 산출물이 섞여 있을 수 있어 title도 비어 있으면 빈 문자열을 그대로
+    흘려보낸다 — 크래시하지 않는 것이 계약이다.
 
-    ⚠️ 빈 판정과 서명 제거는 `pipeline.text_normalize` 를 **패턴 러너와 공유**한다
-    (PIPE-S3IO-39). 각자 구현하면 두 단계가 서로 다른 텍스트를 판정하게 되고,
-    1차에서 통과시킨 것과 2차가 보는 것이 어긋난다.
+    ⚠️ 빈 판정과 서명 제거는 `pipeline.text_normalize` 를 **패턴 러너와 공유**한다.
+    각자 구현하면 1차에서 통과시킨 것과 2차가 보는 것이 어긋난다.
     """
     body_text = post.get("body")
     if not is_blank_content(body_text):
@@ -191,11 +162,7 @@ def _body_slot(post: dict) -> tuple:
 
 
 def _post_comments(post: dict) -> list:
-    """pattern success 객체의 `topComments` 목록을 그대로 반환한다.
-
-    pattern 단계가 이미 통과 댓글만 남겨뒀으므로(PIPE-S3IO-10) 여기선 다시 필터링하지
-    않는다. 댓글이 없으면 빈 리스트.
-    """
+    """pattern 단계가 이미 통과 댓글만 남겨뒀으므로 여기선 다시 필터링하지 않는다."""
     comments = post.get("topComments")
     return comments if isinstance(comments, list) else []
 
@@ -208,9 +175,7 @@ def _comment_text(comment: Any) -> str:
 
 
 def _build_batch_items(batch: list) -> tuple:
-    """배치(게시글 목록)를 이종 혼합 판정 항목 목록으로 펼친다(PIPE-2SB-14/71).
-
-    반환: (items, offsets, slots)
+    """반환: (items, offsets, slots)
         - items: JudgeItem 평탄화 목록(본문 1 + 댓글 N, 게시글 순서대로 이어붙임)
         - offsets: 게시글별 items 내 시작 인덱스
         - slots: 게시글별 (slot_unit, slot_text, comments) — 결과를 되자를 때 필요
@@ -231,11 +196,6 @@ def _build_batch_items(batch: list) -> tuple:
 
 
 def _route_post(post: dict, slot_unit: str, slot_text: str, comments: list, results: list) -> tuple:
-    """단위 결과(본문 1개 + 댓글 N개, 요청 순서와 1:1 대응)를 받아 게시글의
-    success 객체·failed 사유 목록을 결정한다(PIPE-2SB-8~13, 세 갈래는 PIPE-2SB-11c).
-
-    반환: (success_객체_또는_None, failed_reasons: list[dict])
-    """
     body_result = results[0]
     comment_results = results[1:]
 
@@ -320,10 +280,8 @@ def _finalize_post(
     success_obj,
     failed_reasons: list,
 ) -> None:
-    """게시글 하나의 Bedrock 산출물을 원자적으로 확정한다(PIPE-2SB-18).
-
-    success/failed를 쓰거나(해당 없으면) 지우고, **마지막에 완결 마커를 쓴다** —
-    순서가 계약이다. 마커가 먼저 찍히면 산출물이 없는데 완결로 보여 재처리가 막힌다.
+    """**마지막에 완결 마커를 쓴다** — 순서가 계약이다. 마커가 먼저 찍히면 산출물이
+    없는데 완결로 보여 재처리가 막힌다.
     """
     success_key = output_key("success", source, date, post_id, method="bedrock")
     failed_key = output_key("failed", source, date, post_id, method="bedrock")
@@ -379,10 +337,8 @@ def _finalize_shadow(
     comments: list,
     results: list,
 ) -> None:
-    """shadow 모드(BEDROCK_SHADOW=true) 전용 기록(PIPE-2SB-70/BRK-LLM-48).
-
-    `_shadow` 경로에만 쓰고 success/failed/`_manifest`·작업 집합은 전혀 건드리지
-    않는다 — 폐기율 실측 전용이라 실제 판정을 대신하지 않는다.
+    """`_shadow` 경로에만 쓰고 success/failed/`_manifest` 는 전혀 건드리지 않는다 —
+    폐기율 실측 전용이라 실제 판정을 대신하지 않는다.
     """
     body_result = results[0]
     comment_results = results[1:]
@@ -433,10 +389,7 @@ def _finalize_shadow(
 
 
 def _collect_pending(client, bucket: str, date: str) -> tuple:
-    """전 소스의 pattern 성공분 중 Bedrock 마커가 없는 게시글을 모은다(PIPE-2SB-7/17).
-
-    반환: (pending: list[{"source","post_id","post"}], skipped_done: int, skipped_bad: int)
-    """
+    """반환: (pending: list[{"source","post_id","post"}], skipped_done: int, skipped_bad: int)"""
     pending: list = []
     skipped_done = 0
     skipped_bad = 0
@@ -501,26 +454,10 @@ def main(
     cost_tracker: Optional[Any] = None,
     spend_limit_usd: Optional[float] = None,
 ) -> dict:
-    """Bedrock 러너 진입점.
-
-    ⚠️ **이 진입점은 로컬 수동 실행·백필 전용이다.** 운영 경로는 Lambda 핸들러
-    (`pipeline/lambda_bedrock.py`)가 SQS 배치마다 돈다. 두 경로 모두 `_body_slot()`·
-    `_route_post()`·`judge_batch()`·`_finalize_post()` 를 그대로 쓰므로 **판정 기준이
-    갈리지 않는다.** 차이는 대상 선정 방식뿐이다 — 여기는 prefix 를 리스팅하고, Lambda 는
-    큐에서 받는다.
-
-    인자 없이 호출하면 날짜는 `BATCH_DATE`/`today_kst()`, 비용 추적은
-    `DynamoDBSpendCounter`(`BUDGET_TABLE_NAME`), 상한은 `BEDROCK_SPEND_LIMIT_USD`($30/일).
-
-    `date`·`cost_tracker`·`spend_limit_usd`는 **백필 전용 주입 지점**이다
-    (`docs/requirements/pipeline/backfill.md` PIPE-BF-11/15) — `run_backfill.py`가
-    정규 카운터 대신 백필 커서의 `spendUsd`(S3, PIPE-BF-9/10)에 누적하는 객체와
+    """`date`·`cost_tracker`·`spend_limit_usd`는 **백필 전용 주입 지점**이다 —
+    `run_backfill.py`가 정규 카운터 대신 백필 커서의 `spendUsd`(S3)에 누적하는 객체와
     `BACKFILL_BUDGET_USD`를 넘긴다. `cost_tracker`는 `get_spend()`/`add_spend(amount)`
     를 duck-typing으로 구현하면 된다.
-
-    반환값(신규): 처리 요약 dict — 호출부가 예산 소진 여부(`not_started`)·처리 건수를
-    판정하는 데 쓴다. CLI 진입점(`if __name__ == "__main__": main()`)은 반환값을
-    쓰지 않으므로 정규 경로의 동작은 바뀌지 않는다.
     """
     bucket = pipeline_settings.S3_BUCKET
     if not bucket:

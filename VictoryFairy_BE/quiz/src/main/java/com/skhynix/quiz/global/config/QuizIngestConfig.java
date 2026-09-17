@@ -9,11 +9,8 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 
 /**
- * 퀴즈 적재용 빈. 자격증명을 코드·설정에 두지 않는 것이 규칙이다 —
- * {@code DefaultCredentialsProvider}가 로컬에선 {@code ~/.aws}(aws configure), prod 파드에선
- * IRSA(ServiceAccount 연결 IAM 역할)를 자동으로 집는다. ⚠ prod 배포 전에 quiz 파드
- * ServiceAccount 에 {@code quiz-candidates/*} 읽기(s3:GetObject + ListBucket) IRSA 가 걸려
- * 있어야 한다 — 인프라(dev_infra) 소관.
+ * ⚠ prod 배포 전에 quiz 파드 ServiceAccount 에 {@code quiz-candidates/*} 읽기(s3:GetObject +
+ * ListBucket) IRSA 가 걸려 있어야 한다 — 인프라(dev_infra) 소관.
  */
 @Configuration
 public class QuizIngestConfig {
@@ -25,13 +22,6 @@ public class QuizIngestConfig {
         return S3Client.builder().region(Region.of(region)).build();
     }
 
-    /**
-     * KST 고정 클록. "오늘의 퀴즈"와 적재 대상 날짜의 '오늘'은 전부 KST 다 — 파드의 JVM 기본 존은
-     * k8s Deployment env 의 {@code TZ}(dev_infra 소관)에 달려 있어 앱 코드만으로는 보장되지 않는다.
-     * 그 값이 빠지면 {@code LocalDate.now()} 기본값이 자정~09시 사이에 하루 어긋난다(과거
-     * game_date 9시간 밀림 사고와 같은 계열, application-prod.yaml 주석 참고) — 이 빈은 그 의존을
-     * 끊는 방어선이다. 테스트는 이 빈을 {@code Clock.fixed}로 갈아끼운다.
-     */
     @Bean
     public Clock kstClock() {
         return Clock.system(ZoneId.of("Asia/Seoul"));

@@ -4,7 +4,7 @@
  */
 
 // 모듈별 base URL — 엔드포인트 함수는 이 base 기준 상대 경로를 쓴다.
-export { USER_BASE_URL, GAME_BASE_URL } from './config';
+export { USER_BASE_URL, GAME_BASE_URL, ASSET_BASE_URL, toAssetUrl } from './config';
 
 // 모듈별 axios 인스턴스(고급 사용/직접 요청용). 일반적으로는 아래 엔드포인트 함수를 쓴다.
 export { userClient, gameClient } from './httpClient';
@@ -16,20 +16,55 @@ export {
   checkNicknameDuplicate,
   sendEmailCode,
   verifyEmailCode,
+  uploadSignupProfileImage,
   signup,
   login,
   refresh,
   logout,
 } from './auth';
 
-// 계정(user 모듈) 엔드포인트 함수
-export { getMyProfile, withdraw } from './account';
+// 계정(user 모듈) 엔드포인트 함수 — 네 개 전부 인증이 필수다
+export {
+  getMyProfile,
+  changeNickname,
+  changePassword,
+  changeProfileImage,
+  withdraw,
+  isSameAsCurrentNickname,
+  isDuplicateNickname,
+  isNicknameChangeCooldown,
+  getNicknameChangeableAt,
+  isInvalidCurrentPassword,
+  isSameAsCurrentPassword,
+  ACCOUNT_ERROR_MESSAGE,
+} from './account';
+
+// 프로필 이미지 — 가입 전(auth) · 가입 후(account) 두 경로가 함께 쓰는 규칙과 실패 판별
+export {
+  PROFILE_IMAGE_ACCEPT,
+  PROFILE_IMAGE_MAX_BYTES,
+  PROFILE_IMAGE_MIME_TYPES,
+  PROFILE_IMAGE_ERROR_MESSAGE,
+  isProfileImageRequired,
+  isInvalidProfileImageFormat,
+  isProfileImageTooLarge,
+  isProfileImageUploadLimit,
+  isInvalidProfileImageEndpoint,
+  toProfileImageMessage,
+  validateProfileImageFile,
+} from './profileImage';
 
 // 구단(user 모듈) 엔드포인트 함수 — 인증 없이 호출한다
 export { getTeamList } from './team';
 
-// 경기(user 모듈) 엔드포인트 함수 — 인증 없이 호출한다
-export { getGameList, getLineUp, isGameNotFound, GAME_ERROR_MESSAGE } from './game';
+// 경기(user 모듈) 엔드포인트 함수 — `getSupportGameList` 만 인증이 필요하고 나머지는 공개다
+export {
+  getGameList,
+  getSupportGameList,
+  getLineUp,
+  isGameNotFound,
+  GAME_ERROR_MESSAGE,
+} from './game';
 
 // 선수(user 모듈) 엔드포인트 함수 — 인증 없이 호출한다
 export { getPlayerList } from './player';
@@ -70,23 +105,48 @@ export {
 } from './chat';
 export type { ChatSubscription, ChatSubscriptionHandlers } from './chat';
 
-// 데일리 퀴즈(quiz 모듈 — 채팅과 같은 `/rt` base) 엔드포인트 함수 — 다섯 개 전부 인증이 필수다
+// 데일리 퀴즈(quiz 모듈 — 채팅과 같은 `/rt` base) 엔드포인트 함수 — 여섯 개 전부 인증이 필수다
 export {
   getTodayQuizzes,
   getQuiz,
   submitQuiz,
   getQuizSubmissions,
+  getQuizVoteCount,
   likeQuiz,
+  findOption,
   isQuizNotFound,
   isQuizAlreadySubmitted,
   isQuizSubmitNotAllowed,
   isQuizOptionNotFound,
   isQuizOptionMissing,
   isQuizLikeNotAllowed,
+  isQuizNotServable,
+  isQuizAlreadyServedInInning,
+  isQuizGameNotStarted,
+  isQuizGameNotFound,
   QUIZ_ERROR_MESSAGE,
-  QUIZ_SUBMISSION_PAGE_SIZE,
   OX_OPTION_NO,
 } from './quiz';
+
+// 순위(user 모듈) 엔드포인트 함수 — 세 개 전부 인증이 필수이고 파라미터가 0개다
+export { getBqTopRanking, getBqRanking, getMyBqRanking } from './ranking';
+
+// 캐릭터 꾸미기(user 모듈) 엔드포인트 함수 — 세 개 전부 인증이 필수다
+export {
+  getCharacterItems,
+  purchaseCharacterItem,
+  toggleCharacterItemActive,
+  groupCharacterItemsByType,
+  findActiveCharacterItem,
+  canPurchaseCharacterItem,
+  applyCharacterItemPurchase,
+  applyCharacterItemToggle,
+  isCharacterItemNotFound,
+  isCharacterItemAlreadyOwned,
+  isCharacterItemNotOwned,
+  isInsufficientPoint,
+  CHARACTER_ERROR_MESSAGE,
+} from './character';
 
 // 토큰 저장 추상화 — store-agent가 setTokenStorage로 zustand persist 구현 주입
 export { setTokenStorage, getTokenStorage } from './tokenStorage';
@@ -115,14 +175,22 @@ export type {
   TokenRequest,
   PasswordValidationResponse,
   NicknameValidationResponse,
+  ProfileImageUploadResponse,
   TokenResponse,
 } from '../types/auth';
 export type { ApiResponse, FieldErrors, ApiErrorResponse } from '../types/api';
-export type { MyProfile, SupportTeam } from '../types/account';
+export type {
+  MyProfile,
+  SupportTeam,
+  ChangeNicknameRequest,
+  ChangePasswordRequest,
+  NicknameChangeCooldown,
+} from '../types/account';
 export type { Team } from '../types/team';
 export type {
   Game,
   GameState,
+  InningHalf,
   PositionName,
   TeamLineUp,
   LineUpPitcher,
@@ -142,10 +210,21 @@ export type {
   ChatMessagePage,
   SendChatMessageRequest,
 } from '../types/chat';
+export { CHARACTER_ITEM_TYPE } from '../types/character';
+export type {
+  CharacterItemType,
+  CharacterItem,
+  WornCharacterItem,
+  CharacterItemRequest,
+  CharacterItemPurchaseResult,
+  CharacterItemActiveResult,
+} from '../types/character';
+export type { BqRankingEntry } from '../types/ranking';
 export type {
   QuizType,
   QuizDifficulty,
   QuizOption,
+  DailyQuizOption,
   DailyQuiz,
   QuizDetail,
   UnsolvedQuizDetail,
@@ -153,8 +232,10 @@ export type {
   QuizSubmitRequest,
   QuizSubmitResult,
   QuizSubmission,
-  QuizSubmissionSummary,
-  QuizSubmissionPage,
+  QuizInningSummary,
+  QuizGameSummary,
+  QuizInningResult,
   QuizSubmissionHistory,
   QuizLikeResult,
+  QuizVoteCount,
 } from '../types/quiz';

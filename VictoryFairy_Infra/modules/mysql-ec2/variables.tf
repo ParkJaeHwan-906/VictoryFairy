@@ -73,9 +73,33 @@ variable "innodb_buffer_pool_size" {
 }
 
 variable "instance_type" {
-  description = "MySQL 호스트 EC2 인스턴스 타입"
+  description = <<-EOT
+    MySQL 호스트 EC2 인스턴스 타입.
+    t3.small(2GB)에서 t3.medium(4GB)으로 올렸다(2026-08-17) — mysqld 가 여유 없이
+    돌던 상태라(available 870MB) 헤드룸 확보가 필요했다. CPU 는 두 타입이 동일하고
+    (2 vCPU / 기준선 20%) 이번 장애에서도 CPU 크레딧은 만점이었으니, 늘어난 건
+    RAM 뿐이고 그게 목적이다.
+  EOT
   type        = string
-  default     = "t3.small"
+  default     = "t3.medium"
+}
+
+variable "mysql_container_memory" {
+  description = <<-EOT
+    mysql 컨테이너 cgroup 메모리 상한(docker --memory 표기, 예: "2g").
+    innodb_buffer_pool_size 와 별개다 — 설정값은 buffer pool 만 묶을 뿐 mysqld
+    프로세스 전체를 묶지 못한다. 상한이 없으면 mysqld 가 자라 호스트를 굶긴다
+    (2026-08-17 dev DB: buffer pool 512M 인데 RSS 1.49GB). 호스트 RAM 에서
+    redis 몫과 OS·페이지캐시 몫을 빼고 남는 범위로 잡을 것.
+  EOT
+  type        = string
+  default     = "2g"
+}
+
+variable "redis_container_memory" {
+  description = "redis 컨테이너 cgroup 메모리 상한(docker --memory 표기). redis_maxmemory 보다 넉넉해야 한다(오버헤드 포함)."
+  type        = string
+  default     = "512m"
 }
 
 variable "mysql_ingress_sg_ids" {
@@ -172,6 +196,20 @@ variable "root_volume_size_gb" {
   validation {
     condition     = var.root_volume_size_gb >= 8
     error_message = "root_volume_size_gb 는 8 이상이어야 합니다."
+  }
+}
+
+variable "swap_size_mb" {
+  description = <<-EOT
+    스왑 파일 크기(MB). 0 으로는 낮추지 말 것 — 스왑 없는 2GB 박스는 메모리 고갈 시
+    OOM 킬러 대신 페이지 축출·재적재 라이브락에 빠져 stop/start 외엔 복구가 안 된다
+    (2026-08-17 dev DB 8시간 장애, 같은 구성). 루트 볼륨에서 차감된다.
+  EOT
+  type        = number
+  default     = 2048
+  validation {
+    condition     = var.swap_size_mb >= 1024
+    error_message = "swap_size_mb 는 1024 이상이어야 합니다(2GB 박스 기준 최소 안전망)."
   }
 }
 

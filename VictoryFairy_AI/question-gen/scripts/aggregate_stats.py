@@ -8,12 +8,6 @@ game_result envelope들을 읽어 시즌 통계(상대전적·순위·연승연�
 입력은 로컬 디렉토리(routine이 aws s3 sync로 미리 준비), 출력도 로컬 디렉토리
 → routine이 다시 S3로 업로드한다. 이 스크립트는 S3에 직접 접근하지 않는다
 (boto3 미사용, stdlib + PyYAML만).
-
-파일 구성: Game dataclass·parse_game → 순수 집계 함수(Task 4) 다음에
-kbo-records 스냅샷 로더·추출 → build_season_stats(조립) → 마크다운 렌더
-→ CLI(main)를 이어붙인다(Task 5). 렌더는 f-string만 쓰는 결정적 변환이고,
-LLM은 여기서 호출하지 않는다 — 자연어 서술은 다음 단계(퀴즈 생성기 routine)
-의 몫이다.
 """
 
 import argparse
@@ -36,7 +30,6 @@ class Game:
 
 
 def parse_game(env: dict) -> "Game | None":
-    """game_result envelope 하나를 Game으로 변환한다. 필드 결손 시 None."""
     p = (env or {}).get("payload") or {}
     codes = ((env or {}).get("entities") or {}).get("teamCodes") or []
     gid = p.get("gameId") or ""
@@ -58,7 +51,6 @@ def _win_pct(w: int, l: int) -> float:
 
 
 def _wld(team: str, g: Game) -> "str | None":
-    """게임 g에서 team의 결과. "W"/"L"/"D", team이 무관한 경기면 None."""
     if g.away == team:
         side = "away"
     elif g.home == team:
@@ -71,8 +63,8 @@ def _wld(team: str, g: Game) -> "str | None":
 
 
 def _teams_in(games) -> list:
-    """games에 등장하는 팀 코드를 알파벳순으로. (set 이터레이션은 해시시드에
-    따라 순서가 달라질 수 있어 결정성을 위해 반드시 sorted()로 마무리한다.)"""
+    """set 이터레이션은 해시시드에 따라 순서가 달라질 수 있어 결정성을 위해
+    반드시 sorted()로 마무리한다."""
     codes = set()
     for g in games:
         codes.add(g.away)
@@ -92,7 +84,6 @@ def _shift_date(s: str, days: int) -> str:
 # ── 집계 함수 ────────────────────────────────────────────────
 
 def head_to_head(games) -> dict:
-    """두 팀 간 상대전적. 키는 "A|B"(코드 사전순)."""
     pairs = defaultdict(list)
     for g in games:
         key = "|".join(sorted((g.away, g.home)))
@@ -124,9 +115,7 @@ def head_to_head(games) -> dict:
 
 
 def standings(games) -> list:
-    """승률 내림차순 순위표. winPct는 (승+패) 기준 소수 3자리.
-
-    v1 단순화: 동률(winPct 같음) 처리 없이 순서대로 rank를 부여한다
+    """v1 단순화: 동률(winPct 같음) 처리 없이 순서대로 rank를 부여한다
     (동순위 표기 없음). 정렬은 winPct desc, 팀코드 asc로 안정적/결정적이다.
     """
     teams = _teams_in(games)
@@ -158,10 +147,7 @@ def standings(games) -> list:
 
 
 def streaks(games) -> dict:
-    """팀별 마지막 연속 W/L. 날짜순(동일 날짜면 gameId순)으로 봤을 때
-    가장 최근 경기부터 같은 결과가 이어진 길이. 무승부는 연속을 끊는다.
-
-    마지막 경기 자체가 무승부인 팀은 "직전 연속"이 끊긴 상태이므로
+    """마지막 경기 자체가 무승부인 팀은 "직전 연속"이 끊긴 상태이므로
     {"kind": None, "length": 0}으로 명시한다(소비자가 구분 가능하도록).
     """
     by_team = defaultdict(list)
@@ -188,7 +174,6 @@ def streaks(games) -> dict:
 
 
 def home_away(games) -> dict:
-    """홈/원정 분리 승패무. {team: {"home": {...}, "away": {...}}}."""
     teams = _teams_in(games)
     out = {t: {"home": {"wins": 0, "losses": 0, "draws": 0},
                "away": {"wins": 0, "losses": 0, "draws": 0}} for t in teams}
@@ -201,7 +186,6 @@ def home_away(games) -> dict:
 
 
 def monthly(games) -> dict:
-    """{team: {"YYYY-MM": {"wins","losses","draws","winPct"}}}."""
     teams = _teams_in(games)
     out = {t: {} for t in teams}
     label = {"W": "wins", "L": "losses", "D": "draws"}
@@ -218,11 +202,7 @@ def monthly(games) -> dict:
 
 
 def standings_trend(games) -> dict:
-    """개막일(min date) + 27일 시점까지의 순위 vs 전체 경기 기준 현재 순위.
-
-    delta = early_rank - now_rank (양수면 순위 상승 = 랭크 숫자 감소).
-    early 시점에 경기가 없었던 팀(그 기간 무경기)은 delta에서 제외한다.
-    """
+    """delta = early_rank - now_rank (양수면 순위 상승 = 랭크 숫자 감소)."""
     if not games:
         return {"earlyAsOf": None, "early": {}, "now": {}, "delta": {}}
 
@@ -238,7 +218,6 @@ def standings_trend(games) -> dict:
 
 
 def recent_scoring(games, end_date: str, days: int = 7) -> dict:
-    """end_date를 포함한 직전 days일 윈도([end_date-days+1, end_date])의 득실점."""
     start = _shift_date(end_date, -(days - 1))
     window = [g for g in games if start <= g.date <= end_date]
 
@@ -254,9 +233,7 @@ def recent_scoring(games, end_date: str, days: int = 7) -> dict:
 
 
 def yoy(cur_games, prev_games, as_of: str) -> "dict | None":
-    """전년 동일 월-일(as_of의 MM-DD) 컷오프로 두 시즌 승률을 비교한다.
-
-    prev_games가 비면 (전년 데이터 없음) None. 두 시즌 모두에 존재하는
+    """prev_games가 비면 (전년 데이터 없음) None. 두 시즌 모두에 존재하는
     팀만 결과에 포함한다(한쪽에만 있는 팀은 비교 불가라 제외).
     """
     if not prev_games:
@@ -280,7 +257,6 @@ def yoy(cur_games, prev_games, as_of: str) -> "dict | None":
 
 
 def season_games(games, year: int) -> list:
-    """date가 해당 연도인 게임만 필터(입력 리스트는 변형하지 않음)."""
     prefix = str(year)
     return [g for g in games if g.date[:4] == prefix]
 
@@ -288,8 +264,7 @@ def season_games(games, year: int) -> list:
 # ── 로더 ────────────────────────────────────────────────
 
 def load_envelopes_dir(path) -> list:
-    """디렉토리를 재귀로 훑어 `*.json` envelope를 읽고 `docType=="game_result"`
-    인 것만 리스트로 반환한다. 디렉토리가 없으면 빈 리스트, 개별 파일이 JSON이
+    """디렉토리가 없으면 빈 리스트, 개별 파일이 JSON이
     아니면 그 파일만 건너뛴다(수집 파이프라인의 부분 실패를 여기서 다시 죽이지
     않는다는 원칙 — 스펙 §5와 동일한 태도).
 
@@ -320,10 +295,7 @@ def load_envelopes_dir(path) -> list:
 
 
 def load_snapshots_dir(path) -> dict:
-    """`{kbo-dir}/{page}/{date}.json` 구조(Task 2 스냅샷 계약)에서 페이지별로
-    가장 최신 날짜의 스냅샷 하나만 골라 `{page_slug: snapshot_dict}`로 반환한다.
-
-    디렉토리 부재·빈 디렉토리·개별 페이지 결측(예: top5·record-correct는
+    """디렉토리 부재·빈 디렉토리·개별 페이지 결측(예: top5·record-correct는
     kbo_records 소스에서 상시 미생성)은 모두 정상 케이스로 보고 빈 dict나
     해당 페이지 키 부재로 처리한다 — extract_kbo_official이 이를 그대로
     None으로 넘긴다."""
@@ -349,17 +321,13 @@ def load_snapshots_dir(path) -> dict:
 # ── 추출(kbo-records 스냅샷 → 통계 렌더용 부분) ──────────────────
 
 def _wrap_snapshot(snap):
-    """스냅샷 dict를 `{"asOf","tables"}`로, 없으면 None으로."""
     if not snap:
         return None
     return {"asOf": snap.get("date"), "tables": snap.get("tables")}
 
 
 def extract_kbo_official(snapshots: dict) -> dict:
-    """kbo-records 스냅샷 딕셔너리(`{page_slug: snapshot_dict}`)에서 통계
-    렌더에 쓸 부분만 추출한다.
-
-    top5·record-correct 페이지는 마크업이 <table>이 아니라(Task 2 kbo_records.py
+    """top5·record-correct 페이지는 마크업이 <table>이 아니라(Task 2 kbo_records.py
     PAGES 주석) 상시 미생성이므로, 이 함수는 해당 슬러그의 부재를 에러 없이
     None으로 처리하는 게 정상 경로다."""
     team_rank_daily = _wrap_snapshot(snapshots.get("team-rank-daily"))
@@ -384,11 +352,7 @@ def extract_kbo_official(snapshots: dict) -> dict:
 # ── 조립(시즌 통계 하나로) ─────────────────────────────────────
 
 def build_season_stats(games, today: str) -> dict:
-    """Task 4 집계 함수를 전부 호출해 시즌 통계를 하나로 조립한다.
-
-    `today`(=asOf) 연도를 현재 시즌, 그 전 연도를 전년 시즌으로 보고
-    `season_games`로 나눈다 — yoy 비교의 두 시즌 게임 목록도 여기서 갈라낸다.
-    `generatedAt`만 호출 시각(UTC) 의존적이고, 그 외 값은 games/today로부터
+    """`generatedAt`만 호출 시각(UTC) 의존적이고, 그 외 값은 games/today로부터
     결정적으로 계산된다."""
     year = int(today[:4])
     cur = season_games(games, year)
@@ -535,11 +499,6 @@ def _render_yoy_section(yoy_map, as_of: str) -> str:
 
 
 def render_season_md(stats: dict) -> str:
-    """build_season_stats 출력을 사람·LLM이 읽을 마크다운으로 렌더한다.
-
-    수치를 그대로 옮기기만 하고 해석·추론은 하지 않는다(다음 단계 LLM의
-    환각을 막는 게 이 파일 전체의 목적). 모든 섹션 제목에 `(기준일 {asOf})`를
-    넣는다."""
     as_of = stats["asOf"]
     sections = [
         f"# 시즌 통계 요약 (기준일 {as_of})",
@@ -556,7 +515,6 @@ def render_season_md(stats: dict) -> str:
 
 
 def _render_table_md(table: dict) -> str:
-    """스냅샷 표 하나(`{"headers","rows"}`)를 마크다운 표로."""
     headers = table.get("headers") or []
     rows = table.get("rows") or []
     if not headers:
@@ -605,11 +563,8 @@ def _render_season_leaders_section(leaders) -> str:
 
 
 def render_kbo_md(kbo: dict) -> str:
-    """extract_kbo_official 출력을 마크다운으로 렌더한다.
-
-    각 섹션은 자기 스냅샷의 날짜를 `(기준일 …)`로 표기한다(kbo-official 전체가
-    공유하는 단일 asOf가 없음 — 페이지마다 수집 시각이 다를 수 있어서다).
-    top5·record-correct는 상시 미생성(Task 2)이라 None이 정상 경로다."""
+    """각 섹션은 자기 스냅샷의 날짜를 `(기준일 …)`로 표기한다(kbo-official 전체가
+    공유하는 단일 asOf가 없음 — 페이지마다 수집 시각이 다를 수 있어서다)."""
     sections = [
         "# KBO 공식 기록실 스냅샷",
         _render_kbo_simple_section("팀 순위(공식)", kbo.get("teamRankDaily")),
@@ -636,9 +591,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main(argv=None) -> None:
-    """CLI 진입점. envelopes-dir·kbo-dir를 읽어 out-dir에 4개 파일을 쓴다:
-    season.json, season.md, kbo-official.json, kbo-official.md.
-    kbo-dir가 없거나 비어 있어도(스냅샷 미수집) kbo-official 파일은 만들되
+    """kbo-dir가 없거나 비어 있어도(스냅샷 미수집) kbo-official 파일은 만들되
     내부 값은 전부 None으로 채운다."""
     args = _build_arg_parser().parse_args(argv)
 

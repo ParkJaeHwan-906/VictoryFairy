@@ -9,11 +9,15 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
+import com.skhynix.common.error.BusinessDataException;
 import com.skhynix.common.error.BusinessException;
 import com.skhynix.common.error.ErrorCode;
 import com.skhynix.domain.user.repository.UserRepository;
+import com.skhynix.user.auth.dto.SocialAccountHintResponse;
 import com.skhynix.user.auth.email.EmailSender;
 import com.skhynix.user.auth.store.EmailVerificationStore;
+import com.skhynix.user.oauth.service.SocialOnlyAccountInspector;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -49,6 +53,9 @@ class EmailVerificationServiceTest {
 
     @Mock
     private EmailSender emailSender;
+
+    @Mock
+    private SocialOnlyAccountInspector socialOnlyAccountInspector;
 
     @InjectMocks
     private EmailVerificationService service;
@@ -97,8 +104,9 @@ class EmailVerificationServiceTest {
     @Test
     @DisplayName("[USER-EMV-14] 이미 가입된 이메일로 발송을 요청하면 인증번호를 발송하지 않고 DUPLICATE_EMAIL을 던진다")
     void sendCode_alreadyRegisteredEmail_throwsDuplicateEmailWithoutSending() {
-        // given
+        // given: 자체 가입 계정이라 소셜 안내가 붙지 않는다(비밀번호로 로그인할 수 있다)
         given(userRepository.existsByEmail(EMAIL)).willReturn(true);
+        given(socialOnlyAccountInspector.loginableProviders(EMAIL)).willReturn(List.of());
 
         // when & then
         assertThatThrownBy(() -> service.sendCode(EMAIL))
@@ -106,6 +114,25 @@ class EmailVerificationServiceTest {
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(ErrorCode.DUPLICATE_EMAIL);
 
+        verifyNoInteractions(emailSender);
+        verifyNoInteractions(store);
+    }
+
+    @Test
+    @DisplayName("소셜로만 가입된 이메일이면 DUPLICATE_EMAIL 대신 SOCIAL_ACCOUNT_ONLY와 "
+            + "로그인 가능한 provider 목록을 함께 돌려준다(자체 로그인이 영원히 성립하지 않는 계정이다)")
+    void sendCode_socialOnlyEmail_throwsSocialAccountOnlyWithProviders() {
+        // given
+        given(userRepository.existsByEmail(EMAIL)).willReturn(true);
+        given(socialOnlyAccountInspector.loginableProviders(EMAIL)).willReturn(List.of("naver"));
+
+        // when & then
+        assertThatThrownBy(() -> service.sendCode(EMAIL))
+                .isInstanceOf(BusinessDataException.class)
+                .extracting(e -> ((BusinessDataException) e).getData())
+                .isEqualTo(new SocialAccountHintResponse(List.of("naver")));
+
+        // 세분화는 문구만 바꾼다 — 발송하지 않는다는 계약은 그대로다
         verifyNoInteractions(emailSender);
         verifyNoInteractions(store);
     }

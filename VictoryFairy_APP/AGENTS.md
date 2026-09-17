@@ -19,6 +19,25 @@ Read the exact versioned docs at https://docs.expo.dev/versions/v57.0.0/ before 
 액세스 토큰을 네이티브로 꺼내오지 않는 것이 이 구조의 요점이다 — 꺼내오면 만료 재발급을
 앱에도 한 벌 두어야 하고, 웹이 로그아웃해도 앱이 든 사본이 남는다.
 
+**인스타 공유는 그림만 웹이 그린다.** 스토리에 스티커를 얹는 건 앱과 앱 사이의 약속
+(안드로이드 인텐트 · iOS URL 스킴)이라 브라우저에서는 흉내 낼 수 없다 —
+`navigator.share`로는 OS 공유 시트까지가 끝이고 사용자가 옮길 수 있는 스티커 겹을
+지정할 수 없다. 그래서 알림과 같은 분업이다: 웹이 PNG를 그려 `postMessage`로 넘기고,
+앱은 인스타에 건네고 결말만 돌려준다(`src/share/`, `modules/instagram-share/`).
+
+```
+웹 → 앱   postMessage({ source: 'victoryfairy-app/instagram-share',
+                        stickerBase64, backgroundTopColor?, backgroundBottomColor? })
+앱 → 웹   window.__victoryFairyInstagramShare(outcome)
+          outcome: 'opened' | 'instagram-missing' | 'not-configured' | 'failed'
+앱 → 웹   window.__victoryFairyInstagramShareAvailable  (로드마다 갱신되는 값)
+```
+
+`opened`는 "올렸다"가 아니라 "넘겼다"다 — 인스타 안에서 사용자가 실제로 게시했는지는
+알 수 없고, 인스타도 알려주지 않는다. 그리고 `EXPO_PUBLIC_INSTAGRAM_APP_ID` 없이는
+인스타가 요청을 조용히 버리므로, 값이 없으면 앱이 공유 불가로 답한다.
+원리·규격·디버깅은 [`docs/instagram-share.md`](docs/instagram-share.md)에 있다.
+
 **색은 `src/theme.ts`를 거친다.** 값은 `../VictoryFairy_FE/src/styles/tokens.css`의
 시맨틱 토큰에서 가져온다. 웹과 앱의 경계가 눈에 띄지 않으려면 토큰이 바뀔 때 같이 고쳐야 한다.
 

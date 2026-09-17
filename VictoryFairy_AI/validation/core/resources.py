@@ -12,18 +12,12 @@ DATA_DIR = Path(__file__).resolve().parent / "data"
 
 
 def _load_json(filename: str):
-    """data 디렉토리의 JSON 파일을 읽어 파싱한다."""
     path = DATA_DIR / filename
     with path.open(encoding="utf-8") as f:
         return json.load(f)
 
 
 def load_banned_words() -> dict[str, list[str]]:
-    """비속어 단어 목록을 카테고리별로 로드한다.
-
-    반환값: {"general": [...], "sexual": [...], "parent": [...]} 형태의 딕셔너리.
-    (카테고리 키는 감지 시 어떤 유형인지 식별하는 데 쓰인다.)
-    """
     data = _load_json("banned_words.json")
     if not isinstance(data, dict):
         raise ValueError(
@@ -34,19 +28,22 @@ def load_banned_words() -> dict[str, list[str]]:
 
 
 def load_exceptions() -> list[str]:
-    """오탐(false positive) 방지용 예외 표현 목록을 로드한다.
-
+    """
     비속어 부분 문자열을 포함하지만 정상적인 표현(예: '보지도 못했다')을
     검사 전에 문장에서 제거하기 위한 whitelist 이다.
     """
     return _load_json("exceptions.json")
 
 
-def load_normalization_maps() -> tuple[dict[str, str], dict[str, str]]:
-    """정규화 맵을 로드한다.
-
-    반환값: (단일 문자 치환 맵, 다중 문자 치환 맵)
+def load_strict_adjacent() -> list[str]:
     """
+    banned_words 중 '원문에서 글자가 붙어 있을 때만' 잡을 단어 목록이다.
+    여기 적힌 단어는 일반 뷰에서 빠지고 공백 보존 뷰에서만 검사된다(patterns 참조).
+    """
+    return _load_json("strict_adjacent.json")
+
+
+def load_normalization_maps() -> tuple[dict[str, str], dict[str, str]]:
     data = _load_json("normalization.json")
     single_char = data.get("single_char", {})
     multi_char = data.get("multi_char", {})

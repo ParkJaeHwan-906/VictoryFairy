@@ -1,17 +1,21 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   ApiError,
   getTodayQuizzes,
+  isQuizAlreadyServedInInning,
   isQuizAlreadySubmitted,
   isQuizNotFound,
+  isQuizNotServable,
   isQuizSubmitNotAllowed,
   submitQuiz,
 } from '../api';
 import type { DailyQuiz } from '../api';
+import ConfirmSheet from '../components/ConfirmSheet';
 import QuizCard, { type QuizCardExit } from '../components/QuizCard';
+import QuizVoteGauge from '../components/QuizVoteGauge';
 import { getTeamDisplay } from '../data/kboTeams';
-import { ROUTES, type QuizPageState } from '../routes';
+import { ROUTES, readQuizPageState } from '../routes';
 import { formatKoreanDate, getTodayInSeoul } from '../utils/date';
 import '../styles/QuizPage.css';
 
@@ -36,19 +40,22 @@ import '../styles/QuizPage.css';
  * 서버가 받은 시각을 응답에 주지 않아, 세려면 이 화면이 수신 시각을 스스로 찍어야 한다.
  *
  * ── 경기와 문제의 관계 ────────────────────────────────────────────────
- * **퀴즈 API 는 경기별로 문제를 주지 않는다.** `GET /quizzes/today` 는 그날의
- * 세트(전원 동일)를 줄 뿐이고 `gameId` 로 좁히는 파라미터가 없다(docs/quiz.md).
- * 지금 할 수 있는 가장 가까운 것은 `preferredOnly=true` — 내 응원 구단·선수와
- * 매칭되는 문제만 남기는 필터다. 그래서 이 화면은
- *   ① 진입 자체를 응원 구단 경기로 제한하고(GameDetailSheet 가 CTA 를 가린다)
- *   ② 받은 세트도 선호 문제로 좁힌다
- * 는 두 겹으로 "선호 구단 경기 문제"에 근사한다. 경기 단위로 정확히 묶으려면
- * 백엔드에 `gameId` 필터가 생겨야 한다.
+ * **`gameId` 가 이제 필수 조회 조건이다**(2026-08-12). 다만 문제를 고르는 값은 아니다 —
+ * 세트는 여전히 전원 동일하고, `gameId` 의 역할은 **"지금 보고 있는 경기가 오늘·내 응원
+ * 구단·진행 중인가"를 검증하고 받는 행에 찍을 이닝을 확보하는 것** 둘뿐이다(docs/quiz.md).
+ * 그래서 문제를 응원 구단 쪽으로 좁히는 일은 여전히 `preferredOnly=true` 가 한다.
+ *
+ * 문맥(`QuizPageState`)이 없으면 조회 자체를 걸 수 없으므로, 이 화면은 주소를 직접 치고
+ * 들어온 경우 아무것도 부르지 않고 돌아가라고 안내한다.
+ *
+ * ── 한 이닝에 한 세트 ─────────────────────────────────────────────────
+ * 같은 `(경기, 이닝)`으로 다시 부르면 409 다. **되받기가 아니라 거절**이므로, 이 화면이
+ * 받은 세트를 잃으면(새로고침·이탈) 그 문제들은 8분 뒤 오답으로 확정되고 돌아오지 않는다.
  * ──────────────────────────────────────────────────────────────────────
  *
- * 디자인 아래쪽의 실시간 선택율(O 65% / X 35% 와 게이지, 744:22706~22748)은 넣지 않았다 —
- * **보기별 선택 비율을 주는 API 가 없다**(docs/quiz.md). 제출 응답이 주는 것은 내 정오와
- * 정답 번호뿐이고 `accuracy` 도 내 누적 정답률이라 다른 값이다. 숫자를 지어내지 않는다.
+ * 디자인 아래쪽의 선택율 게이지(744:22745·1365:11847)는 `QuizVoteGauge` 가 그린다.
+ * 근거는 `/today` 가 보기마다 함께 주는 `voteCount` 하나뿐이라(2026-08-19 신설) **문제를
+ * 받은 순간의 스냅샷**이다 — 갱신 경로가 없어 내가 답해도 숫자는 움직이지 않는다.
  */
 
 /**
@@ -62,19 +69,65 @@ const CARD_EXIT_MS = 280;
 const MAX_DECK_LAYERS = 2;
 
 /**
- * 앞 화면(경기 상세)이 넘긴 경기 문맥을 읽는다.
+ * 한 문제에 주는 시간(초). 다 되면 답하지 않은 채로 다음 문제로 넘어간다.
  *
- * 주소를 직접 치면 비어 있고, history 에 남은 옛 형태가 되살아날 수도 있다.
- * 없으면 상단 바 제목만 일반 문구로 바뀔 뿐 퀴즈는 정상 동작한다 —
- * 조회 조건이 아니라 표시용 값이기 때문이다.
+ * 서버의 8분 제출 시한(위 머리말 참고)과는 다른 것이다 — 저쪽은 "받은 문제에 답을 낼 수
+ * 있는 시간"이고 이쪽은 화면이 한 문제에 머무는 시간이라, 이 시계로 넘긴 문제도 서버
+ * 시한 안에서는 여전히 미답 상태다(그리고 8분이 지나면 오답으로 확정된다).
  */
-function readQuizState(state: unknown): QuizPageState | null {
-  if (typeof state !== 'object' || state === null) return null;
+const QUESTION_SECONDS = 15;
 
-  const { gameId, awayTeam, homeTeam } = state as Partial<QuizPageState>;
-  return typeof gameId === 'string' && typeof awayTeam === 'string' && typeof homeTeam === 'string'
-    ? { gameId, awayTeam, homeTeam }
-    : null;
+/** 시간이 다 돼 넘어갔다는 안내. 조용히 넘기면 자기 답이 저장된 줄 안다. */
+const TIME_OVER_NOTICE = `${QUESTION_SECONDS}초가 지나 다음 문제로 넘어갔어요. 답은 반영되지 않았어요.`;
+
+/**
+ * 나가기 전에 한 번 더 묻는 문구.
+ *
+ * 이탈은 되돌릴 수 없다 — 같은 `(경기, 이닝)` 으로 다시 부르면 409 라 받은 세트를
+ * 되받을 수 없고, 남은 문제는 8분이 지나면 오답으로 확정된다(위 화면 주석 참고).
+ * 줄은 `ConfirmSheet` 규약대로 디자인이 끊어 둔 자리에서 끊는다.
+ */
+const LEAVE_CONFIRM = {
+  title: '퀴즈를 그만 풀까요?',
+  description: [
+    '지금 나가면 이 문제로 다시 돌아올 수 없어요.',
+    '답하지 않은 문제는 오답으로 처리돼요.',
+  ],
+  confirmLabel: '나가기',
+} as const;
+
+/**
+ * 나갈 때 되돌리는 히스토리 칸 수.
+ *
+ * 이 화면은 시스템 뒤로가기를 받으려고 같은 주소로 자리를 하나 더 쌓아 둔다(아래 효과
+ * 주석 참고). 그 자리는 보여줄 화면이 아니라 뒤로가기를 받아 내는 덫이라, 나갈 때는
+ * 덫과 원래 자리 두 칸을 함께 되돌려야 들어오기 전 화면에 닿는다.
+ */
+const LEAVE_HISTORY_DELTA = -2;
+
+/** 문맥 없이 들어와 조회를 걸 수 없을 때의 안내. */
+const NO_CONTEXT_MESSAGE = '경기 정보가 없어 퀴즈를 불러올 수 없어요. 경기 목록에서 다시 들어와 주세요.';
+
+/**
+ * 세트를 받지 못한 이유를 화면 문구로 옮긴다.
+ *
+ * 서버 문구를 그대로 쓰지 않는 이유 — 403 은 다섯 사유("경기 없음"·"오늘 아님"·"내 구단
+ * 아님"·"진행 중 아님"·"이닝 없음")가 한 응답으로 합쳐져 있어 원인을 단정할 수 없고,
+ * 409 는 실패가 아니라 "다음 이닝을 기다리라"는 안내다. 둘 다 재시도로 풀리지 않으므로
+ * 다시 시도를 권하지 않는다.
+ */
+function toLoadMessage(error: unknown): string {
+  if (isQuizAlreadyServedInInning(error)) {
+    return '이번 이닝 문제는 이미 받았어요. 다음 이닝에 새 문제가 나와요.';
+  }
+
+  if (isQuizNotServable(error)) {
+    return '지금은 퀴즈를 받을 수 없어요. 경기가 진행 중일 때만 문제가 나와요.';
+  }
+
+  return error instanceof ApiError
+    ? error.message
+    : '퀴즈를 불러오지 못했어요. 잠시 후 다시 시도해주세요.';
 }
 
 /** 서버의 짧은 구단명을 디자인의 정식 명칭으로 바꾼다. 모르는 구단이면 원문 그대로. */
@@ -93,9 +146,24 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * 이번에 카드가 빠져나가는 데 실제로 걸리는 시간(ms).
+ *
+ * 움직임을 줄여 달라고 한 사용자에게는 CSS 가 퇴장 전환을 끄므로(QuizCard.css) 기다릴
+ * 것이 없다. 그런데도 `CARD_EXIT_MS` 를 그대로 기다리면 카드는 즉시 사라지고 **빈 자리를
+ * 280ms 동안 보게 된다** — 넘어가는 것이 매끄러워지는 게 아니라 끊겨 보인다.
+ *
+ * 매번 다시 묻는 이유: 아이폰의 "동작 줄이기"는 앱을 켜 둔 채로도 켜고 끌 수 있어,
+ * 한 번 읽어 두면 그 뒤로 어긋난다.
+ */
+function cardExitMs(): number {
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : CARD_EXIT_MS;
+}
+
 export default function QuizPage() {
   const navigate = useNavigate();
-  const context = readQuizState(useLocation().state);
+  const context = readQuizPageState(useLocation().state);
+  const gameId = context?.gameId ?? null;
 
   const [quizzes, setQuizzes] = useState<DailyQuiz[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -114,30 +182,83 @@ export default function QuizPage() {
   const [exit, setExit] = useState<QuizCardExit | null>(null);
   /** 이번에 실제로 제출한 문제 수. 완료 화면에만 쓴다(정오는 세지 않는다). */
   const [submittedCount, setSubmittedCount] = useState(0);
+  /** 나가기를 다시 묻는 시트가 떠 있는지. */
+  const [isLeaveConfirmOpen, setIsLeaveConfirmOpen] = useState(false);
+
+  /** 지금 문제에 남은 시간(초). 0 이 되면 답하지 않은 채로 넘어간다. */
+  const [secondsLeft, setSecondsLeft] = useState(QUESTION_SECONDS);
+
+  /** 뒤로가기를 받아 낼 자리를 이미 쌓았는지. StrictMode 가 효과를 두 번 태워도 하나만 쌓는다. */
+  const backGuardRef = useRef(false);
+  /** 지금 풀 문제가 화면에 있는지. `popstate` 는 렌더 밖에서 와 state 를 읽을 수 없다. */
+  const hasQuizRef = useRef(false);
+  /** 시간이 다 돼 이미 넘긴 문제. StrictMode 가 효과를 두 번 태워도 한 번만 넘어가게 한다. */
+  const timedOutQuizIdRef = useRef<number | null>(null);
 
   useEffect(() => {
+    /*
+     * 경기를 모르면 호출 자체가 400 이라 아예 걸지 않는다 —
+     * 서버 상태를 바꾸는 요청이라 "일단 던져 보는" 편이 더 나쁘다.
+     */
+    if (gameId === null) {
+      setLoadError(NO_CONTEXT_MESSAGE);
+      return;
+    }
+
     // 화면을 떠난 뒤 도착한 응답으로 state 를 건드리지 않도록 막는다.
     let alive = true;
 
-    // 응원 정보가 하나도 없으면 서버가 이 필터를 무시하고 전체를 준다 — 오류가 아니다.
-    getTodayQuizzes(true)
+    // 여기까지 왔다면 응원 구단은 이미 확인된 상태라 이 필터는 항상 실제로 걸린다.
+    getTodayQuizzes(gameId, true)
       .then((list) => {
         if (alive) setQuizzes(list);
       })
       .catch((error: unknown) => {
-        if (alive) {
-          setLoadError(
-            error instanceof ApiError
-              ? error.message
-              : '퀴즈를 불러오지 못했어요. 잠시 후 다시 시도해주세요.',
-          );
-        }
+        if (alive) setLoadError(toLoadMessage(error));
       });
 
     return () => {
       alive = false;
     };
-  }, []);
+  }, [gameId]);
+
+  /*
+   * 시스템 뒤로가기(브라우저 · 안드로이드 · 스와이프)도 상단 바 뒤로가기와 같게 다룬다.
+   *
+   * `BrowserRouter` 는 데이터 라우터가 아니라 `useBlocker` 를 쓸 수 없다. 대신 같은
+   * 주소로 자리를 하나 더 쌓아 두고, 뒤로가기가 그 자리를 먹으면 곧바로 다시 쌓는다 —
+   * 주소가 같으니 화면은 그대로 남고, 우리는 뒤로가기가 눌렸다는 것만 넘겨받는다.
+   *
+   * 쌓는 자리에는 지금 자리의 값을 그대로 실어 둔다. 비워 두면 그 자리에 되돌아왔을 때
+   * `location.state`(경기 문맥)가 없어, 주소를 직접 치고 들어온 것처럼 보인다.
+   */
+  useEffect(() => {
+    if (!backGuardRef.current) {
+      window.history.pushState(window.history.state, '', window.location.href);
+      backGuardRef.current = true;
+    }
+
+    const handlePopState = () => {
+      /*
+       * 풀 문제가 없으면 잃을 것도 없다 — 묻지 않고 내보낸다.
+       * 방금 뒤로가기가 쌓아 둔 자리를 먹었으므로 여기서는 한 칸만 더 물러나면 된다.
+       */
+      if (!hasQuizRef.current) {
+        navigate(-1);
+        return;
+      }
+
+      // 먹힌 자리를 다시 쌓는다 — 다음 뒤로가기도 같은 자리에서 걸려야 한다.
+      window.history.pushState(window.history.state, '', window.location.href);
+      setIsLeaveConfirmOpen(true);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [navigate]);
 
   const handleSelect = (optionNo: number, direction: QuizCardExit) => {
     const quiz = quizzes?.[index];
@@ -155,7 +276,7 @@ export default function QuizPage() {
      * 응답이 더 빠르면 카드가 사라지기 전에 내용이 바뀌고, 애니메이션이 더 빠르면
      * 빈 자리가 남는다 — 늦은 쪽에 맞춰야 둘 다 안 생긴다.
      */
-    Promise.all([submitQuiz(quiz.id, optionNo), wait(CARD_EXIT_MS)])
+    Promise.all([submitQuiz(quiz.id, optionNo), wait(cardExitMs())])
       .then(() => {
         setSubmittedCount((current) => current + 1);
         goNext();
@@ -201,6 +322,11 @@ export default function QuizPage() {
   const goNext = () => {
     setExit(null);
     setSubmitError(null);
+    /*
+     * 시계를 여기서 되감는다. 문제가 바뀐 뒤 따로 되감으면 아래 "시간이 다 됐다" 효과가
+     * 0 초인 채로 한 번 더 돌아, 다음 문제까지 곧바로 넘겨 버린다.
+     */
+    setSecondsLeft(QUESTION_SECONDS);
     setIndex((current) => current + 1);
   };
 
@@ -225,6 +351,66 @@ export default function QuizPage() {
   /* 뒤에 깔릴수록 먼저 그려야 앞장에 가려진다 — DOM 순서가 곧 쌓임 순서다. */
   const layers = Array.from({ length: layerCount }, (_, order) => layerCount - order);
 
+  /* `popstate` 가 렌더 밖에서 읽을 수 있도록 최신 값을 옮겨 둔다. */
+  useEffect(() => {
+    hasQuizRef.current = quiz !== null;
+  }, [quiz]);
+
+  /*
+   * 1초에 한 칸씩 줄인다.
+   *
+   * 답을 내는 중이거나 카드가 빠지는 중이면 세지 않는다 — 이미 끝난 문제다.
+   * 나가기 확인 시트가 떠 있는 동안에도 멈춘다. 그 시트는 화면을 떠날지 묻는 것이라,
+   * 답을 고민하는 시간이 아니다(취소하고 돌아왔더니 문제가 넘어가 있으면 안 된다).
+   */
+  useEffect(() => {
+    if (quiz === null || isSubmitting || exit !== null || isLeaveConfirmOpen) return;
+
+    const ticker = window.setInterval(() => {
+      setSecondsLeft((left) => Math.max(0, left - 1));
+    }, 1000);
+
+    return () => {
+      window.clearInterval(ticker);
+    };
+  }, [quiz, isSubmitting, exit, isLeaveConfirmOpen]);
+
+  /*
+   * 시간이 다 됐다 — 답하지 않은 채로 넘긴다.
+   *
+   * 카드는 버튼으로 골랐을 때와 같이 위로 빼고, 다 빠진 뒤에 넘긴다(고를 때와 같은 흐름).
+   * `setExit` 뒤 이 효과가 다시 돌지만 `exit !== null` 에서 멈추므로 한 번만 넘어간다.
+   */
+  useEffect(() => {
+    if (secondsLeft > 0 || quiz === null || isSubmitting || exit !== null) return;
+    if (timedOutQuizIdRef.current === quiz.id) return;
+
+    timedOutQuizIdRef.current = quiz.id;
+    setSkipNotice(TIME_OVER_NOTICE);
+    setExit('up');
+    void wait(cardExitMs()).then(goNext);
+  }, [secondsLeft, quiz, isSubmitting, exit]);
+
+  /** 쌓아 둔 자리까지 함께 되돌려 실제로 이 화면을 뜬다. */
+  const leave = () => {
+    navigate(LEAVE_HISTORY_DELTA);
+  };
+
+  /**
+   * 상단 바의 뒤로 가기.
+   *
+   * 화면에 풀 문제가 남아 있을 때만 묻는다 — 다 풀었거나 받지 못했으면 나가서 잃을 것이
+   * 없어, 한 번 더 묻는 것이 걸림돌이기만 하다.
+   */
+  const handleBack = () => {
+    if (quiz === null) {
+      leave();
+      return;
+    }
+
+    setIsLeaveConfirmOpen(true);
+  };
+
   return (
     <div
       className="quiz-page"
@@ -235,7 +421,7 @@ export default function QuizPage() {
         <button
           className="quiz-page__back"
           type="button"
-          onClick={() => navigate(-1)}
+          onClick={handleBack}
           aria-label="뒤로 가기"
         >
           <span className="quiz-page__back-icon" aria-hidden="true" />
@@ -255,14 +441,15 @@ export default function QuizPage() {
         )}
 
         {/*
-          빈 배열은 "오늘 세트가 없음"과 "오늘 세트를 다 풀었음"이 구분되지 않는다
-          (docs/quiz.md) — 둘 다 아우르는 문구를 쓴다.
+          빈 배열은 "줄 수 있는데 줄 게 없다"만 뜻한다(2026-08-12로 의미가 좁아졌다) —
+          오늘 세트가 없거나 이 이닝 몫을 이미 다 받은 경우다. 둘은 구분되지 않는다.
+          "지금은 줄 수 없다"에 해당하는 경우는 전부 403·409라 위 loadError 로 빠진다.
         */}
         {isEmpty && (
           <p className="quiz-page__status">
             지금 풀 수 있는 퀴즈가 없어요.
             <br />
-            오늘 몫을 이미 다 풀었을 수도 있어요.
+            이번 이닝 몫을 이미 다 받았을 수도 있어요.
           </p>
         )}
 
@@ -285,6 +472,7 @@ export default function QuizPage() {
               dateLabel={dateLabel}
               matchLabel={matchLabel}
               isSubmitting={isSubmitting}
+              secondsLeft={secondsLeft}
               exit={exit}
               onSelect={handleSelect}
             />
@@ -304,6 +492,13 @@ export default function QuizPage() {
           </p>
         )}
 
+        {/* 지금 문제의 보기별 선택율. 남는 공간을 위로 밀어 화면 아래에 붙는다. */}
+        {quiz !== null && (
+          <div className="quiz-page__vote">
+            <QuizVoteGauge quiz={quiz} />
+          </div>
+        )}
+
         {isDone && !isEmpty && (
           <div className="quiz-page__done">
             <p className="quiz-page__done-title">오늘의 퀴즈를 모두 풀었어요!</p>
@@ -319,6 +514,15 @@ export default function QuizPage() {
           </div>
         )}
       </div>
+
+      {/* 나가기는 곧 화면이 바뀌는 일이라 시트를 따로 닫지 않는다. */}
+      {isLeaveConfirmOpen && (
+        <ConfirmSheet
+          {...LEAVE_CONFIRM}
+          onConfirm={leave}
+          onClose={() => setIsLeaveConfirmOpen(false)}
+        />
+      )}
     </div>
   );
 }

@@ -71,8 +71,6 @@ spec:
       containers:
         - name: quiz
           # ⚠ 불변 태그(커밋 SHA). latest 금지.
-          # 아래 두 플레이스홀더는 CI 가 apply 직전에 치환한다(계정 ID / 빌드한 커밋 SHA).
-          # 커밋된 상태 그대로가 정상 — 손으로 실제 값을 박아 넣지 말 것.
           image: "<ACCOUNT_ID>.dkr.ecr.ap-northeast-2.amazonaws.com/victoryfairy-quiz:<commit-sha>"
           imagePullPolicy: IfNotPresent
           ports:
@@ -99,7 +97,6 @@ spec:
             limits:
               cpu: "700m"
               memory: "768Mi"
-          # actuator 미탑재 -> TCP 프로브(user-app과 동일 이유). TODO: actuator 승격.
           startupProbe:
             tcpSocket: { port: 8081 }
             failureThreshold: 30

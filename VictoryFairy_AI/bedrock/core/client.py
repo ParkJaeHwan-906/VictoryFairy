@@ -9,12 +9,9 @@
 (`pipeline/s3_io.py` 와 같은 이유·같은 방식).
 """
 
-import logging
 from typing import Any, Optional
 
 from bedrock.core.errors import BedrockFatalError, BedrockTransientError
-
-logger = logging.getLogger(__name__)
 
 # BRK-LLM-17: 구조적 실패 — fail-open 대상이 **아니다**. 즉시 중단한다.
 FATAL_ERROR_CODES = (
@@ -38,13 +35,8 @@ TRANSIENT_ERROR_CODES = (
 
 
 def build_bedrock_client(settings=None):
-    """bedrock-runtime 클라이언트를 생성한다.
-
-    - 자격증명은 boto3 기본 체인(환경변수·인스턴스 프로파일 등)에서 획득한다.
-    - 리전은 `BEDROCK_REGION`(BRK-LLM-7) — S3 리전과 별도 키다.
-    - 타임아웃은 읽기 30초 / 연결 5초(BRK-LLM-9). 무한 대기 금지.
-    - botocore 자체 재시도는 끈다 — 재시도 정책은 서비스가 직접 관리한다
-      (BRK-LLM-13/14 의 두 예산이 분리돼 있어 botocore 에 맡길 수 없다).
+    """botocore 자체 재시도는 끈다 — 재시도 정책은 서비스가 직접 관리한다
+    (BRK-LLM-13/14 의 두 예산이 분리돼 있어 botocore 에 맡길 수 없다).
     """
     import boto3  # 지연 import: 로컬 3.9 venv 에 boto3 미설치 상태에서도 파일 import 는 깨지지 않게 한다.
     from botocore.config import Config
@@ -66,13 +58,9 @@ def build_bedrock_client(settings=None):
 
 
 def classify_error(exc: BaseException) -> Exception:
-    """예외를 `BedrockFatalError` 또는 `BedrockTransientError` 로 분류한다.
-
-    - 자격증명 없음/불완전 · AccessDenied · Validation → Fatal(BRK-LLM-17).
-    - Throttling · ServiceUnavailable · 타임아웃/연결 오류 → Transient(BRK-LLM-14).
-    - 그 밖의 알 수 없는 오류 → Transient 로 본다. 재시도를 소진하면 폴백 통과
-      (BRK-LLM-15)로 흡수되는데, 이는 이 단계의 기본 태도(fail-open)와 같다.
-      **알 수 없는 오류를 Fatal 로 올리면 배치 전체가 죽는다.**
+    """그 밖의 알 수 없는 오류 → Transient 로 본다. 재시도를 소진하면 폴백 통과
+    (BRK-LLM-15)로 흡수되는데, 이는 이 단계의 기본 태도(fail-open)와 같다.
+    **알 수 없는 오류를 Fatal 로 올리면 배치 전체가 죽는다.**
     """
     from botocore.exceptions import (
         ClientError,
@@ -111,11 +99,6 @@ def classify_error(exc: BaseException) -> Exception:
 
 
 def converse(client, model_id: str, system_blocks: list, user_text: str, settings=None) -> dict:
-    """Converse API 로 한 번 호출하고 원본 응답 dict 를 돌려준다.
-
-    호출 파라미터는 결정성 우선으로 고정한다(BRK-LLM-8) — temperature 0,
-    top_p 고정, max_tokens 상한. 예외는 `classify_error` 로 분류해 올린다.
-    """
     from bedrock.core.config import bedrock_settings
 
     settings = settings or bedrock_settings
@@ -136,9 +119,7 @@ def converse(client, model_id: str, system_blocks: list, user_text: str, setting
 
 
 def extract_text(response: dict) -> str:
-    """Converse 응답에서 모델이 낸 텍스트를 뽑는다.
-
-    응답 구조가 예상과 다르면 빈 문자열을 돌려주고, 파서가 스키마 불일치로
+    """응답 구조가 예상과 다르면 빈 문자열을 돌려주고, 파서가 스키마 불일치로
     처리하게 둔다(BRK-LLM-13 → 호출 재시도).
     """
     content = (response.get("output") or {}).get("message", {}).get("content") or []
@@ -147,7 +128,6 @@ def extract_text(response: dict) -> str:
 
 
 def extract_usage(response: dict) -> dict:
-    """Converse 응답의 토큰 사용량을 뽑는다(PIPE-2SB-61/44 의 비용·캐시 집계용)."""
     usage: dict[str, Any] = response.get("usage") or {}
 
     def _as_int(value: Optional[Any]) -> int:

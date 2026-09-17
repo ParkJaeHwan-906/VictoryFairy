@@ -6,10 +6,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Repository;
 
-/**
- * {@link EmailVerificationStore}의 Redis 구현. 키 네이밍·TTL은 포트 인터페이스의 계약을 따른다
- * (접두사 {@code email:verify:}).
- */
 @Repository
 @RequiredArgsConstructor
 public class RedisEmailVerificationStore implements EmailVerificationStore {

@@ -15,14 +15,6 @@ import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import tools.jackson.databind.ObjectMapper;
 
-/**
- * S3 {@code quiz-candidates/{date}/}의 후보 JSON 을 읽어 {@link QuizCandidate}로 돌려준다.
- * 읽기 전용 — 이 클래스는 S3 에 아무것도 쓰지 않는다.
- *
- * <p>파싱 실패는 <b>파일 단위로 격리</b>한다 — 한 파일이 깨져도 나머지는 계속 읽는다. 후보는
- * 문항별 독립 파일이라(업로드도 파일 단위 멱등) 실패 단위를 파일로 맞추는 것이 생산자의 설계와
- * 대칭이다.
- */
 @Component
 public class QuizCandidateReader {
 
@@ -41,7 +33,6 @@ public class QuizCandidateReader {
         this.bucket = bucket;
     }
 
-    /** 해당 날짜 파티션의 후보 전부. 파티션이 없으면(그날 루틴 미실행·실패) 빈 목록 — 정상 경로다. */
     public List<QuizCandidate> readCandidates(LocalDate date) {
         String prefix = PREFIX + date + "/";
         List<QuizCandidate> candidates = new ArrayList<>();

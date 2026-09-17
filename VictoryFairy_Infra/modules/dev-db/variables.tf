@@ -70,6 +70,24 @@ variable "instance_type" {
   default     = "t3.small"
 }
 
+variable "mysql_container_memory" {
+  description = <<-EOT
+    mysql 컨테이너 cgroup 메모리 상한(docker --memory 표기, 예: "1g").
+    innodb_buffer_pool_size 와 별개다 — 설정값은 buffer pool 만 묶을 뿐 mysqld
+    프로세스 전체를 묶지 못한다. 상한이 없으면 mysqld 가 자라 호스트를 굶긴다
+    (2026-08-17: buffer pool 512M 인데 RSS 1.49GB). 호스트 RAM 에서 redis 몫과
+    OS 몫(~500MB)을 빼고 남는 범위로 잡을 것.
+  EOT
+  type        = string
+  default     = "1g"
+}
+
+variable "redis_container_memory" {
+  description = "redis 컨테이너 cgroup 메모리 상한(docker --memory 표기). redis_maxmemory 보다 넉넉해야 한다(오버헤드 포함)."
+  type        = string
+  default     = "384m"
+}
+
 variable "mysql_root_password_ssm_parameter_name" {
   description = <<-EOT
     MySQL root 비밀번호가 담긴 SSM Parameter Store(SecureString) 파라미터 '이름'.
@@ -91,6 +109,20 @@ variable "restore_cron" {
   description = "매일 최신 덤프를 복원하는 cron 스케줄(UTC). 기본 '0 19 * * *' = 04:00 KST — 프로덕션 백업(18:10 UTC = 03:10 KST) 이후라 당일 아침 최신 덤프를 복원."
   type        = string
   default     = "0 19 * * *"
+}
+
+variable "swap_size_mb" {
+  description = <<-EOT
+    스왑 파일 크기(MB). 0 으로는 낮추지 말 것 — 스왑 없는 2GB 박스는 메모리 고갈 시
+    OOM 킬러 대신 페이지 축출·재적재 라이브락에 빠져 stop/start 외엔 복구가 안 된다
+    (2026-08-17 dev DB 8시간 장애). 루트 볼륨(root_volume_size_gb)에서 차감된다.
+  EOT
+  type        = number
+  default     = 2048
+  validation {
+    condition     = var.swap_size_mb >= 1024
+    error_message = "swap_size_mb 는 1024 이상이어야 합니다(2GB 박스 기준 최소 안전망)."
+  }
 }
 
 variable "ssh_key_name" {

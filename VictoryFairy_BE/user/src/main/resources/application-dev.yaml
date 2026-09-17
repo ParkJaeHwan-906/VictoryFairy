@@ -31,6 +31,8 @@ spring:
   #   chat-init.sql          : (chatrooms/chats DDL) + SYSTEM 계정 + 구단별 채팅방 10개
   #   game-statuses-init.sql : 경기 상태 코드 5행(SCHEDULED/IN_PROGRESS/FINISHED/DRAW/CANCELED)
   #   quiz-type-init.sql     : 퀴즈 유형 코드 2행(객관식/O·X)
+  #   character-asset-init.sql : 캐릭터 1행 + 부위 코드 3행 + 아이템 카탈로그 23행
+  #                            + 기존 전 계정에 기본 캐릭터·기본 의상 백필
   # 종전에는 quiz 가 들고 있었으나, **테이블을 만드는 앱과 기본 데이터를 넣는 앱을 하나로 모으려고**
   # user 로 옮겼다 — prod 에서 DDL 을 내는 앱은 user 뿐이고(quiz 는 ddl-auto=none), dev 에서도
   # UserApplication 이 @EntityScan("com.skhynix") 로 domain 엔티티를 전부 스캔해 채팅 테이블까지
@@ -57,6 +59,7 @@ spring:
         - classpath:sql/chat-init.sql
         - classpath:sql/game-statuses-init.sql
         - classpath:sql/quiz-type-init.sql
+        - classpath:sql/character-asset-init.sql
 
   web:
     error:

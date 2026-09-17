@@ -1,21 +1,52 @@
 package com.skhynix.quiz.quiz.dto;
 
-import com.skhynix.quiz.chat.dto.PageResponse;
+import java.util.List;
 
-/**
- * 풀이 이력 응답 = 요약 + 페이지. 요약(전체 정답률)이 페이지 메타가 아니라 <b>전체 제출 기준</b>
- * 별도 카운트인 것이 계약이다 — 어느 페이지를 보고 있어도 같은 값이 내려간다.
- *
- * <p>{@code PageResponse}는 chat 패키지의 것을 그대로 쓴다(cross-package 재사용) — 페이징 응답
- * 포맷은 모듈 공통 규약이라 복제하면 두 포맷이 서로 어긋나는 순간이 온다.
- *
- * @param summary accuracy 는 {@code correctCount/total}(0~1). 제출 0건이면 0.0 — NaN 을 JSON 에
- *                실을 수 없어 "정답률 없음"을 0 으로 접는다
- */
-public record QuizSubmissionHistoryResponse(
-        Summary summary,
-        PageResponse<QuizSubmissionItemResponse> submissions) {
+public record QuizSubmissionHistoryResponse(Summary summary, List<InningResponse> innings) {
 
-    public record Summary(long total, long correctCount, double accuracy) {
+    public record Summary(long correctCount, long total, double accuracy, long earnedPoint,
+            long earnedBq) {
+    }
+
+    /**
+     * 이닝별 요약. <b>배점 합계를 담지 않는다</b>(경기 전체 {@link Summary} 에만 있다) — 두 축이 같은
+     * 자리에 있어야 나중에 한쪽만 옮기는 실수가 안 생긴다. 이닝별 합계가 필요하면 FE 가 그 이닝의
+     * 문제 항목 {@code earnedPoint}/{@code earnedBq} 를 더하면 된다.
+     */
+    public record InningSummary(long correctCount, long total, double accuracy) {
+    }
+
+    public record InningResponse(int inning, InningSummary summary,
+            List<QuizSubmissionItemResponse> quizzes) {
+
+        public static InningResponse of(int inning, List<QuizSubmissionItemResponse> quizzes) {
+            long correctCount = quizzes.stream().filter(QuizSubmissionItemResponse::correct).count();
+            return new InningResponse(inning,
+                    new InningSummary(correctCount, quizzes.size(),
+                            accuracy(correctCount, quizzes.size())),
+                    quizzes);
+        }
+    }
+
+    public static QuizSubmissionHistoryResponse of(List<InningResponse> innings) {
+        long total = innings.stream().mapToLong(inning -> inning.summary().total()).sum();
+        long correctCount = innings.stream()
+                .mapToLong(inning -> inning.summary().correctCount()).sum();
+        long earnedPoint = innings.stream()
+                .flatMap(inning -> inning.quizzes().stream())
+                .mapToLong(QuizSubmissionItemResponse::earnedPoint)
+                .sum();
+        long earnedBq = innings.stream()
+                .flatMap(inning -> inning.quizzes().stream())
+                .mapToLong(QuizSubmissionItemResponse::earnedBq)
+                .sum();
+        return new QuizSubmissionHistoryResponse(
+                new Summary(correctCount, total, accuracy(correctCount, total), earnedPoint,
+                        earnedBq),
+                innings);
+    }
+
+    private static double accuracy(long correctCount, long total) {
+        return total == 0 ? 0.0 : (double) correctCount / total;
     }
 }

@@ -3,9 +3,10 @@
  *
  * 이 API 모듈은 "성공은 비대칭, 실패는 항상 ApiResponse" 구조다.
  * - 성공 raw(ApiResponse 미래핑): signup(boolean, 201), login/refresh(TokenResponse, 200),
- *   logout(204 무본문), DELETE /users/me(204 무본문)
+ *   logout(204 무본문), DELETE /users/me(204 무본문), PATCH /users/me/nickname(204 무본문)
  * - 성공 래핑: password/nickname validate·duplicate(ApiResponse<...ValidationResponse>),
- *   email send-code/verify(ApiResponse<void> = data:null)
+ *   email send-code/verify(ApiResponse<void> = data:null),
+ *   PATCH /users/me/password(ApiResponse<TokenResponse> — login/refresh 와 같은 토큰 DTO를 래핑해 재사용)
  * - 실패: BusinessException·Bean Validation 모두 ApiResponse
  */
 export interface ApiResponse<T> {
@@ -25,6 +26,9 @@ export type FieldErrors = Record<string, string>;
  * 에러 응답 본문.
  * - BusinessException → data: null
  * - Bean Validation 실패 → data: FieldErrors, message: "입력값이 올바르지 않습니다."
+ * - 예외: 닉네임 변경 쿨다운(429)만 BusinessException 인데도 data가 null이 아니라
+ *   `{ nextChangeableAt }` 이다. 같은 칸을 쓰지만 필드 오류 맵이 아니므로
+ *   `getNicknameChangeableAt()` 로 꺼내 쓴다(api/account.ts).
  */
 export type ApiErrorResponse = ApiResponse<FieldErrors>;
 

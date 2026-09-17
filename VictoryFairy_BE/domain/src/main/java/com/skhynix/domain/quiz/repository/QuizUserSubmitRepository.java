@@ -6,8 +6,6 @@ import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -28,9 +26,6 @@ public interface QuizUserSubmitRepository
      * {@code IncorrectResultSizeDataAccessException}으로 죽어 그 사용자는 해당 문제에 영영 접근하지 못한다.
      * <b>존재 여부만 필요한 자리에서는 아래 {@code existsBy}를 쓸 것</b> — 엔티티를 안 만들고, 아래 주석대로
      * 커버링 인덱스로 끝나며, 2행이어도 죽지 않는다.
-     *
-     * <p>둘 다 {@code QuizUserSubmit}의 {@code idx_quiz_users_submit_account_quiz}에 의존한다(근거는 그쪽
-     * 주석). 인덱스가 없으면 FK 자동 인덱스 둘로 index_merge 가 돌고 그 비용이 문제 인기도에 비례해 자란다.
      */
     Optional<QuizUserSubmit> findByUserAccount_IdAndQuiz_Id(Long userAccountId, Long quizId);
 
@@ -39,23 +34,38 @@ public interface QuizUserSubmitRepository
     boolean existsByUserAccount_IdAndQuiz_Id(Long userAccountId, Long quizId);
 
     /**
-     * 주어진 문제들에 대한 이 계정의 행 상태 — {@code GET /today}의 <b>제외 필터이자 INSERT 차집합의
-     * 재료</b>다(조회를 둘로 나누지 않는다).
+     * 주어진 문제들 중 이 계정에게 <b>이미 나간 것</b>(행이 있는 것)의 id — {@code GET /today}의
+     * 제외 필터다.
      *
-     * <p>⚠ <b>"행이 있으면 제외"로 되돌리지 말 것.</b> 행은 이제 출제 시점에 생기므로, 그렇게 하면
-     * 문제를 받는 순간 목록에서 사라져 <b>새로고침 한 번에 그날 세트를 통째로 못 풀게 된다.</b>
-     * 제외 기준은 {@link QuizUserSubmitStateView} 의 세 갈래다.
+     * <p><b>제외 기준은 "행이 있는가" 하나다.</b> 답했는지도, 시한(+8분)이 지났는지도 보지 않는다 —
+     * 한 번 받은 문제는 다시 실어 주지 않고(재조회 없음), 답하지 않았다면 그대로 미제출=오답으로
+     * 확정된다. 시한은 <b>서빙 판정에서 완전히 빠지고 제출 경로에만 남는다.</b>
      *
-     * <p>⚠ 보기 연관은 <b>명시적 {@code left join}</b> 이어야 한다. 암묵 경로({@code s.submitOption.id})는
-     * Hibernate 가 FK 컬럼으로 최적화해 주기를 기대하는 것이고, 그 기대가 어긋나 inner join 이 되면
-     * <b>미답 행이 결과에서 통째로 빠진다</b> — 그러면 시한 초과 행을 영영 못 걸러 그 문제가 계속
-     * 목록에 남고 제출은 계속 403 이 된다(조용히 틀리는 종류의 회귀라 조인 하나를 감수한다).
+     * <p>그래서 판정이 조회 시각에 의존하지 않고({@code created_at} 을 읽지 않는다),
+     * {@code uk_quiz_users_submit_account_quiz}(선행 컬럼 {@code user_account_id})만으로
+     * <b>커버링</b>이 된다 — 답·시각 컬럼을 읽던 종전 프로젝션은 행 접근이 필요했다.
      */
-    @Query("select s.quiz.id as quizId, so.id as submitOptionId, "
-            + "s.createdAt as createdAt from QuizUserSubmit s left join s.submitOption so "
+    @Query("select s.quiz.id from QuizUserSubmit s "
             + "where s.userAccount.id = :userAccountId and s.quiz.id in :quizIds")
-    List<QuizUserSubmitStateView> findSubmitStates(@Param("userAccountId") Long userAccountId,
+    List<Long> findServedQuizIds(@Param("userAccountId") Long userAccountId,
             @Param("quizIds") Collection<Long> quizIds);
+
+    /**
+     * "이 사용자가 그 경기의 그 이닝에 이미 세트를 받았는가" — <b>한 이닝에 한 세트</b> 제한의 유일한
+     * 판정이다(별도 테이블·컬럼 없이 행 존재로 판정한다).
+     *
+     * <p>답 여부는 보지 않는다 — 미답 행이든 답한 행이든 "그 이닝에 받았다"는 사실은 같고, 그 이닝에
+     * 받은 문제를 전부 풀어 버린 뒤에도 여전히 막힌다.
+     *
+     * <p>키에 경기가 들어 있어 <b>날짜 조건이 필요 없다</b> — 어제 9회 행은 {@code game_id} 가 달라
+     * 오늘 9회를 막지 않는다. 개정 이전에 쌓인 {@code game_id IS NULL} 행은 {@code NULL = ?} 가 참이
+     * 아니라 어떤 판정에도 걸리지 않는다(백필하지 않는다).
+     *
+     * <p>인덱스는 {@code idx_quiz_users_submit_account_game_inning}(엔티티 주석) — 세 컬럼이 전부
+     * 등치라 커버링 존재 검사로 끝난다.
+     */
+    boolean existsByUserAccount_IdAndGame_IdAndInning(Long userAccountId, Long gameId,
+            Integer inning);
 
     /**
      * 미답 행에 답과 채점 결과를 채운다 — <b>제출은 INSERT 가 아니라 이 조건부 UPDATE 다.</b>
@@ -84,39 +94,53 @@ public interface QuizUserSubmitRepository
             @Param("now") LocalDateTime now);
 
     /**
-     * 내 제출 이력 한 페이지(최신 제출부터 — 정렬 축은 {@code id}다. {@code createdAt}이 아닌 이유는
-     * 같은 초에 여러 건 제출돼도 순서가 흔들리지 않는 유일 축이라서다).
+     * <b>한 경기</b>에서 이 계정이 받은 행 전부(이닝별 결산 조회). 페이징하지 않는다 — 상한이 경기
+     * 하나이므로 최대 11이닝 × 서빙 상한(기본 20)이고, 이닝 축을 통째로 그리는 화면이라 잘라 줄 수
+     * 없다.
      *
-     * <p>to-one 연관 셋({@code quiz}·{@code quiz.quizType}·{@code submitOption})을 전부 fetch join 하는
-     * 이유: 이력 DTO 가 문제 지문·유형명·내가 고른 보기 텍스트를 모두 읽는데, {@code open-in-view: false}
-     * 라 트랜잭션 밖 LAZY 접근은 예외이고, 안이어도 행마다 3연관 지연 로딩이면 N+1 이다. to-one 만이라
-     * {@code Pageable}과 같이 써도 안전하다 — 컬렉션 fetch join + 페이징({@code HHH90003004}) 금지는
-     * 여기 해당하지 않는다.
+     * <p><b>진입 축이 {@code (user_account_id, game_id)} 라 그대로
+     * {@code idx_quiz_users_submit_account_game_inning} 의 선행 두 컬럼이다</b> — 이 조회를 위해 인덱스를
+     * 새로 만들 이유가 없다(회차 제한 검사가 쓰는 그 인덱스다).
      *
-     * <p>⚠ <b>{@code submitOption} 만 {@code left join fetch} 다.</b> inner join 이면 답 없는 행
-     * ({@code submit_option_id IS NULL})이 목록에서 통째로 빠지는데, 아래 {@code countQuery}는 그 행까지
-     * 세므로 <b>"총 20건인데 항목 9건"</b>으로 어긋난다. 감추는 선택지가 없는 이유가 이 비대칭이다 —
-     * 미답 행은 요약 통계의 분모에 들어가고(내지 않으면 틀린 것), 그러면 목록에도 있어야 한다.
-     * {@code countQuery}는 조인이 없으므로 <b>여기만 고치면 된다</b>(양쪽을 같이 고치려다 count 에
-     * 조인을 더하면 그게 회귀다).
+     * <p>연관 경로를 {@code s.game.id} 로 끊어 FK 컬럼만 조건에 건다(조인 없음). 개정 이전에 쌓인
+     * {@code game_id IS NULL} 행은 {@code NULL = ?} 가 참이 아니라 자연히 빠진다 — 백필하지 않는다.
      *
-     * <p>{@code countQuery}를 따로 준 이유: fetch join 이 든 JPQL 은 Hibernate 가 count 쿼리를 자동
-     * 파생하지 못한다 — 카운트에는 조인이 필요 없으니 단독 카운트로 명시한다.
+     * <p>to-one 연관 셋({@code quiz}·{@code quiz.quizType}·{@code submitOption})을 fetch join 하는 이유는
+     * {@code open-in-view: false} 다 — 응답 DTO 가 문제 지문·유형명·내가 고른 보기를 읽는데, 트랜잭션
+     * 밖 LAZY 접근은 예외이고 안이어도 행마다 지연 로딩이면 N+1 이다.
+     *
+     * <p>⚠ <b>{@code submitOption} 만 {@code left join fetch} 다.</b> inner join 이면 미답 행
+     * ({@code submit_option_id IS NULL})이 결과에서 통째로 빠지는데, 미답은 분모에 들어가 오답으로
+     * 집계되는 행이라(제품 결정) 빠지는 순간 이닝별 정답률이 조용히 부풀려진다.
+     *
+     * <p>정렬은 <b>행 {@code id} 오름차순 = 받은 순서</b>다. 이닝 그룹핑은 호출부가 메모리에서 하며,
+     * 그 순서가 이닝 안의 문제 순서로 그대로 이어진다({@code order by} 에 이닝을 넣어도 결과 집합은
+     * 같지만, 정렬 축이 하나면 "받은 순서"라는 뜻이 흐려지지 않는다).
      */
-    @Query(value = "select s from QuizUserSubmit s "
+    @Query("select s from QuizUserSubmit s "
             + "join fetch s.quiz q join fetch q.quizType left join fetch s.submitOption "
-            + "where s.userAccount.id = :userAccountId order by s.id desc",
-            countQuery = "select count(s) from QuizUserSubmit s "
-                    + "where s.userAccount.id = :userAccountId")
-    Page<QuizUserSubmit> findHistoryByUserAccountId(@Param("userAccountId") Long userAccountId,
-            Pageable pageable);
+            + "where s.userAccount.id = :userAccountId and s.game.id = :gameId "
+            + "order by s.id asc")
+    List<QuizUserSubmit> findGameSubmissions(@Param("userAccountId") Long userAccountId,
+            @Param("gameId") Long gameId);
 
-    // 이력 요약(전체 받은 수 / 정답 수) — uk_quiz_users_submit_account_quiz 선행 컬럼이
-    // user_account_id 라 커버링 인덱스 카운트다(엔티티 주석의 "내 제출 이력" 예고가 이 자리).
-    // ⚠ 분모(total)에 답 없는 행도 들어간다 — 제출하지 않으면 틀린 것이라는 제품 결정이라, is_answer
-    //   가 false 인 미답 행이 오답과 똑같이 집계되는 것이 의도다. "미답을 빼자"는 최적화는 결정에
-    //   반한다(그 대가로 /today 직후 정확도가 0% 로 떨어졌다가 풀수록 올라간다 — 수용된 결과).
-    long countByUserAccount_Id(Long userAccountId);
-
-    long countByUserAccount_IdAndIsAnswerTrue(Long userAccountId);
+    /**
+     * 그 계정의 <b>전 기간</b> 제출 행 수와 정답 행 수 — 마이페이지 누적 정답률의 재료다.
+     *
+     * <p><b>한 문장인 것이 계약이다.</b> {@code countBy...} 두 번(전체 / 정답)으로 나누면 같은 값을
+     * 얻으면서 SELECT 가 2회 늘어 "정답률 때문에 늘어나는 조회는 1회"라는 제약이 깨진다.
+     *
+     * <p>분모에 <b>조건이 없다</b> — 출제 시점에 생기는 미답 행({@code submit_option_id IS NULL})까지
+     * 전부 센다. {@code submitOption is not null} 을 붙이는 순간 "내지 않으면 틀린 것"이라는 제품 결정
+     * (엔티티 javadoc)이 뒤집혀 정답률이 조용히 부풀려진다.
+     *
+     * <p>진입 축이 {@code user_account_id} 하나라 {@code uk_quiz_users_submit_account_quiz} 의 선행
+     * 컬럼을 그대로 탄다 — 이 집계를 위해 인덱스를 새로 만들 이유가 없다.
+     *
+     * <p>⚠ 나눗셈·반올림은 여기서 하지 않는다({@link QuizSubmitAccuracyView} javadoc 참고).
+     */
+    @Query("select count(s.id) as totalCount, "
+            + "sum(case when s.isAnswer = true then 1L else 0L end) as correctCount "
+            + "from QuizUserSubmit s where s.userAccount.id = :userAccountId")
+    QuizSubmitAccuracyView aggregateAccuracy(@Param("userAccountId") Long userAccountId);
 }

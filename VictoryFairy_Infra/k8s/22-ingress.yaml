@@ -2,8 +2,8 @@
 #   /api -> user-app, /rt -> quiz-app (pathType: Prefix 라 하위 경로 포함).
 #   그 외 경로는 이 ALB 로 오지 않는다 — CloudFront 가 S3 로 보낸다.
 #
-# ⚠ 이 ALB 는 더 이상 사용자의 첫 관문이 아니다. FE 정적 호스팅 전환(docs/fe-cdn-migration.md)
-#   이후 브라우저는 CloudFront 에 붙고, CloudFront 가 /api/*·/rt/* 만 이 ALB 로 넘긴다.
+# ⚠ 이 ALB 는 사용자의 첫 관문이 아니다. FE 정적 호스팅(docs/fe-hosting.md) 이후
+#   브라우저는 CloudFront 에 붙고, CloudFront 가 /api/*·/rt/* 만 이 ALB 로 넘긴다.
 #   CloudFront 는 Host 헤더를 그대로 전달하므로(modules/cdn 의 Managed-AllViewer) 아래 host 조건은
 #   victoryfairy.com 그대로 유지된다 — CloudFront 경유와 브라우저 직접 접속이 같은 규칙을 쓴다.
 #
@@ -23,8 +23,7 @@
 #
 # ⚠ 적용 순서: BE 가 새 context-path(/api, /rt)로 배포된 뒤에 apply 할 것. 헬스체크 경로가 함께
 #   바뀌므로 뒤집으면 타깃이 전부 Unhealthy 가 되어 순단이 수십 초에서 수 분으로 늘어난다.
-#   한 앱이 두 context-path 를 동시에 서비스할 수 없어 겹치는 구간은 만들 수 없다
-#   (docs/fe-cdn-migration.md §5).
+#   한 앱이 두 context-path 를 동시에 서비스할 수 없어 겹치는 구간은 만들 수 없다.
 #
 # ── DNS 소유권 ────────────────────────────────────────────────────────────────
 # 아래 앱 Ingress 는 **전부 external-dns controller: none** 이다. 즉 ExternalDNS 는 이들의 host 를

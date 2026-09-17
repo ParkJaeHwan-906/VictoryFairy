@@ -84,9 +84,6 @@ variable "game_schedule" {
 }
 
 # --- 퀴즈 원천 잡 (kbo_records / game_schedule / export ×2) ---
-# 네 룰 모두 quiz_source_jobs_enabled 하나로 켜고 끈다. 켜기 전 조건은
-# schedules.tf 의 "퀴즈 원천 잡" 주석 참고.
-#
 # export 는 docType 하나당 룰 하나 — game_result / player_profile. 둘 다 DB 를
 # 읽으므로 lambda_db.tf 쪽(-db 함수)에 있다. 나머지 docType 인 player_meme 은
 # 시드 파일이 원본이라 크론을 두지 않는다(lambda_db.tf 의 해당 주석 참고).

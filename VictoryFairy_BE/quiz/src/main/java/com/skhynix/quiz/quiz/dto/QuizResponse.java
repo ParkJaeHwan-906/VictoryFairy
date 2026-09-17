@@ -3,43 +3,50 @@ package com.skhynix.quiz.quiz.dto;
 import com.skhynix.domain.quiz.entity.Quiz;
 import com.skhynix.domain.quiz.entity.QuizOption;
 import java.util.List;
+import java.util.Map;
 
-/**
- * 오늘의 퀴즈 한 건. <b>정답({@code Quiz.answer})은 싣지 않는다</b> — 응답에 실리는 순간 클라이언트
- * 개발자 도구로 바로 보이므로, 채점은 제출 API(후속 작업)가 서버에서 한다. 같은 이유로 근거
- * (evidence)·정답률 같은 사후 정보도 없다.
- *
- * @param type 유형명({@code 객관식} | {@code O/X}) — FE 렌더링 분기(선택지 목록 vs O/X 토글)용
- * @param point 배점. AI 산출물이 아닌 퀴즈(사람 작성)는 null 일 수 있다
- * @param difficulty EASY/MEDIUM/HARD/EXPERT. 마찬가지로 null 가능
- * @param preferred 요청 사용자의 응원팀·응원 선수에 관한 문제인지 — 목록이 이 값 기준으로 선호
- *     먼저 정렬돼 오지만, FE 가 배지 표시·재그룹핑을 하려면 플래그 자체도 필요하다
- */
 public record QuizResponse(
         Long id,
         String type,
         String question,
         String difficulty,
         Double point,
+        Integer bq,
         boolean preferred,
-        List<OptionResponse> options) {
+        List<TodayOptionResponse> options) {
 
-    /** 보기 하나. {@code no}는 표기 순서이자 제출 시 보낼 번호(0-기반, O/X 는 0=O·1=X). */
-    public record OptionResponse(int no, String text) {
+    /**
+     * {@code /today} 전용 보기 항목 — 상세·결산이 쓰는 {@link OptionResponse} 에 투표 수가 붙은 형태다.
+     *
+     * <p>{@code voteCount} 는 <b>서빙 시점의 근사 스냅샷</b>이고 항상 실린다(0 이어도 생략하지 않는다).
+     * 값을 못 읽은 경우(Redis 장애·키 부재·TTL 만료·값 파싱 실패)도 0 이라, 응답만으로는
+     * "아무도 안 골랐다"와 "못 읽었다"를 구별할 수 없다 — 알고 택한 제약이고 관측은 WARN 로그로만 한다.
+     */
+    public record TodayOptionResponse(int no, String text, long voteCount) {
 
-        static OptionResponse from(QuizOption option) {
-            return new OptionResponse(option.getOption(), option.getContents());
+        /**
+         * @param voteCounts 보기 번호(0-based) → 투표 수. <b>{@code no} 와 같은 0-based 축</b>이라
+         *                   여기서 {@code +1}/{@code -1} 을 하면 전 보기가 한 칸씩 밀린 채 200 으로 나간다.
+         */
+        static TodayOptionResponse from(QuizOption option, Map<Integer, Long> voteCounts) {
+            int no = option.getOption();
+            return new TodayOptionResponse(no, option.getContents(),
+                    voteCounts.getOrDefault(no, 0L));
         }
     }
 
-    public static QuizResponse of(Quiz quiz, List<QuizOption> options, boolean preferred) {
+    public static QuizResponse of(Quiz quiz, List<QuizOption> options, boolean preferred,
+            Map<Integer, Long> voteCounts) {
+        Map<Integer, Long> votes = voteCounts == null ? Map.of() : voteCounts;
         return new QuizResponse(
                 quiz.getId(),
                 quiz.getQuizType().getName(),
                 quiz.getContent(),
                 quiz.getDifficulty(),
-                quiz.getScore(),
+                quiz.getPoint(),
+                // point 와 같은 규칙으로 null 도 키를 남긴다 — 이 응답에는 @JsonInclude 가 없다
+                quiz.getBq(),
                 preferred,
-                options.stream().map(OptionResponse::from).toList());
+                options.stream().map(option -> TodayOptionResponse.from(option, votes)).toList());
     }
 }

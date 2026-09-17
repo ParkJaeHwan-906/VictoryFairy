@@ -5,7 +5,6 @@ from validation.core.config import settings
 
 
 def create_app() -> FastAPI:
-    """FastAPI 애플리케이션 인스턴스를 생성한다."""
     app = FastAPI(
         title=settings.APP_NAME,
         version=settings.APP_VERSION,

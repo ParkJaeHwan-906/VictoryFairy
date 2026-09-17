@@ -40,7 +40,7 @@ def career_path():
             "answer": "A",
             "evidence": {"source": "wiki/players/68050.md#커리어 이력",
                          "quote": "KT 소속이었다가 FA로 한화에 이적"},
-            "settlement": None, "difficulty": "HARD", "pointReward": 80,
+            "settlement": None, "difficulty": "HARD", "pointReward": 80, "bqReward": 3,
             "status": "PENDING", "createdAt": "2026-08-07T00:00:00Z",
             "deadlineAt": "2026-08-07T14:59:00Z", "createdBy": "AI_ENGINE",
             "subject": {"scope": "PLAYER", "playerIds": [68050],
@@ -52,7 +52,8 @@ def h2h(options, answer, subject):
     c = career_path()
     c.update(quizId="QZ-20260807-002", templateId="H2H_SEASON_RECORD",
              format="BINARY", question="올해 한화는 KT와의 상대전적에서 우위다?",
-             options=options, answer=answer, difficulty="MEDIUM", pointReward=50,
+             options=options, answer=answer, difficulty="MEDIUM",
+             pointReward=50, bqReward=2,
              evidence={"source": "wiki/stats/season.md#상대전적",
                        "quote": "HH 4승 KT 7승"},
              subject=subject)
@@ -118,7 +119,7 @@ def test_team_scope_exactly_one_team_and_no_players():
         c.update(quizId="QZ-20260807-003", templateId="STREAK_CURRENT", format="OX",
                  question="KT는 현재 6연승 중이다",
                  options=[{"id": "A", "text": "O"}, {"id": "B", "text": "X"}],
-                 answer="A", difficulty="EASY", pointReward=30,
+                 answer="A", difficulty="EASY", pointReward=30, bqReward=1,
                  evidence={"source": "wiki/stats/season.md#연승·연패",
                            "quote": "KT 6연승"},
                  subject=subject)
@@ -148,7 +149,7 @@ def test_league_scope_must_be_all_empty():
              question="이번 주 커뮤니티 최다 화제 선수는?",
              options=[{"id": "A", "text": "김대한"}, {"id": "B", "text": "김도영"},
                       {"id": "C", "text": "구자욱"}, {"id": "D", "text": "오스틴"}],
-             answer="A", difficulty="MEDIUM", pointReward=50,
+             answer="A", difficulty="MEDIUM", pointReward=50, bqReward=2,
              evidence={"source": "wiki/stats/trending.md", "quote": "1위 김대한"},
              subject={"scope": "LEAGUE", "playerIds": [], "teamCodes": ["OB"],
                       "gameId": None})
@@ -163,7 +164,7 @@ def test_game_scope_requires_game_id_and_others_must_not_carry_it():
                  question="8/2 SSG-키움 경기 승리투수는?",
                  options=[{"id": "A", "text": "김성민"}, {"id": "B", "text": "노경은"},
                           {"id": "C", "text": "유토"}, {"id": "D", "text": "알칸타라"}],
-                 answer="A", difficulty="MEDIUM", pointReward=50,
+                 answer="A", difficulty="MEDIUM", pointReward=50, bqReward=2,
                  evidence={"source": "question-source/game_result/2026-08-07/x.json",
                            "quote": "승리투수 김성민"},
                  subject=subject)
@@ -229,7 +230,7 @@ def test_prediction_with_team_options_not_leak_checked():
              answer=None, evidence=None,
              settlement={"gameId": "20260807LGOB02026", "metric": "WIN_TEAM"},
              gameId="20260807LGOB02026", type="WIN_LOSE",
-             difficulty="MEDIUM", pointReward=50,
+             difficulty="MEDIUM", pointReward=50, bqReward=2,
              deadlineAt="2026-08-07T07:30:00Z",
              subject={"scope": "GAME", "playerIds": [], "teamCodes": ["LG", "OB"],
                       "gameId": "20260807LGOB02026"})

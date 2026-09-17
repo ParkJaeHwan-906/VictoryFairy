@@ -44,7 +44,11 @@ public class Chatroom {
     @OnDelete(action = OnDeleteAction.CASCADE)
     private Team team;
 
-    // 소유자 계정이 사라져도 방은 공용 자원으로 보존 — @OnDelete 없음(계정 삭제는 소프트 삭제라 고아 FK가 안 생김)
+    // 소유자 계정이 사라져도 방은 공용 자원으로 보존 — @OnDelete 없음(FK 는 NO ACTION).
+    // ⚠ 종전 근거였던 "계정 삭제는 소프트 삭제라 고아 FK 가 안 생긴다"는 더 이상 사실이 아니다.
+    //   탈퇴 30일이 지난 계정은 실제로 지워진다(만료 데이터 정리). 이 컬럼은 NOT NULL 이라 비울 수도
+    //   없으므로, 계정을 지우기 전에 소유권을 (알수없음) 더미 계정으로 넘기지 않으면 그 DELETE 자체가
+    //   FK 위반으로 실패한다 — ChatroomRepository.reassignOwner 참고.
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "owner_account_id", nullable = false)
     private UserAccount owner;

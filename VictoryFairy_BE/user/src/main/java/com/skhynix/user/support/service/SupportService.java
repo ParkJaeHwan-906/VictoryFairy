@@ -22,16 +22,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * 응원 구단·선수 선택 서비스. 요구사항: {@code docs/requirements/user/support-selection.md}.
- * 지켜야 할 불변식 4개는 모듈 문서 참고 — 이 서비스가 그 강제 주체다.
- *
- * <p><b>재응원을 새 행으로 만들면 안 된다.</b> {@code (user_account_id, team_id)}/{@code (…, player_id)}
- * 에 UNIQUE 가 걸려 있어 그대로 {@code save} 하면 500 이 난다. 그래서 활성 조회
- * ({@code …AndOpposeIsNull}) 와 별개로 {@code oppose} 무관 조회로 취소된 행까지 찾아 재활성한다.
- *
- * <p>한 요청의 검증을 모두 통과한 뒤에만 상태를 바꾼다 — "부분 반영이 없다"가 코드 구조로 드러나게 한다.
- */
+// 재응원을 새 행으로 만들면 안 된다 — (user_account_id, team_id)/(…, player_id) 에 UNIQUE 가 걸려 있어
+// 그대로 save 하면 500 이다. 그래서 oppose 무관 조회로 취소된 행까지 찾아 재활성한다.
 @Service
 @RequiredArgsConstructor
 @Transactional
@@ -46,14 +38,6 @@ public class SupportService {
     private final PlayerRepository playerRepository;
     private final UserAccountRepository userAccountRepository;
 
-    /**
-     * 응원 구단을 선택하거나 변경한다. 최초 선택·변경·재선택을 한 경로가 모두 처리한다.
-     *
-     * <p>같은 구단 재선택은 상태를 건드리지 않는다(응원 선수도 취소되지 않는다) — 이 조기 반환이 아래
-     * 취소 로직보다 반드시 앞에 있어야 한다.
-     *
-     * @return 변경 후 현재 응원 구단
-     */
     public TeamResponse selectTeam(Long userAccountId, Long teamId) {
         // 구단 변경은 응원 선수를 전원 취소한다. 락이 없으면 그 사이 들어온 addPlayers 가 옛 구단 선수를
         // 얹어 "응원 선수는 응원 구단 소속" 불변식이 깨진다.
@@ -88,12 +72,6 @@ public class SupportService {
         return TeamResponse.from(team);
     }
 
-    /**
-     * 응원 선수를 추가한다. 전체 교체가 아니라 기존 응원에 얹는다 — 취소는 {@link #opposePlayers} 가
-     * 담당한다.
-     *
-     * @return 추가 후 현재 응원 중인 선수 전체(이번에 추가한 선수만이 아니다)
-     */
     public List<PlayerResponse> addPlayers(Long userAccountId, List<Long> playerIds) {
         // 상한 판정(읽기→판정→저장)이 원자적이어야 한다. 락 없이는 활성 2명 계정에 [a,b]·[c,d] 가 동시에
         // 들어오면 두 트랜잭션이 각각 합집합 4로 통과해 최종 6명이 된다.
@@ -133,17 +111,7 @@ public class SupportService {
         return currentSupportedPlayers(userAccountId);
     }
 
-    /**
-     * 추가를 반영했을 때의 응원 선수 수가 상한을 넘는지 판정한다.
-     *
-     * <p>이미 응원 중인 선수를 다시 보내는 것은 no-op 이라 개수를 늘리지 않는다. 그래서 "현재 + 요청"
-     * 합이 아니라 <b>합집합의 크기</b>로 세야 재요청이 억울하게 막히지 않는다.
-     *
-     * <p>넘치면 상한까지만 채우지 않고 요청 전체를 거부한다 — 어떤 선수가 반영되고 어떤 선수가 잘렸는지
-     * 응답에서 구분할 수 없어, 부분 성공은 클라이언트가 복구할 수 없는 상태를 만든다.
-     *
-     * <p>이미 상한을 넘긴 계정(정책 도입 이전 데이터)의 기존 행은 건드리지 않는다. 추가만 막힌다.
-     */
+    // 이미 응원 중인 선수를 다시 보내도 개수가 늘지 않으므로 "현재 + 요청" 합이 아니라 합집합 크기로 센다.
     private void validatePlayerLimit(Long userAccountId, List<Long> targetIds) {
         Set<Long> resultingIds = new HashSet<>(targetIds);
         userSupportPlayerRepository.findAllByUserAccount_IdAndOpposeIsNull(userAccountId)
@@ -155,16 +123,6 @@ public class SupportService {
         }
     }
 
-    /**
-     * 응원 선수를 취소한다. 행을 지우지 않고 {@code oppose} 에 시각을 채우는 상태 전이이며, 이미 취소된
-     * 선수에는 no-op 이라 최초 취소 시각이 보존된다.
-     *
-     * <p>응원한 적 없는 선수 id 는 404 가 아니다 — 요청의 목표 상태("응원하지 않음")가 이미 참이므로
-     * 성공으로 처리한다. 반면 <b>존재하지 않는</b> 선수 id 는 404 다. 같은 요청에서 두 경우가 다르게
-     * 취급되는 것은 의도된 구분이다.
-     *
-     * @return 취소 후 남아 있는 응원 선수 전체
-     */
     public List<PlayerResponse> opposePlayers(Long userAccountId, List<Long> playerIds) {
         // 취소는 개수를 줄이는 방향이라 상한과는 무관하지만, 응원 행을 UPDATE 하며 행 락을 잡는다. 다른
         // 쓰기 경로가 계정 락 → 응원 행 락 순서인데 여기만 응원 행부터 잡으면 락 순서가 역전돼 데드락이
@@ -187,19 +145,8 @@ public class SupportService {
         return currentSupportedPlayers(userAccountId);
     }
 
-    /**
-     * 같은 계정의 응원 상태 변경을 직렬화한다. 쓰기 경로는 예외 없이 이 호출을 <b>가장 먼저</b> 한다 —
-     * 순서가 흔들리면 락 순서 역전으로 데드락이 난다.
-     *
-     * <p>잠그는 대상이 응원 행이 아니라 계정 행인 이유는 {@code UserAccountRepository.findWithLockById} 참고 —
-     * 활성 0명 계정에는 잠글 원소가 없고, 응원 행 쪽 갭 락은 격리 수준·인덱스에 따라 달라진다.
-     *
-     * <p>클래스 레벨 {@code @Transactional} 덕에 락은 커밋까지 유지된다. 트랜잭션 밖에서 잡으면 조회 직후
-     * 풀려 아무것도 막지 못한다.
-     *
-     * <p>읽기 전용 경로({@link #currentSupportedPlayers})에는 절대 걸지 않는다 — {@code GET /me} 가 그 경로를
-     * 타므로, 조회에 쓰기 락이 붙으면 프로필 조회끼리 서로를 막는다.
-     */
+    // 쓰기 경로는 예외 없이 이 호출을 가장 먼저 한다 — 순서가 흔들리면 락 순서 역전으로 데드락이 난다.
+    // 읽기 전용 경로(currentSupportedPlayers)에는 절대 걸지 않는다 — GET /me 가 그 경로를 탄다.
     private void lockAccount(Long userAccountId) {
         // 필터가 활성 계정임을 확인한 id라 정상 경로에서는 항상 존재한다. 그 사이 사라졌다면 인증 근거가
         // 사라진 것이므로 다른 경로들과 같은 401로 맞춘다.
@@ -207,23 +154,13 @@ public class SupportService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHENTICATED));
     }
 
-    /**
-     * 구단이 바뀔 때 현재 응원 중인 선수를 전원 취소한다. 선수는 응원 구단 소속이어야 하는 불변식을
-     * 구단 변경이 깨뜨리므로 조용히 정리한다. 프론트는 구단 변경 전에 "선수 선택도 초기화됩니다"를
-     * 고지해야 한다(서버는 경고하지 않는다).
-     */
     private void opposeAllSupportedPlayers(Long userAccountId, LocalDateTime now) {
         userSupportPlayerRepository.findAllByUserAccount_IdAndOpposeIsNull(userAccountId)
                 .forEach(support -> support.oppose(now));
     }
 
-    /**
-     * 주어진 id 전부가 실재하는 선수인지 확인하고 그 엔티티를 돌려준다. 하나라도 없으면 404 이며, 같은
-     * 요청의 나머지도 반영되지 않는다.
-     *
-     * <p>{@code findAllById} 는 없는 id 를 조용히 빼고 돌려주므로 <b>개수 비교로만</b> 누락을 감지할 수
-     * 있다. 호출 전에 중복이 제거돼 있어야 이 비교가 성립한다.
-     */
+    // findAllById 는 없는 id 를 조용히 빼고 돌려주므로 개수 비교로만 누락을 감지할 수 있다
+    // (호출 전에 중복이 제거돼 있어야 이 비교가 성립한다).
     private List<Player> findAllExisting(List<Long> distinctPlayerIds) {
         List<Player> players = playerRepository.findAllById(distinctPlayerIds);
         if (players.size() != distinctPlayerIds.size()) {
@@ -232,15 +169,8 @@ public class SupportService {
         return players;
     }
 
-    /**
-     * 현재 응원 중인 선수를 선수명 오름차순으로 반환한다. 응원 행·선수·소속 구단을 fetch join 한 조회
-     * 하나로 끝낸다 — {@code UserSupportPlayer.player} 와 {@code Player.team} 이 둘 다 LAZY 라, 이
-     * 조회가 아니면 {@code PlayerResponse.from} 이 행마다 프록시를 깨워 N+1 이 된다. 정렬도 DB 가
-     * 하므로 결과를 다시 정렬하지 않는다.
-     *
-     * <p>응원 행이 없으면 빈 리스트다. 조기 반환 분기가 없는 것은 누락이 아니라 fetch join 결과가
-     * 비면 그대로 빈 리스트가 되기 때문이다 — 분기를 되살리면 쿼리 수는 그대로인데 코드만 는다.
-     */
+    // UserSupportPlayer.player 와 Player.team 이 둘 다 LAZY 라, fetch join 조회가 아니면
+    // PlayerResponse.from 이 행마다 프록시를 깨워 N+1 이 된다. 정렬도 DB 가 한다.
     @Transactional(readOnly = true)
     public List<PlayerResponse> currentSupportedPlayers(Long userAccountId) {
         return userSupportPlayerRepository.findAllActiveWithPlayerAndTeam(userAccountId)

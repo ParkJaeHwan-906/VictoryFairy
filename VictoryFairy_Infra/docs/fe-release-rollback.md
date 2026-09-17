@@ -20,7 +20,8 @@ aws s3 ls s3://$B/releases/
 aws s3 cp s3://$B/releases/20260807T120000Z-aecc7b1/index.html s3://$B/index.html
 
 # 3) 확인 — 번들 파일명이 바뀌었는지 본다
-curl -s https://victoryfairy.com/ | grep -o 'assets/index-[A-Za-z0-9]*\.js'
+# 해시 문자 클래스에 '_' 와 '-' 가 있어야 한다 — Vite 해시는 base64url 이다.
+curl -s https://victoryfairy.com/ | grep -o 'assets/index-[A-Za-z0-9_-]*\.js'
 ```
 
 `index.html` 은 엣지 TTL 이 0 이라 **즉시 반영**된다. 무효화가 필요 없다.
@@ -115,6 +116,12 @@ curl -s https://victoryfairy.com/ | grep -o 'assets/index-[A-Za-z0-9]*\.js'
 ## 상시 감시 (배포 이후)
 
 `modules/fe-watchdog` 가 배포와 무관하게 계속 지켜본다.
+
+> ⚠ **미적용 드리프트 (열린 항목)**: 커밋 `3bacddc`(2026-08-14, 진입 번들을 모듈 스크립트
+> `src` 로 찾는다)가 **커밋만 되고 apply 되지 않았다.** 두 Lambda(`healthcheck`·`responder`)의
+> `source_code_hash` 가 계획에 계속 남아 있으므로, **지금 도는 코드는 저장소의 `.py` 가 아니다.**
+> 다른 변경에 묻어 나가지 않도록 `-target=module.fe_watchdog` 로 따로 내보낼 것 —
+> 배경과 명령은 [profile-image-apply.md §4](profile-image-apply.md).
 
 ```
 EventBridge(1분) → 점검 Lambda → CloudWatch 커스텀 지표(VictoryFairy/Watchdog)

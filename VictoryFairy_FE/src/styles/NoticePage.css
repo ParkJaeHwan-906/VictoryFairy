@@ -1,0 +1,146 @@
+/**
+ * NoticePage(공지사항 목록) 스타일.
+ * Figma: SWM / [My] 공지사항 (node 1365:17785), 기준 프레임 402 x 874.
+ *
+ * 세로 좌표를 흐름 레이아웃으로 환산한 값(iOS 상태 바 47px 은 다른 화면들과 같이 제외):
+ *   상단 바 0~60 → 목록 80
+ * 상단 바와 목록 사이 20px 만 벌어져 있다.
+ */
+
+.notice-page {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--layout-app-width);
+  min-height: 100dvh;
+  margin-inline: auto;
+  padding-bottom: calc(48px + env(safe-area-inset-bottom, 0px));
+  /* 카드가 흰색이라 바탕은 회색이다(문의하기·마이페이지와 반대) */
+  background-color: var(--color-background-gray);
+}
+
+/* ------------------------------------------------------------------ *
+ * Bar/Top — 뒤로가기 · 타이틀 (다른 화면들과 같은 컴포넌트)
+ * ------------------------------------------------------------------ */
+.notice-page__topbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.notice-page__back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 60px;
+  padding: 10px;
+  border-radius: var(--radius-10);
+  overflow: clip;
+}
+
+.notice-page__back-icon {
+  width: 20px;
+  height: 20px;
+  background-color: var(--color-label-assistive);
+  -webkit-mask: url('../assets/arrow_l.svg') center / contain no-repeat;
+  mask: url('../assets/arrow_l.svg') center / contain no-repeat;
+}
+
+.notice-page__topbar-title {
+  min-width: 0;
+  margin: 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  text-align: center;
+}
+
+.notice-page__topbar-spacer {
+  flex-shrink: 0;
+  width: 60px;
+  height: 60px;
+}
+
+/* ------------------------------------------------------------------ *
+ * 목록 — 글 한 건이 카드 하나
+ * ------------------------------------------------------------------ */
+.notice-page__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 20px 0 0;
+  padding: 0 var(--layout-gutter);
+  list-style: none;
+}
+
+.notice-page__item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 12px;
+  border-radius: var(--radius-15);
+  background-color: var(--color-surface);
+}
+
+/*
+ * 제목은 줄바꿈을 허용한다 — 카드 폭(354 - 여백 24 = 330px)보다 긴 제목이 실제로 있다.
+ * 말줄임으로 자르지 않는 것은 목록에서 무슨 공지인지 가리는 편이 더 불친절해서다.
+ */
+.notice-page__item-title {
+  margin: 0;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  overflow-wrap: anywhere;
+}
+
+.notice-page__item-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-label2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+/* 새 글 배지 — 20px 정사각에 주황 글자 하나 */
+.notice-page__item-new {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-10);
+  background-color: var(--color-background-red);
+  color: var(--color-primary-normal);
+  font-size: var(--font-size-caption1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+}
+
+/* 화면에는 감추고 보조기기에만 남기는 텍스트 */
+.notice-page__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* 402px 미만(소형 단말)에서 좌우 여백을 줄여 카드가 눌리지 않게 한다 */
+@media (max-width: 359px) {
+  .notice-page__list {
+    padding-inline: 16px;
+  }
+}

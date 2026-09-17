@@ -1,6 +1,6 @@
 # 기능 전략
 
-각 기능의 방향과 근거. 상세 설계는 `/Users/hwannee/Downloads/TalkFile_ai-filter-pipeline-design.md.md` 참조.
+각 기능의 방향과 근거. 모듈별 현재 구조는 `docs/modules/<module>.md`가 갖는다.
 
 ## 1. 검열 (validation)
 

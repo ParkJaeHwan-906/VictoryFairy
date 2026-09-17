@@ -1,0 +1,184 @@
+/**
+ * InquiryPage(문의하기 · 자주 묻는 질문) 스타일.
+ * Figma: SWM / [My] 문의하기-펼침 (node 1440:13805), 기준 프레임 402 x 874.
+ *
+ * 세로 좌표를 흐름 레이아웃으로 환산한 값(iOS 상태 바 47px 은 다른 화면들과 같이 제외):
+ *   상단 바 0~60 → 배너 60~160 → "자주 묻는 질문" 160 → 목록 220
+ * 상단 바 · 배너 · 제목이 서로 붙어 있어 따로 간격을 두지 않는다.
+ */
+
+.inquiry-page {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--layout-app-width);
+  min-height: 100dvh;
+  margin-inline: auto;
+  padding-bottom: calc(48px + env(safe-area-inset-bottom, 0px));
+  background-color: var(--color-background-basic);
+}
+
+/* ------------------------------------------------------------------ *
+ * Bar/Top — 뒤로가기 · 타이틀 (다른 화면들과 같은 컴포넌트)
+ * ------------------------------------------------------------------ */
+.inquiry-page__topbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.inquiry-page__back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 60px;
+  padding: 10px;
+  border-radius: var(--radius-10);
+  overflow: clip;
+}
+
+.inquiry-page__back-icon {
+  width: 20px;
+  height: 20px;
+  background-color: var(--color-label-assistive);
+  -webkit-mask: url('../assets/arrow_l.svg') center / contain no-repeat;
+  mask: url('../assets/arrow_l.svg') center / contain no-repeat;
+}
+
+.inquiry-page__topbar-title {
+  min-width: 0;
+  margin: 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  text-align: center;
+}
+
+.inquiry-page__topbar-spacer {
+  flex-shrink: 0;
+  width: 60px;
+  height: 60px;
+}
+
+/* ------------------------------------------------------------------ *
+ * 배너 — 구글 폼으로 나가는 링크
+ *
+ * 그라데이션 · 문구 · 일러스트가 한 장(402x100)으로 합쳐진 에셋이라 여기서는 자리만 잡는다.
+ * 화면이 기준 폭보다 좁아지면 그림이 함께 줄되 비율은 유지한다.
+ * ------------------------------------------------------------------ */
+.inquiry-page__banner {
+  display: block;
+  flex-shrink: 0;
+}
+
+.inquiry-page__banner-image {
+  width: 100%;
+  height: auto;
+}
+
+/* Title/Title2 — SemiBold 20 / 1.4 / -1% */
+.inquiry-page__section-title {
+  margin: 0;
+  padding: 20px var(--layout-gutter) 12px;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-title2);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title2);
+}
+
+/* ------------------------------------------------------------------ *
+ * 질문 목록 — 눌러서 접었다 편다
+ * ------------------------------------------------------------------ */
+.inquiry-page__list {
+  margin: 0;
+  padding: 0 var(--layout-gutter);
+  list-style: none;
+}
+
+/*
+ * 구분선은 항목이 갖는다 — 접혔을 때는 물음 아래, 펼쳤을 때는 답 아래에 놓여야 하는데
+ * 물음·답 어느 쪽에 걸어도 나머지 한 경우가 어긋난다. 마지막 줄에는 긋지 않는다.
+ */
+.inquiry-page__item:not(:last-child) {
+  border-bottom: 1px solid var(--color-line-light);
+}
+
+.inquiry-page__question {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 20px 0;
+  text-align: left;
+}
+
+/* 물음이 두 줄이 되어도 `Q.` 는 첫 줄 옆에 남는다 */
+.inquiry-page__question-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* Title/Title3 — SemiBold 18 / 1.4 / -1% */
+.inquiry-page__question-mark {
+  flex-shrink: 0;
+  color: var(--color-primary-normal);
+  font-size: var(--font-size-title3);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title3);
+}
+
+/* Body/Body1 — Medium 16 / 1.5 */
+.inquiry-page__question-text {
+  min-width: 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+}
+
+/* `arrow_d.svg` 의 fill 이 검정이라 mask 로 오려내고 색만 입힌다. */
+.inquiry-page__question-arrow {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  background-color: var(--color-label-assistive);
+  -webkit-mask: url('../assets/arrow_d.svg') center / contain no-repeat;
+  mask: url('../assets/arrow_d.svg') center / contain no-repeat;
+  transition: transform 0.2s ease-out;
+}
+
+/* 펼치면 화살표도 방향을 뒤집는다 — 다시 누르면 접힌다는 표시다 */
+.inquiry-page__question[aria-expanded='true'] .inquiry-page__question-arrow {
+  transform: rotate(180deg);
+}
+
+/* 아래 여백은 답이 갖는다 — 구분선이 답에 붙지 않고 한 칸 떨어져 그어진다 */
+.inquiry-page__answer {
+  padding-bottom: 20px;
+}
+
+/* Body/Body4 — Regular 14 / 1.5 */
+.inquiry-page__answer-text {
+  margin: 0;
+  padding: 12px 10px;
+  border-radius: var(--radius-10);
+  background-color: var(--color-background-gray);
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body4);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inquiry-page__question-arrow {
+    transition: none;
+  }
+}

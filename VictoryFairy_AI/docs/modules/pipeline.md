@@ -153,10 +153,10 @@ kbo-collector (Lambda, 상시)  ──▶ S3 community/{source}/{date}/{postId}.
 정책이 바뀌면 기존 산출물을 폐기하고 다시 돌린다. `BACKFILL_FROM`~`BACKFILL_TO`를 오름차순
 순회하며 날짜마다 **패턴 완결 → Bedrock** 순으로 처리한다.
 
-- **`Cursor`가 `BatchRedis` 인터페이스를 흉내 내되 `SADD`/`SREM`을 하지 않는다**(PIPE-BF-3b) —
-  백필이 야간 배치의 작업 집합을 오염시키면 안 된다.
-- 진행점과 소비액은 `_backfill/{run_id}/cursor.json`에 따로 기록한다. **`bedrock_spend_usd`를
-  건드리지 않는다**(PIPE-BF-15).
+- 진행점과 소비액은 `_backfill/{run_id}/cursor.json`에 따로 기록한다. **`Cursor`가 정규
+  카운터(`spend_counter.py`)와 같은 인터페이스로 `run_bedrock.main(cost_tracker=)`에 주입돼
+  정규 DynamoDB 카운터를 읽지도 쓰지도 않는다**(PIPE-BF-15) — 정규 카운터는 `batch_date`가
+  파티션 키라 여러 날에 걸치는 백필의 누적 예산을 담지 못한다.
 - **예산이 날짜 경계보다 우선한다**(PIPE-BF-18) — 날짜 중간에도 예산이 다하면 멈춘다.
 - **마커는 스스로 지우지 않는다**(PIPE-BF-25). 재처리 대상 선정은 운영자 몫이다.
 

@@ -39,66 +39,30 @@ CURSOR_KEY_TEMPLATE = "_backfill/{run_id}/cursor.json"
 
 
 def input_prefix(source: str, date: str) -> str:
-    """게시글 입력 prefix를 조립한다: community/{source}/{date}/"""
     return INPUT_PREFIX_TEMPLATE.format(source=source, date=date)
 
 
 def output_key(status: str, source: str, date: str, post_id: str, method: str = DEFAULT_METHOD) -> str:
-    """성공/실패 산출물 키를 조립한다: validation/{method}/{status}/{source}/{date}/{post_id}.json
-
-    `method`(PIPE-2SB-1)는 "pattern" | "bedrock" 이며 미지정 시 "pattern"(기존 동작과 동일).
-    """
     return OUTPUT_KEY_TEMPLATE.format(method=method, status=status, source=source, date=date, post_id=post_id)
 
 
 def manifest_key(source: str, date: str, post_id: str, method: str = DEFAULT_METHOD) -> str:
-    """완결 처리 마커 키를 조립한다.
-
-    `method`(PIPE-2SB-1)는 "pattern" | "bedrock" 이며 미지정 시 "pattern"(기존 동작과 동일).
-    """
     return MANIFEST_KEY_TEMPLATE.format(method=method, source=source, date=date, post_id=post_id)
 
 
 def output_prefix(status: str, source: str, date: str, method: str = DEFAULT_METHOD) -> str:
-    """산출물 리스팅 prefix를 조립한다: validation/{method}/{status}/{source}/{date}/
-
-    Bedrock 러너의 입력 prefix(PIPE-2SB-4, `validation/pattern/success/{source}/{date}/`)를
-    조립하는 데 쓴다. `output_key`와 세그먼트 순서가 같아야 하므로(PIPE-2SB-6 대칭) 같은
-    템플릿 구조를 공유한다.
-    """
     return OUTPUT_PREFIX_TEMPLATE.format(method=method, status=status, source=source, date=date)
 
 
 def shadow_key(source: str, date: str, post_id: str, method: str = DEFAULT_METHOD) -> str:
-    """shadow 모드 전용 키를 조립한다(PIPE-2SB-70): validation/{method}/_shadow/{source}/{date}/{post_id}.json
-
-    success/failed/`_manifest`와 분리된 네임스페이스라 산출물 리스팅(PIPE-2SB-3b)과 섞이지
-    않는다. `method`는 항상 "bedrock"으로 호출될 것으로 예상되지만(pattern 단계엔 shadow
-    개념이 없다) 다른 키 함수와의 일관성을 위해 인자로 열어 둔다.
-    """
     return SHADOW_KEY_TEMPLATE.format(method=method, source=source, date=date, post_id=post_id)
 
 
 def cursor_key(run_id: str) -> str:
-    """백필 진행 커서 키를 조립한다(PIPE-BF-9): `_backfill/{runId}/cursor.json`
-
-    `run_id`만 받는다 — 커서는 날짜·소스별로 나뉘지 않고 백필 실행(run) 전체에 하나다
-    (PIPE-BF-10: `lastCompletedDate`가 그 run의 날짜 진행 상태를 담는다).
-    """
     return CURSOR_KEY_TEMPLATE.format(run_id=run_id)
 
 
 def build_s3_client(region_name: Optional[str] = None, endpoint_url: Optional[str] = None):
-    """boto3 S3 클라이언트를 생성한다.
-
-    - 자격증명은 boto3 기본 체인(환경변수 등)에서 획득한다(PIPE-S3IO-14).
-    - 리전은 인자 우선, 없으면 pipeline 설정의 AWS_REGION(기본 ap-northeast-2).
-    - 엔드포인트는 인자 우선, 없으면 설정의 S3_ENDPOINT_URL. 둘 다 비어 있으면
-      None 을 넘겨 boto3 기본 AWS 리전 엔드포인트를 쓴다(VPC 엔드포인트·MinIO 등
-      S3 호환 스토리지에 붙일 때만 env S3_ENDPOINT_URL 로 지정).
-    - 테스트에서 페이크/스텁 클라이언트로 교체할 수 있도록 이 함수 자체를
-      모킹하거나, 아래 리스팅/읽기/쓰기 함수에 클라이언트를 직접 주입해 쓸 수 있다.
-    """
     import boto3  # 지연 import: 로컬 3.9 venv 에 boto3 미설치 상태에서도 파일 import 는 깨지지 않게 한다.
 
     from pipeline.core.config import pipeline_settings
@@ -112,7 +76,6 @@ def build_s3_client(region_name: Optional[str] = None, endpoint_url: Optional[st
 
 
 def list_json_keys(client, bucket: str, prefix: str) -> list[str]:
-    """prefix 하위 모든 `.json` 객체 키를 페이지네이션으로 전부 리스팅한다(PIPE-S3IO-27)."""
     keys: list[str] = []
     continuation_token = None
     while True:
@@ -132,13 +95,11 @@ def list_json_keys(client, bucket: str, prefix: str) -> list[str]:
 
 
 def get_object_bytes(client, bucket: str, key: str) -> bytes:
-    """객체 원본 바이트를 읽는다. S3 접근 실패(권한·네트워크 등)는 그대로 전파한다(PIPE-S3IO-26)."""
     obj = client.get_object(Bucket=bucket, Key=key)
     return obj["Body"].read()
 
 
 def put_json_object(client, bucket: str, key: str, data: dict) -> None:
-    """dict 를 JSON 으로 직렬화해 객체로 쓴다."""
     payload = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
     client.put_object(Bucket=bucket, Key=key, Body=payload, ContentType="application/json")
 
@@ -150,7 +111,6 @@ def delete_object_if_exists(client, bucket: str, key: str) -> None:
 
 
 def object_exists(client, bucket: str, key: str) -> bool:
-    """HeadObject 로 키 존재 여부를 확인한다. 404 계열은 False, 그 외 에러는 그대로 전파한다."""
     from botocore.exceptions import ClientError  # 지연 import: boto3 의존
 
     try:

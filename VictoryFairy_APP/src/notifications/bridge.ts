@@ -36,6 +36,8 @@ export interface UpcomingGame {
 export type ReminderSnapshot =
   /** 조회 성공. `games`가 비어 있으면 정말로 예정 경기가 없다는 뜻이다. */
   | { status: 'ok'; games: UpcomingGame[] }
+  /** 사용자가 알림 설정에서 껐다 — 예약을 비우고, 권한도 묻지 않는다. */
+  | { status: 'disabled' }
   /** 로그인 상태가 아니다 — 알릴 대상이 없으므로 예약을 비운다. */
   | { status: 'signed-out' }
   /** 로그인했지만 응원 구단을 아직 고르지 않았다(온보딩 중). */
@@ -45,6 +47,25 @@ export type ReminderSnapshot =
 
 /** 웹이 보낸 다른 메시지와 섞이지 않도록 붙이는 표식. */
 const MESSAGE_SOURCE = 'victoryfairy-app/reminders';
+
+/**
+ * 알림 설정이 바뀌었다고 웹이 알려올 때 붙는 표식.
+ *
+ * 조회 결과(`MESSAGE_SOURCE`)와 통로는 같지만 방향이 반대다 — 저쪽은 앱이 물어서
+ * 받는 답이고, 이쪽은 웹이 먼저 말을 건다.
+ */
+const PREFERENCE_MESSAGE_SOURCE = 'victoryfairy-app/push-preference';
+
+/**
+ * 웹이 알림 수신 여부를 저장해 둔 localStorage 키.
+ *
+ * ⚠️ 값의 주인은 웹이다(`VictoryFairy_FE/src/utils/pushNotification.ts`). 키나 형태를
+ * 한쪽만 고치면 여기서는 읽히지 않고, 조용히 기본값(켜짐)으로 돌아간다.
+ */
+const PUSH_PREFERENCE_KEY = 'victoryfairy.pushNotification';
+
+/** 앱이 권한 결과를 돌려줄 때 부르는, 웹이 심어 둔 전역 함수의 이름. */
+const PERMISSION_CALLBACK = '__victoryFairyPushPermission';
 
 /**
  * 며칠 앞까지 훑을지.
@@ -69,6 +90,7 @@ export const COLLECT_REMINDERS_SCRIPT = `
   var USER_API = ${JSON.stringify(API_USER_BASE_URL)};
   var SOURCE = ${JSON.stringify(MESSAGE_SOURCE)};
   var HORIZON_DAYS = ${HORIZON_DAYS};
+  var PUSH_PREFERENCE_KEY = ${JSON.stringify(PUSH_PREFERENCE_KEY)};
 
   function post(payload) {
     if (!window.ReactNativeWebView) {
@@ -76,6 +98,22 @@ export const COLLECT_REMINDERS_SCRIPT = `
     }
     payload.source = SOURCE;
     window.ReactNativeWebView.postMessage(JSON.stringify(payload));
+  }
+
+  // 웹의 알림 설정 화면이 남긴 값(VictoryFairy_FE/src/utils/pushNotification.ts).
+  // 아직 만진 적이 없거나 읽지 못하면 켜짐 — 여기서 꺼짐으로 기울면 설정을 만든 적도
+  // 없는 사용자의 알림이 조용히 멎는다.
+  function isPushEnabled() {
+    try {
+      var raw = window.localStorage.getItem(PUSH_PREFERENCE_KEY);
+      if (!raw) {
+        return true;
+      }
+      var parsed = JSON.parse(raw);
+      return !parsed || parsed.enabled !== false;
+    } catch (error) {
+      return true;
+    }
   }
 
   // zustand persist('victoryfairy.auth')가 { state: { accessToken, refreshToken } } 로 저장한다.
@@ -118,6 +156,12 @@ export const COLLECT_REMINDERS_SCRIPT = `
       }
       return response.json();
     });
+  }
+
+  // 설정이 꺼져 있으면 로그인 여부와 상관없이 알릴 것이 없다 — 조회도 하지 않는다.
+  if (!isPushEnabled()) {
+    post({ status: 'disabled' });
+    return;
   }
 
   var token = readAccessToken();
@@ -197,6 +241,7 @@ export function parseReminderSnapshot(raw: string): ReminderSnapshot | null {
   }
 
   switch (message.status) {
+    case 'disabled':
     case 'signed-out':
     case 'no-team':
     case 'unavailable':
@@ -206,4 +251,64 @@ export function parseReminderSnapshot(raw: string): ReminderSnapshot | null {
     default:
       return null;
   }
+}
+
+/** 웹의 알림 설정 화면이 토글을 움직였을 때 보내오는 메시지. */
+export interface PushPreferenceMessage {
+  /** 바뀐 뒤의 값. 저장은 이미 웹이 끝냈고, 앱은 이 신호로 예약을 다시 맞춘다. */
+  enabled: boolean;
+  /**
+   * OS 권한까지 물어야 하는지 — 켤 때만 `true`다.
+   *
+   * 끌 때는 물어볼 것이 없고, 알림을 끄겠다는 사람에게 권한 대화상자를 띄우면
+   * 무엇을 묻는 것인지 알 수 없는 화면이 된다.
+   */
+  requestPermission: boolean;
+}
+
+/**
+ * `onMessage`로 올라온 문자열이 알림 설정 변경인지 보고, 맞으면 그 내용을 돌려준다.
+ *
+ * 표식이 없거나 형태가 어긋나면 `null` — 화면 보고이거나 조회 결과다.
+ */
+export function parsePushPreference(raw: string): PushPreferenceMessage | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+
+  if (typeof parsed !== 'object' || parsed === null) {
+    return null;
+  }
+
+  const message = parsed as Record<string, unknown>;
+  if (message.source !== PREFERENCE_MESSAGE_SOURCE || typeof message.enabled !== 'boolean') {
+    return null;
+  }
+
+  return { enabled: message.enabled, requestPermission: message.requestPermission === true };
+}
+
+/**
+ * 권한 결과를 웹에 돌려주는 스크립트.
+ *
+ * 권한은 앱만 알 수 있는데 토글은 웹에 있다 — 알려주지 않으면 사용자가 거절한 뒤에도
+ * 토글이 켜진 채로 남아 "켜 뒀는데 안 온다"가 된다.
+ *
+ * 전역이 없으면(설정 화면을 떠난 뒤 · 다른 화면) 아무 일도 하지 않는다. 값을 웹의
+ * 저장소에 밀어 넣지 않고 화면에만 건네는 이유는, 설정의 주인이 웹이기 때문이다 —
+ * 앱이 저장까지 하면 같은 값을 두 곳에서 쓰게 된다.
+ */
+export function pushPermissionScript(isGranted: boolean): string {
+  const permission = JSON.stringify(isGranted ? 'granted' : 'denied');
+  return `
+(function () {
+  if (typeof window.${PERMISSION_CALLBACK} === 'function') {
+    window.${PERMISSION_CALLBACK}(${permission});
+  }
+})();
+true;
+`;
 }

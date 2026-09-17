@@ -5,6 +5,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -71,4 +72,23 @@ public interface QuizLikeRepository extends JpaRepository<QuizLike, Long> {
             + "where l.userAccount.id = :userAccountId and l.quiz.id in :quizIds and l.liked = true")
     List<Long> findLikedQuizIds(@Param("userAccountId") Long userAccountId,
             @Param("quizIds") Collection<Long> quizIds);
+
+    /**
+     * 이 계정이 <b>취소한</b> 좋아요 행({@code liked = false})만 지운다 — 만료 데이터 정리가 계정을
+     * 하드 삭제하기 <b>직전에</b> 부르는 정리 단계다.
+     *
+     * <p>왜 켜진 행은 남기는가: 계정이 사라지면 FK 가 {@code user_account_id} 를 NULL 로 비우고
+     * ({@code ON DELETE SET NULL}) 행은 남아 문제별 추천 수가 보존된다(엔티티 javadoc 참고). 반면
+     * 취소 행은 그대로 두면 <b>영원히 남는 쓰레기</b>다 — 아무 집계에도 안 잡히면서 지울 근거도 사라진다.
+     *
+     * <p>⚠ <b>계정 삭제보다 먼저 불러야 한다.</b> 순서가 뒤집히면 소유자가 이미 NULL 이라 어느 취소 행이
+     * 누구 것인지 가릴 수 없고, 그 이력은 되돌릴 수 없이 남는다.
+     *
+     * <p>엔티티를 읽지 않는 벌크 삭제다 — 지우려는 행 수만큼 객체를 올릴 이유가 없다.
+     *
+     * @return 삭제된 행 수
+     */
+    @Modifying
+    @Query("delete from QuizLike l where l.userAccount.id = :userAccountId and l.liked = false")
+    int deleteCancelledByUserAccountId(@Param("userAccountId") Long userAccountId);
 }

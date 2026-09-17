@@ -57,7 +57,7 @@ import json
 import sys
 from datetime import date as date_cls
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Optional
 from zoneinfo import ZoneInfo
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -78,8 +78,6 @@ from pipeline.s3_io import (
 
 
 class BackfillSettings(BaseSettings):
-    """백필 오케스트레이터 전용 설정(PIPE-BF-2/9/14/26 — env 키명은 "(가정)"에서 확정)."""
-
     # PIPE-BF-2: 대상 날짜 범위. 코드에 날짜를 하드코딩하지 않는다 — 범위는 항상 env로 받는다.
     BACKFILL_FROM: Optional[str] = None
     BACKFILL_TO: Optional[str] = None
@@ -105,7 +103,6 @@ backfill_settings = BackfillSettings()
 
 
 def _die(message: str) -> None:
-    """명확한 에러를 남기고 0이 아닌 종료 코드로 중단한다(PIPE-2SB-22 계승)."""
     print(f"오류: {message}", file=sys.stderr)
     sys.exit(1)
 
@@ -119,7 +116,6 @@ def _default_run_id() -> str:
 
 
 def _iter_dates(date_from: str, date_to: str):
-    """`date_from`~`date_to`(양끝 포함)를 오름차순으로 순회한다(PIPE-BF-7)."""
     start = date_cls.fromisoformat(date_from)
     end = date_cls.fromisoformat(date_to)
     current = start
@@ -132,7 +128,7 @@ class Cursor:
     """진행 커서(PIPE-BF-9/10) — `_backfill/{runId}/cursor.json`.
 
     쓰기 주체는 이 오케스트레이터뿐이다(PIPE-BF-11) — `run_validation`·`run_bedrock`은
-    이 키를 전혀 참조하지 않는다(그 두 파일은 손대지 않았다).
+    이 키를 전혀 참조하지 않는다.
 
     정규 카운터(`pipeline/spend_counter.py`)와 같은 인터페이스(`get_spend`/`add_spend`)를
     구현해 `run_bedrock.main(cost_tracker=...)`에 그대로 주입된다 — 정규 DynamoDB 카운터
@@ -202,9 +198,7 @@ class Cursor:
         return self.spend_usd
 
     def add_spend(self, amount_usd: float) -> None:
-        """PIPE-BF-15/16: 백필 전용 spendUsd에 누적하고 즉시 커서를 갱신한다.
-
-        갱신 주기는 "배치 호출마다"(PIPE-BF-16 기준값) — PUT 비용은 무시할 수준이고
+        """갱신 주기는 "배치 호출마다"(PIPE-BF-16 기준값) — PUT 비용은 무시할 수준이고
         (문서 근거: 7,000회 ≈ $0.035), 크래시 시 유실되는 소비 기록을 최소화한다.
         """
         if amount_usd <= 0:
@@ -221,15 +215,11 @@ class Cursor:
 
 
 def _run_pattern_stage_for_date(client, bucket: str, date: str) -> dict:
-    """패턴(1차 검열) 단계를 이 날짜에 대해 실행한다.
-
-    `run_validation.main()`과 완전히 같은 판정 로직·키 규약·마커를 쓴다(PIPE-BF-3) —
+    """`run_validation.main()`과 완전히 같은 판정 로직·키 규약·마커를 쓴다(PIPE-BF-3) —
     `process_post()`·`_finalize_post()`를 그대로 재사용한다(재구현하지 않는다). 다른
     점은 `today_kst()` 고정 대신 임의의 `date`를 받는다는 것뿐이다. `run_validation.py`
-    자체는 `main()`이 오늘 날짜에 고정돼 있어 날짜를 주입할 수 없으므로(그 파일은 손대지
-    않는다는 지시에 따라) 이 반복문만 여기 새로 둔다 — 판정·라우팅·쓰기는 전부 재사용이다.
-
-    반환: {"has_input": bool, "processed": int, "skipped_done": int, "skipped_bad": int}
+    자체는 `main()`이 오늘 날짜에 고정돼 있어 날짜를 주입할 수 없으므로 이 반복문만
+    여기 따로 둔다 — 판정·라우팅·쓰기는 전부 재사용이다.
     """
     total_processed = 0
     total_skipped_done = 0

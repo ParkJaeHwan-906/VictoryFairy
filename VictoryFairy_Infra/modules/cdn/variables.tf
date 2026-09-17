@@ -9,6 +9,86 @@ variable "api_path_patterns" {
   }
 }
 
+variable "asset_bucket_name" {
+  description = "사용자 업로드 자산 버킷 이름(modules/asset 출력). OAC 설명 문구에만 쓴다 — 실제 오리진 주소는 asset_bucket_regional_domain_name."
+  type        = string
+}
+
+variable "asset_bucket_regional_domain_name" {
+  description = "자산 버킷의 리전 도메인(modules/asset 출력). 두 번째 S3 오리진의 domain_name. ⚠ 웹사이트 엔드포인트가 아니라 REST 엔드포인트여야 OAC 서명이 통한다."
+  type        = string
+}
+
+variable "asset_profile_prefix" {
+  description = "확정 프로필 이미지 키 접두사(슬래시로 끝난다). 여기서 경로 패턴 /<접두사>* 로 바뀐다 — modules/asset·BE 업로드 키와 같은 값이어야 한다."
+  type        = string
+  default     = "user-profile-img/"
+
+  validation {
+    condition     = endswith(var.asset_profile_prefix, "/") && !startswith(var.asset_profile_prefix, "/")
+    error_message = "asset_profile_prefix 는 슬래시로 끝나고 슬래시로 시작하지 않아야 합니다(예: user-profile-img/)."
+  }
+}
+
+variable "asset_static_prefixes" {
+  description = <<-EOT
+    사람이 미리 올려 두는 정적 자산의 키 접두사 목록(각각 슬래시로 끝난다). 캐릭터 꾸미기 에셋이
+    여기 해당한다 — characters/ · items/ · stores/. 여기서 경로 패턴 /<접두사>* 로 바뀐다.
+
+    ⚠ modules/asset 의 static_prefixes 와 반드시 같은 값이어야 한다. behavior 만 있고 버킷 정책이
+      없으면 403, 정책만 있고 behavior 가 없으면 FE 버킷으로 흘러가 404 다.
+  EOT
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition = alltrue([
+      for prefix in var.asset_static_prefixes : endswith(prefix, "/") && !startswith(prefix, "/")
+    ])
+    error_message = "asset_static_prefixes 의 각 항목은 슬래시로 끝나고 슬래시로 시작하지 않아야 합니다(예: characters/)."
+  }
+}
+
+variable "asset_static_ttl_seconds" {
+  description = <<-EOT
+    정적 자산(asset_static_prefixes)의 엣지·브라우저 캐시 시간(초). 기본 하루.
+
+    프로필 이미지처럼 1년 immutable 로 두지 않는 이유: 키가 UUID 가 아니라 고정 슬러그
+    (items/cloth/basic.svg)라 디자인 교체가 같은 키를 덮어쓴다. 1년 immutable 이면 무효화를
+    돌려도 이미 그 값을 받은 브라우저는 1년 동안 옛 그림을 계속 쓴다 — 무효화가 엣지에만 닿고
+    브라우저 캐시에는 닿지 않기 때문이다.
+  EOT
+  type        = number
+  default     = 86400
+
+  validation {
+    condition     = var.asset_static_ttl_seconds >= 0 && var.asset_static_ttl_seconds <= 31536000
+    error_message = "asset_static_ttl_seconds 는 0 이상 31536000 이하여야 합니다."
+  }
+}
+
+variable "asset_temp_prefix" {
+  description = "가입 전 임시 업로드 키 접두사(슬래시로 끝난다). 여기서 경로 패턴 /<접두사>* 로 바뀐다."
+  type        = string
+  default     = "temp/"
+
+  validation {
+    condition     = endswith(var.asset_temp_prefix, "/") && !startswith(var.asset_temp_prefix, "/")
+    error_message = "asset_temp_prefix 는 슬래시로 끝나고 슬래시로 시작하지 않아야 합니다(예: temp/)."
+  }
+}
+
+variable "asset_temp_ttl_seconds" {
+  description = "임시 업로드(temp/)의 엣지·브라우저 캐시 시간(초). 객체가 하루면 사라지므로 길게 잡을 실익이 없고, 길면 삭제 후에도 엣지 사본이 남는다. 가입 절차 한 번을 덮을 정도면 충분하다."
+  type        = number
+  default     = 300
+
+  validation {
+    condition     = var.asset_temp_ttl_seconds >= 0 && var.asset_temp_ttl_seconds <= 3600
+    error_message = "asset_temp_ttl_seconds 는 0~3600 이어야 합니다(하루살이 객체에 1시간을 넘길 이유가 없습니다)."
+  }
+}
+
 variable "attach_apex_alias" {
   description = <<-EOT
     apex 도메인 A/AAAA(ALIAS) 레코드를 CloudFront 로 붙일지 여부. 이것이 곧 실서비스 전환 스위치다.
@@ -19,7 +99,7 @@ variable "attach_apex_alias" {
 
     ⚠ 이 레코드는 ExternalDNS 가 만들어 둔 것을 allow_overwrite 로 덮어써 소유권을 가져온다.
       되돌리려면 false 로 바꾸는 것만으로는 부족하다 — Terraform 이 레코드를 지우면 도메인이
-      어디도 가리키지 않는다. 롤백 절차는 docs/fe-cdn-migration.md §4 를 따를 것.
+      어디도 가리키지 않는다. 되돌릴 때는 apex A 를 ALB ALIAS 로 수동 UPSERT 한다.
   EOT
   type        = bool
   default     = false

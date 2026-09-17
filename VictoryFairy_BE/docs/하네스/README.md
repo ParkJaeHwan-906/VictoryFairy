@@ -1,7 +1,7 @@
 # 하네스(Harness) 전략
 
 > 목적: **CLAUDE.md 비대화로 인한 중간 context 유지 어려움**을 막기 위해, 컨텍스트를 "항상 로드"에서 "필요할 때만 로드"로 전환한다.
-> 최종 업데이트: 2026-07-27
+> 최종 업데이트: 2026-08-13
 >
 > 이 문서는 **현재 유효한 구성과 설계 근거**만 담는다. 날짜별 도입 이력은 `git log`가 갖고 있으므로 여기 남기지 않는다.
 
@@ -36,8 +36,8 @@
 
 | 위치 | 대상 | 에이전트 |
 |---|---|---|
-| `VictoryFairy_BE/.claude/` | Spring 멀티모듈 BE | 아래 15개 (코드 9 · 인프라 4 · 공통 2) |
-| 저장소 루트 `.claude/` | Terraform·EKS 인프라 | `terraform-writer` · `terraform-validator` · `k8s-manifest` · `context-keeper` · `commit-writer` + `terraform-infra` 스킬 |
+| `VictoryFairy_BE/.claude/` | Spring 멀티모듈 BE | 아래 16개 (코드 9 · 인프라 4 · 공통 3) |
+| 저장소 루트 `.claude/` | Terraform·EKS 인프라 | `terraform-writer` · `terraform-validator` · `k8s-manifest` · `context-keeper` · `cruft-sweeper` · `commit-writer` + `terraform-infra` 스킬 |
 
 BE 쪽 `infra` 모듈(`.claude/modules/infra.md`)은 **EC2+compose·배포 파이프라인** 관점의 컨텍스트다. Terraform·k8s 매니페스트 자체를 고치는 작업은 루트 하네스 소관이고, 코드는 `VictoryFairy_Infra/`에 있다(`dev_*` 브랜치는 분리된 트리라 `dev_be`에서는 안 보인다 — `main` 기준으로 볼 것).
 
@@ -77,6 +77,7 @@ BE 쪽 `infra` 모듈(`.claude/modules/infra.md`)은 **EC2+compose·배포 파�
 | 에이전트 | 역할 | 수정 범위 | model |
 |---|---|:---:|---|
 | `context-keeper` | 모듈 컨텍스트를 코드와 일치하게 유지 | `.claude/`만 | sonnet |
+| `cruft-sweeper` | 구현으로 대체된 흔적 삭제 — 죽은 코드·명세 복창 주석·주인 없는 낡은 문서 | 삭제만 | inherit |
 | `commit-writer` | 워킹 트리 변경을 의도 단위로 쪼개 커밋 (push 안 함) | ❌ git만 | inherit |
 
 `commit-writer`는 **사용자가 커밋을 요청했을 때만** 호출한다. 작업이 끝났다고 자동으로 부르지 않는다 — 언제 무엇을 커밋할지는 사용자의 결정이다. `Write`/`Edit` 도구가 없어 커밋할 코드를 고칠 수 없고, push는 규칙으로 금지해 **되돌릴 수 없는 조작을 하지 않는다**.
@@ -90,6 +91,8 @@ BE 쪽 `infra` 모듈(`.claude/modules/infra.md`)은 **EC2+compose·배포 파�
 - **`requirements-writer` ↔ `api-documenter` ↔ `context-keeper`** — 셋 다 마크다운만 쓰는데, 갈라놓은 축은 **시점**이다. 요구사항은 구현 **전**의 *의도*(사용자가 승인한 계약), `docs/api/*.md`는 구현 **후**의 *사실*(실제 엔드포인트), `modules/*.md`는 *지금 코드*의 사실. **셋이 어긋나는 건 버그가 아니라 신호다** — 요구사항과 코드가 다르면 미구현이거나 계약 위반이고, 각 문서는 자기 시점의 진실을 그대로 쓰고 어긋남을 **보고**한다. 서로에 맞춰 고쳐 쓰면 세 문서가 동시에 거짓말을 하게 된다.
 - **`requirements-writer` ↔ `spring-dev`** — "무엇이 참이어야 하는가"(요구사항) ↔ "어떻게 만드는가"(구현). 요구사항이 클래스·라이브러리를 못 박으면 계약이 아니라 설계 지시가 되어 구현자가 더 나은 길을 못 고른다. 반대로 구현자가 요구사항을 늘리거나 줄이면 사용자 승인이 무의미해진다.
 - **`spring-optimizer` ↔ `jpa-query-tuner`** — 최적화를 둘로 나눈 기준은 "쿼리인가 아닌가"다. N+1·fetch join·인덱스·페이징은 전부 `jpa-query-tuner`, 트랜잭션 경계·open-in-view·풀·설정은 `spring-optimizer`. 서로의 영역을 발견하면 고치지 말고 **위임을 권고**한다.
+- **`code-commenter` ↔ `cruft-sweeper`** — 정확히 반대 방향이다. 전자는 *얹고*, 후자는 *뺀다*. **같은 파일에 동시에 돌리면 서로를 덮어쓴다** — 둘 다 필요하면 `cruft-sweeper`를 먼저 돌린다(소음을 걷어야 진짜 빈 곳이 보인다). 겹치는 판단 기준("무엇이 아니라 왜")은 같은 문장을 쓰되, **한쪽은 그것을 쓰는 근거로, 다른 쪽은 지우지 않을 근거로** 쓴다.
+- **`cruft-sweeper` ↔ 문서 3인방** — `cruft-sweeper`는 문서를 **고쳐 쓰지 않는다.** 낡은 절을 *빼는 것*까지가 그쪽이고, 새 사실을 *쓰는 것*은 주인(`context-keeper`·`api-documenter`)이다. `docs/requirements/**`는 아예 대상이 아니다 — 승인된 계약이자 *구현 전 시점*의 기록이라, 코드에 맞춰 지우면 승인의 의미가 사라진다.
 - **`test-writer` ↔ `test-data` ↔ `module-verifier`** — 각각 테스트 *로직* / 테스트 *데이터* / *런타임* 검증.
 - **Docker 3분할** — **"무엇을 빌드하나(`dockerfile-manager`) / 어떻게 함께 뜨나(`compose-manager`) / 실제로 되나(`docker-runner`)"**로 나눴다. 앞의 둘은 *쓰고*, 마지막은 *돌린다*. 빌드가 느려 검증이 오래 걸리므로, 작성자가 직접 풀 빌드를 돌리지 않고 `docker-runner`에 넘기는 구조다.
 - **`dockerfile-manager` ↔ `github-actions`** — 이미지를 **어떻게 만드나**는 전자, CI에서 **언제·무엇을 빌드하나**(트리거·매트릭스·태그)는 후자. 둘은 `ARG MODULE` 계약으로 연결되어 있어, 그걸 깨면 양쪽을 함께 고쳐야 한다.
@@ -108,7 +111,7 @@ BE 쪽 `infra` 모듈(`.claude/modules/infra.md`)은 **EC2+compose·배포 파�
 | `modules/<module>.md` | **모듈 사실** — 포트·엔드포인트·정책·엔티티 위치 | `context-keeper` (자동) |
 | `agents/<agent>.md` | **역할 지침** — 어떻게 일하는가 | 사람 (드물게) |
 
-13개 에이전트가 "작업 전 `.claude/modules/<module>.md`를 먼저 Read하라"는 지시를 갖는다. 공통 에이전트 2개가 예외다 — `context-keeper`는 모듈 파일이 작업 *대상*이라 절차 안에서 읽고, `commit-writer`는 git 히스토리를 다룰 뿐 모듈 사실이 필요 없다(커밋 컨벤션의 출처는 모듈 파일이 아니라 `git log`다). 메인 에이전트는 프롬프트에 **"어느 모듈 + 무엇을/왜"만** 주면 되고, 모듈 사실을 길게 복사하지 않는다.
+14개 에이전트가 "작업 전 `.claude/modules/<module>.md`를 먼저 Read하라"는 지시를 갖는다(`cruft-sweeper`에게는 그 파일의 "주의/컨벤션"이 곧 **지우면 안 되는 "왜"의 목록**이다 — `code-commenter`와 같은 소스를 정반대 방향으로 쓴다). 공통 에이전트 2개가 예외다 — `context-keeper`는 모듈 파일이 작업 *대상*이라 절차 안에서 읽고, `commit-writer`는 git 히스토리를 다룰 뿐 모듈 사실이 필요 없다(커밋 컨벤션의 출처는 모듈 파일이 아니라 `git log`다). 메인 에이전트는 프롬프트에 **"어느 모듈 + 무엇을/왜"만** 주면 되고, 모듈 사실을 길게 복사하지 않는다.
 
 역할에 따라 컨텍스트를 쓰는 방식이 다르다:
 - `code-commenter` — 모듈 컨텍스트의 "주의/컨벤션"이 곧 **주석 소재**
@@ -185,6 +188,23 @@ BE 쪽 `infra` 모듈(`.claude/modules/infra.md`)은 **EC2+compose·배포 파�
 
 > **"낡음"은 실제로 재발한다.** 2026-07-27 점검에서 이 문서와 `session-start.sh`가 "gh·aws·kubectl 미설치"라고 주장하고 있었다(전부 설치돼 동작 중). 훅은 그 거짓을 근거로 "배포·K8s 확인은 SKIP하고 보고하라"고 지시하고 있었다 — **검증을 지어내지 말라고 쓴 섹션이 스스로 거짓이 되어 검증을 막고 있던 것**이다. 환경 사실을 적을 때는 적은 날짜와 확인 방법을 함께 남기고, 의심되면 문서를 믿지 말고 직접 실행해 확인한다.
 
+### 흔적 정리 (cruft-sweeper)
+
+`context-keeper`가 **문서**의 낡음을 막는다면, `cruft-sweeper`는 **코드 옆 컨텍스트**의 낡음을 막는다. 주석과 죽은 코드도 결국 다음 에이전트가 읽는 컨텍스트이고, 그게 옛 구현을 설명하면 하네스는 **가장 신뢰받는 자리에서** 거짓말을 한다.
+
+이걸 별도 역할로 뽑은 이유는 **하네스에 뺄셈이 없었기 때문**이다. `spring-dev`는 기능을, `code-commenter`는 주석을, `api-documenter`는 문서를 얹는다. 아무도 지울 책임이 없으면 컨텍스트는 단조 증가하고, 그건 이 하네스가 애초에 풀려던 문제다.
+
+설계에서 신경 쓴 것:
+
+- **삭제만 한다.** 로직·구조·이름을 바꾸지 않는다. 리팩터링은 `/simplify`, 버그는 `/code-review` 몫이라 겹치지 않고, 무엇보다 **삭제와 변경이 한 커밋에 섞이면 리뷰가 불가능**해진다.
+- **비대칭 비용을 규칙으로 못 박았다.** 덜 지우면 현상 유지지만, 과하게 지우면 동작이 깨지거나 되찾을 수 없는 "왜"가 사라진다. 그래서 **근거 없으면 지우지 않고 보고**한다. 특히 "참조 0건"은 죽음의 증거가 아니다 — Spring 빈·JPA 필드·yml 키·`@Query` 문자열은 이름으로 불리고, **엔드포인트와 DTO 필드는 `VictoryFairy_FE`·`VictoryFairy_AI`가 밖에서 쓴다.** grep 범위를 저장소 밖까지 넓히도록 지시해 두었다.
+- **문서는 주인을 따진다.** 주인 없는 `docs/**`만 지우고, `docs/api`·`.claude/modules`는 드리프트를 **보고**하며, `docs/requirements/**`는 대상이 아니다(승인된 계약이자 *구현 전 시점*의 기록 — 코드에 맞춰 지우면 승인이 무의미해진다).
+- **model은 `inherit`.** 이 역할의 실수는 "무엇을 지워도 되는가"라는 판단 실패지 작업량이 아니다.
+
+메서드 위 여러 줄 Javadoc이 1순위 대상인 이유: 같은 계약이 `docs/api`·`docs/requirements`·주석 **세 군데**에 있으면 코드가 바뀔 때 **주석이 가장 먼저 낡는데**, 다음 에이전트는 코드 옆 주석을 가장 신뢰한다. 계약은 문서가 갖고, 주석은 **코드가 말할 수 없는 것**(정책·함정·워크어라운드·최적화 근거)만 한두 줄로 남긴다.
+
+수동 호출은 `/cleanup <범위>`. **범위 없이 저장소 전체를 맡기지 않는다** — 넓을수록 근거 없는 삭제가 섞인다.
+
 ## 구성 요소
 
 | 경로 | 역할 |
@@ -196,8 +216,9 @@ BE 쪽 `infra` 모듈(`.claude/modules/infra.md`)은 **EC2+compose·배포 파�
 | `.claude/modules/domain.md` | domain 모듈(공유 JPA 엔티티/리포지토리) 슬림 컨텍스트 |
 | `.claude/modules/web-support.md` | web-support 모듈(user·quiz 공유 JWT 발급/검증·예외 핸들러·401 엔트리포인트 라이브러리) 슬림 컨텍스트 |
 | `.claude/modules/infra.md` | 배포·인프라 컨텍스트 (EC2+compose 경로 + EKS 현황) |
-| `.claude/agents/*.md` | 역할별 서브에이전트 15개 — 코드 9 · 인프라 4 · 공통 2 (위 표) |
+| `.claude/agents/*.md` | 역할별 서브에이전트 16개 — 코드 9 · 인프라 4 · 공통 3 (위 표) |
 | `.claude/commands/verify.md` | 검증을 수동 호출하는 `/verify` 슬래시 커맨드 |
+| `.claude/commands/cleanup.md` | 흔적 정리를 수동 호출하는 `/cleanup` 슬래시 커맨드 (범위 지정 필수) |
 | `.claude/commands/requirements.md` | 요구사항 단계를 수동 호출하는 `/requirements` 슬래시 커맨드 |
 | `docs/requirements/<module>/<feature>.md` | 기능별 EARS 요구사항 (구현 전 계약). `requirements-writer`가 쓰고 **사용자가 승인** |
 

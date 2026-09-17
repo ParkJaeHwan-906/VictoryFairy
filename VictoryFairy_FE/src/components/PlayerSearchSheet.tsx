@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { getPlayerList } from '../api';
 import type { Player } from '../api';
 import { getPlayerPositionLabel } from '../data/playerPositions';
+import { useBottomSheet } from '../hooks/useBottomSheet';
+import '../styles/bottomSheet.css';
 import '../styles/PlayerSearchSheet.css';
 
 /** 타이핑이 멎고 이만큼 지나면 검색한다. 페이징이 없어 호출 1회가 곧 전체 목록이다. */
@@ -44,24 +46,8 @@ export default function PlayerSearchSheet({
   const [players, setPlayers] = useState<Player[] | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
 
-  /* Esc 로 닫기 — 시트가 떠 있는 동안에만 듣는다. */
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
-
-  /* 시트가 떠 있는 동안 뒤 페이지가 같이 스크롤되지 않게 막는다. */
-  useEffect(() => {
-    const { overflow } = document.body.style;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = overflow;
-    };
-  }, []);
+  /* 딤 클릭 · 핸들 끌기 · Esc · 배경 스크롤 잠금은 모든 시트가 함께 쓴다. */
+  const sheet = useBottomSheet(onClose);
 
   /* 타이핑이 멎으면 검색어를 확정한다. 검색 버튼은 이 대기를 건너뛴다. */
   useEffect(() => {
@@ -94,22 +80,28 @@ export default function PlayerSearchSheet({
   const isSearching = term.length > 0;
 
   return (
-    <div className="player-sheet">
+    <div className="player-sheet bottom-sheet-root" {...sheet.rootProps}>
       {/* 딤. 클릭하면 닫히지만 읽어 줄 내용은 없다. */}
       <button
-        className="player-sheet__dim"
+        className="player-sheet__dim bottom-sheet-dim"
         type="button"
-        onClick={onClose}
+        {...sheet.dimProps}
         aria-label="선수 검색 닫기"
       />
 
       <section
-        className="player-sheet__sheet"
+        className="player-sheet__sheet bottom-sheet-panel"
         role="dialog"
         aria-modal="true"
         aria-label="선수 검색"
+        {...sheet.panelProps}
       >
-        <button className="player-sheet__handle" type="button" onClick={onClose}>
+        {/* 잡아서 아래로 끌면 닫힌다. 그냥 누르기만 해도 닫힌다. */}
+        <button
+          className="player-sheet__handle bottom-sheet-handle"
+          type="button"
+          {...sheet.handleProps}
+        >
           <span className="player-sheet__handle-bar" aria-hidden="true" />
           <span className="player-sheet__sr-only">선수 검색 닫기</span>
         </button>

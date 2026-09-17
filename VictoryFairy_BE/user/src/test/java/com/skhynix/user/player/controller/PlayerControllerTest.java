@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.skhynix.domain.user.repository.ActiveAccountView;
 import com.skhynix.domain.user.repository.UserAccountRepository;
 import com.skhynix.user.global.config.SecurityConfig;
 import com.skhynix.user.player.dto.PlayerResponse;
@@ -90,7 +91,8 @@ class PlayerControllerTest {
         given(jwtTokenProvider.validateToken(token)).willReturn(true);
         given(jwtTokenProvider.isRefreshToken(token)).willReturn(false);
         given(jwtTokenProvider.getUid(token)).willReturn(uid);
-        given(userAccountRepository.findActiveIdByUid(uid)).willReturn(Optional.of(ACCOUNT_ID));
+        given(userAccountRepository.findActiveAuthByUid(uid))
+                .willReturn(Optional.of(new ActiveAccountView(ACCOUNT_ID, null)));
         return token;
     }
 
@@ -307,7 +309,7 @@ class PlayerControllerTest {
 
     @Test
     @DisplayName("[USER-PLF-5] 유효기간이 남았지만 탈퇴한 계정의 access 토큰으로 요청해도 401이 아니라 200과 "
-            + "전 구단 목록을 반환한다(findActiveIdByUid가 비어 있어 principal이 채워지지 않는다)")
+            + "전 구단 목록을 반환한다(findActiveAuthByUid가 비어 있어 principal이 채워지지 않는다)")
     void getPlayers_withWithdrawnAccountToken_returns200WithAllPlayers() throws Exception {
         // given
         String uid = UUID.randomUUID().toString();
@@ -315,7 +317,7 @@ class PlayerControllerTest {
         given(jwtTokenProvider.validateToken(token)).willReturn(true);
         given(jwtTokenProvider.isRefreshToken(token)).willReturn(false);
         given(jwtTokenProvider.getUid(token)).willReturn(uid);
-        given(userAccountRepository.findActiveIdByUid(uid)).willReturn(Optional.empty());
+        given(userAccountRepository.findActiveAuthByUid(uid)).willReturn(Optional.empty());
         given(playerService.getPlayers(null, null, null)).willReturn(THREE_PLAYERS);
 
         // when & then
@@ -447,6 +449,29 @@ class PlayerControllerTest {
                 .andExpect(jsonPath("$.data").isArray())
                 .andExpect(jsonPath("$.data.length()").value(0))
                 .andExpect(jsonPath("$.message").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("[USER-ATI-6] 비밀번호 변경 전에 발급된(iat가 기준 시각보다 앞선 초) access 토큰으로 "
+            + "요청해도 401이 아니라 200과 응원 구단 오버라이딩 없는(비인증과 동일한) 전 구단 목록을 "
+            + "반환한다 — permitAll 경로는 무효화된 토큰을 헤더 없음과 동일하게 취급한다")
+    void getPlayers_withTokenIssuedBeforePasswordChangeBaseline_returns200WithoutOverriding() throws Exception {
+        // given
+        String uid = UUID.randomUUID().toString();
+        String token = "access-token-for-" + uid;
+        long issuedAt = 1_755_400_000L;
+        given(jwtTokenProvider.validateToken(token)).willReturn(true);
+        given(jwtTokenProvider.isRefreshToken(token)).willReturn(false);
+        given(jwtTokenProvider.getUid(token)).willReturn(uid);
+        given(jwtTokenProvider.getIssuedAtEpochSecond(token)).willReturn(issuedAt);
+        given(userAccountRepository.findActiveAuthByUid(uid))
+                .willReturn(Optional.of(new ActiveAccountView(ACCOUNT_ID, issuedAt + 1)));
+        given(playerService.getPlayers(null, null, null)).willReturn(THREE_PLAYERS);
+
+        // when & then: principal이 채워지지 않아 서비스가 accountId 없이(오버라이딩 없이) 호출된다
+        mockMvc.perform(get("/players").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(3));
     }
 
     @Test

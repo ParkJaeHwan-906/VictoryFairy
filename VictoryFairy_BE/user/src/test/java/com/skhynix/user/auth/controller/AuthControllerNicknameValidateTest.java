@@ -64,6 +64,11 @@ class AuthControllerNicknameValidateTest {
     @MockitoBean
     private UserAccountRepository userAccountRepository;
 
+    // AuthController가 가입 전 임시 프로필 이미지 업로드용 TempProfileImageService도 생성자로 받아,
+    // 없으면 컨텍스트 로딩이 실패한다(이 클래스 테스트는 그 경로와 상호작용하지 않음).
+    @MockitoBean
+    private com.skhynix.user.profileimage.service.TempProfileImageService tempProfileImageService;
+
     private String validateNicknameJson(String nickname) throws Exception {
         return objectMapper.writeValueAsString(new NicknameValidationRequest(nickname));
     }
@@ -197,7 +202,7 @@ class AuthControllerNicknameValidateTest {
         // when & then: 같은 닉네임으로 signup은 409
         SignupRequest signupRequest = new SignupRequest(
                 "홍길동", "01012345678", "test@example.com",
-                com.skhynix.domain.user.entity.Gender.MALE, duplicatedNickname, "abc123!@");
+                com.skhynix.domain.user.entity.Gender.MALE, duplicatedNickname, "abc123!@", null);
         mockMvc.perform(post("/auth/signup")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(signupRequest)))

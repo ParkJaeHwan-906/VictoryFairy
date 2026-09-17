@@ -54,6 +54,13 @@ function makeGame(
     gameDate: `${date}T18:30:00`,
     gameState,
     cancelReason,
+    /*
+     * 진행 중 경기여도 `null` 이다 — 실제 API 가 지금 그렇다(컬럼만 생겼고 값을 채우는
+     * 수집기 구현이 아직 없다, docs/game.md). 더미가 값을 지어내면 "이닝을 못 받는" 지금의
+     * 정상 경로를 화면에서 확인할 수 없게 되므로 실물과 같게 둔다.
+     */
+    inning: null,
+    inningHalf: null,
   };
 }
 

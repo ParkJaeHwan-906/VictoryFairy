@@ -8,11 +8,7 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
-/**
- * 닉네임이 {@link NicknamePolicy}를 만족하는지 검증한다. {@link ValidPassword}를 그대로 미러링한다
- * (단일 애노테이션인 이유·{@code null} 처리·메시지 안전망도 동일 — 자세한 설명은 {@link ValidPassword}
- * 참고).
- */
+// 단일 애노테이션이어야 하는 이유는 ValidPassword 참고(겹쳐 걸면 응답 메시지가 비결정적이 된다).
 @Documented
 @Constraint(validatedBy = NicknameValidator.class)
 @Target({ElementType.METHOD, ElementType.FIELD, ElementType.ANNOTATION_TYPE,

@@ -7,7 +7,9 @@ import type { ApiResponse } from './api';
  * - 채팅방은 UUID 문자열 `roomUid`로만 가리킨다(순차 PK 미노출).
  * - 메시지는 Long `id`로 가리키며, 전송 응답·히스토리·SSE 이벤트가 모두 같은 값을 싣는다.
  *   신고 API의 `messageId`가 이 값이다.
- * - 발신자는 `senderNickname`으로만 노출된다(계정 PK 미노출).
+ * - 발신자는 `senderNickname`으로 가리킨다(계정 PK는 여전히 노출되지 않는다).
+ *   2026-08-20부터 `profileImgUrl`(프로필 사진 EP)이 함께 실려 온다 — 계정을 식별하는
+ *   값이 아니라 그 메시지를 그릴 때 쓰는 이미지 주소다.
  */
 
 /**
@@ -32,6 +34,20 @@ export interface ChatMessage {
   id: number;
   content: string;
   senderNickname: string;
+  /**
+   * 발신자 프로필 사진의 **EP**(BaseURL 을 뺀 오브젝트 키). 2026-08-20 신설.
+   *
+   * `MyProfile.profileImgUrl` 과 같은 성질의 값이다 — 완성된 URL 이 아니므로 화면에 쓰기 전
+   * `toAssetUrl()` 로 도메인을 붙이고, `null` 이면 자리표시 이미지로 대신한다.
+   *
+   * **`null` 이 두 경우 모두를 뜻한다** — 사진을 올리지 않은 계정과, 탈퇴해서
+   * `(알수없음)` 더미 계정으로 남은 메시지다. 화면에서 둘을 가를 방법도, 가를 이유도 없다
+   * (어느 쪽이든 자리표시를 그린다).
+   *
+   * 이 값은 **메시지가 만들어진 시점이 아니라 응답을 만드는 시점의 계정 상태**다 —
+   * 발신자가 사진을 바꾸면 히스토리를 다시 받을 때 옛 메시지의 사진도 함께 바뀐다.
+   */
+  profileImgUrl: string | null;
   /** LocalDateTime 문자열. 타임존 오프셋이 없다(예: "2026-07-27T21:15:03"). */
   createdAt: string;
 }

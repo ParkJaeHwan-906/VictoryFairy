@@ -48,7 +48,6 @@ def _text(cell) -> str:
 def parse_rows(payload: dict, season: str) -> list[dict]:
     """GetScheduleList 응답 -> 경기 행 목록.
 
-    반환 항목: date('YYYY-MM-DD') / away_code / home_code / stadium / note.
     팀 코드를 해소하지 못한 행(올스타전·이벤트 경기 등)은 버린다.
     """
     out: list[dict] = []

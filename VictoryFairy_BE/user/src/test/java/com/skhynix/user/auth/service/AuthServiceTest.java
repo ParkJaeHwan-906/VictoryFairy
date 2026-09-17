@@ -67,6 +67,14 @@ class AuthServiceTest {
     @Mock
     private EmailVerificationService emailVerificationService;
 
+    @Mock
+    private com.skhynix.user.profileimage.service.SignupProfileImageService signupProfileImageService;
+
+    // 가입 트랜잭션이 기본 캐릭터·기본 의상 지급을 함께 하므로, 목이 없으면 @InjectMocks 가 null 을
+    // 넣어 가입 테스트 전체가 NPE 로 죽는다.
+    @Mock
+    private com.skhynix.user.character.service.DefaultCharacterGrantService defaultCharacterGrantService;
+
     @InjectMocks
     private AuthService authService;
 
@@ -223,10 +231,103 @@ class AuthServiceTest {
         verify(userRefreshTokenRepository).expireValidTokens(eq(account), any());
     }
 
+    // ---------- reissue: 비밀번호 변경 기준 시각 대조 (USER-ATI-20, 22, 13) ----------
+
+    @Test
+    @DisplayName("[USER-ATI-20 ①] 비밀번호 변경 전에 발급된(iat가 기준 시각보다 앞선 초) refresh 토큰으로 "
+            + "재발급을 요청하면, 저장된 토큰 행이 아직 만료 전이어도 EXPIRED_REFRESH_TOKEN을 던지고 새 "
+            + "토큰을 발급하지 않는다 — 만료·탈퇴에 이어 세 번째 차단 지점이다")
+    void reissue_refreshIssuedBeforePasswordChangeBaseline_throwsExpiredRefreshToken() {
+        // given
+        UserAccount account = activeAccountWithPassword("encoded");
+        long baseline = 1_755_400_000L;
+        account.changePassword("encoded-new", baseline); // 비밀번호 변경으로 기준 시각 기록
+        String refreshToken = "old-refresh-token";
+        UserRefreshToken stored = UserRefreshToken.builder()
+                .userAccount(account)
+                .refreshToken(refreshToken)
+                .expiredAt(LocalDateTime.now().plusDays(1)) // 아직 만료 전 — iat 대조가 별도로 막아야 함
+                .build();
+        given(tokenProvider.validateToken(refreshToken)).willReturn(true);
+        given(tokenProvider.isRefreshToken(refreshToken)).willReturn(true);
+        given(userRefreshTokenRepository.findByRefreshToken(refreshToken)).willReturn(Optional.of(stored));
+        given(tokenProvider.getIssuedAtEpochSecond(refreshToken)).willReturn(baseline - 1);
+
+        // when & then
+        assertThatThrownBy(() -> authService.reissue(refreshToken))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.EXPIRED_REFRESH_TOKEN);
+
+        verify(tokenProvider, never()).createAccessToken(anyString());
+        verify(userRefreshTokenRepository, never()).save(any());
+        // USER-ATI-13: 대조에 쓰는 계정은 refresh 행을 통해 이미 로딩돼 있어 추가 조회가 없다
+        verifyNoInteractions(userAccountRepository);
+    }
+
+    @Test
+    @DisplayName("[USER-ATI-20 ②, 결정 근거 3] expireValidTokens를 빠져나가 아직 만료 전인 행(옛 비밀번호로 "
+            + "진행 중이던 로그인이 비밀번호 변경 직후 INSERT한 레이스 시나리오)도 iat 대조로 막힌다")
+    void reissue_rowSurvivedExpireValidTokensButIssuedBeforeBaseline_stillThrowsExpiredRefreshToken() {
+        // given: expireValidTokens 이후 만들어진 것처럼 expiredAt이 충분히 먼 미래인 행
+        UserAccount account = activeAccountWithPassword("encoded");
+        long baseline = 1_755_400_000L;
+        account.changePassword("encoded-new", baseline);
+        String refreshToken = "race-refresh-token";
+        UserRefreshToken stored = UserRefreshToken.builder()
+                .userAccount(account)
+                .refreshToken(refreshToken)
+                .expiredAt(LocalDateTime.now().plusDays(14))
+                .build();
+        given(tokenProvider.validateToken(refreshToken)).willReturn(true);
+        given(tokenProvider.isRefreshToken(refreshToken)).willReturn(true);
+        given(userRefreshTokenRepository.findByRefreshToken(refreshToken)).willReturn(Optional.of(stored));
+        // 옛 비밀번호로 로그인 중 발급된 토큰이라 iat가 기준 시각보다 한참 앞선다
+        given(tokenProvider.getIssuedAtEpochSecond(refreshToken)).willReturn(baseline - 3600);
+
+        // when & then
+        assertThatThrownBy(() -> authService.reissue(refreshToken))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.EXPIRED_REFRESH_TOKEN);
+    }
+
+    @Test
+    @DisplayName("[USER-ATI-22, USER-ATI-8] 비밀번호 변경 응답으로 즉시 받은 refresh 토큰(iat가 기준 시각과 "
+            + "정확히 같은 초)으로 재발급을 요청하면 성공한다 — 자기 자신에게 거부되지 않는다")
+    void reissue_refreshIssuedExactlyAtBaseline_succeeds() {
+        // given
+        UserAccount account = activeAccountWithPassword("encoded");
+        long baseline = 1_755_400_000L;
+        account.changePassword("encoded-new", baseline);
+        String refreshToken = "just-issued-refresh-token";
+        UserRefreshToken stored = UserRefreshToken.builder()
+                .userAccount(account)
+                .refreshToken(refreshToken)
+                .expiredAt(LocalDateTime.now().plusDays(14))
+                .build();
+        given(tokenProvider.validateToken(refreshToken)).willReturn(true);
+        given(tokenProvider.isRefreshToken(refreshToken)).willReturn(true);
+        given(userRefreshTokenRepository.findByRefreshToken(refreshToken)).willReturn(Optional.of(stored));
+        given(tokenProvider.getIssuedAtEpochSecond(refreshToken)).willReturn(baseline);
+        given(tokenProvider.createAccessToken(account.getUid())).willReturn("new-access-token");
+        given(tokenProvider.createRefreshToken(account.getUid())).willReturn("new-refresh-token");
+        given(tokenProvider.getExpiration("new-refresh-token")).willReturn(LocalDateTime.now().plusDays(14));
+
+        // when
+        TokenResponse response = authService.reissue(refreshToken);
+
+        // then
+        assertThat(response.accessToken()).isEqualTo("new-access-token");
+        assertThat(response.refreshToken()).isEqualTo("new-refresh-token");
+        verifyNoInteractions(userAccountRepository);
+    }
+
     // ---------- signup ----------
 
     private SignupRequest signupRequest() {
-        return new SignupRequest("홍길동", "01012345678", "test@example.com", Gender.MALE, "nickname", "abc123!@");
+        return new SignupRequest("홍길동", "01012345678", "test@example.com", Gender.MALE, "nickname",
+                "abc123!@", null);
     }
 
     @Test
@@ -309,6 +410,46 @@ class AuthServiceTest {
     }
 
     @Test
+    @DisplayName("회원가입에 성공하면 방금 저장된 계정 인스턴스로 기본 캐릭터·기본 의상 지급을 정확히 1회 부른다")
+    void signup_allUnique_grantsDefaultCharacter() {
+        // given
+        SignupRequest request = signupRequest();
+        given(emailVerificationService.isEmailVerified(request.email())).willReturn(true);
+        given(userRepository.existsByEmail(request.email())).willReturn(false);
+        given(userRepository.existsByTel(request.tel())).willReturn(false);
+        given(userAccountRepository.existsByNickname(request.nickname())).willReturn(false);
+        given(passwordEncoder.encode(request.password())).willReturn("encoded-password");
+        given(userRepository.save(any(User.class))).willAnswer(invocation -> invocation.getArgument(0));
+        given(userAccountRepository.save(any(UserAccount.class))).willAnswer(invocation -> invocation.getArgument(0));
+
+        // when
+        authService.signup(request);
+
+        // then: 지급 대상이 '저장된 그 계정'이어야 한다 — 다른 인스턴스를 넘기면 인벤토리가 엉뚱한
+        // 계정에 붙는다.
+        var accountCaptor = org.mockito.ArgumentCaptor.forClass(UserAccount.class);
+        verify(userAccountRepository).save(accountCaptor.capture());
+        verify(defaultCharacterGrantService).grantDefaults(accountCaptor.getValue());
+    }
+
+    @Test
+    @DisplayName("닉네임 중복으로 가입이 거절되면 기본 캐릭터 지급도 일어나지 않는다")
+    void signup_duplicateNickname_doesNotGrantDefaultCharacter() {
+        // given
+        SignupRequest request = signupRequest();
+        given(emailVerificationService.isEmailVerified(request.email())).willReturn(true);
+        given(userRepository.existsByEmail(request.email())).willReturn(false);
+        given(userRepository.existsByTel(request.tel())).willReturn(false);
+        given(userAccountRepository.existsByNickname(request.nickname())).willReturn(true);
+
+        // when & then
+        assertThatThrownBy(() -> authService.signup(request))
+                .isInstanceOf(BusinessException.class);
+
+        verify(defaultCharacterGrantService, never()).grantDefaults(any());
+    }
+
+    @Test
     @DisplayName("[USER-EMV-18] 회원가입에 성공하면 해당 이메일의 인증완료 상태를 소비(제거)한다")
     void signup_allUnique_consumesEmailVerifiedState() {
         // given
@@ -345,6 +486,138 @@ class AuthServiceTest {
         verifyNoInteractions(userRepository);
         verify(userAccountRepository, never()).existsByNickname(anyString());
         verify(userAccountRepository, never()).save(any());
+    }
+
+    // ---------- signup: 프로필 이미지 연계 (USER-PI-52 ~ 60) ----------
+
+    @Test
+    @DisplayName("[USER-PI-52, 53] profileImgUrl이 주어지고 이동에 성공하면 저장되는 계정의 "
+            + "profileImgUrl이 temp/ 원본이 아니라 이동 후 반환된 영구 EP다")
+    void signup_withProfileImage_movesAndStoresPermanentEndpoint() {
+        // given
+        SignupRequest request = new SignupRequest("홍길동", "01012345678", "test@example.com",
+                Gender.MALE, "nickname", "abc123!@",
+                "temp/9f1c1e2a-aaaa-4bbb-8ccc-1234567890ab.jpg");
+        given(emailVerificationService.isEmailVerified(request.email())).willReturn(true);
+        given(userRepository.existsByEmail(request.email())).willReturn(false);
+        given(userRepository.existsByTel(request.tel())).willReturn(false);
+        given(userAccountRepository.existsByNickname(request.nickname())).willReturn(false);
+        given(passwordEncoder.encode(request.password())).willReturn("encoded-password");
+        given(userRepository.save(any(User.class))).willAnswer(invocation -> invocation.getArgument(0));
+        given(userAccountRepository.save(any(UserAccount.class)))
+                .willAnswer(invocation -> invocation.getArgument(0));
+        String movedEndpoint = "user-profile-img/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.jpg";
+        given(signupProfileImageService.moveToPermanent(request.profileImgUrl()))
+                .willReturn(movedEndpoint);
+
+        // when
+        authService.signup(request);
+
+        // then
+        ArgumentCaptor<UserAccount> accountCaptor = ArgumentCaptor.forClass(UserAccount.class);
+        verify(userAccountRepository).save(accountCaptor.capture());
+        assertThat(accountCaptor.getValue().getProfileImgUrl()).isEqualTo(movedEndpoint);
+    }
+
+    @Test
+    @DisplayName("[USER-PI-57, 58] 이동에 실패하면(moveToPermanent가 null 반환) 가입은 그대로 성공하고 "
+            + "profileImgUrl은 null로 저장되며, UserBq 저장과 이메일 인증 소비는 그대로 일어난다")
+    void signup_profileImageMoveFails_stillSucceedsWithNullProfileImgUrl() {
+        // given
+        SignupRequest request = new SignupRequest("홍길동", "01012345678", "test@example.com",
+                Gender.MALE, "nickname", "abc123!@",
+                "temp/9f1c1e2a-aaaa-4bbb-8ccc-1234567890ab.jpg");
+        given(emailVerificationService.isEmailVerified(request.email())).willReturn(true);
+        given(userRepository.existsByEmail(request.email())).willReturn(false);
+        given(userRepository.existsByTel(request.tel())).willReturn(false);
+        given(userAccountRepository.existsByNickname(request.nickname())).willReturn(false);
+        given(passwordEncoder.encode(request.password())).willReturn("encoded-password");
+        given(userRepository.save(any(User.class))).willAnswer(invocation -> invocation.getArgument(0));
+        given(userAccountRepository.save(any(UserAccount.class)))
+                .willAnswer(invocation -> invocation.getArgument(0));
+        // 저장소 장애로 이동 실패 — 예외 없이 null을 돌려준다(SignupProfileImageService의 계약).
+        given(signupProfileImageService.moveToPermanent(request.profileImgUrl())).willReturn(null);
+
+        // when
+        authService.signup(request);
+
+        // then: 계정은 저장됐고 이미지 컬럼만 null, 부수효과(UserBq·이메일 인증 소비)는 그대로 일어난다
+        ArgumentCaptor<UserAccount> accountCaptor = ArgumentCaptor.forClass(UserAccount.class);
+        verify(userAccountRepository).save(accountCaptor.capture());
+        assertThat(accountCaptor.getValue().getProfileImgUrl()).isNull();
+        verify(userBqRepository, times(1)).save(any(UserBq.class));
+        verify(emailVerificationService).consumeVerified(request.email());
+    }
+
+    @Test
+    @DisplayName("[USER-PI-55, 56] 못 쓰는 EP(형태 위반·객체 없음)로 이동이 예외를 던지면 가입 트랜잭션이 "
+            + "그 예외로 실패하고 계정·UserBq 어느 쪽도 저장되지 않는다")
+    void signup_invalidProfileImageEndpoint_propagatesExceptionAndDoesNotSaveAccount() {
+        // given
+        SignupRequest request = new SignupRequest("홍길동", "01012345678", "test@example.com",
+                Gender.MALE, "nickname", "abc123!@", "user-profile-img/other-account.jpg");
+        given(emailVerificationService.isEmailVerified(request.email())).willReturn(true);
+        given(userRepository.existsByEmail(request.email())).willReturn(false);
+        given(userRepository.existsByTel(request.tel())).willReturn(false);
+        given(userAccountRepository.existsByNickname(request.nickname())).willReturn(false);
+        given(signupProfileImageService.moveToPermanent(request.profileImgUrl()))
+                .willThrow(new BusinessException(ErrorCode.INVALID_PROFILE_IMAGE_ENDPOINT));
+
+        // when & then
+        assertThatThrownBy(() -> authService.signup(request))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.INVALID_PROFILE_IMAGE_ENDPOINT);
+
+        verify(userRepository, never()).save(any());
+        verify(userAccountRepository, never()).save(any());
+        verify(userBqRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("[USER-PI-51] profileImgUrl이 null이면 이미지 이동을 시도하지 않고(호출은 하되 인자가 "
+            + "null) 계정의 profileImgUrl도 null로 남는다 — 기존 가입 클라이언트 하위 호환")
+    void signup_nullProfileImgUrl_leavesAccountProfileImgUrlNull() {
+        // given
+        SignupRequest request = signupRequest(); // profileImgUrl == null
+        given(emailVerificationService.isEmailVerified(request.email())).willReturn(true);
+        given(userRepository.existsByEmail(request.email())).willReturn(false);
+        given(userRepository.existsByTel(request.tel())).willReturn(false);
+        given(userAccountRepository.existsByNickname(request.nickname())).willReturn(false);
+        given(passwordEncoder.encode(request.password())).willReturn("encoded-password");
+        given(userRepository.save(any(User.class))).willAnswer(invocation -> invocation.getArgument(0));
+        given(userAccountRepository.save(any(UserAccount.class)))
+                .willAnswer(invocation -> invocation.getArgument(0));
+        given(signupProfileImageService.moveToPermanent(null)).willReturn(null);
+
+        // when
+        authService.signup(request);
+
+        // then
+        ArgumentCaptor<UserAccount> accountCaptor = ArgumentCaptor.forClass(UserAccount.class);
+        verify(userAccountRepository).save(accountCaptor.capture());
+        assertThat(accountCaptor.getValue().getProfileImgUrl()).isNull();
+    }
+
+    @Test
+    @DisplayName("[USER-PI-59] 이미지 검증은 검사 순서의 마지막이라, 중복 닉네임으로 먼저 실패하면 "
+            + "이미지 이동 시도(moveToPermanent) 자체가 일어나지 않는다")
+    void signup_duplicateNickname_neverAttemptsProfileImageMove() {
+        // given
+        SignupRequest request = new SignupRequest("홍길동", "01012345678", "test@example.com",
+                Gender.MALE, "nickname", "abc123!@", "temp/whatever.jpg");
+        given(emailVerificationService.isEmailVerified(request.email())).willReturn(true);
+        given(userRepository.existsByEmail(request.email())).willReturn(false);
+        given(userRepository.existsByTel(request.tel())).willReturn(false);
+        given(userAccountRepository.existsByNickname(request.nickname())).willReturn(true);
+
+        // when & then
+        assertThatThrownBy(() -> authService.signup(request))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.DUPLICATE_NICKNAME);
+
+        verifyNoInteractions(signupProfileImageService);
     }
 
     @Test

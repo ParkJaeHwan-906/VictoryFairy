@@ -30,7 +30,6 @@ Lambda 를 실패시킨다. 0으로 눙기면 상한이 조용히 사라진다.
 """
 
 import json
-import os
 from typing import Optional
 
 from bedrock import BedrockConfigError, BedrockFatalError, bedrock_settings, judge_service, validate_startup
@@ -44,7 +43,7 @@ from pipeline.run_bedrock import (
     runner_settings,
 )
 from pipeline.s3_io import build_s3_client, get_object_bytes, manifest_key, object_exists, output_key
-from pipeline.spend_counter import BedrockCostCounterUnavailable, DynamoDBSpendCounter
+from pipeline.spend_counter import DynamoDBSpendCounter
 
 _s3 = None
 
@@ -57,7 +56,6 @@ def _s3_client():
 
 
 def _parse_message(record: dict) -> Optional[dict]:
-    """SQS 메시지에서 (source, date, post_id) 를 뽑는다. 형식이 깨졌으면 None."""
     try:
         body = json.loads(record.get("body") or "{}")
         source, date, post_id = body["source"], body["date"], body["postId"]
@@ -69,7 +67,6 @@ def _parse_message(record: dict) -> Optional[dict]:
 
 
 def _load_pattern_success(client, bucket: str, entry: dict) -> Optional[dict]:
-    """패턴 통과분을 읽는다. 이미 완결됐거나 객체가 없으면 None(= 처리 대상 아님)."""
     source, date, post_id = entry["source"], entry["date"], entry["post_id"]
 
     # 멱등 — SQS 도 최소 한 번 배달이다. 마커가 있으면 재판정하지 않는다.
@@ -133,9 +130,6 @@ def handler(event, context=None) -> dict:
     try:
         judgement = judge_service.judge_batch(items)
     except BedrockFatalError:
-        # 구조적 실패(자격증명·AccessDenied·Validation)는 재시도해도 낫지 않는다.
-        # 전건을 실패로 돌려 DLQ 로 흘려보내고, 예외는 올리지 않는다 —
-        # 올리면 같은 배치가 계속 재시도되며 로그만 쌓인다.
         raise
 
     spend.add_spend(_estimate_cost_usd(judgement.usage))

@@ -120,7 +120,7 @@ WHERE NOT EXISTS (
 --   접근하는 시나리오는 없다(단순히 chatrooms.owner_account_id FK를 채우기 위한 존재).
 INSERT INTO users_account (uid, user_id, nickname, password, created_at, updated_at)
 SELECT
-    '00000000-0000-0000-0000-000000000001',
+    'be9cbf98-9ba5-48de-b56a-57a1547bb760',
     u.id,
     'SYSTEM',
     'LOCKED-NO-LOGIN',
@@ -129,7 +129,7 @@ SELECT
 FROM users u
 WHERE u.email = 'system@victoryfairy.internal'
   AND NOT EXISTS (
-      SELECT 1 FROM users_account WHERE uid = '00000000-0000-0000-0000-000000000001'
+      SELECT 1 FROM users_account WHERE uid = 'be9cbf98-9ba5-48de-b56a-57a1547bb760'
   );
 
 
@@ -149,64 +149,64 @@ WHERE u.email = 'system@victoryfairy.internal'
 -- ============================================================================
 
 INSERT INTO chatrooms (uid, team_id, owner_account_id, name, participants, deleted_at, created_at, updated_at)
-SELECT '00000000-0000-0000-0000-000000000002', t.id, ua.id, CONCAT(t.name, ' 채팅방'), 0, NULL, NOW(), NOW()
+SELECT '7b9a38d8-de1e-4916-8b8c-4cd8ceafbbbd', t.id, ua.id, CONCAT(t.name, ' 채팅방'), 0, NULL, NOW(), NOW()
 FROM (SELECT id, name FROM teams WHERE name = '두산' LIMIT 1) t
-CROSS JOIN (SELECT id FROM users_account WHERE uid = '00000000-0000-0000-0000-000000000001' LIMIT 1) ua
-WHERE NOT EXISTS (SELECT 1 FROM chatrooms WHERE uid = '00000000-0000-0000-0000-000000000002');
+CROSS JOIN (SELECT id FROM users_account WHERE uid = 'be9cbf98-9ba5-48de-b56a-57a1547bb760' LIMIT 1) ua
+WHERE NOT EXISTS (SELECT 1 FROM chatrooms WHERE uid = '7b9a38d8-de1e-4916-8b8c-4cd8ceafbbbd');
 
 INSERT INTO chatrooms (uid, team_id, owner_account_id, name, participants, deleted_at, created_at, updated_at)
-SELECT '00000000-0000-0000-0000-000000000003', t.id, ua.id, CONCAT(t.name, ' 채팅방'), 0, NULL, NOW(), NOW()
+SELECT '5273cc52-f3df-4bd8-837c-32abc06fae5b', t.id, ua.id, CONCAT(t.name, ' 채팅방'), 0, NULL, NOW(), NOW()
 FROM (SELECT id, name FROM teams WHERE name = '한화' LIMIT 1) t
-CROSS JOIN (SELECT id FROM users_account WHERE uid = '00000000-0000-0000-0000-000000000001' LIMIT 1) ua
-WHERE NOT EXISTS (SELECT 1 FROM chatrooms WHERE uid = '00000000-0000-0000-0000-000000000003');
+CROSS JOIN (SELECT id FROM users_account WHERE uid = 'be9cbf98-9ba5-48de-b56a-57a1547bb760' LIMIT 1) ua
+WHERE NOT EXISTS (SELECT 1 FROM chatrooms WHERE uid = '5273cc52-f3df-4bd8-837c-32abc06fae5b');
 
 INSERT INTO chatrooms (uid, team_id, owner_account_id, name, participants, deleted_at, created_at, updated_at)
-SELECT '00000000-0000-0000-0000-000000000004', t.id, ua.id, CONCAT(t.name, ' 채팅방'), 0, NULL, NOW(), NOW()
+SELECT '38c1394b-c2a0-4bae-a5a5-ef305b389915', t.id, ua.id, CONCAT(t.name, ' 채팅방'), 0, NULL, NOW(), NOW()
 FROM (SELECT id, name FROM teams WHERE name = 'LG' LIMIT 1) t
-CROSS JOIN (SELECT id FROM users_account WHERE uid = '00000000-0000-0000-0000-000000000001' LIMIT 1) ua
-WHERE NOT EXISTS (SELECT 1 FROM chatrooms WHERE uid = '00000000-0000-0000-0000-000000000004');
+CROSS JOIN (SELECT id FROM users_account WHERE uid = 'be9cbf98-9ba5-48de-b56a-57a1547bb760' LIMIT 1) ua
+WHERE NOT EXISTS (SELECT 1 FROM chatrooms WHERE uid = '38c1394b-c2a0-4bae-a5a5-ef305b389915');
 
 INSERT INTO chatrooms (uid, team_id, owner_account_id, name, participants, deleted_at, created_at, updated_at)
-SELECT '00000000-0000-0000-0000-000000000005', t.id, ua.id, CONCAT(t.name, ' 채팅방'), 0, NULL, NOW(), NOW()
+SELECT '53ca40bb-afbb-4303-853d-6debc9f26f31', t.id, ua.id, CONCAT(t.name, ' 채팅방'), 0, NULL, NOW(), NOW()
 FROM (SELECT id, name FROM teams WHERE name = 'KT' LIMIT 1) t
-CROSS JOIN (SELECT id FROM users_account WHERE uid = '00000000-0000-0000-0000-000000000001' LIMIT 1) ua
-WHERE NOT EXISTS (SELECT 1 FROM chatrooms WHERE uid = '00000000-0000-0000-0000-000000000005');
+CROSS JOIN (SELECT id FROM users_account WHERE uid = 'be9cbf98-9ba5-48de-b56a-57a1547bb760' LIMIT 1) ua
+WHERE NOT EXISTS (SELECT 1 FROM chatrooms WHERE uid = '53ca40bb-afbb-4303-853d-6debc9f26f31');
 
 INSERT INTO chatrooms (uid, team_id, owner_account_id, name, participants, deleted_at, created_at, updated_at)
-SELECT '00000000-0000-0000-0000-000000000006', t.id, ua.id, CONCAT(t.name, ' 채팅방'), 0, NULL, NOW(), NOW()
+SELECT 'c6b001b7-9d57-4903-ac34-b49988015b6e', t.id, ua.id, CONCAT(t.name, ' 채팅방'), 0, NULL, NOW(), NOW()
 FROM (SELECT id, name FROM teams WHERE name = 'SSG' LIMIT 1) t
-CROSS JOIN (SELECT id FROM users_account WHERE uid = '00000000-0000-0000-0000-000000000001' LIMIT 1) ua
-WHERE NOT EXISTS (SELECT 1 FROM chatrooms WHERE uid = '00000000-0000-0000-0000-000000000006');
+CROSS JOIN (SELECT id FROM users_account WHERE uid = 'be9cbf98-9ba5-48de-b56a-57a1547bb760' LIMIT 1) ua
+WHERE NOT EXISTS (SELECT 1 FROM chatrooms WHERE uid = 'c6b001b7-9d57-4903-ac34-b49988015b6e');
 
 INSERT INTO chatrooms (uid, team_id, owner_account_id, name, participants, deleted_at, created_at, updated_at)
-SELECT '00000000-0000-0000-0000-000000000007', t.id, ua.id, CONCAT(t.name, ' 채팅방'), 0, NULL, NOW(), NOW()
+SELECT '9a1e69bd-a209-4c98-9a3d-c8b87285efca', t.id, ua.id, CONCAT(t.name, ' 채팅방'), 0, NULL, NOW(), NOW()
 FROM (SELECT id, name FROM teams WHERE name = '롯데' LIMIT 1) t
-CROSS JOIN (SELECT id FROM users_account WHERE uid = '00000000-0000-0000-0000-000000000001' LIMIT 1) ua
-WHERE NOT EXISTS (SELECT 1 FROM chatrooms WHERE uid = '00000000-0000-0000-0000-000000000007');
+CROSS JOIN (SELECT id FROM users_account WHERE uid = 'be9cbf98-9ba5-48de-b56a-57a1547bb760' LIMIT 1) ua
+WHERE NOT EXISTS (SELECT 1 FROM chatrooms WHERE uid = '9a1e69bd-a209-4c98-9a3d-c8b87285efca');
 
 INSERT INTO chatrooms (uid, team_id, owner_account_id, name, participants, deleted_at, created_at, updated_at)
-SELECT '00000000-0000-0000-0000-000000000008', t.id, ua.id, CONCAT(t.name, ' 채팅방'), 0, NULL, NOW(), NOW()
+SELECT 'a4d07dbd-4916-462d-b231-78536a37cae6', t.id, ua.id, CONCAT(t.name, ' 채팅방'), 0, NULL, NOW(), NOW()
 FROM (SELECT id, name FROM teams WHERE name = '삼성' LIMIT 1) t
-CROSS JOIN (SELECT id FROM users_account WHERE uid = '00000000-0000-0000-0000-000000000001' LIMIT 1) ua
-WHERE NOT EXISTS (SELECT 1 FROM chatrooms WHERE uid = '00000000-0000-0000-0000-000000000008');
+CROSS JOIN (SELECT id FROM users_account WHERE uid = 'be9cbf98-9ba5-48de-b56a-57a1547bb760' LIMIT 1) ua
+WHERE NOT EXISTS (SELECT 1 FROM chatrooms WHERE uid = 'a4d07dbd-4916-462d-b231-78536a37cae6');
 
 INSERT INTO chatrooms (uid, team_id, owner_account_id, name, participants, deleted_at, created_at, updated_at)
-SELECT '00000000-0000-0000-0000-000000000009', t.id, ua.id, CONCAT(t.name, ' 채팅방'), 0, NULL, NOW(), NOW()
+SELECT 'd8334fcb-2331-4227-b9f9-09ff3b786982', t.id, ua.id, CONCAT(t.name, ' 채팅방'), 0, NULL, NOW(), NOW()
 FROM (SELECT id, name FROM teams WHERE name = 'NC' LIMIT 1) t
-CROSS JOIN (SELECT id FROM users_account WHERE uid = '00000000-0000-0000-0000-000000000001' LIMIT 1) ua
-WHERE NOT EXISTS (SELECT 1 FROM chatrooms WHERE uid = '00000000-0000-0000-0000-000000000009');
+CROSS JOIN (SELECT id FROM users_account WHERE uid = 'be9cbf98-9ba5-48de-b56a-57a1547bb760' LIMIT 1) ua
+WHERE NOT EXISTS (SELECT 1 FROM chatrooms WHERE uid = 'd8334fcb-2331-4227-b9f9-09ff3b786982');
 
 INSERT INTO chatrooms (uid, team_id, owner_account_id, name, participants, deleted_at, created_at, updated_at)
-SELECT '00000000-0000-0000-0000-00000000000a', t.id, ua.id, CONCAT(t.name, ' 채팅방'), 0, NULL, NOW(), NOW()
+SELECT '9a2c7a01-f8dc-431e-943b-bbc1c4ee3edd', t.id, ua.id, CONCAT(t.name, ' 채팅방'), 0, NULL, NOW(), NOW()
 FROM (SELECT id, name FROM teams WHERE name = 'KIA' LIMIT 1) t
-CROSS JOIN (SELECT id FROM users_account WHERE uid = '00000000-0000-0000-0000-000000000001' LIMIT 1) ua
-WHERE NOT EXISTS (SELECT 1 FROM chatrooms WHERE uid = '00000000-0000-0000-0000-00000000000a');
+CROSS JOIN (SELECT id FROM users_account WHERE uid = 'be9cbf98-9ba5-48de-b56a-57a1547bb760' LIMIT 1) ua
+WHERE NOT EXISTS (SELECT 1 FROM chatrooms WHERE uid = '9a2c7a01-f8dc-431e-943b-bbc1c4ee3edd');
 
 INSERT INTO chatrooms (uid, team_id, owner_account_id, name, participants, deleted_at, created_at, updated_at)
-SELECT '00000000-0000-0000-0000-00000000000b', t.id, ua.id, CONCAT(t.name, ' 채팅방'), 0, NULL, NOW(), NOW()
+SELECT '86bebcda-a1cb-42f1-9a53-9882612c30fd', t.id, ua.id, CONCAT(t.name, ' 채팅방'), 0, NULL, NOW(), NOW()
 FROM (SELECT id, name FROM teams WHERE name = '키움' LIMIT 1) t
-CROSS JOIN (SELECT id FROM users_account WHERE uid = '00000000-0000-0000-0000-000000000001' LIMIT 1) ua
-WHERE NOT EXISTS (SELECT 1 FROM chatrooms WHERE uid = '00000000-0000-0000-0000-00000000000b');
+CROSS JOIN (SELECT id FROM users_account WHERE uid = 'be9cbf98-9ba5-48de-b56a-57a1547bb760' LIMIT 1) ua
+WHERE NOT EXISTS (SELECT 1 FROM chatrooms WHERE uid = '86bebcda-a1cb-42f1-9a53-9882612c30fd');
 
 
 -- ============================================================================
@@ -214,23 +214,23 @@ WHERE NOT EXISTS (SELECT 1 FROM chatrooms WHERE uid = '00000000-0000-0000-0000-0
 -- ============================================================================
 -- 1) 시스템 계정 1행 존재 확인
 --    SELECT id, uid, nickname, exit_at FROM users_account
---    WHERE uid = '00000000-0000-0000-0000-000000000001';
+--    WHERE uid = 'be9cbf98-9ba5-48de-b56a-57a1547bb760';
 --
 -- 2) 채팅방 10행이 다 들어갔는지 확인 (10보다 적으면 Step 3의 팀명 문자열이
 --    실제 teams.name과 어긋난 것 — teams.name을 직접 조회해 문자열을 맞추고
 --    누락된 uid만 골라 재실행할 것, 이미 들어간 행은 WHERE NOT EXISTS로 스킵됨)
 --    SELECT uid, name, team_id FROM chatrooms
 --    WHERE uid IN (
---        '00000000-0000-0000-0000-000000000002',
---        '00000000-0000-0000-0000-000000000003',
---        '00000000-0000-0000-0000-000000000004',
---        '00000000-0000-0000-0000-000000000005',
---        '00000000-0000-0000-0000-000000000006',
---        '00000000-0000-0000-0000-000000000007',
---        '00000000-0000-0000-0000-000000000008',
---        '00000000-0000-0000-0000-000000000009',
---        '00000000-0000-0000-0000-00000000000a',
---        '00000000-0000-0000-0000-00000000000b'
+--        '7b9a38d8-de1e-4916-8b8c-4cd8ceafbbbd',
+--        '5273cc52-f3df-4bd8-837c-32abc06fae5b',
+--        '38c1394b-c2a0-4bae-a5a5-ef305b389915',
+--        '53ca40bb-afbb-4303-853d-6debc9f26f31',
+--        'c6b001b7-9d57-4903-ac34-b49988015b6e',
+--        '9a1e69bd-a209-4c98-9a3d-c8b87285efca',
+--        'a4d07dbd-4916-462d-b231-78536a37cae6',
+--        'd8334fcb-2331-4227-b9f9-09ff3b786982',
+--        '9a2c7a01-f8dc-431e-943b-bbc1c4ee3edd',
+--        '86bebcda-a1cb-42f1-9a53-9882612c30fd'
 --    );
 --
 -- 3) FK 정책 확인(선택): 팀 삭제 시 방이 같이 사라지는지, owner 계정은

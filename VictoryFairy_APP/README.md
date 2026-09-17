@@ -3,15 +3,15 @@
 배포된 React 웹(`../VictoryFairy_FE`)을 WebView로 감싼 안드로이드·iOS 앱.
 
 화면·라우팅·상태는 전부 웹이 들고 있다. 앱은 웹을 띄우고, 웹이 할 수 없는 것 — 로드
-실패 시 재시도, 안드로이드 하드웨어 백 버튼, 응원 구단 경기 알림 — 만 맡는다. 그래서 **FE 변경은 앱을 다시
+실패 시 재시도, 안드로이드 하드웨어 백 버튼, 응원 구단 경기 알림, 인스타 스토리 공유 — 만 맡는다. 그래서 **FE 변경은 앱을 다시
 설치하지 않아도 반영된다.** main에 머지되면 `deploy-fe.yml`이 S3에 올리고, `index.html`이
 엣지 TTL 0이라 앱을 껐다 켜면 최신 화면이 뜬다.
 
 반대로 `app.json`·`src/` 를 고치면 APK를 다시 만들어 설치해야 한다.
 
 - Expo SDK 57 / React Native 0.86 / React 19 / TypeScript 6
-- 안드로이드 패키지명 `com.victoryfairy.app` / iOS 번들 ID `com.victoryfairy.mobile`
-  — 원래 쓰려던 `com.victoryfairy.app`이 Apple에 이미 선점돼 있어 iOS만 다르다.
+- 안드로이드 패키지명 · iOS 번들 ID 모두 `com.victoryfairy.mobile`
+  — 원래 쓰려던 `com.victoryfairy.app`은 Apple·Google 양쪽에 이미 선점돼 있다.
 
 ## 필요한 것
 

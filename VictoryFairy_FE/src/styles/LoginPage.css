@@ -19,25 +19,20 @@
 
 /* ------------------------------------------------------------------ *
  * Hero — 배경 그래픽 영역
- * 디자인에 실제 그래픽 대신 자리표시 텍스트만 있어 그대로 옮겼다.
+ *
+ * 타석에 선 캐릭터 일러스트(4:3 가로판)를 배경으로 깐다.
+ *
+ * 높이는 화면 비례(기준 프레임 874px 에서 32dvh ≈ 280px, 디자인의 hero 높이 274px)로
+ * 두되 위아래를 clamp 로 막는다. 남는 높이는 hero 가 아니라 시트가 가져간다.
+ *   - 하한 180px: 짧은 단말에서 그림이 띠처럼 눌리지 않게.
+ *   - 상한 320px: 402px 폭 기준 그림이 세로로 꽉 차는 지점(≈302px)을 조금 넘는 선.
+ *     이 위로 더 커지면 cover 가 좌우를 잘라내 타자가 화면 밖으로 밀려난다.
+ * cover 라 남는 쪽은 잘린다. 중앙 기준이면 공(위)과 타자(아래)가 모두 남는다.
  * ------------------------------------------------------------------ */
 .login-page__hero {
-  display: flex;
-  flex: 1 0 auto;
-  align-items: center;
-  justify-content: center;
-  /* 디자인상 텍스트 중심이 영역 중앙보다 18px 위 → 아래 여백으로 보정 */
-  padding-bottom: 36px;
-}
-
-.login-page__hero-placeholder {
-  margin: 0;
-  color: var(--color-label-disable);
-  font-size: var(--font-size-title2);
-  font-weight: var(--font-weight-semibold);
-  line-height: var(--line-height-tight);
-  letter-spacing: var(--letter-spacing-title2);
-  text-align: center;
+  flex: 0 0 auto;
+  height: clamp(180px, 32dvh, 320px);
+  background: url('../assets/background/Login.png') center / cover no-repeat;
 }
 
 /* ------------------------------------------------------------------ *
@@ -45,9 +40,12 @@
  * ------------------------------------------------------------------ */
 .login-page__sheet {
   display: flex;
-  flex: 0 0 auto;
+  /* hero 높이를 뺀 나머지는 시트가 받는다 — 큰 화면에서 배경 그림이 과하게 커지지 않도록. */
+  flex: 1 0 auto;
   flex-direction: column;
   min-height: var(--layout-sheet-height);
+  /* 둥근 모서리(40px)가 회색 바닥이 아니라 배경 그림 위에 얹히도록 그만큼 끌어올린다 */
+  margin-top: calc(-1 * var(--radius-40));
   padding: 48px var(--layout-gutter) 43.4px;
   border-radius: var(--radius-40) var(--radius-40) 0 0;
   background-color: var(--color-surface);

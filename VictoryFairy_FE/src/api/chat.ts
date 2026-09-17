@@ -24,6 +24,10 @@ import type {
  *
  * 성공 응답은 SSE를 제외하고 모두 ApiResponse로 감싸여 오므로 여기서 `data`를 벗겨 반환한다.
  * 실패는 인터셉터가 ApiError로 정규화해 reject한다.
+ *
+ * 메시지를 싣는 세 경로(전송 201·히스토리·SSE `message`)는 2026-08-20부터 발신자
+ * 프로필 사진 EP(`profileImgUrl`)를 함께 준다. 완성된 URL이 아니므로 화면에서 `toAssetUrl()`을
+ * 거쳐야 하고, `null`(미설정·탈퇴 계정)이면 자리표시 이미지를 그린다.
  */
 
 /** ApiResponse로 감싸인 성공 응답의 `data`를 벗겨낸다(성공 시 항상 존재). */
@@ -328,7 +332,14 @@ async function readErrorBody(response: Response): Promise<ApiErrorResponse | nul
   }
 }
 
-/** SSE data(JSON 문자열)를 메시지 이벤트로 파싱한다. 깨진 프레임은 버린다. */
+/**
+ * SSE data(JSON 문자열)를 메시지 이벤트로 파싱한다. 깨진 프레임은 버린다.
+ *
+ * 검사는 `id`·`content` 두 개로 최소화한다 — 나머지가 비어도 화면이 그릴 수 있고,
+ * 필드가 늘어날 때마다(`profileImgUrl`이 그랬다) 검사를 조이면 옛 프론트가 새 프레임을
+ * 통째로 버리게 된다. `profileImgUrl`이 없는 프레임은 `toAssetUrl(undefined)`가
+ * `null`을 돌려주므로 자리표시로 자연히 흡수된다.
+ */
 function parseMessageEvent(data: string): ChatMessageEvent | null {
   try {
     const parsed = JSON.parse(data) as Partial<ChatMessageEvent>;

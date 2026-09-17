@@ -42,10 +42,6 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 /**
  * {@code SupportService} 단위 테스트.
- * 요구사항: {@code docs/requirements/user/support-selection.md}(USER-SP-1 ~ 29).
- *
- * <p>여기서 지키는지 확인하는 것은 문서가 정의한 네 불변식이다 — 구단 1개(SP-12), 선수는 응원 구단
- * 소속(SP-17), 구단 변경 시 선수 전원 취소(SP-10), 취소는 삭제가 아닌 {@code oppose} 전이(SP-24).
  *
  * <p><b>재응원이 새 행이 아니라 기존 행 재활성인지</b>(SP-9/19)를 {@code never()).save(any())} 로 못박는다 —
  * 실 DB 에서는 UNIQUE 위반 500 으로 드러날 버그라 목 기반으로라도 호출 자체를 금지해 두는 편이 낫다.

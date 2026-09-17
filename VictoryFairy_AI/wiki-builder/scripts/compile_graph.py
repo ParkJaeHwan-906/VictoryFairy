@@ -13,10 +13,8 @@ graph.json만 보고 문서 상태를 역추정해서는 안 된다 — 항상 �
 쓰지 않는 것은 퀴즈 생성기 쪽의 소비 규칙이며, 이 컴파일 단계의 책임이
 아니다.
 
-파일 구성: parse_front_matter(front-matter 파서) → build_graph(그래프 조립,
-결정적) → main(CLI, 디렉토리 순회 + compiledAt 주입). stdlib + PyYAML만
-사용한다(boto3 금지 — 입력은 로컬 디렉토리이며, 원격 데이터 준비는 routine이
-`aws s3 sync`로 미리 해 둔다).
+stdlib + PyYAML만 사용한다(boto3 금지 — 입력은 로컬 디렉토리이며, 원격 데이터
+준비는 routine이 `aws s3 sync`로 미리 해 둔다).
 """
 
 import argparse
@@ -30,13 +28,8 @@ import yaml
 # ── front-matter 파서 ────────────────────────────────────
 
 def parse_front_matter(md_text: str) -> dict | None:
-    """마크다운 문서 맨 앞 `---\\n ... \\n---` YAML 블록을 파싱한다.
-
-    텍스트가 `---\\n`으로 시작하지 않거나 닫는 `\\n---`가 없으면 front-matter
-    없음으로 보고 None을 반환한다. YAML이 깨져 있거나(yaml.YAMLError) 최상위
-    구조가 dict가 아니면(예: 리스트·스칼라) 역시 None을 반환한다 — 이
-    스크립트는 문서 하나가 깨졌다고 전체 컴파일을 죽여서는 안 되므로, 호출부
-    (main)가 크래시 없이 스킵할 수 있도록 예외를 여기서 흡수한다.
+    """이 스크립트는 문서 하나가 깨졌다고 전체 컴파일을 죽여서는 안 되므로, 호출부
+    (main)가 크래시 없이 스킵할 수 있도록 예외를 여기서 흡수하고 None을 반환한다.
     """
     if not md_text.startswith("---\n"):
         return None
@@ -59,41 +52,22 @@ def parse_front_matter(md_text: str) -> dict | None:
 # ── 그래프 조립 ──────────────────────────────────────────
 
 def build_graph(docs: list, compiled_at: str | None = None) -> dict:
-    """front-matter dict 목록을 노드·엣지 그래프로 조립한다(결정적).
-
-    `kboPlayerId`가 없는 문서는 스킵한다(대상 밖 문서 — 예: 팀 개요 문서 등을
+    """`kboPlayerId`가 없는 문서는 스킵한다(대상 밖 문서 — 예: 팀 개요 문서 등을
     나중에 추가하더라도 이 스크립트가 실수로 player 노드로 취급하지 않도록).
-
-    노드는 두 종류다.
-    - player 노드: id `player:{kboPlayerId}`. 문서가 실재하면 name/team을
-      문서 값으로 채우고, relations의 target으로만 언급되고 그 문서가 아직
-      없는 경우에는 자리표시자 노드(name=None, team=None)를 자동 생성한다.
-    - team 노드: id `team:{code}`. 여러 선수가 같은 팀이면 1개로 중복
-      제거(dedup)한다.
 
     team 노드의 `name`은 항상 None이다 — front-matter에는 팀 코드(예: `HT`)만
     있고 팀 전체 이름(예: "KIA 타이거즈")은 이 계약에 없어 채울 데이터가
     없기 때문이다(추후 팀 이름 매핑이 추가되면 여기만 바뀐다).
 
-    엣지는 두 종류다.
-    - 소속 엣지: 선수 문서마다 `{"source": player, "target": team,
-      "type": "소속", "ref": None}` 1개.
-    - relations 엣지: 문서의 `relations` 항목을 그대로 옮기되 target만
-      `player:{target}`으로 정규화한다. `type`·`ref`는 그대로 보존한다 —
-      `사건연루`처럼 민감한 타입도 여기서 걸러내지 않는다(모듈 docstring 참고).
-
-    relations 항목 하나가 스키마를 벗어나도(dict가 아님, `target` 없음,
-    `type` 없음) 전체 컴파일이 죽어서는 안 된다 — "문서가 진실의 원천"
-    원칙은 문서 단위 격리를 전제로 한다. 그런 불량 항목은 경고를 stderr에
-    남기고 그 항목만 스킵한다(같은 문서의 나머지 relations, 다른 문서에는
-    영향 없음).
+    relations 엣지의 `type`·`ref`는 그대로 보존한다 — `사건연루`처럼 민감한
+    타입도 여기서 걸러내지 않는다(모듈 docstring 참고).
 
     최종 반환 전에 노드는 `id` 기준, 엣지는 `(source, type, target)` 기준으로
     정렬한다 — 입력 docs 순서와 무관하게 실행마다 같은 결과가 나오게 하기
     위한 결정성 보장이다(불량 relation을 스킵으로 처리하는 것도 이 정렬이
     `None`과 `str`을 비교하다 죽지 않게 하는 전제 조건이다). `compiled_at`은
-    이 함수 자체와 무관한 부수 값이라 인자로 주입받는다(기본값 None) —
-    그래프 조립 로직 자체는 순수하게 유지한다.
+    이 함수 자체와 무관한 부수 값이라 인자로 주입받는다 — 그래프 조립 로직
+    자체는 순수하게 유지한다.
     """
     nodes: dict[str, dict] = {}
     edges: list[dict] = []
@@ -198,15 +172,6 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list | None = None) -> None:
-    """CLI 진입점.
-
-    `--players-dir`의 `*.md`를 파일명순으로 순회하며 front-matter를 읽는다.
-    front-matter가 없거나(형식 미준수) 깨진 문서는 경고를 출력하고 스킵한다
-    — 문서 하나 때문에 전체 컴파일이 죽으면 안 된다. 나머지 문서로
-    `build_graph`를 호출하고, `compiledAt`(ISO 8601 UTC 타임스탬프)을 이
-    함수가 주입해 `--out`에 JSON으로 기록한다(`ensure_ascii=False,
-    indent=2` — 한글 이름을 이스케이프 없이 그대로 저장).
-    """
     args = _build_arg_parser().parse_args(argv)
 
     docs = []

@@ -6,14 +6,11 @@
 모델 식별자·리전은 코드에 하드코딩하지 않고 환경변수/.env 에서만 읽는다(BRK-LLM-5).
 """
 
-import logging
 from typing import Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from bedrock.core.errors import BedrockConfigError
-
-logger = logging.getLogger(__name__)
 
 # BRK-LLM-6d: 추론 프로파일을 아예 쓰지 않는다.
 #
@@ -26,16 +23,11 @@ FORBIDDEN_PROFILE_PREFIXES = ("global.", "apac.", "us.", "eu.", "apne1.")
 
 
 class BedrockSettings(BaseSettings):
-    """Bedrock 호출 설정.
-
-    - BEDROCK_MODEL_ID: **베어 모델 ID** `anthropic.claude-3-5-sonnet-20240620-v1:0`
+    """- BEDROCK_MODEL_ID: **베어 모델 ID** `anthropic.claude-3-5-sonnet-20240620-v1:0`
       (BRK-LLM-5/6, v2). 추론 프로파일을 쓰지 않는다 — SCP 가 서울 밖을 막아
       `apac.*` 는 호출 자체가 실패한다(BRK-LLM-6d). 본문·댓글이 같은 모델을 쓴다.
       서울에서 ON_DEMAND 로 부를 수 있는 Anthropic 모델은 이것과 claude-3-haiku
       둘뿐이고, 나머지는 전부 INFERENCE_PROFILE 전용이다.
-    - BEDROCK_REGION: Bedrock 리전(BRK-LLM-7). S3 리전(AWS_REGION)과 **별도 키**다 —
-      모델 가용 리전이 다를 수 있다.
-    - BEDROCK_DRY_RUN / BEDROCK_SHADOW: 두 모드는 양립 불가(BRK-LLM-48b).
     """
 
     # --- 모델 · 리전 (BRK-LLM-5/6/7) ---
@@ -96,24 +88,15 @@ bedrock_settings = BedrockSettings()
 
 
 def _profile_id_part(model_id: str) -> str:
-    """ARN 으로 지정된 경우에도 프로파일 ID 부분만 떼어낸다.
-
-    `arn:aws:bedrock:...:inference-profile/global.anthropic...` 처럼 ARN 뒤에 숨은
+    """`arn:aws:bedrock:...:inference-profile/global.anthropic...` 처럼 ARN 뒤에 숨은
     global.* 도 BRK-LLM-6b 로 걸러야 하므로 마지막 `/` 뒤를 본다.
     """
     return model_id.rsplit("/", 1)[-1].strip()
 
 
 def validate_startup(settings: Optional[BedrockSettings] = None) -> None:
-    """기동 시 설정 계약을 검사한다. 위반 시 `BedrockConfigError` 로 중단한다.
-
-    러너는 실행 시작 시점에 이 함수를 직접 호출해 **호출 이전에** 중단시키는 것이
+    """러너는 실행 시작 시점에 이 함수를 직접 호출해 **호출 이전에** 중단시키는 것이
     맞다. 서비스도 첫 판정 직전에 한 번 호출하므로 우회 경로는 없다.
-
-    검사 항목:
-    - BRK-LLM-48b: DRY_RUN 과 SHADOW 동시 사용 금지(호출 안 함 ↔ 호출함).
-    - BRK-LLM-6b: `global.*` 추론 프로파일 금지(데이터 리전 제약).
-    - BRK-LLM-5: 실제 호출 모드에서는 모델 식별자가 반드시 있어야 한다.
     """
     settings = settings or bedrock_settings
 

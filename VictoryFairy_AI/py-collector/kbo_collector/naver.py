@@ -37,8 +37,7 @@ def relay_is_empty(relay_json: dict) -> bool:
     """True when this inning is out of the game's range (no at-bats).
 
     Heuristic: empty when `result` is falsy or `result.textRelayData.textRelays`
-    is absent/empty. VERIFY this path against a live capture in the notebook
-    smoke test (Task 15) and adjust if Naver's schema differs.
+    is absent/empty.
     """
     result = relay_json.get("result")
     if not result:
