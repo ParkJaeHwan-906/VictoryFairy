@@ -95,14 +95,16 @@ class AuthServiceTest {
     // ---------- login ----------
 
     @Test
-    @DisplayName("[USER-WD-8] 탈퇴한 계정의 이메일(활성 계정으로 조회되지 않음)로 로그인하면 "
-            + "비밀번호 검사 없이 미가입 이메일과 동일하게 INVALID_CREDENTIALS를 던진다")
-    void login_emailNotFoundAmongActiveAccounts_throwsInvalidCredentialsWithoutCheckingPassword() {
+    @DisplayName("[USER-WD-8, USER-LAE-1, USER-LAE-2, USER-LAE-6] 탈퇴한 계정의 이메일(활성 계정으로 조회되지 "
+            + "않음)로 로그인하면 더미 해시로 비밀번호 검사를 정확히 1회 수행한 뒤 미가입 이메일과 동일하게 "
+            + "INVALID_CREDENTIALS를 던진다")
+    void login_emailNotFoundAmongActiveAccounts_stillChecksPasswordOnceAgainstDummyHash() {
         // given: findByUser_EmailAndExitAtIsNull은 탈퇴 계정과 미가입 이메일을 구분하지 않고
         // 둘 다 Optional.empty()로 응답한다(UserAccountRepository Javadoc).
         LoginRequest request = new LoginRequest("withdrawn@example.com", "CorrectPassw0rd!");
         given(userAccountRepository.findByUser_EmailAndExitAtIsNull(request.email()))
                 .willReturn(Optional.empty());
+        given(passwordEncoder.matches(eq(request.password()), anyString())).willReturn(false);
 
         // when & then
         assertThatThrownBy(() -> authService.login(request))
@@ -110,12 +112,57 @@ class AuthServiceTest {
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(ErrorCode.INVALID_CREDENTIALS);
 
-        // 응답이 미가입 이메일과 완전히 동일하려면 비밀번호 비교조차 수행되지 않아야 한다.
-        verifyNoInteractions(passwordEncoder);
+        // USER-LAE-1: 계정을 못 찾아도 matches가 정확히 1회 호출돼야 응답시간이 가입 갈래와 같아진다.
+        verify(passwordEncoder, times(1)).matches(eq(request.password()), anyString());
     }
 
     @Test
-    @DisplayName("활성 계정 + 올바른 비밀번호로 로그인하면 토큰이 발급된다")
+    @DisplayName("[USER-LAE-4] 더미 해시 검증이 true를 돌려주도록 강제해도(형식 불일치 방어가 뚫린 가정) "
+            + "계정을 못 찾았으므로 여전히 401이고 토큰이 발급되지 않는다 — 검증 결과가 분기 조건이 아니다")
+    void login_emailNotFound_dummyHashMatchesTrue_stillReturns401WithoutIssuingTokens() {
+        // given
+        LoginRequest request = new LoginRequest("withdrawn@example.com", "anyPassword1!");
+        given(userAccountRepository.findByUser_EmailAndExitAtIsNull(request.email()))
+                .willReturn(Optional.empty());
+        // 더미 해시 검증 결과를 true로 강제한다 — 그래도 계정 존재 여부가 우선이라 401이어야 한다.
+        given(passwordEncoder.matches(eq(request.password()), anyString())).willReturn(true);
+
+        // when & then
+        assertThatThrownBy(() -> authService.login(request))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.INVALID_CREDENTIALS);
+
+        verify(tokenProvider, never()).createAccessToken(anyString());
+        verify(tokenProvider, never()).createRefreshToken(anyString());
+        verify(userRefreshTokenRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("[USER-LAE-12] 미가입 이메일로 로그인을 여러 번 요청해도 더미 해시 검증 경로에서는 "
+            + "리프레시 토큰 저장소에 어떤 쓰기도 발생하지 않는다")
+    void login_emailNotFound_repeatedRequests_neverWritesRefreshToken() {
+        // given
+        LoginRequest request = new LoginRequest("nobody@example.com", "anyPassword1!");
+        given(userAccountRepository.findByUser_EmailAndExitAtIsNull(request.email()))
+                .willReturn(Optional.empty());
+        given(passwordEncoder.matches(eq(request.password()), anyString())).willReturn(false);
+
+        // when: 100회 대신 대표성 있게 3회 반복 — DB 쓰기 0회라는 계약은 횟수와 무관하다.
+        for (int i = 0; i < 3; i++) {
+            assertThatThrownBy(() -> authService.login(request))
+                    .isInstanceOf(BusinessException.class);
+        }
+
+        // then
+        verify(userRefreshTokenRepository, never()).save(any());
+        verify(userRefreshTokenRepository, never()).expireValidTokens(any(), any());
+        verify(userAccountRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("[USER-LAE-1, USER-LAE-11] 활성 계정 + 올바른 비밀번호로 로그인하면 비밀번호 검사가 "
+            + "정확히 1회 수행되고 토큰이 발급된다")
     void login_activeAccountCorrectPassword_returnsTokens() {
         // given
         UserAccount account = activeAccountWithPassword("encoded");
@@ -133,10 +180,12 @@ class AuthServiceTest {
         // then
         assertThat(response.accessToken()).isEqualTo("access-token");
         assertThat(response.refreshToken()).isEqualTo("refresh-token");
+        verify(passwordEncoder, times(1)).matches(request.password(), account.getPassword());
     }
 
     @Test
-    @DisplayName("활성 계정이지만 비밀번호가 틀리면 INVALID_CREDENTIALS를 던진다")
+    @DisplayName("[USER-LAE-1] 활성 계정이지만 비밀번호가 틀리면 비밀번호 검사가 정확히 1회 수행된 뒤 "
+            + "INVALID_CREDENTIALS를 던진다")
     void login_activeAccountWrongPassword_throwsInvalidCredentials() {
         // given
         UserAccount account = activeAccountWithPassword("encoded");
@@ -150,7 +199,12 @@ class AuthServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(ErrorCode.INVALID_CREDENTIALS);
+        verify(passwordEncoder, times(1)).matches(request.password(), account.getPassword());
     }
+
+    // USER-LAE-10(형식 위반 시 matches 0회)은 @Valid가 컨트롤러 경계에서 요청을 걸러 서비스 메서드
+    // 자체가 호출되지 않는 계약이라 AuthService 단위 테스트로는 재현할 수 없다 — 컨트롤러 슬라이스
+    // AuthControllerLoginTest에서 검증한다.
 
     // ---------- reissue ----------
 
@@ -331,8 +385,9 @@ class AuthServiceTest {
     }
 
     @Test
-    @DisplayName("[USER-WD-10] 탈퇴한 계정이 점유했던 이메일이라도 existsByEmail이 true라면(탈퇴 여부를 구분하지 "
-            + "않으므로) 회원가입은 DUPLICATE_EMAIL로 거절된다")
+    @DisplayName("[USER-WD-10, USER-EMV-31] 탈퇴한 계정이 점유했던 이메일이라도 existsByEmail이 true라면(탈퇴 "
+            + "여부를 구분하지 않으므로) 회원가입은 종전과 동일하게 DUPLICATE_EMAIL로 거절된다 — send-code의 "
+            + "2026-09-18 개정이 signup의 이 409 계약을 바꾸지 않는다는 회귀 확인이다")
     void signup_emailAlreadyOccupiedRegardlessOfWithdrawal_throwsDuplicateEmail() {
         // given: existsByEmail은 exit_at을 구분하지 않는 쿼리라, 탈퇴 계정이 점유한 이메일도 true로 잡힌다.
         SignupRequest request = signupRequest();

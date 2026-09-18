@@ -30,6 +30,22 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 public class AuthService {
 
+    /**
+     * 계정을 못 찾은 로그인 요청에도 BCrypt 를 1회 태우기 위한 더미 해시(USER-LAE-2·3·13).
+     *
+     * <p>실제 계정 비밀번호와 같은 알고리즘·같은 cost(BCrypt 10 — {@code SecurityConfig} 의
+     * {@code BCryptPasswordEncoder} 기본값)라서, 미가입·탈퇴 갈래의 응답시간이 가입 계정 갈래와
+     * 같은 자릿수가 된다. 기동마다 새로 만들지 않고 코드 상수로 고정하는 이유는 파드마다 값이
+     * 달라질 여지를 없애고 기동 시 BCrypt 인코딩 비용을 안 물기 위해서다(USER-LAE-13).
+     *
+     * <p>⚠ 이 값의 원문 비밀번호는 <b>어디에도 저장되지 않는다</b>(USER-LAE-5, 생성 시점에 버림).
+     * 상수를 공개해도 안전한 근거는 두 겹이다: ①어떤 계정의 비밀번호도 이 해시가 아니고
+     * ②아래 {@code login} 이 이 검증의 <b>결과를 분기 조건으로 쓰지 않는다</b>(USER-LAE-4).
+     * 둘 중 하나라도 깨지면 "상수 노출 = 로그인 가능한 값의 노출"이 된다.
+     */
+    private static final String DUMMY_PASSWORD_HASH =
+            "$2y$10$Rx4fYJUBGQIDZWIW772nuOHZynkKR4iTN.qNjNn0NhWyPPtY7cQo2";
+
     private final UserRepository userRepository;
     private final UserAccountRepository userAccountRepository;
     private final UserRefreshTokenRepository userRefreshTokenRepository;
@@ -128,14 +144,21 @@ public class AuthService {
     public TokenResponse login(LoginRequest request) {
         // login은 permitAll이라 필터를 안 타 탈퇴 여부를 여기서 판정한다. exit_at is null 조건으로
         // 탈퇴 계정을 미가입 이메일과 같은 경로(INVALID_CREDENTIALS)로 흡수해 가입 이력을 노출하지 않는다.
-        UserAccount account = userAccountRepository.findByUser_EmailAndExitAtIsNull(request.email())
-                .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_CREDENTIALS));
+        Optional<UserAccount> found = userAccountRepository.findByUser_EmailAndExitAtIsNull(request.email());
 
-        if (!passwordEncoder.matches(request.password(), account.getPassword())) {
+        // 계정을 못 찾아도 여기서 빠져나가지 않는다. 곧바로 던지면 BCrypt 를 안 타 미가입·탈퇴 갈래만
+        // 수십~수백 ms 빨라지고, 응답 내용으로 감춘 가입 여부가 응답시간으로 새어 나간다(USER-LAE-1·2·6).
+        // 그래서 어느 갈래든 matches 는 정확히 1회 돈다 — 계정이 없으면 대상만 더미 해시로 바뀐다.
+        String encodedPassword = found.map(UserAccount::getPassword).orElse(DUMMY_PASSWORD_HASH);
+        boolean passwordMatched = passwordEncoder.matches(request.password(), encodedPassword);
+
+        // 판정 순서가 중요하다: 계정 존재를 먼저 보고, 더미 검증 결과는 분기에 쓰지 않는다(USER-LAE-4).
+        // 뒤집어 matches 결과부터 보면 더미 해시를 맞히는 순간 계정 없이 토큰이 나간다.
+        if (found.isEmpty() || !passwordMatched) {
             throw new BusinessException(ErrorCode.INVALID_CREDENTIALS);
         }
 
-        return issueTokens(account);
+        return issueTokens(found.get());
     }
 
     @Transactional
