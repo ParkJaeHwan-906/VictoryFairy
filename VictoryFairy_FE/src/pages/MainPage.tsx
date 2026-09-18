@@ -31,9 +31,8 @@ import '../styles/MainPage.css';
  * TOP 3 전용(`GET /rankings/bq/top`)이면 충분하다 — 라운지는 목록까지 함께 그려야 해서
  * TOP 10 을 받아 앞 3건을 시상대로 쓴다. "전체 보기"가 그 화면으로 가는 문이다.
  *
- * ── 아직 없는 것 ────────────────────────────────────────────────────
- * **나만의 승요 카드 만들기**는 갈 곳이 정해지지 않아 버튼만 두었다(눌러도 아무 일도
- * 하지 않는다).
+ * **나만의 승요 카드 만들기** 배너는 스토리 공유(`StorySharePage`)로 간다 — 지금 담을 수
+ * 있는 것은 내 캐릭터 한 장이고, 경기·퀴즈 기록을 담은 카드가 그 뒤를 잇는다.
  */
 export default function MainPage() {
   // 프로필은 새로고침하면 비어 있는 상태로 시작한다(persist 하지 않는다). 채우는 일은
@@ -142,8 +141,11 @@ export default function MainPage() {
         />
       </header>
 
-      {/* 갈 곳이 정해지지 않았다 — 눌러도 아무 일도 하지 않는다 */}
-      <button className="main-page__promo" type="button">
+      {/*
+        스토리 공유로 간다. 종류를 실어 보내지 않으므로 기본 스티커(내 캐릭터)가 잡힌다 —
+        담을 것이 늘면 여기서 `state` 로 종류를 골라 보낼 수 있다(`StoryShareState`).
+      */}
+      <Link className="main-page__promo" to={ROUTES.storyShare}>
         {/* 디자인에도 "임시 그래픽"으로 잡혀 있는 두 장의 카드다 */}
         <span className="main-page__promo-graphic" aria-hidden="true" />
         <span className="main-page__promo-text">
@@ -153,7 +155,7 @@ export default function MainPage() {
           </span>
         </span>
         <span className="main-page__promo-arrow" aria-hidden="true" />
-      </button>
+      </Link>
 
       <section className="main-page__section">
         <div className="main-page__section-head">
