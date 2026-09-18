@@ -1,0 +1,235 @@
+/**
+ * StorySharePage(스토리 공유) 스타일.
+ *
+ * **디자인 원본이 없는 화면이다.** 그래서 새 값을 만들지 않고 이미 있는 것들을 그대로
+ * 가져왔다 — 상단 바는 알림 설정 · 계정 설정과 같은 Figma 컴포넌트(Bar/Top) 규격이고,
+ * 스티커 고르는 줄은 캐릭터 꾸미기의 부위 탭, 아래 버튼은 프로필 수정의 제출 버튼이다.
+ * 디자인이 나오면 이 파일만 갈아끼우면 되도록 페이지 밖으로는 아무것도 내보내지 않는다.
+ *
+ * 가운데 미리보기만 이 화면에만 있는 것인데, 이것도 임의로 그린 판이 아니라
+ * **인스타 스토리 비율(9:16)** 이다 — 사용자가 다음에 보게 될 화면과 같은 모양이라야
+ * 미리보기 구실을 한다.
+ */
+
+.story-share-page {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--layout-app-width);
+  min-height: 100dvh;
+  margin-inline: auto;
+  padding-bottom: 24px;
+  background-color: var(--color-background-basic);
+}
+
+/* ------------------------------------------------------------------ *
+ * Bar/Top — 뒤로가기 · 타이틀 (알림 설정 · 계정 설정과 같은 컴포넌트)
+ * 오른쪽은 디자인상 opacity 0 인 빈 버튼 → 타이틀 중앙 정렬용 스페이서로 둔다.
+ * ------------------------------------------------------------------ */
+.story-share-page__topbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.story-share-page__back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 60px;
+  padding: 10px;
+  border-radius: var(--radius-10);
+  overflow: clip;
+}
+
+/* 단색 아이콘(arrow_l)은 에셋 원본이 검정이라 mask 로 찍어 토큰 색을 입힌다. */
+.story-share-page__back-icon {
+  width: 20px;
+  height: 20px;
+  background-color: var(--color-label-assistive);
+  -webkit-mask: url('../assets/arrow_l.svg') center / contain no-repeat;
+  mask: url('../assets/arrow_l.svg') center / contain no-repeat;
+}
+
+.story-share-page__topbar-title {
+  min-width: 0;
+  margin: 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  text-align: center;
+}
+
+.story-share-page__topbar-spacer {
+  flex-shrink: 0;
+  width: 60px;
+  height: 60px;
+}
+
+/* ------------------------------------------------------------------ *
+ * 미리보기 — 스토리 비율(9:16) 판
+ *
+ * 배경 그라데이션은 인라인 스타일로 들어온다(스티커마다 색이 다르다). 여기서는
+ * 값이 아직 없을 때를 대비해 옅은 회색만 깔아 둔다 — 비어 있는 흰 판은 로딩인지
+ * 고장인지 구분되지 않는다.
+ *
+ * **높이를 먼저 정하고 너비를 비율로 받는다.** 두 축이 다 내용에 달려 있으면
+ * `aspect-ratio` 가 기댈 곳이 없어 판이 접힌다 — 안에 든 스티커도 높이가 퍼센트라
+ * 서로를 참조하게 된다. 그래서 높이를 화면 비율로 잡고 위아래를 한 번씩 조인다:
+ * 세로가 긴 기기에서 판이 아래 버튼을 밀어내지 않게 `max-height`, 짧은 기기에서
+ * 미리보기 구실을 못할 만큼 납작해지지 않게 `min-height` 다.
+ * ------------------------------------------------------------------ */
+.story-share-page__stage {
+  position: relative;
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 9 / 16;
+  height: 46dvh;
+  min-height: 260px;
+  max-height: 420px;
+  margin-block: 8px 20px;
+  margin-inline: auto;
+  border-radius: var(--radius-20);
+  background-color: var(--color-background-gray);
+  overflow: clip;
+}
+
+/*
+ * 스티커. 인스타에서도 판 전체를 채우지 않고 가운데에 얹히므로 같은 비율로 줄여 둔다.
+ * `contain` 이라 스티커 판의 비율이 무엇이든 잘리지 않는다.
+ */
+.story-share-page__sticker {
+  width: 68%;
+  height: 68%;
+  object-fit: contain;
+}
+
+/*
+ * 만드는 중 · 만들 수 없음 · 실패. 그라데이션 위에 얹힐 수도 있어 흰 글자다
+ * (배경이 아직 없을 때의 회색 판 위에서도 읽히도록 그림자를 옅게 둔다).
+ */
+.story-share-page__stage-status {
+  position: absolute;
+  margin: 0;
+  padding-inline: 24px;
+  color: var(--color-white);
+  font-size: var(--font-size-label2);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  text-align: center;
+  text-shadow: 0 1px 2px rgb(18 18 18 / 35%);
+}
+
+/* ------------------------------------------------------------------ *
+ * 스티커 고르는 줄 — 꾸미기 화면의 부위 탭과 같은 규격
+ * 종류가 하나뿐이면 렌더되지 않는다(화면 쪽에서 가른다).
+ * ------------------------------------------------------------------ */
+.story-share-page__tabs {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  padding-inline: var(--layout-gutter);
+  border-bottom: 1px solid var(--color-line-light);
+  overflow-x: auto;
+}
+
+.story-share-page__tab {
+  flex-shrink: 0;
+  height: 42px;
+  padding: 9px 24px;
+  /* 선택됐을 때와 높이가 같아야 글자가 튀지 않는다 — 색만 투명으로 둔다. */
+  border-bottom: 3px solid transparent;
+  color: var(--color-label-assistive);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+}
+
+.story-share-page__tab--active {
+  border-bottom-color: var(--color-primary-normal);
+  color: var(--color-primary-normal);
+}
+
+/* ------------------------------------------------------------------ *
+ * 설명 · 안내문
+ * ------------------------------------------------------------------ */
+.story-share-page__description {
+  margin: 16px 0 0;
+  padding-inline: var(--layout-gutter);
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body4);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body4);
+  text-align: center;
+}
+
+/*
+ * 지금 공유할 수 없는 이유. 설명문과 크기는 같지만 색으로 갈라 둔다 —
+ * 알림 설정의 안내문과 같은 규칙이다(먼저 읽혀야 하는 줄).
+ */
+.story-share-page__note {
+  margin: 8px 0 0;
+  padding-inline: var(--layout-gutter);
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+  text-align: center;
+}
+
+.story-share-page__note--alert {
+  color: var(--color-error-strong);
+}
+
+/* ------------------------------------------------------------------ *
+ * 제출 버튼 — 프로필 수정 화면과 같은 규격
+ * `margin-top: auto` 로 바닥에 붙여, 미리보기가 짧은 기기에서도 자리가 흔들리지 않는다.
+ * ------------------------------------------------------------------ */
+.story-share-page__submit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 60px;
+  margin-top: auto;
+  margin-inline: var(--layout-gutter);
+  padding-inline: 16px;
+  border-radius: var(--radius-15);
+  background-color: var(--color-primary-400);
+  color: var(--color-white);
+  font-size: var(--font-size-button2);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  transition: background-color 0.15s ease-in-out;
+}
+
+.story-share-page__submit:disabled {
+  background-color: var(--color-action-disabled);
+  color: var(--color-label-disable);
+  cursor: not-allowed;
+}
+
+/* ------------------------------------------------------------------ *
+ * 반응형 — 소형 단말에서 좌우 여백 축소 (다른 화면들과 같은 기준)
+ * ------------------------------------------------------------------ */
+@media (max-width: 359px) {
+  .story-share-page__tabs,
+  .story-share-page__description,
+  .story-share-page__note {
+    padding-inline: 16px;
+  }
+
+  .story-share-page__submit {
+    margin-inline: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .story-share-page__submit {
+    transition: none;
+  }
+}

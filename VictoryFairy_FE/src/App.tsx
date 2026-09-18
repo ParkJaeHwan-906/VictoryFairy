@@ -16,6 +16,7 @@ import ProfileEditPage from './pages/ProfileEditPage';
 import AccountSettingPage from './pages/AccountSettingPage';
 import NotificationSettingPage from './pages/NotificationSettingPage';
 import CharacterCustomPage from './pages/CharacterCustomPage';
+import StorySharePage from './pages/StorySharePage';
 import QuizPage from './pages/QuizPage';
 import QuizResultPage from './pages/QuizResultPage';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -66,6 +67,11 @@ export default function App() {
         <Route path={ROUTES.notificationSetting} element={<NotificationSettingPage />} />
         {/* 캐릭터 꾸미기도 NavBar 없는 전체 화면이다 — 홈의 옷 버튼으로 들어온다 */}
         <Route path={ROUTES.characterCustom} element={<CharacterCustomPage />} />
+        {/*
+          스토리 공유도 마이페이지에서 들어오는 NavBar 없는 화면이다 — 스티커를 만드는
+          것까지가 웹이고, 인스타로 건네는 것은 앱이 한다(utils/instagramShare.ts).
+        */}
+        <Route path={ROUTES.storyShare} element={<StorySharePage />} />
         {/*
           하단 NavBar 가 붙는 화면들.
           레이아웃에 NavBar 를 한 번만 두어, 이 안에서 화면을 옮겨 다녀도
