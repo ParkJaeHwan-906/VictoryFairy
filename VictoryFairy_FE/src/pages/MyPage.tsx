@@ -72,20 +72,30 @@ const SUPPORT_EDIT_STATE: TeamSelectState = { mode: 'edit' };
  * 나중에 그림이 바뀌어도 이쪽은 손대지 않는다.
  */
 type RowIcon =
-  'account' | 'notification' | 'sns' | 'notice' | 'inquiry' | 'privacy' | 'terms' | 'version';
+  | 'account'
+  | 'notification'
+  | 'share'
+  | 'notice'
+  | 'inquiry'
+  | 'privacy'
+  | 'terms'
+  | 'version';
 
 /** 목록 한 줄의 재료. `to`(앱 안 이동)와 `href`(바깥 문서)는 둘 중 하나만 쓰거나 둘 다 없다. */
 type MenuItem = { label: string; icon: RowIcon; to?: string; href?: string };
 
 /**
- * 설정 묶음. 계정 설정(비밀번호 변경 — `AccountSettingPage`)과 알림 설정
- * (`NotificationSettingPage`)은 갈 곳이 있고, SNS 연동은 아직 화면이 없어
- * 화살표만 그리고 눌러도 아무 일도 없다.
+ * 설정 묶음. 셋 다 갈 곳이 있다 — 계정 설정(비밀번호 변경 — `AccountSettingPage`),
+ * 알림 설정(`NotificationSettingPage`), 스토리 공유(`StorySharePage`).
+ *
+ * 맨 아래 줄은 디자인에서 'SNS 연동'이던 자리다. 연동할 계정이 아직 없고 그 자리가
+ * 뜻하던 것(SNS 로 나가는 문)을 스토리 공유가 그대로 맡으므로 라벨과 갈 곳을 바꿔
+ * 채웠다 — 눌러도 아무 일이 없는 줄을 남겨 두는 것보다 낫다.
  */
 const SETTING_ITEMS: readonly MenuItem[] = [
   { label: '계정 설정', icon: 'account', to: ROUTES.accountSetting },
   { label: '알림 설정', icon: 'notification', to: ROUTES.notificationSetting },
-  { label: 'SNS 연동', icon: 'sns' },
+  { label: '스토리 공유', icon: 'share', to: ROUTES.storyShare },
 ];
 
 /**
