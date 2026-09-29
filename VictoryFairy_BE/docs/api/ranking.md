@@ -3,9 +3,9 @@
 > **도메인** `ranking` — 응원 구단 안에서의 BQ 점수 순위(신설).
 > **모듈** user (포트 8080) · **경로 접두사** `/api/rankings/bq` · **엔드포인트** 3개
 > **컨트롤러** `user/src/main/java/com/skhynix/user/ranking/controller/BqRankingController.java` (`@RequestMapping("/rankings/bq")`)
-> **최종 갱신** 2026-09-04 — 도메인 신설(`GET /rankings/bq/top`·`GET /rankings/bq`·`GET /rankings/bq/me`). 계약 원본 `docs/requirements/user/team-bq-ranking.md`(승인됨 2026-09-04, USER-RK-1~84).
+> **최종 갱신** 2026-09-30 — **세 엔드포인트 모두 요청자와 차단 관계(양방향)인 계정을 모집단에서 제외한다**(`UserBlockRepository.findRelatedAccountIds` 재사용, [block 도메인](block.md) 참고). 요청/응답 스키마·상태코드·`ErrorCode`는 불변이고 결과 목록·순위 숫자만 영향을 받는다. 계약 원본 `docs/requirements/user/user-block.md`(승인됨 2026-09-30, USER-BLK-17/18). (직전: 2026-09-04 — 도메인 신설(`GET /rankings/bq/top`·`GET /rankings/bq`·`GET /rankings/bq/me`). 계약 원본 `docs/requirements/user/team-bq-ranking.md`(승인됨 2026-09-04, USER-RK-1~84).)
 > 공통 규약(응답 래퍼·JWT payload·401 4종·시스템 예외 래핑)은 [README.md](README.md)를 먼저 볼 것.
-> `GET /api/users/me` 응답에 추가된 `bqRank` 필드는 이 도메인의 순위 규칙을 그대로 재사용한다 — 상세는 [account.md](account.md#get-apiusersme)에 있고, 여기서는 반복하지 않는다.
+> `GET /api/users/me` 응답에 추가된 `bqRank` 필드는 이 도메인의 순위 규칙을 그대로 재사용한다 — 상세는 [account.md](account.md#get-apiusersme)에 있고, 여기서는 반복하지 않는다. **단, `bqRank`는 차단 필터가 적용되지 않는다**(`BqRankingService.rankOf(teamId, bqScore)` 무인자 버전을 그대로 씀 — `docs/requirements/user/user-block.md` 범위 밖) — 이 도메인의 세 엔드포인트와 `bqRank`가 어긋날 수 있는 유일한 지점이다.
 
 ## 엔드포인트 목록
 
@@ -23,7 +23,7 @@
 
 **`SecurityConfig`를 건드리지 않는 것이 정답이다** — `/api/rankings/**`는 `permitAll` 목록에 없어 `anyRequest().authenticated()`에 자연히 걸린다(`/api/users/**`·`/api/support/**`·`/api/characters/**`와 같은 성격). `/teams`·`/players`·`/games`처럼 한 줄을 추가하면 그게 버그다.
 
-**순위 모집단은 요청자의 활성 응원 구단(`user_support_team.oppose IS NULL`)과 같은 구단을 활성 응원 중인 계정 전체다.** ⚠ **탈퇴 여부(`users_account.exit_at`)는 모집단 조건이 아니다** — 탈퇴(soft delete) 계정도 활성 응원 행이 있으면 그대로 포함된다(30일 뒤 하드 삭제로 CASCADE가 응원 행·`users_bq` 행을 지우면 그때 자연히 빠진다). 이는 **요청자 자신의 인증 차단**(탈퇴자는 필터 단계에서 401)과는 별개의, 의도적으로 비대칭인 결정이다.
+**순위 모집단은 요청자의 활성 응원 구단(`user_support_team.oppose IS NULL`)과 같은 구단을 활성 응원 중인 계정 전체에서, 요청자와 차단 관계(양방향)인 계정을 뺀 것이다**(2026-09-30, [block 도메인](block.md) USER-BLK-17/18). 제외 조건이라 목록 상한(3·10건)에서 잘리는 자리는 뒤 순번이 그만큼 당겨져 채운다 — 빈 자리를 남기지 않는다. `GET /api/rankings/bq/me`의 순위 산정도 같은 기준으로 제외한다(`countHigherInTeam`에 제외 집합을 함께 넘김) — 그래야 목록의 `rank`와 `/me`의 `rank`가 항상 일치한다. ⚠ **탈퇴 여부(`users_account.exit_at`)는 모집단 조건이 아니다** — 탈퇴(soft delete) 계정도 활성 응원 행이 있으면 그대로 포함된다(30일 뒤 하드 삭제로 CASCADE가 응원 행·`users_bq` 행을 지우면 그때 자연히 빠진다). 이는 **요청자 자신의 인증 차단**(탈퇴자는 필터 단계에서 401)과는 별개의, 의도적으로 비대칭인 결정이다.
 
 **동점 처리는 공동 순위(1·1·3 방식)다.** `bq_score` 내림차순으로 매기고, 같은 점수는 같은 `rank`를 받으며 다음 순위는 동점자 수만큼 건너뛴다. 목록 안 배치 순서(동점자끼리의 나열 순서)는 `users_account.id` 오름차순(가입이 빠른 계정 먼저)으로 고정된다. `top`(최대 3건)·`ranking`(최대 10건)은 이 상한에서 잘릴 때도 항목 수 자체를 상한 밖으로 넘기지 않는다 — 동점자를 전부 싣지 않고 배치 순서상 앞선 계정까지만 담는다.
 
@@ -34,7 +34,7 @@
 ---
 
 ## GET /api/rankings/bq/top
-> 최종 변경: 2026-09-04 — 신규 추가
+> 최종 변경: 2026-09-30 — 차단 관계(양방향)인 계정을 모집단에서 제외(요청/응답 스키마 불변). (직전: 2026-09-04 — 신규 추가)
 
 내 응원 구단 안에서 1~3위. `BqRankingController.getTopRanking()` → `BqRankingService.getTopRanking()`(클래스 레벨 `@Transactional(readOnly = true)`).
 
@@ -82,7 +82,7 @@ curl -i http://localhost:8080/api/rankings/bq/top \
 ---
 
 ## GET /api/rankings/bq
-> 최종 변경: 2026-09-04 — 신규 추가
+> 최종 변경: 2026-09-30 — 차단 관계(양방향)인 계정을 모집단에서 제외(요청/응답 스키마 불변). (직전: 2026-09-04 — 신규 추가)
 
 내 응원 구단 안에서 1~10위. `BqRankingController.getRanking()` → `BqRankingService.getRanking()`(클래스 레벨 `@Transactional(readOnly = true)`).
 
@@ -117,7 +117,7 @@ curl -i http://localhost:8080/api/rankings/bq \
 ---
 
 ## GET /api/rankings/bq/me
-> 최종 변경: 2026-09-04 — 신규 추가
+> 최종 변경: 2026-09-30 — 순위 산정 모집단에서 차단 관계(양방향)인 계정을 제외(요청/응답 스키마 불변). (직전: 2026-09-04 — 신규 추가)
 
 내 응원 구단 안에서 본인 순위. `BqRankingController.getMyRanking()` → `BqRankingService.getMyRanking()`(클래스 레벨 `@Transactional(readOnly = true)`).
 
@@ -135,7 +135,7 @@ curl -i http://localhost:8080/api/rankings/bq \
 
 **활성 응원 구단이 없으면 200 + `data: null`을 반환한다** — 빈 객체 `{}`도 `rank: 0`도 아니다. `/top`·`/`의 "빈 배열" 안전망과 짝을 이루는, 목록 없음 대신 객체 없음으로 표현한 같은 계약이다.
 
-**내부 동작**: 활성 응원 구단 조회 1 + 본인 순위 재료 조회(`UserBqRepository.findRankingEntry`, 닉네임·이미지·점수를 한 쿼리로) 1 + 순위 계산(`countHigherInTeam`, `COUNT` 1회) = 총 3회. 모집단 크기와 무관하게 고정.
+**내부 동작(2026-09-30 갱신, SELECT 3회→4회)**: 활성 응원 구단 조회 1 + 본인 순위 재료 조회(`UserBqRepository.findRankingEntry`, 닉네임·이미지·점수를 한 쿼리로) 1 + 차단 관계자 id 조회(`UserBlockRepository.findRelatedAccountIds`) 1 + 순위 계산(`countHigherInTeam`, 제외 집합 포함 `COUNT` 1회) = 총 4회. 모집단 크기·차단 건수와 무관하게 고정. `top`·`ranking` 두 목록 경로도 같은 이유로 각각 조회가 1회씩 늘었다(활성 응원 구단 조회 1 + 차단 관계자 id 조회 1 + 목록 조회 1 = 3회, 종전 2회).
 
 **실패**
 
@@ -173,6 +173,7 @@ curl -i http://localhost:8080/api/rankings/bq/me \
 
 ## 관련 문서
 
-- [계정(account)](account.md) — `GET /api/users/me` 응답의 `bqRank` 필드가 이 도메인(`BqRankingService.rankOf`)의 순위 규칙을 재사용한다.
+- [계정(account)](account.md) — `GET /api/users/me` 응답의 `bqRank` 필드가 이 도메인(`BqRankingService.rankOf`)의 순위 규칙을 재사용한다(단, 차단 필터는 재사용하지 않는다 — 위 헤더 참고).
 - [응원(support)](support.md) — 순위 모집단을 가르는 활성 응원 구단(`oppose IS NULL`)의 출처.
+- [차단(block)](block.md) — 2026-09-30부터 이 도메인 세 엔드포인트 모두의 모집단 제외 조건(`UserBlockRepository.findRelatedAccountIds`)의 출처.
 - 요구사항: `docs/requirements/user/team-bq-ranking.md`(USER-RK-1~84, 승인됨 2026-09-04) · `docs/requirements/user/me-profile.md`(`bqScore` 안전망의 선행 계약) · `docs/requirements/quiz/quiz-point-bq-split.md`(`bq_score`가 증가하는 유일한 경로)
