@@ -54,6 +54,11 @@ public enum ErrorCode {
     // 자기 자신에 대해서는 거짓이다.
     SAME_AS_CURRENT_NICKNAME(400, "현재 닉네임과 다른 닉네임을 사용해 주세요."),
 
+    // 400 Bad Request - 회원 차단
+    // 자기 자신 차단 요청을 BLOCK_TARGET_NOT_FOUND(404)로 흡수하지 않는다 — 대상 닉네임이 실재해
+    // "존재하지 않음"이 거짓이다(USER-BLK-5).
+    SELF_BLOCK_NOT_ALLOWED(400, "자기 자신은 차단할 수 없습니다."),
+
     // 400 Bad Request - 응원 선택
     SUPPORT_TEAM_REQUIRED(400, "응원하는 구단을 먼저 선택해 주세요."),
     PLAYER_NOT_IN_SUPPORT_TEAM(400, "응원하는 구단 소속 선수만 선택할 수 있습니다."),
@@ -127,6 +132,9 @@ public enum ErrorCode {
     //   "안 산 아이템"은 이미 구분 가능한 상태이고, 뭉치면 FE 가 "구매하기"를 띄울지 "다시 시도"를
     //   띄울지 판단할 근거를 잃는다.
     CHARACTER_ITEM_NOT_OWNED(404, "보유하지 않은 아이템입니다."),
+    // 차단 대상 닉네임에 해당하는 활성 계정이 없는 경우(USER-BLK-4) — "존재하지 않는 사용자"로만
+    // 알린다(탈퇴 계정 점유 여부 등 세부 사유는 노출하지 않는다).
+    BLOCK_TARGET_NOT_FOUND(404, "존재하지 않는 사용자입니다."),
 
     // 400 Bad Request - 아이템 구매
     INSUFFICIENT_POINT(400, "보유 포인트가 부족합니다."),
