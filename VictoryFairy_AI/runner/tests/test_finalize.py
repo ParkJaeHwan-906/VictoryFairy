@@ -106,3 +106,26 @@ def test_select_final_explicit_quota_overrides_grouping():
     final, reasons = select_final(cands, verdicts, {}, quota=[("EASY", 1)])
     assert [c["quizId"] for c in final] == ["RAW-01"]
     assert len(reasons) == 1 and "물량 슬롯 초과" in reasons[0]
+
+
+def test_select_final_applies_per_team_quota_independently_of_common():
+    """gameId 없고 teamCodes가 있는 문항은 perTeam 슬롯(팀별로 따로), teamCodes가
+    빈 문항은 여전히 common 슬롯을 쓴다 — 둘이 서로의 몫을 갉아먹지 않는다."""
+    from runner.finalize import VOLUME
+    per_easy = dict(VOLUME["perTeam"])["EASY"]
+    cands, verdicts = [], {}
+    for i in range(per_easy + 2):                  # LT 팀 특화: 슬롯보다 2개 많게
+        c = _cand(i, "A"); c["teamCodes"] = ["LT"]; cands.append(c)
+        verdicts[c["quizId"]] = _ok(fun=5 - (i % 2))
+    common_easy = dict(VOLUME["common"])["EASY"]
+    for i in range(per_easy + 2, per_easy + 2 + common_easy + 1):  # 공통: 1개 많게
+        c = _cand(i, "A"); cands.append(c)          # teamCodes 없음 → common
+        verdicts[c["quizId"]] = _ok()
+
+    final, reasons = select_final(cands, verdicts, {})
+    by_team = [c for c in final if c.get("teamCodes") == ["LT"]]
+    by_common = [c for c in final if not c.get("teamCodes")]
+    assert len(by_team) == per_easy
+    assert len(by_common) == common_easy
+    assert sum("팀특화(LT)" in r for r in reasons) == 2
+    assert sum("공통" in r for r in reasons) == 1
