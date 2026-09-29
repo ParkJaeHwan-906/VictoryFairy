@@ -3,7 +3,7 @@
 > **도메인** `chat` — 구단별 채팅방, 메시지 전송·히스토리·신고, SSE 실시간 구독.
 > **모듈** quiz (포트 8081) · **경로 접두사** `/rt/chat` · **엔드포인트** 7개
 > **컨트롤러** `quiz/src/main/java/com/skhynix/quiz/chat/controller/ChatController.java` (`@RequestMapping("/chat")` — `/rt`는 context-path가 붙인다) — 현재 quiz 모듈의 유일한 컨트롤러.
-> **최종 갱신** 2026-09-03 — **메시지 전송 경로에 욕설 마스킹 필터 도입.** 엔드포인트·요청/응답 스키마·상태코드·`ErrorCode`는 **하나도 바뀌지 않았고**, 바뀐 것은 `content` **값의 성질**이다: `POST .../messages`로 보낸 content는 서버에서 마스킹을 거친 뒤 저장되며 **저장값·201 응답 `data.content`·SSE `message` 이벤트의 `content` 세 곳이 모두 같은 문자열**이다. 치환 문자는 `***`가 아니라 **발신자가 응원하는 구단을 연상시키는 단어**(두산 팬 → `두산`·`망곰`·`철웅이`·`곰돌이` 중 하나)이며 같은 구단·같은 욕설이면 항상 같은 단어다(결정적). **금지어가 있다고 전송이 거절되지 않는다 — 400이 아니라 201이다.** ⚠ **원문은 저장되지 않고 마스킹 여부를 알리는 필드도 없다** — 발신자는 SSE 에코를 받지 않으므로 201 응답의 `content`가 자기 메시지의 최종 형태를 확인하는 유일한 지점이다(아래 "욕설 마스킹 필터" 절 — 프론트 필독). 계약 원본 `docs/requirements/quiz/chat-profanity-filter.md`(승인됨 2026-09-03, QUIZ-CPF-1~44). (직전: 2026-08-20 — **`MessageResponse`(전송 응답·히스토리)와 SSE `message` 이벤트 payload(`MessageEvent`)에 `profileImgUrl` 필드 추가**(발신자 `users_account.profile_img_url`, 없으면 `null` — 값의 형태는 [account](account.md#profileimgurl-값의-의미-프론트-필독)와 동일한 BaseURL 없는 EP). 발신자 계정이 이미 로딩돼 있어 SELECT는 늘지 않는다. 탈퇴자 메시지는 `(알수없음)` 더미 계정으로 이관되고 그 계정은 프로필 이미지가 없어 자연히 `null`이다(별도 분기 없음). 엔드포인트 7개·필드 개수 외 나머지 계약은 불변. 계약 원본 `docs/requirements/user/profile-image.md`(승인됨 2026-08-20). (직전: 2026-08-17 **비밀번호 변경 이전에 발급된 토큰이 이 도메인 7개 엔드포인트 전부에서 401로 거절되게 됨**(user 모듈의 `PATCH /api/users/me/password`, `main` 84f6f4a 머지 완료 — 공유 인증 필터라 chat 쪽 코드 변경 없이 적용됨). 응답·요청 계약은 그 외 불변.)) 그 이전 이력은 각 엔드포인트 섹션의 `최종 변경` 줄에 남아 있다.
+> **최종 갱신** 2026-09-30 — **히스토리 조회(`GET .../messages`)가 요청자와 차단 관계(양방향)인 계정의 메시지를 조회 시점에 숨긴다**(user 모듈 신설 [block 도메인](block.md), `docs/requirements/user/user-block.md` USER-BLK-14~16). 요청/응답 스키마·상태코드·`ErrorCode`는 불변, `totalElements` 등 페이지 메타데이터는 필터 이전 기준 그대로다(아래 해당 엔드포인트 절 참고). 전송·SSE 경로는 영향받지 않는다. (직전: 2026-09-03 — **메시지 전송 경로에 욕설 마스킹 필터 도입.** 엔드포인트·요청/응답 스키마·상태코드·`ErrorCode`는 **하나도 바뀌지 않았고**, 바뀐 것은 `content` **값의 성질**이다: `POST .../messages`로 보낸 content는 서버에서 마스킹을 거친 뒤 저장되며 **저장값·201 응답 `data.content`·SSE `message` 이벤트의 `content` 세 곳이 모두 같은 문자열**이다. 치환 문자는 `***`가 아니라 **발신자가 응원하는 구단을 연상시키는 단어**(두산 팬 → `두산`·`망곰`·`철웅이`·`곰돌이` 중 하나)이며 같은 구단·같은 욕설이면 항상 같은 단어다(결정적). **금지어가 있다고 전송이 거절되지 않는다 — 400이 아니라 201이다.** ⚠ **원문은 저장되지 않고 마스킹 여부를 알리는 필드도 없다** — 발신자는 SSE 에코를 받지 않으므로 201 응답의 `content`가 자기 메시지의 최종 형태를 확인하는 유일한 지점이다(아래 "욕설 마스킹 필터" 절 — 프론트 필독). 계약 원본 `docs/requirements/quiz/chat-profanity-filter.md`(승인됨 2026-09-03, QUIZ-CPF-1~44). (직전: 2026-08-20 — **`MessageResponse`(전송 응답·히스토리)와 SSE `message` 이벤트 payload(`MessageEvent`)에 `profileImgUrl` 필드 추가**(발신자 `users_account.profile_img_url`, 없으면 `null` — 값의 형태는 [account](account.md#profileimgurl-값의-의미-프론트-필독)와 동일한 BaseURL 없는 EP). 발신자 계정이 이미 로딩돼 있어 SELECT는 늘지 않는다. 탈퇴자 메시지는 `(알수없음)` 더미 계정으로 이관되고 그 계정은 프로필 이미지가 없어 자연히 `null`이다(별도 분기 없음). 엔드포인트 7개·필드 개수 외 나머지 계약은 불변. 계약 원본 `docs/requirements/user/profile-image.md`(승인됨 2026-08-20). (직전: 2026-08-17 **비밀번호 변경 이전에 발급된 토큰이 이 도메인 7개 엔드포인트 전부에서 401로 거절되게 됨**(user 모듈의 `PATCH /api/users/me/password`, `main` 84f6f4a 머지 완료 — 공유 인증 필터라 chat 쪽 코드 변경 없이 적용됨). 응답·요청 계약은 그 외 불변.))) 그 이전 이력은 각 엔드포인트 섹션의 `최종 변경` 줄에 남아 있다.
 > **요구사항** `docs/requirements/quiz/chat.md`(QUIZ-CHAT, 도입 시점 계약) · `docs/requirements/quiz/chat-team-access-control.md`(QUIZ-CTAC-1~29, 구단 접근 제어) · `docs/requirements/user/profile-image.md`(승인됨 2026-08-20 — `profileImgUrl` 필드의 출처) · `docs/requirements/quiz/chat-profanity-filter.md`(승인됨 2026-09-03, QUIZ-CPF-1~44 — 욕설 마스킹)
 > 공통 규약(응답 래퍼·JWT payload·401 정책·**시스템 예외 래핑**)은 [README.md](README.md)를 먼저 볼 것.
 
@@ -357,7 +357,7 @@ curl -i -X POST http://localhost:8081/rt/chat/rooms/3f9c2e10-.../messages \
 ---
 
 ## GET /rt/chat/rooms/{roomUid}/messages
-> 최종 변경: 2026-08-20 — 항목(`MessageResponse`)에 `profileImgUrl` 추가(발신자 프로필 이미지 EP, 없으면 `null`). 히스토리는 fetch join으로 이미 발신자 계정을 함께 로딩하므로 SELECT 증가 없음. (직전: 2026-08-04 구단 일치 검사 추가(내 응원 구단 방이 아니면 403, 메시지가 실리지 않음))
+> 최종 변경: 2026-09-30 — **요청자와 차단 관계(양방향)인 계정이 보낸 메시지를 조회 시점에 숨긴다**(user 모듈 `UserBlockRepository.findRelatedAccountIds` 재사용, `docs/requirements/user/user-block.md` USER-BLK-14). 요청/응답 스키마·상태코드·`ErrorCode`는 불변. (직전: 2026-08-20 — 항목(`MessageResponse`)에 `profileImgUrl` 추가(발신자 프로필 이미지 EP, 없으면 `null`). 히스토리는 fetch join으로 이미 발신자 계정을 함께 로딩하므로 SELECT 증가 없음. (직전: 2026-08-04 구단 일치 검사 추가(내 응원 구단 방이 아니면 403, 메시지가 실리지 않음)))
 
 방 히스토리 조회(페이징).
 
@@ -389,6 +389,8 @@ curl -i -X POST http://localhost:8081/rt/chat/rooms/3f9c2e10-.../messages \
 | hasNext | boolean | 다음 페이지 존재 여부 |
 
 `blind=true`이거나 `deletedAt`이 채워진 메시지는 결과에서 제외된다(`findByChatroomAndBlindFalseAndDeletedAtIsNullOrderByCreatedAtDesc`).
+
+**차단 관계(양방향)인 상대가 보낸 메시지는 이 응답에서 빠진다(2026-09-30, USER-BLK-14~16).** 요청자와 [차단(block)](block.md) 관계(내가 차단했든, 상대가 나를 차단했든)인 계정이 보낸 메시지는 `content`(위 DB 조건)를 통과한 뒤 **애플리케이션 단계에서 한 번 더** 걸러진다 — **과거·미래 메시지 모두 대상**이다. 숨김은 조회(읽기) 시점에만 적용되고 저장·SSE 발신 자체는 막지 않는다(메시지 전송은 그대로 201, 방의 다른 구독자에게는 정상 전달, 요청자 화면에서만 빠진다). ⚠ **`totalElements`/`totalPages`/`hasNext`는 이 차단 필터를 반영하지 않는다** — DB 쿼리(원본) 기준 그대로이고 걸러진 뒤의 `content` 배열 길이만 줄어든다. 즉 차단 상대가 많은 방에서는 **`content.length`가 `size`(30)보다 작으면서 `hasNext:true`인 페이지**가 나올 수 있다(그 페이지에 원래 30건이 있었지만 일부가 걸러졌을 뿐, 다음 페이지가 없다는 뜻이 아니다) — 프론트가 "빈 페이지=끝"으로 오판하지 않아야 한다.
 
 **욕설 마스킹은 이 경로의 동작을 바꾸지 않는다(계약 불변).** 히스토리는 저장된 값을 그대로 돌려주고 조회 시점에 필터를 다시 돌리지 않는다 — 2026-09-03 이후 전송된 메시지는 저장 시점에 이미 마스킹된 값이고, **그 이전에 저장된 메시지는 원문 그대로 조회된다(소급 치환·소급 배치 없음)**.
 
@@ -479,4 +481,5 @@ curl -i -X POST http://localhost:8081/rt/chat/rooms/3f9c2e10-.../messages/42/rep
 ## 관련 문서
 
 - [README.md](README.md) — 인증·401 정책은 user 모듈과 동일한 `web-support` 구현을 공유한다.
-- 요구사항: `docs/requirements/quiz/chat.md`(도입 시점 계약), `docs/requirements/quiz/chat-team-access-control.md`(구단 접근 제어 + 구독 수명 계약, QUIZ-CTAC-1~29), `docs/requirements/quiz/chat-profanity-filter.md`(욕설 마스킹, QUIZ-CPF-1~44 — 승인됨 2026-09-03)
+- [차단(block)](block.md)(user 모듈) — 2026-09-30부터 히스토리 조회의 차단 필터(`UserBlockRepository.findRelatedAccountIds`)의 출처.
+- 요구사항: `docs/requirements/quiz/chat.md`(도입 시점 계약), `docs/requirements/quiz/chat-team-access-control.md`(구단 접근 제어 + 구독 수명 계약, QUIZ-CTAC-1~29), `docs/requirements/quiz/chat-profanity-filter.md`(욕설 마스킹, QUIZ-CPF-1~44 — 승인됨 2026-09-03), `docs/requirements/user/user-block.md`(회원 간 차단, USER-BLK-1~21 — 승인됨 2026-09-30)
