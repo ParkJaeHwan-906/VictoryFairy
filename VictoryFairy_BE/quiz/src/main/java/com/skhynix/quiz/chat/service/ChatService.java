@@ -11,6 +11,7 @@ import com.skhynix.domain.support.repository.UserSupportTeamRepository;
 import com.skhynix.domain.team.entity.Team;
 import com.skhynix.domain.user.entity.UserAccount;
 import com.skhynix.domain.user.repository.UserAccountRepository;
+import com.skhynix.domain.user.repository.UserBlockRepository;
 import com.skhynix.quiz.chat.dto.MessageEvent;
 import com.skhynix.quiz.chat.dto.MessageResponse;
 import com.skhynix.quiz.chat.dto.PageResponse;
@@ -21,6 +22,7 @@ import com.skhynix.quiz.realtime.RealtimeEventPublisher;
 import com.skhynix.quiz.realtime.SseEmitterRegistry;
 import com.skhynix.quiz.realtime.SubscriptionCloseCommand;
 import java.util.List;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -42,6 +44,7 @@ public class ChatService {
     private final ChatRepository chatRepository;
     private final UserAccountRepository userAccountRepository;
     private final UserSupportTeamRepository userSupportTeamRepository;
+    private final UserBlockRepository userBlockRepository;
     private final RealtimeEventPublisher eventPublisher;
     private final SseEmitterRegistry emitterRegistry;
     private final ProfanityFilter profanityFilter;
@@ -101,10 +104,22 @@ public class ChatService {
     public PageResponse<MessageResponse> getHistory(String roomUid, int page, Long userAccountId) {
         Chatroom room = findAccessibleRoom(roomUid, userAccountId);
         Pageable pageable = PageRequest.of(page, HISTORY_PAGE_SIZE);
-        Page<MessageResponse> result = chatRepository
-                .findByChatroomAndBlindFalseAndDeletedAtIsNullOrderByCreatedAtDesc(room, pageable)
-                .map(MessageResponse::from);
-        return PageResponse.from(result);
+        Page<Chat> chats = chatRepository
+                .findByChatroomAndBlindFalseAndDeletedAtIsNullOrderByCreatedAtDesc(room, pageable);
+
+        // 차단 관계(양방향)인 상대가 보낸 메시지는 조회 시점에만 숨긴다(USER-BLK-14) — 저장·SSE 발행은
+        // 손대지 않는다(USER-BLK-15/16, 전송 자체는 막지 않고 내 화면에서만 안 보인다). 요청자 1인 기준
+        // 조회 1회로 필터 집합을 구해 재사용한다 — 페이지 안 메시지 수와 무관하게 N+1 아님.
+        Set<Long> relatedAccountIds = userBlockRepository.findRelatedAccountIds(userAccountId);
+        List<MessageResponse> content = chats.getContent().stream()
+                .filter(chat -> !relatedAccountIds.contains(chat.getUserAccount().getId()))
+                .map(MessageResponse::from)
+                .toList();
+
+        // totalElements/totalPages/hasNext는 필터 이전(원본 쿼리) 기준을 그대로 둔다 — 이 필터는
+        // 조회 시점 숨김이지 데이터 자체의 삭제·이관이 아니므로 페이지네이션 메타데이터는 건드리지 않는다.
+        return new PageResponse<>(content, chats.getNumber(), chats.getSize(),
+                chats.getTotalElements(), chats.getTotalPages(), chats.hasNext());
     }
 
     @Transactional
