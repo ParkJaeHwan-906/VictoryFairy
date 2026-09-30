@@ -35,9 +35,13 @@
 #                             스케줄 API에 선발투수 필드 자체가 없어 항상 None
 #                             (소스 확보 시 PRED_SP_WIN 활성화)
 #   schedule.lineup         → (미지원 — 경기 전 타자 라인업 소스 없음)
-#   stats.head_to_head|standings|streaks|home_away|monthly|standings_trend|recent_scoring|yoy
-#                           → wiki/stats/season.json (camelCase 키: headToHead/standings/
-#                             streaks/homeAway/monthly/standingsTrend/recentScoring/yoy)
+#   stats.head_to_head|standings|streaks|home_away|monthly|standings_trend|recent_scoring|
+#   recent_vs_prior|yoy      → wiki/stats/season.json (camelCase 키: headToHead/standings/
+#                             streaks/homeAway/monthly/standingsTrend/recentScoring/
+#                             recentVsPrior/yoy). recentVsPrior(2026-09-30 신설)는 최근
+#                             7일 vs 그 직전 7일 승률 비교 — RECENT_VS_EARLY 전용, 값이
+#                             매일 바뀌는 이동창이라 monthly(달력 월 고정)보다 중복회피
+#                             창에 덜 걸린다.
 #   stats.season_leaders|milestone_watch|team_history → wiki/stats/kbo-official.json
 #                             (seasonLeaders.top5·recordCorrect는 상시 None — 페이지 파싱 불가)
 #   stats.all_time_records  → question-gen/config/all-time-records.yaml (⚠️ v0 초안, 사람
@@ -141,9 +145,12 @@
 - id: RECENT_VS_EARLY
   kind: KNOWLEDGE
   format: OX
-  needs: [stats.monthly]
+  needs: [stats.recent_vs_prior]
   subjectScope: TEAM
-  intent: "특정 팀의 최근 한 달 성적이 시즌 초반보다 좋아졌는지 사실 확인"
+  intent: "최근 7일 승률이 그 직전 7일보다 좋아졌는지 사실 확인(2026-09-30
+    이동창으로 교체 — 예전 '시즌 초 대비 이번 달' 고정 앵커는 하루이틀 사이
+    결론이 거의 안 바뀌어 7일 중복회피 창에 계속 걸렸다. 이동창은 매일 값이
+    실제로 달라진다)"
   difficulty: HARD
 
 - id: YOY_TEAM
@@ -278,7 +285,12 @@
   format: OX
   needs: [stats.all_time_records]
   subjectScope: PLAYER
-  intent: "역대 기록 사실 확인 (예: '오승환은 KBO 통산 세이브 1위다'). 순위·달성 여부만, 정확 수치 금지"
+  intent: "역대 기록 사실 확인 (예: '오승환은 KBO 통산 세이브 1위다'). 순위·달성 여부만, 정확 수치 금지.
+    `retired: false`인 항목만 바인딩하고 그 `currentTeam`으로 팀에 귀속한다(2026-09-30 —
+    이전엔 매 실행마다 위키로 재확인했는데 대부분 은퇴 레전드라 허탕이 잦았다).
+    `retired: true` 항목은 절대 특정 팀 perTeam 묶음에 넣지 않는다(은퇴 선수를 현재
+    로스터인 것처럼 묻는 오류 방지) — 필요하면 LEAGUE 공통 묶음에서 '은퇴 선수' 취지로만
+    다룰 것(이 필드는 팀 귀속 결정용이지 그 자체로 안전 검증 게이트는 아니다)."
   difficulty: MEDIUM
 
 - id: SEASON_STAT_LEADER
