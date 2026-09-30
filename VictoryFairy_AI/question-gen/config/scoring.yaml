@@ -186,9 +186,22 @@ volume:
                        # 문항. 팀마다 매일 이 슬롯 그대로 적용(2026-09-29 신설,
                        # 위 "perTeam 신설" 절 참고). PLAYER/TEAM scope 템플릿이
                        # 재료 — 그 팀 위키 로스터 기준이라 경기 유무와 무관하다.
-    EASY: 24
-    MEDIUM: 38
-    HARD: 22
+                       #
+                       # 2026-09-30 재배분(첫 실행 실측 근거) — 원래 EASY24/MEDIUM38/
+                       # HARD22/EXPERT6이었는데 첫 실행에서 MEDIUM이 거의 전 팀
+                       # 0~1건으로 무너졌다(RECORD_OX·HOME_AWAY_SPLIT 둘 다 재료가
+                       # 얇음 — RECORD_OX는 all-time-records.yaml에 `retired`/
+                       # `currentTeam` 필드를 추가했지만 그 파일 자체가 30개뿐이라
+                       # 근본 해결은 아니다). 대신 CAREER_PATH(HARD)·MEME_ORIGIN(EASY)는
+                       # 로스터 규모만큼 확장돼 목표에 근접했다(예: 키움 EASY 24/24,
+                       # HARD 22/22 — 구단마다 편차는 있음). MEDIUM 몫을 크게 줄이고
+                       # HARD로 옮긴다 — RECENT_VS_EARLY도 이동창으로 바꿔(위
+                       # question-templates.yaml) HARD 쪽 재료가 조금은 늘 것으로
+                       # 기대하지만, 실측 전까지는 CAREER_PATH가 그 자리를 채운다고
+                       # 보수적으로 가정한다.
+    EASY: 30
+    MEDIUM: 10        # RECORD_OX·HOME_AWAY_SPLIT 재료 소진 — 대개 0~2건, 정상.
+    HARD: 44
     EXPERT: 6         # RELATION_LINK 재료가 얇아 대개 미달로 끝난다 — 정상.
   # 생성 단계에서 만들 후보 배수(검증 폐기율 흡수). 20문항 슬롯이면 30개 생성.
   # 관측 생존율: 경기 문항 50~62%, 공통 20~37%. perTeam은 관측치 없음(신설) —
