@@ -1,0 +1,108 @@
+/**
+ * NoticeSheet(신고 접수 · 차단 완료 등 짧은 안내 바텀시트) 스타일.
+ *
+ * 딤 · 모서리 · 핸들 · rise 애니메이션은 ConfirmSheet.css 와 같은 값을 쓴다 — 한 앱 안에서
+ * 번갈아 뜨므로 열리는 모양이 달라 보이면 안 된다. 다만 제목 · 설명 · 버튼이 없는 순수
+ * 안내라 본문은 ConfirmSheet 보다 훨씬 얕다 — 문구 한 줄(또는 두 줄) + 위아래 여백만 둔다.
+ *
+ * 높이는 고정하지 않는다. 문구 길이에 맡긴다.
+ */
+
+.notice-sheet {
+  position: fixed;
+  z-index: 10;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+/* 딤 — 클릭하면 닫힌다. 버튼이지만 화면에는 어두운 면으로만 보인다. */
+.notice-sheet__dim {
+  position: absolute;
+  inset: 0;
+  border: none;
+  padding: 0;
+  background-color: var(--color-dim);
+  cursor: default;
+}
+
+.notice-sheet__panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--layout-app-width);
+  padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  border-radius: var(--radius-40) var(--radius-40) 0 0;
+  background-color: var(--color-surface);
+  animation: notice-sheet-rise 0.24s ease-out;
+}
+
+@keyframes notice-sheet-rise {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+/* 화면에는 감추고 보조기기에만 남기는 텍스트 */
+.notice-sheet__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------ *
+ * Handle
+ * ------------------------------------------------------------------ */
+.notice-sheet__handle {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 12px 0;
+}
+
+.notice-sheet__handle-bar {
+  width: 48px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-label-assistive);
+}
+
+/* ------------------------------------------------------------------ *
+ * 안내 문구 — 이 시트의 사실상 유일한 콘텐츠. 성공을 알리는 안내라 튀는
+ * 색(에러색 등) 없이 기본 라벨 색으로 차분하게 둔다.
+ * ------------------------------------------------------------------ */
+.notice-sheet__message {
+  margin: 0;
+  padding: 0 var(--layout-gutter) 24px;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-body2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body2);
+  text-align: center;
+}
+
+/* ------------------------------------------------------------------ *
+ * 반응형 · 접근성
+ * ------------------------------------------------------------------ */
+@media (max-width: 359px) {
+  .notice-sheet__message {
+    padding-inline: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notice-sheet__panel {
+    animation: none;
+  }
+}

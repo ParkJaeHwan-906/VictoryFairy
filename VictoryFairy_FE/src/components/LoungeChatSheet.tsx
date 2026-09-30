@@ -9,11 +9,14 @@ import {
 } from 'react';
 import {
   CHAT_MESSAGE_MAX_LENGTH,
+  blockUser,
   findMyTeamChatRoom,
   getChatMessages,
+  isBlockTargetNotFound,
   isChatMessageNotFound,
   isChatRoomNotFound,
   isChatTeamMismatch,
+  isSelfBlockNotAllowed,
   isSelfReport,
   isSupportTeamRequired,
   leaveChatRoom,
@@ -28,6 +31,8 @@ import { useBottomSheet } from '../hooks/useBottomSheet';
 import { formatKoreanDay } from '../utils/date';
 import { useAccountStore, useMyNickname, useSupportTeam } from '../stores/useAccountStore';
 import profilePlaceholder from '../assets/profile_img.svg';
+import ConfirmSheet from './ConfirmSheet';
+import NoticeSheet from './NoticeSheet';
 import '../styles/bottomSheet.css';
 import '../styles/LoungeChatSheet.css';
 
@@ -51,23 +56,6 @@ function startsNewDay(previous: ChatMessage, message: ChatMessage) {
 
 /** 목록 끝에서 이만큼 안쪽에 있으면 "맨 아래를 보고 있다"고 보고 새 메시지를 따라 내려간다. */
 const STICK_TO_BOTTOM_THRESHOLD_PX = 80;
-
-/**
- * 말풍선을 이만큼 누르고 있으면 신고 · 취소 아이콘이 나온다.
- *
- * 짧게 잡으면 목록을 넘기려다 메뉴가 뜬다. 아이콘을 누르면 확인 없이 바로 신고가
- * 나가므로, 모바일 기본값(500ms 안팎)보다 길게 잡아 실수로 열리는 쪽을 더 막는다.
- */
-const LONG_PRESS_MS = 800;
-
-/**
- * 누른 채 이만큼 움직이면 길게 누르기가 아니라 스크롤로 본다.
- *
- * 손가락은 누르는 동안에도 미세하게 움직인다 — 0 으로 두면 대부분의 길게 누르기가
- * 스크롤로 취소된다. 브라우저가 스크롤을 시작하면 `pointercancel` 도 오지만, 그건
- * 목록이 실제로 움직일 때뿐이라 맨 위·맨 아래에서는 오지 않는다.
- */
-const PRESS_MOVE_TOLERANCE_PX = 10;
 
 /**
  * 맨 위에서 이만큼 당긴 채로 손을 떼면 지난 대화를 불러온다.
@@ -143,22 +131,34 @@ export default function LoungeChatSheet({ onClose }: LoungeChatSheetProps) {
   const [sendError, setSendError] = useState<string | null>(null);
 
   /*
-   * 신고는 두 단계다 — 길게 누르는 중 → 신고 · 취소 아이콘.
+   * 다른 사용자 메시지마다 "..." 아이콘을 상시 두고, 누르면 신고 · 차단 메뉴가 뜬다.
    *
-   * 아이콘을 누르면 확인 절차 없이 바로 신고가 나간다. 서버는 관리자 개입 없이 즉시
-   * blind 처리하고 되돌릴 수 없으므로(`reportChatMessage` 주석), 실수를 막는 몫이
-   * 전부 앞단계인 길게 누르기에 실린다 — `LONG_PRESS_MS` 를 넉넉히 잡은 이유다.
+   * 신고는 확인 절차 없이 바로 나간다 — 서버는 관리자 개입 없이 즉시 blind 처리하고
+   * 되돌릴 수 없다(`reportChatMessage` 주석). 차단은 해제 API가 아예 없어 사실상
+   * 영구적이라 `ConfirmSheet` 로 한 번 더 확인받는다.
    */
-  /** 지금 누르고 있는 메시지. 눌린 것을 보여주는 데만 쓴다. */
-  const [pressingId, setPressingId] = useState<number | null>(null);
-  /** 신고 · 취소 아이콘을 띄운 메시지. */
-  const [reportTargetId, setReportTargetId] = useState<number | null>(null);
+  /** "..." 를 눌러 메뉴를 띄운 메시지. */
+  const [menuTargetId, setMenuTargetId] = useState<number | null>(null);
   const [isReporting, setIsReporting] = useState(false);
-  const [reportError, setReportError] = useState<string | null>(null);
+  /**
+   * 신고 · 차단 실패 메시지를 보여줄 대상과 문구.
+   *
+   * 차단은 확인 시트에서 실패할 수 있는데, 그때는 이미 메뉴가 닫혀 있어 `menuTargetId`
+   * 로는 어느 메시지 아래에 띄울지 알 수 없다 — 그래서 따로 든다.
+   */
+  const [errorTargetId, setErrorTargetId] = useState<number | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  const pressTimerRef = useRef<number | null>(null);
-  /** 누르기 시작한 좌표. 여기서 얼마나 움직였는지로 스크롤인지 가른다. */
-  const pressOriginRef = useRef<{ x: number; y: number } | null>(null);
+  /** 차단 확인 시트에 띄울 대상. `null` 이면 시트를 닫아 둔다. */
+  const [blockTarget, setBlockTarget] = useState<{ id: number; nickname: string } | null>(null);
+  const [isBlocking, setIsBlocking] = useState(false);
+
+  /**
+   * 신고 접수 · 차단 완료를 알리는 안내 문구. `null` 이면 `NoticeSheet` 를 띄우지 않는다.
+   * 2초 뒤 스스로 내려가며, 내려가는 애니메이션이 끝난 뒤 `NoticeSheet` 가 부르는
+   * `onClose` 에서만 `null` 로 되돌린다(즉시 지우면 내려가는 모습 없이 사라진다).
+   */
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
 
   const listRef = useRef<HTMLOListElement>(null);
   /** 사용자가 맨 아래를 보고 있는지. 위로 올려 지난 대화를 읽는 중이면 끌어내리지 않는다. */
@@ -335,81 +335,85 @@ export default function LoungeChatSheet({ onClose }: LoungeChatSheetProps) {
   };
 
   /* ---------------------------------------------------------------- *
-   * 길게 눌러 신고하기
+   * "..." 메뉴 — 신고 · 차단
    * ---------------------------------------------------------------- */
 
-  /** 누르기를 접는다. 타이머만 끄고 이미 열린 메뉴는 건드리지 않는다. */
-  const cancelPress = useCallback(() => {
-    if (pressTimerRef.current !== null) {
-      window.clearTimeout(pressTimerRef.current);
-      pressTimerRef.current = null;
-    }
-    pressOriginRef.current = null;
-    setPressingId(null);
+  /** 열린 메뉴 · 에러 · 차단 확인 시트 · 안내 시트를 모두 닫는다. */
+  const closeMenu = useCallback(() => {
+    setMenuTargetId(null);
+    setErrorTargetId(null);
+    setActionError(null);
+    setBlockTarget(null);
+    setActionNotice(null);
   }, []);
 
-  /** 열린 신고 UI 를 닫는다. */
-  const closeReport = useCallback(() => {
-    cancelPress();
-    setReportTargetId(null);
-    setReportError(null);
-  }, [cancelPress]);
-
-  /* 타이머가 남은 채로 시트가 닫히면 사라진 화면의 state 를 건드린다. */
-  useEffect(() => cancelPress, [cancelPress]);
+  /* 시트가 닫히면 사라진 화면의 state 를 건드리지 않게 정리한다. */
+  useEffect(() => closeMenu, [closeMenu]);
 
   /* 방이 바뀌면(구단 변경 등) 이전 방 메시지를 겨눈 메뉴가 남으면 안 된다. */
   useEffect(() => {
-    closeReport();
-  }, [room, closeReport]);
+    closeMenu();
+  }, [room, closeMenu]);
 
-  const startPress = (messageId: number, event: ReactPointerEvent<HTMLElement>) => {
-    // 마우스는 왼쪽 버튼만. 오른쪽 클릭은 브라우저 메뉴에 맡긴다.
-    if (event.pointerType === 'mouse' && event.button !== 0) return;
+  /*
+   * 메뉴가 열려 있는 동안만 바깥 클릭 · Esc 를 감시해 닫는다.
+   *
+   * 트리거를 다시 누르는 경우도 `pointerdown` 이 먼저 지나가지만, 트리거 자체가
+   * `lounge-chat__menu-wrap` 안이라 여기서는 닫지 않는다 — 그다음 `onClick`(`toggleMenu`)이
+   * 같은 메시지면 닫고, 다른 메시지의 트리거면 그쪽으로 옮겨 연다.
+   */
+  useEffect(() => {
+    if (menuTargetId === null) return;
 
-    cancelPress();
-    pressOriginRef.current = { x: event.clientX, y: event.clientY };
-    setPressingId(messageId);
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest('.lounge-chat__menu-wrap')) return;
+      setMenuTargetId(null);
+    };
 
-    pressTimerRef.current = window.setTimeout(() => {
-      pressTimerRef.current = null;
-      pressOriginRef.current = null;
-      setPressingId(null);
-      // 다른 메시지를 겨누고 있었다면 그쪽은 접는다 — 메뉴는 한 번에 하나다.
-      setReportTargetId(messageId);
-      setReportError(null);
-    }, LONG_PRESS_MS);
-  };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenuTargetId(null);
+    };
 
-  const handlePressMove = (event: ReactPointerEvent<HTMLElement>) => {
-    const origin = pressOriginRef.current;
-    if (!origin) return;
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [menuTargetId]);
 
-    const moved = Math.hypot(event.clientX - origin.x, event.clientY - origin.y);
-    if (moved > PRESS_MOVE_TOLERANCE_PX) cancelPress();
+  /** "..." 를 누르면 그 메시지의 메뉴를 열고 닫는다 — 한 번에 하나만 연다. */
+  const toggleMenu = (messageId: number) => {
+    setErrorTargetId(null);
+    setActionError(null);
+    setMenuTargetId((current) => (current === messageId ? null : messageId));
   };
 
   /**
-   * 신고를 보낸다.
+   * 신고를 보낸다("채팅 신고" 메뉴 항목).
    *
-   * 서버는 즉시 blind 처리하지만 **이미 그려진 메시지는 지워 주지 않는다**
-   * (`reportChatMessage` 주석). 목록에서 빼는 건 여기 몫이다.
+   * 확인 절차 없이 바로 나간다 — 서버는 즉시 blind 처리하지만 **이미 그려진 메시지는
+   * 지워 주지 않는다**(`reportChatMessage` 주석). 목록에서 빼는 건 여기 몫이다.
    */
   const handleReport = async (messageId: number) => {
     if (!room || isReporting) return;
 
     setIsReporting(true);
-    setReportError(null);
+    setErrorTargetId(null);
+    setActionError(null);
 
     try {
       await reportChatMessage(room.roomUid, messageId);
       setMessages((prev) => prev.filter((message) => message.id !== messageId));
-      closeReport();
+      closeMenu();
+      // closeMenu 가 지운 뒤에 세워야 한다 — 순서가 바뀌면 안내가 뜨자마자 지워진다.
+      setActionNotice('신고가 접수됐어요');
     } catch (error) {
       if (isChatMessageNotFound(error)) {
         // 이미 지워졌거나 남이 먼저 신고해 blind 된 메시지다. 목적은 이뤄졌으므로 치운다.
         setMessages((prev) => prev.filter((message) => message.id !== messageId));
-        closeReport();
+        closeMenu();
       } else if (isChatRoomNotFound(error)) {
         setStatus('no-room');
         setRoom(null);
@@ -419,13 +423,58 @@ export default function LoungeChatSheet({ onClose }: LoungeChatSheetProps) {
         setRoom(null);
         void fetchProfile();
       } else if (isSelfReport(error)) {
-        // 내 메시지에는 아이콘을 띄우지 않으므로 정상 흐름에서는 오지 않는다.
-        setReportError('내가 보낸 메시지는 신고할 수 없어요');
+        // 내 메시지에는 메뉴를 띄우지 않으므로 정상 흐름에서는 오지 않는다.
+        setErrorTargetId(messageId);
+        setActionError('내가 보낸 메시지는 신고할 수 없어요');
       } else {
-        setReportError('신고하지 못했어요. 다시 시도해주세요');
+        setErrorTargetId(messageId);
+        setActionError('신고하지 못했어요. 다시 시도해주세요');
       }
     } finally {
       setIsReporting(false);
+    }
+  };
+
+  /** "이 사용자 차단" 메뉴 항목 — 곧바로 차단하지 않고 메뉴를 닫은 뒤 확인 시트를 띄운다. */
+  const openBlockConfirm = (message: ChatMessage) => {
+    setMenuTargetId(null);
+    setErrorTargetId(null);
+    setActionError(null);
+    setBlockTarget({ id: message.id, nickname: message.senderNickname });
+  };
+
+  /**
+   * 차단 확인 시트에서 "차단" 을 눌렀을 때.
+   *
+   * 차단 해제 API 가 없어 사실상 영구적이므로 여기까지 온 이상 확인은 끝난 것이다.
+   * 서버는 히스토리를 다시 부를 때만 차단 대상을 걸러 준다 — 이미 받아 그려 둔 SSE
+   * 메시지는 그대로 남으므로, 성공하면 지금 목록에서도 그 사람의 메시지를 바로 치운다.
+   */
+  const handleBlockConfirm = async () => {
+    if (!blockTarget || isBlocking) return;
+    const { id, nickname } = blockTarget;
+
+    setIsBlocking(true);
+    try {
+      await blockUser(nickname);
+      setMessages((prev) => prev.filter((message) => message.senderNickname !== nickname));
+      // 확인 시트는 원래도 즉시 닫혔다 — 새로 뜨는 것은 그 대신 뜨는 NoticeSheet 뿐이다.
+      setBlockTarget(null);
+      setActionNotice(`${nickname}님을 차단했어요`);
+    } catch (error) {
+      // 확인 시트에는 에러를 보여줄 자리가 없어 닫고, 신고 실패와 같은 자리에 띄운다.
+      setBlockTarget(null);
+      setErrorTargetId(id);
+      if (isSelfBlockNotAllowed(error)) {
+        // 내 메시지에는 메뉴를 띄우지 않으므로 정상 흐름에서는 오지 않는다.
+        setActionError('나 자신은 차단할 수 없어요');
+      } else if (isBlockTargetNotFound(error)) {
+        setActionError('이미 탈퇴했거나 존재하지 않는 사용자예요');
+      } else {
+        setActionError('차단하지 못했어요. 다시 시도해주세요');
+      }
+    } finally {
+      setIsBlocking(false);
     }
   };
 
@@ -740,68 +789,56 @@ export default function LoungeChatSheet({ onClose }: LoungeChatSheetProps) {
                       <div className="lounge-chat__body">
                         <p className="lounge-chat__sender">{message.senderNickname}</p>
                         <div className="lounge-chat__bubble-row">
-                          {/*
-                            길게 누르면 신고 아이콘이 나온다. 버튼으로 둔 건 키보드·스크린리더
-                            에서도 닿게 하기 위해서다 — 길게 누르기에는 대응하는 키 입력이 없다.
-                          */}
-                          <button
-                            className={`lounge-chat__bubble lounge-chat__bubble--pressable${
-                              pressingId === message.id ? ' lounge-chat__bubble--pressing' : ''
-                            }`}
-                            type="button"
-                            aria-haspopup="true"
-                            aria-expanded={reportTargetId === message.id}
-                            aria-label={`${message.senderNickname}님의 메시지. 길게 눌러 신고할 수 있어요`}
-                            onPointerDown={(event) => startPress(message.id, event)}
-                            onPointerMove={handlePressMove}
-                            onPointerUp={cancelPress}
-                            onPointerCancel={cancelPress}
-                            onPointerLeave={cancelPress}
-                            // 길게 누르면 모바일 브라우저가 자체 메뉴를 띄운다. 그건 우리 메뉴와 겹친다.
-                            onContextMenu={(event) => event.preventDefault()}
-                            onClick={(event) => {
-                              // detail 0 은 키보드(Enter·Space)로 눌렀다는 뜻이다. 손가락 탭은 1 이상이라
-                              // 짧게 스친 것만으로 메뉴가 열리지 않는다.
-                              if (event.detail === 0) setReportTargetId(message.id);
-                            }}
-                          >
-                            {message.content}
-                          </button>
+                          <p className="lounge-chat__bubble">{message.content}</p>
                           <time className="lounge-chat__time" dateTime={message.createdAt}>
                             {formatSentAt(message.createdAt)}
                           </time>
 
                           {/*
-                            신고와 취소를 나란히 둔다. 누르면 확인 없이 바로 나가므로
-                            취소를 같은 자리에 붙여, 잘못 열었을 때 손을 옮기지 않고 닫게 한다.
+                            "..." 는 항상 떠 있다. 누르면 신고 · 차단 메뉴가 그 자리에 열린다.
+                            // TODO: CSS Agent - 트리거는 시간 옆에 붙는 작은 아이콘 버튼으로,
+                            // 메뉴(lounge-chat__menu)는 트리거 바로 아래에 붙는 작은 팝오버로 배치해줘.
                           */}
-                          {reportTargetId === message.id && (
-                            <>
-                              <button
-                                className="lounge-chat__report-icon"
-                                type="button"
-                                aria-label="이 메시지 신고하기"
-                                onClick={() => void handleReport(message.id)}
-                                disabled={isReporting}
-                              >
-                                <span className="lounge-chat__report-icon-glyph" aria-hidden="true" />
-                              </button>
-                              <button
-                                className="lounge-chat__report-icon lounge-chat__report-icon--cancel"
-                                type="button"
-                                aria-label="신고 취소"
-                                onClick={closeReport}
-                                disabled={isReporting}
-                              >
-                                <span className="lounge-chat__cancel-icon-glyph" aria-hidden="true" />
-                              </button>
-                            </>
-                          )}
+                          <div className="lounge-chat__menu-wrap">
+                            <button
+                              className="lounge-chat__menu-trigger"
+                              type="button"
+                              aria-haspopup="menu"
+                              aria-expanded={menuTargetId === message.id}
+                              aria-label={`${message.senderNickname}님 메시지 더보기`}
+                              onClick={() => toggleMenu(message.id)}
+                            >
+                              <span className="lounge-chat__menu-trigger-glyph" aria-hidden="true" />
+                            </button>
+
+                            {menuTargetId === message.id && (
+                              <div className="lounge-chat__menu" role="menu">
+                                <button
+                                  className="lounge-chat__menu-item"
+                                  type="button"
+                                  role="menuitem"
+                                  onClick={() => void handleReport(message.id)}
+                                  disabled={isReporting}
+                                >
+                                  채팅 신고
+                                </button>
+                                <button
+                                  className="lounge-chat__menu-item lounge-chat__menu-item--danger"
+                                  type="button"
+                                  role="menuitem"
+                                  onClick={() => openBlockConfirm(message)}
+                                  disabled={isReporting}
+                                >
+                                  이 사용자 차단
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         </div>
 
-                        {reportError && reportTargetId === message.id && (
+                        {actionError && errorTargetId === message.id && (
                           <p className="lounge-chat__report-error" role="alert">
-                            {reportError}
+                            {actionError}
                           </p>
                         )}
                       </div>
@@ -840,6 +877,27 @@ export default function LoungeChatSheet({ onClose }: LoungeChatSheetProps) {
           </button>
         </form>
       </section>
+
+      {/* 차단은 해제 API가 없어 사실상 영구적이다 — 메뉴에서 바로 보내지 않고 한 번 더 확인받는다. */}
+      {blockTarget && (
+        <ConfirmSheet
+          title={`${blockTarget.nickname}님을 차단하시겠어요?`}
+          description={['차단하면 랭킹·채팅에서 이 사용자가 보이지 않아요', '이 작업은 되돌릴 수 없어요']}
+          confirmLabel="차단"
+          pendingLabel="차단 중"
+          isPending={isBlocking}
+          onConfirm={() => void handleBlockConfirm()}
+          onClose={() => {
+            if (isBlocking) return;
+            setBlockTarget(null);
+          }}
+        />
+      )}
+
+      {/* 신고 접수 · 차단 완료 안내 — 2초 뒤 스스로 내려간다. */}
+      {actionNotice && (
+        <NoticeSheet message={actionNotice} onClose={() => setActionNotice(null)} />
+      )}
     </div>
   );
 }
