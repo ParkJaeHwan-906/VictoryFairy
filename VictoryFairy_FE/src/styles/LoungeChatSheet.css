@@ -445,48 +445,20 @@
 }
 
 /* ------------------------------------------------------------------ *
- * 길게 눌러 신고하기
+ * "..." 메뉴 — 신고 · 차단
+ *
+ * 예전에는 말풍선을 길게 눌러야 신고 아이콘이 떴지만, 지금은 시간 옆에
+ * "..." 트리거가 상시 떠 있고 누르면 팝오버 메뉴가 열린다.
  * ------------------------------------------------------------------ */
 
-/*
- * 남의 말풍선은 버튼이다. 생김새는 `.lounge-chat__bubble` 그대로 두고
- * 버튼의 기본 장식(테두리·글꼴·가운데 정렬)만 걷어낸다.
- */
-.lounge-chat__bubble--pressable {
-  appearance: none;
-  border: 0;
-  font-family: inherit;
-  text-align: left;
-  cursor: pointer;
-  /*
-   * 세로 스크롤은 브라우저에 넘기고 가로 제스처만 우리가 받는다. 이걸 빼면
-   * 말풍선 위에서 시작한 손가락으로 목록을 넘길 수 없다.
-   */
-  touch-action: pan-y;
-  /*
-   * 길게 누르면 모바일 브라우저가 글자를 선택하거나 복사 메뉴를 띄운다.
-   * 신고 메뉴와 겹치므로 막는다 — 대신 이 말풍선의 글자는 복사할 수 없다.
-   */
-  user-select: none;
-  -webkit-touch-callout: none;
-  /*
-   * 커질 때도 돌아올 때도 같은 곡선을 탄다. 끝으로 갈수록 느려지는 곡선이라
-   * 손을 떼면 툭 끊기지 않고 제자리로 미끄러진다.
-   */
-  transition: transform 220ms cubic-bezier(0.33, 1, 0.68, 1);
+/* 트리거 + 팝오버를 함께 감싼다. 팝오버는 이 안에서 absolute 로 붙는다. */
+.lounge-chat__menu-wrap {
+  position: relative;
+  flex-shrink: 0;
 }
 
-/*
- * 누르고 있는 동안 살짝 커진다 — "지금 눌리고 있다"를 알리는 유일한 신호다.
- * 왼쪽 기준으로 키워 말풍선이 아바타 쪽으로 밀려들지 않게 한다.
- */
-.lounge-chat__bubble--pressing {
-  transform: scale(1.06);
-  transform-origin: left center;
-}
-
-/* 신고 · 취소 아이콘 — 말풍선 옆에 나란히 붙는 작은 원형 버튼. */
-.lounge-chat__report-icon {
+/* "..." 트리거 — 옛 신고 아이콘(28px 원형)과 같은 크기의 터치 타깃. */
+.lounge-chat__menu-trigger {
   display: flex;
   flex-shrink: 0;
   align-items: center;
@@ -496,15 +468,50 @@
   padding: 0;
   border: 0;
   border-radius: var(--radius-40);
-  background-color: var(--color-background-gray);
+  background-color: transparent;
   cursor: pointer;
-  /* 길게 누르기가 끝나는 순간 튀어나오지 않게 짧게 떠오른다. */
-  animation: lounge-chat-icon-in 160ms cubic-bezier(0.33, 1, 0.68, 1);
 }
 
-.lounge-chat__report-icon:disabled {
+.lounge-chat__menu-trigger:hover,
+.lounge-chat__menu-trigger:active {
+  background-color: var(--color-background-gray);
+}
+
+.lounge-chat__menu-trigger:disabled {
   cursor: default;
   opacity: 0.4;
+}
+
+/* `meatball_v.svg` 의 fill 이 검정이라 mask 로 오려내고 색만 입힌다. */
+.lounge-chat__menu-trigger-glyph {
+  width: 16px;
+  height: 16px;
+  background-color: var(--color-label-alternative);
+  -webkit-mask: url('../assets/meatball_v.svg') no-repeat center / contain;
+  mask: url('../assets/meatball_v.svg') no-repeat center / contain;
+}
+
+/*
+ * 팝오버 메뉴 — 트리거 바로 아래, 오른쪽 끝을 맞춰 붙인다.
+ * 상대 메시지는 왼쪽 정렬이라 트리거가 시트 오른쪽 끝에 붙는 일은 드물지만,
+ * `right: 0` 기준으로 왼쪽으로만 펼쳐 메뉴 폭이 시트 밖으로 잘리지 않게 한다.
+ */
+.lounge-chat__menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  min-width: 132px;
+  padding: 4px 0;
+  border-radius: var(--radius-10);
+  background-color: var(--color-surface);
+  /* tokens.css 에 그림자 토큰이 없어 리터럴을 쓴다 — --color-dim 과 같은 먹색 계열. */
+  box-shadow: 0 4px 16px rgb(18 18 18 / 16%);
+  transform-origin: top right;
+  /* 옛 신고 아이콘이 쓰던 등장 애니메이션을 그대로 재사용한다. */
+  animation: lounge-chat-icon-in 160ms cubic-bezier(0.33, 1, 0.68, 1);
 }
 
 @keyframes lounge-chat-icon-in {
@@ -514,23 +521,37 @@
   }
 }
 
-.lounge-chat__report-icon-glyph {
-  width: 16px;
-  height: 16px;
-  background-color: var(--color-error-strong);
-  -webkit-mask: url('../assets/report.svg') no-repeat center / contain;
-  mask: url('../assets/report.svg') no-repeat center / contain;
+.lounge-chat__menu-item {
+  display: block;
+  width: 100%;
+  padding: 10px 16px;
+  border: 0;
+  background: none;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-body2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body2);
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
 }
 
-/* 취소는 같은 크기·모양에 색만 뺀다 — 신고 쪽이 더 눈에 띄어야 한다. */
-.lounge-chat__cancel-icon-glyph {
-  width: 14px;
-  height: 14px;
-  background-color: var(--color-label-alternative);
-  -webkit-mask: url('../assets/x.svg') no-repeat center / contain;
-  mask: url('../assets/x.svg') no-repeat center / contain;
+.lounge-chat__menu-item:hover,
+.lounge-chat__menu-item:active {
+  background-color: var(--color-background-gray);
 }
 
+.lounge-chat__menu-item:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+/* "이 사용자 차단" — 되돌릴 수 없는 조작이라 글자색으로 한 번 더 알린다. */
+.lounge-chat__menu-item--danger {
+  color: var(--color-error-strong);
+}
+
+/* 신고 · 차단 공용 에러 문구 — 메뉴가 아니라 말풍선 아래에 뜬다. */
 .lounge-chat__report-error {
   margin: 6px 0 0;
   color: var(--color-error-strong);
@@ -557,14 +578,6 @@
     animation: none;
   }
 
-  /*
-   * 확대는 남긴다. 누르고 있다는 걸 알리는 유일한 신호라 없애면 기능이 사라진다.
-   * 움직임에 예민한 사용자를 위해 커지는 정도만 줄이고 전환은 끈다.
-   */
-  .lounge-chat__bubble--pressable {
-    transition: none;
-  }
-
   .lounge-chat__messages {
     transition: none;
   }
@@ -577,11 +590,7 @@
     animation-duration: 1.8s;
   }
 
-  .lounge-chat__bubble--pressing {
-    transform: scale(1.02);
-  }
-
-  .lounge-chat__report-icon {
+  .lounge-chat__menu {
     animation: none;
   }
 }
