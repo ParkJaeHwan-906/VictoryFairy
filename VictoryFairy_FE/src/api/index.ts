@@ -131,6 +131,15 @@ export {
 // 순위(user 모듈) 엔드포인트 함수 — 세 개 전부 인증이 필수이고 파라미터가 0개다
 export { getBqTopRanking, getBqRanking, getMyBqRanking } from './ranking';
 
+// 차단(user 모듈) 엔드포인트 함수 — 두 개 전부 인증이 필수다
+export {
+  blockUser,
+  getMyBlockedUsers,
+  isSelfBlockNotAllowed,
+  isBlockTargetNotFound,
+  BLOCK_ERROR_MESSAGE,
+} from './block';
+
 // 캐릭터 꾸미기(user 모듈) 엔드포인트 함수 — 세 개 전부 인증이 필수다
 export {
   getCharacterItems,
@@ -220,6 +229,7 @@ export type {
   CharacterItemActiveResult,
 } from '../types/character';
 export type { BqRankingEntry } from '../types/ranking';
+export type { BlockUserRequest, BlockedUser } from '../types/block';
 export type {
   QuizType,
   QuizDifficulty,
