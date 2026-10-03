@@ -17,6 +17,13 @@ from .targets import load_targets
 
 RELAY_MAX_INNING = 15
 
+# BE InningEventFact.half 계약(domain InningHalf#name()) — ordinal(TOP=0/BOTTOM=1)이
+# 아니라 "TOP"/"BOTTOM" 문자열이다. ingest 시점 candidate 의 settlement.half 와 같은
+# 계약이라, S3 라이브 이벤트 문서도 이 문자열로 맞춘다(2026-10-04, BE PR #560 실제
+# 코드 확인 후 수정 — 원래 ordinal int 로 내고 있어 InningHalf.valueOf 가 매번
+# IllegalArgumentException 으로 조용히 실패하고 있었다).
+_INNING_HALF_NAME = {0: "TOP", 1: "BOTTOM"}
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -609,7 +616,8 @@ def _land_finished_inning_events(settings, sink, client, game_id, date, inning, 
         if not events:
             return
         sink.put_json(keys.inning_event_key(date, game_id, inning, half), {
-            "gameId": game_id, "date": date, "inning": inning, "half": half,
+            "gameId": game_id, "date": date, "inning": inning,
+            "half": _INNING_HALF_NAME[half],
             "events": events,
         })
         log.info("%s %d회(half=%s) 안타 이벤트 %d명 적재", game_id, inning, half, len(events))
