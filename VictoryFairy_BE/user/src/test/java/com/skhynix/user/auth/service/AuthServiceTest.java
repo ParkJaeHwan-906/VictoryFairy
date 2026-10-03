@@ -422,6 +422,54 @@ class AuthServiceTest {
     }
 
     @Test
+    @DisplayName("tel이 null이면 existsByTel을 호출하지 않고 DUPLICATE_TEL 없이 가입이 진행된다 — "
+            + "파생 쿼리 existsByTel(null)은 \"tel IS NULL\"로 해석되어 전화번호 없는 선행 계정과 "
+            + "충돌하는 오탐을 막기 위함이다")
+    void signup_nullTel_skipsDuplicateTelCheck() {
+        // given
+        SignupRequest request = new SignupRequest("홍길동", null, "test@example.com", Gender.MALE,
+                "nickname", "abc123!@", null);
+        given(emailVerificationService.isEmailVerified(request.email())).willReturn(true);
+        given(userRepository.existsByEmail(request.email())).willReturn(false);
+        given(userAccountRepository.existsByNickname(request.nickname())).willReturn(false);
+        given(passwordEncoder.encode(request.password())).willReturn("encoded-password");
+        given(userRepository.save(any(User.class))).willAnswer(invocation -> invocation.getArgument(0));
+        given(userAccountRepository.save(any(UserAccount.class))).willAnswer(invocation -> invocation.getArgument(0));
+
+        // when
+        authService.signup(request);
+
+        // then
+        verify(userRepository, never()).existsByTel(any());
+        var userCaptor = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).save(userCaptor.capture());
+        assertThat(userCaptor.getValue().getTel()).isNull();
+    }
+
+    @Test
+    @DisplayName("gender가 null이어도 회원가입은 성공하고 저장되는 계정의 gender는 null이다")
+    void signup_nullGender_succeeds() {
+        // given
+        SignupRequest request = new SignupRequest("홍길동", "01012345678", "test@example.com", null,
+                "nickname", "abc123!@", null);
+        given(emailVerificationService.isEmailVerified(request.email())).willReturn(true);
+        given(userRepository.existsByEmail(request.email())).willReturn(false);
+        given(userRepository.existsByTel(request.tel())).willReturn(false);
+        given(userAccountRepository.existsByNickname(request.nickname())).willReturn(false);
+        given(passwordEncoder.encode(request.password())).willReturn("encoded-password");
+        given(userRepository.save(any(User.class))).willAnswer(invocation -> invocation.getArgument(0));
+        given(userAccountRepository.save(any(UserAccount.class))).willAnswer(invocation -> invocation.getArgument(0));
+
+        // when
+        authService.signup(request);
+
+        // then
+        var userCaptor = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).save(userCaptor.capture());
+        assertThat(userCaptor.getValue().getGender()).isNull();
+    }
+
+    @Test
     @DisplayName("[USER-WD-12] 탈퇴한 계정이 점유했던 닉네임이라도 existsByNickname이 true라면 "
             + "회원가입은 DUPLICATE_NICKNAME으로 거절된다")
     void signup_nicknameAlreadyOccupiedRegardlessOfWithdrawal_throwsDuplicateNickname() {
