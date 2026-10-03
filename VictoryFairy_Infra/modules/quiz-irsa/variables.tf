@@ -3,6 +3,11 @@ variable "crawl_bucket_name" {
   type        = string
 }
 
+variable "inning_events_queue_arn" {
+  description = "이닝 종료 이벤트 SQS 큐 ARN (modules/refine-pipeline 출력). quiz-app 이 소비할 큐"
+  type        = string
+}
+
 variable "name_prefix" {
   description = "역할·정책 이름 접두사 (예: victoryfairy-dev)"
   type        = string

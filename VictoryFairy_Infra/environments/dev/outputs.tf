@@ -148,6 +148,16 @@ output "refine_budget_table_name" {
   value       = module.refine_pipeline.budget_table_name
 }
 
+output "inning_events_queue_url" {
+  description = "이닝 종료 이벤트 SQS 큐 URL. BE quiz-app 컨테이너 환경변수로 주입해 폴링 대상으로 쓴다(k8s 매니페스트 소관)."
+  value       = module.refine_pipeline.inning_events_queue_url
+}
+
+output "inning_events_dlq_url" {
+  description = "3회 수신 실패한 이닝 이벤트가 쌓이는 DLQ URL — 쌓이면 사람이 봐야 한다"
+  value       = module.refine_pipeline.inning_events_dlq_url
+}
+
 output "quiz_app_role_arn" {
   description = "quiz-app 파드 IRSA 역할 ARN. k8s/21-quiz-app.yaml 의 SA 어노테이션(eks.amazonaws.com/role-arn) 값."
   value       = module.quiz_irsa.quiz_app_role_arn

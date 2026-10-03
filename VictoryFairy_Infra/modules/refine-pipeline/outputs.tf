@@ -23,6 +23,21 @@ output "bedrock_queue_url" {
   value       = aws_sqs_queue.bedrock.url
 }
 
+output "inning_events_dlq_url" {
+  description = "3회 수신 실패한 이닝 이벤트가 쌓이는 DLQ URL. 여기에 쌓이면 사람이 봐야 한다"
+  value       = aws_sqs_queue.inning_events_dlq.url
+}
+
+output "inning_events_queue_arn" {
+  description = "이닝 종료 이벤트 SQS 큐 ARN. BE quiz-app IRSA 역할(modules/quiz-irsa)에 소비 권한을 주는 데 쓴다"
+  value       = aws_sqs_queue.inning_events.arn
+}
+
+output "inning_events_queue_url" {
+  description = "이닝 종료 이벤트 SQS 큐 URL. BE quiz-app 컨테이너 환경변수로 주입해 폴링 대상으로 쓴다"
+  value       = aws_sqs_queue.inning_events.url
+}
+
 output "pattern_function_arn" {
   description = "패턴 검열 Lambda 함수 ARN (CI 배포 역할의 UpdateFunctionCode 스코프)"
   value       = aws_lambda_function.pattern.arn
