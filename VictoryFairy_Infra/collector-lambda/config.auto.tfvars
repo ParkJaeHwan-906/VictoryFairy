@@ -44,6 +44,15 @@ quiz_source_jobs_enabled = true
 #   지키는 장치다.
 cancel_reasons_enabled = true
 
+# --- 이닝 트리거 정산용 inning-events 적재 게이트 ---
+# 2026-10-04 에 켰다. 선행 조건(quiz_source_jobs_enabled 와 같은 절차):
+#   1. 이미지 배포 — PR #561 머지(16:27:55 UTC) 직후 CI 가 kbo-collector:cc8ff62 를
+#      01:30 KST 에 푸시, Lambda ImageUri 도 그 태그로 갱신됨(확인 완료).
+#   2. 실측 invoke 응답 확인 — 적용 직후 games_sync 수동 호출로 진행.
+# BE 쪽(PR #560, QuizSettlementListener)과 Infra SQS(PR #563)도 함께 떠 있어야
+# 이 플래그가 쓴 inning-events/ 문서가 실제로 소비된다.
+inning_events_enabled = true
+
 # --- DB 적재 잡 (records/registrations) — 2026-07-29 조회값 ---
 # 서브넷/SG는 infra 스택 소유. db_host 는 데이터 EC2 프라이빗 IP —
 # 인스턴스 재생성(프라이빗 복귀 등) 시 여기와 k8s/30-external-data.yaml 둘 다 갱신.

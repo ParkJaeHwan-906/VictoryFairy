@@ -92,6 +92,8 @@ resource "aws_lambda_function" "db" {
       COLLECTOR_S3_BUCKET = var.data_bucket_name
       COLLECTOR_S3_REGION = var.region
       COLLECTOR_PII_SALT  = local.pii_salt
+      # 기본 false(quiz_source_jobs_enabled 와 같은 절차) — py-collector PR #561 머지 후 켠다.
+      COLLECTOR_INNING_EVENTS_ENABLED = tostring(var.inning_events_enabled)
     }
   }
 
