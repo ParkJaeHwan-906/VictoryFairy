@@ -4,7 +4,7 @@ from pathlib import Path
 import httpx
 import respx
 
-from kbo_collector import fetch, run
+from kbo_collector import fetch, keys, run
 from kbo_collector.journal import Journal
 from kbo_collector.sink import S3RawSink
 
@@ -107,6 +107,26 @@ def test_land_relays_stops_at_empty_inning(settings, s3_bucket, tmp_path):
     assert landed == 3  # innings 1..3 landed, 4 is empty -> stop
     listed = sink.client.list_objects_v2(Bucket=s3_bucket, Prefix="raw-json/relay/g1/")
     assert listed["KeyCount"] == 3
+
+
+@respx.mock
+def test_fetch_single_inning_relay_returns_parsed_json_for_a_real_inning(settings):
+    body = (FIX / "naver" / "relay_inning.json").read_text(encoding="utf-8")
+    respx.get(url__startswith="https://api-gw.sports.naver.com/schedule/games/g1/relay").mock(
+        return_value=httpx.Response(200, text=body))
+    with fetch.build_client(settings) as client:
+        data = run.fetch_single_inning_relay("g1", 3, settings=settings, client=client)
+    assert data == json.loads(body)
+
+
+@respx.mock
+def test_fetch_single_inning_relay_returns_none_for_empty_inning(settings):
+    body = (FIX / "naver" / "relay_empty.json").read_text(encoding="utf-8")
+    respx.get(url__startswith="https://api-gw.sports.naver.com/schedule/games/g1/relay").mock(
+        return_value=httpx.Response(200, text=body))
+    with fetch.build_client(settings) as client:
+        data = run.fetch_single_inning_relay("g1", 9, settings=settings, client=client)
+    assert data is None
 
 
 @respx.mock
@@ -529,7 +549,7 @@ def test_land_game_records_upserts_batting_and_pitching_after_lineups(monkeypatc
 
 class _RecordingSyncDb:
     """운영 스키마 DbSink 흉내: job_games_sync 배선(호출 인자) 검증용."""
-    def __init__(self, team_ids, done=(), with_stadium=()):
+    def __init__(self, team_ids, done=(), with_stadium=(), live_inning_state=None):
         self.calls = []
         self.lineup_calls = []
         self.purged = []
@@ -540,6 +560,10 @@ class _RecordingSyncDb:
         self._status_ids = {"SCHEDULED": 1, "IN_PROGRESS": 2, "FINISHED": 3,
                             "DRAW": 4, "CANCELED": 5}
         self._stadium_ids = {}
+        # naver_game_id -> (current_inning, inning_half) "이전" 상태. 없는 경기는
+        # (None, None) — 실제 DbSink.get_live_inning_state 와 같은 기본값.
+        self.live_inning_state = dict(live_inning_state or {})
+        self.get_live_inning_state_calls = []
 
     def upsert_teams(self, teams):
         self.upsert_teams_calls += 1
@@ -547,6 +571,10 @@ class _RecordingSyncDb:
 
     def status_id(self, name):
         return self._status_ids[name]
+
+    def get_live_inning_state(self, naver_game_id):
+        self.get_live_inning_state_calls.append(naver_game_id)
+        return self.live_inning_state.get(naver_game_id, (None, None))
 
     def stadium_id(self, name):
         # DbSink 와 같은 계약: 이름이 비면 None (INSERT 시 NULL 로 들어가 COALESCE 로 보존)
@@ -699,6 +727,110 @@ def test_job_games_sync_writes_inning_only_while_in_progress(monkeypatch, settin
     for gid in ("finished", "draw", "scheduled", "cancelled"):
         assert by_id[gid]["current_inning"] is None, gid
         assert by_id[gid]["inning_half"] is None, gid
+
+
+# --------------------------------------------------------------------------- 이닝 전환 감지 -> S3 (Task 3)
+class _FakeInningEventSink:
+    def __init__(self):
+        self.put_json_calls = []
+
+    def put_json(self, key, obj, metadata=None):
+        self.put_json_calls.append((key, obj))
+        return len(json.dumps(obj))
+
+
+def test_sync_games_for_date_lands_inning_events_on_transition_when_enabled(monkeypatch, settings):
+    """inning_events_enabled 가 켜져 있고 DB 의 "이전" 상태가 새 값과 다르면
+    (전환 감지) 그 **이전** (inning, half) 로 relay 를 재조회해 S3 에 적재한다.
+
+    "live" 경기는 statusInfo 상 지금 3회말(3, 1)이지만, DB 에는 "이전" 상태로
+    3회초(3, 0)가 저장돼 있던 것으로 흉내낸다 — 즉 방금 3회초가 끝나고 3회말로
+    넘어간 시점. "막 끝난 이닝"은 이전 값(3, 0) 기준이어야 한다.
+    """
+    import contextlib
+    monkeypatch.setattr(run.fetch, "build_client", lambda settings: contextlib.nullcontext(object()))
+    monkeypatch.setattr(run.fetch, "fetch", lambda *a, **k: _FakeScheduleResp())
+    monkeypatch.setattr(settings, "inning_events_enabled", True)
+
+    db = _RecordingSyncDb(team_ids={"OB": 1, "LG": 2}, live_inning_state={"live": (3, 0)})
+    sink = _FakeInningEventSink()
+
+    fetched = []
+
+    def fake_fetch_single(game_id, inning, *, settings, client):
+        fetched.append((game_id, inning))
+        return {"fixture": True}
+
+    monkeypatch.setattr(run, "fetch_single_inning_relay", fake_fetch_single)
+    monkeypatch.setattr(run.naver, "extract_inning_events",
+                        lambda relay, inning, half: {"99999": {"hit": True}})
+
+    synced = run.job_games_sync(settings, db, "2026-07-10", sink=sink)
+
+    assert synced == 6
+    # 다른 경기들은 old==new(둘 다 None 이거나 그대로)라 전환이 아니다 -> "live" 하나만
+    assert fetched == [("live", 3)]
+    assert len(sink.put_json_calls) == 1
+    key, payload = sink.put_json_calls[0]
+    assert key == keys.inning_event_key("2026-07-10", "live", 3, 0)
+    assert payload == {"gameId": "live", "date": "2026-07-10", "inning": 3, "half": 0,
+                       "events": {"99999": {"hit": True}}}
+    # 부가 기능이 DB 동기화 자체는 막지 않는다 — "live" 의 새 상태(3, 1)는 그대로 들어간다
+    by_id = {c["naver_game_id"]: c for c in db.calls}
+    assert (by_id["live"]["current_inning"], by_id["live"]["inning_half"]) == (3, 1)
+
+
+def test_sync_games_for_date_skips_inning_events_when_disabled(monkeypatch, settings):
+    # 기본값(꺼짐)이면 get_live_inning_state 조회도, relay 재조회도, S3 적재도
+    # 전혀 일어나지 않아야 한다 — 기존 동작과 100% 동일.
+    import contextlib
+    monkeypatch.setattr(run.fetch, "build_client", lambda settings: contextlib.nullcontext(object()))
+    monkeypatch.setattr(run.fetch, "fetch", lambda *a, **k: _FakeScheduleResp())
+    assert settings.inning_events_enabled is False
+
+    db = _RecordingSyncDb(team_ids={"OB": 1, "LG": 2}, live_inning_state={"live": (1, 0)})
+    sink = _FakeInningEventSink()
+    monkeypatch.setattr(run, "fetch_single_inning_relay",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not fetch")))
+
+    run.job_games_sync(settings, db, "2026-07-10", sink=sink)
+
+    assert db.get_live_inning_state_calls == []
+    assert sink.put_json_calls == []
+
+
+def test_sync_games_for_date_no_transition_when_old_equals_new(monkeypatch, settings):
+    # DB 의 "이전" 상태가 이미 새 값과 같으면(전환이 아니라 같은 (이닝,half) 를
+    # 또 본 폴링) 적재하지 않는다.
+    import contextlib
+    monkeypatch.setattr(run.fetch, "build_client", lambda settings: contextlib.nullcontext(object()))
+    monkeypatch.setattr(run.fetch, "fetch", lambda *a, **k: _FakeScheduleResp())
+    monkeypatch.setattr(settings, "inning_events_enabled", True)
+
+    db = _RecordingSyncDb(team_ids={"OB": 1, "LG": 2}, live_inning_state={"live": (3, 1)})
+    sink = _FakeInningEventSink()
+    monkeypatch.setattr(run, "fetch_single_inning_relay",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not fetch")))
+
+    run.job_games_sync(settings, db, "2026-07-10", sink=sink)
+
+    assert sink.put_json_calls == []
+
+
+def test_sync_games_for_date_without_sink_skips_landing_even_if_enabled(monkeypatch, settings):
+    # 플래그를 켰는데 sink 를 안 넘긴 배선 실수 — DB 동기화를 막으면 안 되므로
+    # 조용히 건너뛴다(크래시하지 않는다).
+    import contextlib
+    monkeypatch.setattr(run.fetch, "build_client", lambda settings: contextlib.nullcontext(object()))
+    monkeypatch.setattr(run.fetch, "fetch", lambda *a, **k: _FakeScheduleResp())
+    monkeypatch.setattr(settings, "inning_events_enabled", True)
+
+    db = _RecordingSyncDb(team_ids={"OB": 1, "LG": 2}, live_inning_state={"live": (3, 0)})
+
+    synced = run.job_games_sync(settings, db, "2026-07-10")  # sink 생략
+
+    assert synced == 6
+    assert db.get_live_inning_state_calls == []
 
 
 def test_job_games_sync_last_inning_survives_the_end_of_the_game(monkeypatch, settings):
@@ -1052,7 +1184,7 @@ def test_main_games_sync_lazily_creates_db_and_calls_job(monkeypatch, settings):
 
     monkeypatch.setattr("kbo_collector.db.DbSink", _FakeDbSink)
 
-    def fake_job(settings, db, start, end):
+    def fake_job(settings, db, start, end, sink=None):
         calls.append(("job", start, end))
         assert isinstance(db, _FakeDbSink)
         return 3
@@ -1075,7 +1207,7 @@ def test_main_games_sync_from_to_walks_range_like_records(monkeypatch, settings)
     monkeypatch.setattr("kbo_collector.db.DbSink", _FakeDbSink)
     seen = {}
 
-    def fake_job(settings, db, start, end):
+    def fake_job(settings, db, start, end, sink=None):
         seen["range"] = (start, end)
         return 0
 
@@ -1097,7 +1229,7 @@ def test_main_games_sync_defaults_date_to_today_like_records(monkeypatch, settin
     monkeypatch.setattr("kbo_collector.db.DbSink", _FakeDbSink)
     seen = {}
 
-    def fake_job(settings, db, start, end):
+    def fake_job(settings, db, start, end, sink=None):
         seen["range"] = (start, end)
         return 0
 
