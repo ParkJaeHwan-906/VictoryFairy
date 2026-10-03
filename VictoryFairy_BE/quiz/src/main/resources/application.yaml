@@ -81,6 +81,13 @@ quiz:
     # (on-startup, 기본 on)가 이 시각의 사각(그 이후 재시작한 파드)을 메운다. 둘 다 멱등.
     cron: ${QUIZ_INGEST_CRON:0 30 10 * * *}
     on-startup: ${QUIZ_INGEST_ON_STARTUP:true}
+  # PREDICTION(이닝 트리거 예측) 퀴즈 정산 — py-collector 가 쓰는 S3 inning-events/* 의 ObjectCreated
+  # 알림이 쌓이는 SQS 큐(QuizSettlementListener 가 롱폴링). 큐 자체는 Infra 레포가 만든다.
+  settlement:
+    # 비어 있으면(기본값) 리스너가 폴링을 시작하지 않는다 — 큐가 아직 없는 환경(로컬 등)에서도
+    # 기동이 깨지지 않게 하기 위함. 하드코딩하지 않는다: 큐 이름은 Infra 쪽 추정값이라 바뀔 수 있다.
+    sqs-queue-url: ${QUIZ_SETTLEMENT_SQS_QUEUE_URL:}
+    sqs-region: ${QUIZ_SETTLEMENT_SQS_REGION:ap-northeast-2}
   serve:
     # 전원 동일 데일리 세트 크기 — 편성 잡(QuizPublishService)이 이 수까지 미편성 풀에서 채운다.
     # 경기 문항(적재가 바로 날짜를 찍음)이 이미 이 수를 넘는 날은 그대로 두고 보충하지 않는다.

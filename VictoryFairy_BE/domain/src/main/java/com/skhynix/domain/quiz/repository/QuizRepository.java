@@ -48,10 +48,18 @@ public interface QuizRepository extends JpaRepository<Quiz, Long> {
      * <p>멀티 파드가 동시에 실행하면 카운트-업데이트가 비원자라 최대 2배까지 과편성될 수 있다.
      * <b>허용</b> — 그날 문제 수가 늘어날 뿐 세트는 여전히 전원 동일하고, 락(ShedLock 등)을 들이는
      * 비용이 이 무해한 결과보다 크다.
+     *
+     * <p><b>{@code AND (settlement_metric IS NULL OR answer IS NOT NULL)}</b> — 미정산 PREDICTION
+     * (정답을 아직 모르는 문제)이 섞여 들어가는 것을 막는다. {@code quiz_date IS NULL}만으로는
+     * 걸러지지 않는다 — PREDICTION 은 게임 귀속이라 적재 시점에 이미 {@code quiz_date}가 찍히는 게
+     * 보통이지만, game FK 해석이 실패하거나 사람이 직접 풀 대기로 넣는 경로가 생기면 풀에 들어올 수
+     * 있다. 들어가면 "오늘의 퀴즈"에 답 없는 문제가 나가 제출 시점에 {@code NullPointerException}
+     * 류로 터진다.
      */
     @Modifying
     @Query(value = "UPDATE quizzes SET quiz_date = :quizDate "
-            + "WHERE quiz_date IS NULL ORDER BY id ASC LIMIT :limit", nativeQuery = true)
+            + "WHERE quiz_date IS NULL AND (settlement_metric IS NULL OR answer IS NOT NULL) "
+            + "ORDER BY id ASC LIMIT :limit", nativeQuery = true)
     int publishFromPool(@Param("quizDate") LocalDate quizDate, @Param("limit") int limit);
 
     /**
@@ -110,4 +118,21 @@ public interface QuizRepository extends JpaRepository<Quiz, Long> {
     @Query("SELECT q FROM Quiz q WHERE q.quizDate = :date "
             + "AND q.team IS NULL AND q.player IS NULL AND q.game IS NULL")
     List<Quiz> findGeneralQuizzesByQuizDate(@Param("date") LocalDate date);
+
+    /**
+     * PREDICTION 정산 대상 조회({@code QuizSettlementService#settleInningEvent}) — 특정 경기의
+     * 특정 (이닝, 초/말)을 보도록 설정됐고 아직 답이 없는 문제 전부. {@code game}·{@code player}를
+     * 함께 실어 N+1 없이 {@code player.kboPlayerId} 비교까지 끝낸다(둘 다 정산이 실제로 읽는 연관).
+     */
+    @EntityGraph(attributePaths = {"game", "player"})
+    List<Quiz> findByGame_IdAndSettlementInningAndSettlementHalfAndAnswerIsNull(
+            Long gameId, Integer settlementInning, Integer settlementHalf);
+
+    /**
+     * {@code sweepUnresolved} 전용 — 아직 정산되지 않은 PREDICTION 전부
+     * ({@code settlementMetric IS NOT NULL AND answer IS NULL}). {@code game.gameStatus}까지 함께
+     * 실어 "그 경기가 끝났는가" 판정에 건당 추가 쿼리가 붙지 않게 한다.
+     */
+    @EntityGraph(attributePaths = {"game", "game.gameStatus"})
+    List<Quiz> findBySettlementMetricIsNotNullAndAnswerIsNull();
 }
