@@ -9,7 +9,9 @@ CATALOG = {"H2H_SEASON_RECORD": {"id": "H2H_SEASON_RECORD", "kind": "KNOWLEDGE",
            "YOY_TEAM": {"id": "YOY_TEAM", "kind": "KNOWLEDGE",
                         "format": "MULTI4", "enabled": False},
            "PRED_WIN_LOSE": {"id": "PRED_WIN_LOSE", "kind": "PREDICTION",
-                             "format": "BINARY", "enabled": True}}
+                             "format": "BINARY", "enabled": True},
+           "CAREER_PATH": {"id": "CAREER_PATH", "kind": "KNOWLEDGE",
+                          "format": "MULTI4", "enabled": True}}
 BANNED = ["음주", "폭행"]
 
 
@@ -200,3 +202,24 @@ def test_main_duplicate_quiz_id_exits_one(tmp_path):
     with pytest.raises(SystemExit) as exc_info:
         vc.main(["--dir", str(tmp_path)])
     assert exc_info.value.code == 1
+
+
+def test_roster_template_forbidden_in_game_unit():
+    """2026-10-03 신설(check 10) — CAREER_PATH·MEME_ORIGIN·RELATION_LINK는
+    gameId가 있으면(경기 유닛) 금지된다. 교차 중복(경기 유닛 vs 팀 특화 유닛이
+    같은 선수 소재를 독립적으로 중복 생성) 방지용."""
+    c = ok_knowledge()
+    c.update(templateId="CAREER_PATH", format="MULTI4", gameId="20261003LTKT02026",
+             options=[{"id": "A", "text": "KT"}, {"id": "B", "text": "LG"},
+                      {"id": "C", "text": "SSG"}, {"id": "D", "text": "키움"}])
+    assert any("경기 유닛" in v and "CAREER_PATH" in v
+               for v in vc.validate_candidate(c, CATALOG, BANNED))
+
+
+def test_roster_template_allowed_outside_game_unit():
+    """같은 템플릿이라도 gameId가 없으면(팀 특화·공통 유닛) 정상이다."""
+    c = ok_knowledge()
+    c.update(templateId="CAREER_PATH", format="MULTI4", gameId=None,
+             options=[{"id": "A", "text": "KT"}, {"id": "B", "text": "LG"},
+                      {"id": "C", "text": "SSG"}, {"id": "D", "text": "키움"}])
+    assert vc.validate_candidate(c, CATALOG, BANNED) == []

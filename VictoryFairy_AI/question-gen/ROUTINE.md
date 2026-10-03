@@ -187,9 +187,20 @@ trending.md`(있으면), 최근 7일 `.work/quiz-candidates/`의 `templateId`·�
 
 | 묶음 | 대상 엔티티 범위 | `gameId`·`teamCodes` |
 |---|---|---|
-| 경기 문항 (경기 수만큼) | **그 경기 양 팀 소속만** — 선수 밈·기록·상대전적·순위·최근 맞대결·예측 | `gameId` 채움, `teamCodes`에 양 팀 |
-| 팀 특화 문항 (**구단마다 매일 1묶음**, 경기 유무 무관) | **그 팀 로스터만** — `CAREER_PATH`·`MEME_ORIGIN`·`RECORD_OX`(PLAYER scope), `STREAK_CURRENT`·`HOME_AWAY_SPLIT`·`RECENT_VS_EARLY`(TEAM scope) 중심. 위키에 팀당 63~89명이 등재돼 있어 재료는 경기 일정과 무관하게 항상 있다 | `gameId: null`, `teamCodes: [그 팀 하나]` |
+| 경기 문항 (경기 수만큼) | **그 경기 자체·오늘 매치업에 관한 것만** — 어제 승자·스코어·승리투수·시즌 상대전적·맞대결·예측(`YESTERDAY_WINNER`·`YESTERDAY_SCORE`·`WINNING_PITCHER`·`LAST_MATCHUP`·`H2H_SEASON_RECORD`·`PRED_*`). **`CAREER_PATH`·`MEME_ORIGIN`·`RELATION_LINK`는 절대 쓰지 않는다**(2026-10-03 — 아래 참고) | `gameId` 채움, `teamCodes`에 양 팀 |
+| 팀 특화 문항 (**구단마다 매일 1묶음**, 경기 유무 무관) | **그 팀 로스터만** — `CAREER_PATH`·`MEME_ORIGIN`·`RELATION_LINK`·`RECORD_OX`(PLAYER scope), `STREAK_CURRENT`·`HOME_AWAY_SPLIT`·`RECENT_VS_EARLY`(TEAM scope) 중심. 위키에 팀당 63~89명이 등재돼 있어 재료는 경기 일정과 무관하게 항상 있다 | `gameId: null`, `teamCodes: [그 팀 하나]` |
 | 공통 문항 (하루 1묶음) | 특정 팀에 치우치지 않는 것만 — 리그 전체 순위·역대 팀 기록·통산 기록·트렌딩 | `gameId: null`, `teamCodes: []` |
+
+⚠️ **경기 문항에 `CAREER_PATH`·`MEME_ORIGIN`·`RELATION_LINK`를 쓰지 않는다
+(2026-10-03 변경)** — 이 셋은 로스터 기반이라 경기 당일 여부와 무관하고,
+`perTeam` 신설 이후 팀 특화 유닛이 이미 매일 전담한다. perTeam 이전에는
+게임 묶음이 이 소재의 유일한 통로였어서 허용했었지만, 지금은 경기 유닛과
+팀 특화 유닛이 서로의 산출물을 모른 채 독립적으로 같은 선수 소재를 뽑는
+**교차 중복**을 낳는다 — 2026-10-03 첫 전면 실행에서 폐기 39건 중 28건이
+이 원인이었다(`wiki/_meta/casebook/bad.md` #102). `question-gen/scripts/
+validate_candidates.py` check 10이 이걸 결정적으로 막는다(`gameId`가 있는데
+이 세 템플릿이면 하드 실패) — 프롬프트 설명만으로는 다시 샐 수 있다고
+판단해 게이트로 못박았다.
 
 경기 문항·팀 특화 문항 모두 다른 팀 선수를 섞지 않는다. 삼성 팬이 삼성 묶음을
 보는 중에 두산 선수 밈이 뜨는 것이 이 구조가 막으려는 바로 그 상황이다. 오답
