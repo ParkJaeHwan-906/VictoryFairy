@@ -26,3 +26,9 @@ def manifest_key(job: str, date: str, run_id: str) -> str:
 
 def kbo_records_key(page: str, date: str) -> str:
     return f"kbo-records/{page}/{date}.json"
+
+
+def inning_event_key(date: str, game_id: str, inning: int, half: int) -> str:
+    # games_sync 라이브 폴링의 이닝 전환 감지가 "막 끝난 이닝"에 대해 적재한다.
+    # half 는 domain InningHalf ordinal(TOP=0/BOTTOM=1)과 동일한 값.
+    return f"inning-events/{date}/{game_id}/{inning}-{half}.json"

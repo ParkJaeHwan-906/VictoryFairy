@@ -89,12 +89,13 @@ class _DummyDb:
         self.closed = True
 
 
-def _isolate_db(monkeypatch, settings):
+def _isolate_db(monkeypatch, settings, allow_s3=False):
     _isolate(monkeypatch, settings)
     db = _DummyDb()
     monkeypatch.setattr(handler, "DbSink", lambda s: db)
-    # DB 잡은 S3 sink 를 만들면 안 된다
-    monkeypatch.setattr(handler, "S3RawSink", _boom("S3RawSink"))
+    # DB 잡 대부분은 S3 sink 를 만들면 안 된다 — games_sync 만 예외(이닝 전환
+    # 감지용, COLLECTOR_INNING_EVENTS_ENABLED 가 꺼져 있으면 실제로는 안 쓰인다).
+    monkeypatch.setattr(handler, "S3RawSink", _DummySink if allow_s3 else _boom("S3RawSink"))
     return db
 
 
@@ -239,16 +240,17 @@ def test_handler_export_job_uses_db_function(monkeypatch, settings):
 # --- games_sync job (경기 상태 동기화) — kbo-collector-db 함수 경로 ---
 
 def _fake_sync_range(captured, returns=0):
-    def _f(s, d, start, end):
+    def _f(s, d, start, end, sink=None):
         captured["settings"] = s
         captured["db"] = d
         captured["range"] = (start, end)
+        captured["sink"] = sink
         return returns
     return _f
 
 
 def test_handler_games_sync_job(monkeypatch, settings):
-    db = _isolate_db(monkeypatch, settings)
+    db = _isolate_db(monkeypatch, settings, allow_s3=True)
     captured = {}
 
     monkeypatch.setattr(handler.run, "job_games_sync_range", _fake_sync_range(captured, 12))
@@ -266,7 +268,7 @@ def test_handler_games_sync_job(monkeypatch, settings):
 def test_handler_games_sync_defaults_to_kst_today_not_utc(monkeypatch, settings):
     # "당일 경기 상태"를 다루는 잡이라 KST-오늘이어야 한다 — _today() (UTC) 로
     # 잘못 배선되면 이 테스트가 실패한다.
-    db = _isolate_db(monkeypatch, settings)
+    db = _isolate_db(monkeypatch, settings, allow_s3=True)
     monkeypatch.setattr(handler, "_kst_today", lambda: "2026-08-01")
     monkeypatch.setattr(handler, "_today", _boom("_today"))
     captured = {}
@@ -319,7 +321,7 @@ def test_handler_cancel_reasons_months_backfill_is_passed_through(monkeypatch, s
 def test_handler_games_sync_days_opens_forward_window(monkeypatch, settings):
     # 일정 선적재 룰: {"days": 7} 이면 오늘~+7일. 상태 추적(당일)과 같은 잡을
     # 다른 구간으로 부르는 것이 이 기능의 전부다.
-    db = _isolate_db(monkeypatch, settings)
+    db = _isolate_db(monkeypatch, settings, allow_s3=True)
     monkeypatch.setattr(handler, "_kst_today", lambda: "2026-08-11")
     captured = {}
 
@@ -333,7 +335,7 @@ def test_handler_games_sync_days_opens_forward_window(monkeypatch, settings):
 def test_handler_games_sync_days_capped_at_max(monkeypatch, settings):
     # days 는 EventBridge 룰 input(Terraform)에서 오는 값이라, 라이브 10분 룰에
     # 실수로 붙어도 원천을 폭주시키지 않도록 코드에서 자른다.
-    db = _isolate_db(monkeypatch, settings)
+    db = _isolate_db(monkeypatch, settings, allow_s3=True)
     monkeypatch.setattr(handler, "_kst_today", lambda: "2026-08-11")
     captured = {}
 
@@ -344,7 +346,7 @@ def test_handler_games_sync_days_capped_at_max(monkeypatch, settings):
 
 
 def test_handler_games_sync_from_to_backfill_also_capped(monkeypatch, settings):
-    db = _isolate_db(monkeypatch, settings)
+    db = _isolate_db(monkeypatch, settings, allow_s3=True)
     captured = {}
 
     monkeypatch.setattr(handler.run, "job_games_sync_range", _fake_sync_range(captured))
@@ -355,7 +357,7 @@ def test_handler_games_sync_from_to_backfill_also_capped(monkeypatch, settings):
 
 
 def test_handler_games_sync_from_to_within_cap_is_untouched(monkeypatch, settings):
-    db = _isolate_db(monkeypatch, settings)
+    db = _isolate_db(monkeypatch, settings, allow_s3=True)
     captured = {}
 
     monkeypatch.setattr(handler.run, "job_games_sync_range", _fake_sync_range(captured))
