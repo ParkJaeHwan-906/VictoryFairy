@@ -565,3 +565,18 @@ def test_games_with_stadium_returns_known_ids():
     assert got == {"g1"}
     kind, sql, params = conn.log[0]
     assert "stadium_id IS NOT NULL" in sql and params == ["g1", "g2"]
+
+
+# --------------------------------------------------------------------------- 이닝 전환 감지용 (Task 2)
+def test_get_live_inning_state_returns_existing_row():
+    conn = FakeConn(fetch_results=[[(5, 1)]])
+    assert DbSink(None, connection=conn).get_live_inning_state("g1") == (5, 1)
+    kind, sql, params = conn.log[0]
+    assert kind == "execute" and params == ("g1",)
+    assert "current_inning, inning_half" in sql and "FROM games" in sql
+
+
+def test_get_live_inning_state_missing_game_returns_none_pair():
+    # 경기 행이 아직 없으면(games_sync 가 그 경기를 처음 보는 경우) (None, None).
+    conn = FakeConn(fetch_results=[[]])
+    assert DbSink(None, connection=conn).get_live_inning_state("new-game") == (None, None)

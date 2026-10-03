@@ -172,6 +172,14 @@ GAMES_WITH_STADIUM = (
     "WHERE naver_game_id IN ({ph}) AND stadium_id IS NOT NULL"
 )
 
+# 이닝 전환 감지용: GAME_SYNC_UPSERT 는 VALUES()로 current_inning/inning_half 를
+# 매번 블라인드 오버라이트해 이전 값을 돌려주지 않는다(games_sync 전체가 그렇다 —
+# 실측, GAME_SYNC_UPSERT 주석 참고). upsert 직전에 "덮이기 전" 값을 읽어야 "방금
+# 끝난 이닝"을 알 수 있어 별도로 조회한다.
+GET_LIVE_INNING_STATE = (
+    "SELECT current_inning, inning_half FROM games WHERE naver_game_id=%s"
+)
+
 # preview(경기 전 공시)로 적재해 놓고 실제로는 출전하지 않은 선수를 걷어낸다.
 # records 잡이 박스스코어로 확정 적재한 뒤 부르며, 박스스코어에 없는 행이 곧 유령이다.
 LINEUP_DELETE_EXCEPT = (
@@ -409,6 +417,19 @@ class DbSink:
             pk = cur.lastrowid
         self._conn.commit()
         return pk
+
+    def get_live_inning_state(self, naver_game_id) -> tuple:
+        """DB에 지금 저장돼 있는 (current_inning, inning_half)를 조회(덮어쓰기 전).
+
+        `sync_game`/GAME_SYNC_UPSERT 는 이 두 컬럼을 VALUES()로 매번 블라인드
+        오버라이트해 이전 값을 돌려주지 않는다 — 이닝/공수 전환을 감지하려면
+        upsert 직전에 호출자가 먼저 이걸로 "지금까지의" 값을 읽어둬야 한다.
+        경기 행이 아직 없으면 (None, None).
+        """
+        with self._conn.cursor() as cur:
+            cur.execute(GET_LIVE_INNING_STATE, (naver_game_id,))
+            row = cur.fetchone()
+        return (row[0], row[1]) if row else (None, None)
 
     def set_cancel_reason(self, *, date, home_team_id, away_team_id, reason) -> int:
         """(날짜, 대진) 의 games 행에 취소 사유를 기록하고 **실제로 바뀐** 행 수를 반환.
