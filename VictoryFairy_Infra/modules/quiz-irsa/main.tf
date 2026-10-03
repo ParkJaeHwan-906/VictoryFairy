@@ -65,6 +65,15 @@ data "aws_iam_policy_document" "quiz_app" {
     actions   = ["s3:GetObject"]
     resources = ["${local.crawl_bucket_arn}/quiz-candidates/*"]
   }
+
+  # 이닝 종료 이벤트 SQS 큐 소비 — py-collector 가 S3 에 쓴 이닝 종료 알림을 받아
+  # 예측 퀴즈를 정산한다(modules/refine-pipeline 이 큐와 S3→SQS 알림 배선을 소유).
+  # SendMessage 는 S3 서비스 principal 몫이라 여기엔 없다 — quiz-app 은 소비만 한다.
+  statement {
+    sid       = "ConsumeInningEvents"
+    actions   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"]
+    resources = [var.inning_events_queue_arn]
+  }
 }
 
 resource "aws_iam_role_policy" "quiz_app" {

@@ -77,6 +77,78 @@ resource "aws_sqs_queue" "bedrock" {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# SQS — 이닝 종료 이벤트. BE quiz-app(이 모듈 밖)이 소비해 퀴즈 정산을 트리거한다
+# ─────────────────────────────────────────────────────────────────────────────
+# py-collector(이 모듈 밖)가 이닝 종료 시 crawl 버킷에
+#   inning-events/{date}/{gameId}/{inning}-{half}.json 을 쓰면
+# 아래 aws_s3_bucket_notification.crawl 의 queue 알림이 이 큐로 SendMessage 한다.
+#
+# 이 모듈은 큐와 S3→SQS 배선만 소유한다. 소비자는 EKS 의 BE quiz-app 이라
+# Lambda 이벤트 소스 매핑이 없다 — 수신 권한(ReceiveMessage 등)은 modules/quiz-irsa 가
+# IRSA 역할에 부여한다(이 모듈 출력 inning_events_queue_arn 을 그 모듈에 넘긴다).
+resource "aws_sqs_queue" "inning_events_dlq" {
+  name                      = "${var.name_prefix}-refine-inning-events-dlq"
+  message_retention_seconds = 1209600 # 14일 — 실패분을 사람이 확인할 시간
+
+  tags = merge(var.tags, { Name = "${var.name_prefix}-refine-inning-events-dlq" })
+}
+
+resource "aws_sqs_queue" "inning_events" {
+  name = "${var.name_prefix}-refine-inning-events"
+
+  # 소비자가 BE quiz-app(Spring, 폴링)이라 Lambda 타임아웃처럼 참조할 처리 시간이 없다.
+  # 정산 처리가 길어질 가능성을 감안해 SQS 기본값(30초)보다 넉넉히 잡는다. 가시성 타임아웃
+  # 안에 DeleteMessage 가 안 되면 같은 이닝이 재배달되므로, 소비 쪽 로직은 반드시
+  # 멱등(이미 정산된 이닝은 skip)이어야 한다 — 이 큐만으로는 중복 수신을 막지 못한다.
+  visibility_timeout_seconds = 60
+
+  message_retention_seconds = 345600 # 4일
+  receive_wait_time_seconds = 20     # 롱 폴링 — 빈 수신 요청 비용 절감
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.inning_events_dlq.arn
+    maxReceiveCount     = 3 # 3회 실패하면 DLQ 로. 무한 재배달로 중복 정산을 유발하지 않는다.
+  })
+
+  tags = merge(var.tags, { Name = "${var.name_prefix}-refine-inning-events" })
+}
+
+# S3 → SQS 알림은 Lambda 와 달리 전용 Permission 리소스가 없다 — 큐 정책에서
+# s3.amazonaws.com 의 SendMessage 를 직접 허용해야 한다. SourceArn/SourceAccount 조건으로
+# "이 버킷에서 온 알림만" 으로 좁혀 다른 계정·버킷이 이 큐에 메시지를 넣지 못하게 막는다.
+data "aws_iam_policy_document" "inning_events_queue_policy" {
+  statement {
+    sid     = "AllowCrawlBucketSendMessage"
+    effect  = "Allow"
+    actions = ["sqs:SendMessage"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["s3.amazonaws.com"]
+    }
+
+    resources = [aws_sqs_queue.inning_events.arn]
+
+    condition {
+      test     = "ArnEquals"
+      variable = "aws:SourceArn"
+      values   = [local.crawl_bucket_arn]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [data.aws_caller_identity.current.account_id]
+    }
+  }
+}
+
+resource "aws_sqs_queue_policy" "inning_events" {
+  queue_url = aws_sqs_queue.inning_events.id
+  policy    = data.aws_iam_policy_document.inning_events_queue_policy.json
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # IAM — 함수별 최소 권한 (SKILL §7)
 # ─────────────────────────────────────────────────────────────────────────────
 data "aws_iam_policy_document" "lambda_assume" {
@@ -326,6 +398,8 @@ resource "aws_lambda_permission" "s3_invoke_pattern" {
 # ⚠ 이 리소스는 **버킷의 알림 설정 전체를 덮어쓴다**(authoritative).
 #   버킷 자체는 Terraform 관리 밖이므로, 콘솔에서 다른 알림을 추가하면 다음 apply 때 사라진다.
 #   현재 이 버킷에는 알림이 하나도 없음을 확인하고 도입했다.
+#   ⚠️ 새 prefix 에 대한 알림이 필요하면 **새 aws_s3_bucket_notification 을 만들지 말고**
+#   이 리소스에 블록을 추가할 것 — 두 개를 선언하면 나중에 apply 된 쪽이 앞선 쪽을 덮어쓴다.
 resource "aws_s3_bucket_notification" "crawl" {
   bucket = var.crawl_bucket_name
 
@@ -336,7 +410,16 @@ resource "aws_s3_bucket_notification" "crawl" {
     filter_suffix       = ".json"
   }
 
-  depends_on = [aws_lambda_permission.s3_invoke_pattern]
+  # 이닝 종료 이벤트 → SQS(inning_events). py-collector 가 inning-events/{date}/{gameId}/
+  # {inning}-{half}.json 을 쓰면 BE quiz-app(이 모듈 밖)이 이 큐를 폴링해 정산한다.
+  queue {
+    queue_arn     = aws_sqs_queue.inning_events.arn
+    events        = ["s3:ObjectCreated:*"]
+    filter_prefix = "inning-events/"
+    filter_suffix = ".json"
+  }
+
+  depends_on = [aws_lambda_permission.s3_invoke_pattern, aws_sqs_queue_policy.inning_events]
 }
 
 # SQS → Bedrock Lambda. batch_size 가 곧 "한 번의 모델 호출에 묶는 게시글 수"다.
