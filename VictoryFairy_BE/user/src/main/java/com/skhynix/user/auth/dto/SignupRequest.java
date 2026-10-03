@@ -5,7 +5,6 @@ import com.skhynix.user.auth.policy.ValidNickname;
 import com.skhynix.user.auth.policy.ValidPassword;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
@@ -15,7 +14,8 @@ public record SignupRequest(
         @Size(max = 30)
         String name,
 
-        @NotBlank
+        // 선택 입력. null 이면 전화번호 없는 계정이 된다(User.tel 이 nullable 인 이유와 같다).
+        // @Pattern 은 null 을 통과시키므로 @NotBlank 만 떼면 된다 — 값이 있으면 형식은 그대로 검증한다.
         @Pattern(regexp = "\\d{10,11}", message = "전화번호는 숫자 10~11자리여야 합니다.")
         String tel,
 
@@ -24,7 +24,7 @@ public record SignupRequest(
         @Size(max = 100)
         String email,
 
-        @NotNull
+        // 선택 입력. null 이면 성별 없는 계정이 된다(User.gender 가 nullable 인 이유와 같다).
         Gender gender,
 
         // NicknamePolicy가 단일 출처 — @NotBlank·@Size·@Pattern을 겹쳐 걸지 말 것(ValidNickname 참고).
