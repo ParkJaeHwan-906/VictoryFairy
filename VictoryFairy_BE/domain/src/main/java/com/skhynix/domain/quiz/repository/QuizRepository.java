@@ -2,6 +2,7 @@ package com.skhynix.domain.quiz.repository;
 
 import com.skhynix.domain.quiz.entity.Quiz;
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -52,4 +53,61 @@ public interface QuizRepository extends JpaRepository<Quiz, Long> {
     @Query(value = "UPDATE quizzes SET quiz_date = :quizDate "
             + "WHERE quiz_date IS NULL ORDER BY id ASC LIMIT :limit", nativeQuery = true)
     int publishFromPool(@Param("quizDate") LocalDate quizDate, @Param("limit") int limit);
+
+    /**
+     * 경기 기반 선택(계약 {@code docs/requirements/quiz/game-scoped-selection.md}, QUIZ-GSS-14)의
+     * <b>classifier(소속 판정)</b>를 대신 거는 조회 4종. classifier 는 선수 문제(player ≠ null)는
+     * {@code player.team}, 그 외(구단·맞대결·경기 전용 문제)는 {@code quiz.team} 단일 기준이다 —
+     * {@code opponentTeam}은 classifier 로 쓰지 않는다(맞대결·경기 전용 문제도 {@code quiz.team} 쪽
+     * 팀으로만 분류된다). 일반 퀴즈({@code team}·{@code player}·{@code game} 전부 null)는 이 조건에
+     * 자연히 걸리지 않는다(아래 "바닥 단계" 전용 메서드가 따로 담당).
+     */
+    /** C절 1·3단계 — {@code quiz_date = date}(보통 오늘) && classifier = teamId. */
+    @EntityGraph(attributePaths = {"quizType", "team", "opponentTeam", "player", "game"})
+    @Query("SELECT q FROM Quiz q WHERE q.quizDate = :date AND ("
+            + "(q.player IS NOT NULL AND q.player.team.id = :teamId) "
+            + "OR (q.player IS NULL AND q.team.id = :teamId))")
+    List<Quiz> findByQuizDateAndClassifierTeam(@Param("date") LocalDate date,
+            @Param("teamId") Long teamId);
+
+    /**
+     * C절 2·4단계 — "다른 날짜"({@code quiz_date}가 NULL이 아니고 {@code today}도 아님) && classifier =
+     * teamId. 미편성 대기 풀({@code quiz_date IS NULL})은 이 조건에서 자연히 빠진다.
+     */
+    @EntityGraph(attributePaths = {"quizType", "team", "opponentTeam", "player", "game"})
+    @Query("SELECT q FROM Quiz q WHERE q.quizDate IS NOT NULL AND q.quizDate <> :today AND ("
+            + "(q.player IS NOT NULL AND q.player.team.id = :teamId) "
+            + "OR (q.player IS NULL AND q.team.id = :teamId))")
+    List<Quiz> findByOtherQuizDateAndClassifierTeam(@Param("today") LocalDate today,
+            @Param("teamId") Long teamId);
+
+    /**
+     * D절(무관한 경기) — {@code quiz_date = date}(오늘) && classifier ∈ teamIds(기준 경기의 홈·어웨이
+     * 양팀). 날짜 캐스케이드도 응원 여부 가중치도 없는 단일 단계다(계약 QUIZ-GSS-8-2).
+     */
+    @EntityGraph(attributePaths = {"quizType", "team", "opponentTeam", "player", "game"})
+    @Query("SELECT q FROM Quiz q WHERE q.quizDate = :date AND ("
+            + "(q.player IS NOT NULL AND q.player.team.id IN :teamIds) "
+            + "OR (q.player IS NULL AND q.team.id IN :teamIds))")
+    List<Quiz> findByQuizDateAndClassifierTeamIn(@Param("date") LocalDate date,
+            @Param("teamIds") Collection<Long> teamIds);
+
+    /**
+     * C절 5단계(바닥) — {@code quiz_date IS NOT NULL}(오늘 + "다른 날짜", 미편성 풀 제외)인 일반 퀴즈
+     * ({@code isGeneralQuiz()} — team·player·game 전부 null) 전체. 1~4단계와 같은 날짜 범위를 그대로
+     * 재사용하며 오늘/다른 날짜로 다시 쪼개지 않는다(계약 AC-GSS-20-1).
+     */
+    @EntityGraph(attributePaths = "quizType")
+    @Query("SELECT q FROM Quiz q WHERE q.quizDate IS NOT NULL "
+            + "AND q.team IS NULL AND q.player IS NULL AND q.game IS NULL")
+    List<Quiz> findGeneralQuizzesWithQuizDate();
+
+    /**
+     * D절 바닥(계약 AC-GSS-20-3) — {@code quiz_date = date}(오늘)로 한정된 일반 퀴즈. QUIZ-GSS-8의
+     * "오늘 세트 한정"을 그대로 물려받아 다른 날짜 일반 퀴즈는 대상이 아니다.
+     */
+    @EntityGraph(attributePaths = "quizType")
+    @Query("SELECT q FROM Quiz q WHERE q.quizDate = :date "
+            + "AND q.team IS NULL AND q.player IS NULL AND q.game IS NULL")
+    List<Quiz> findGeneralQuizzesByQuizDate(@Param("date") LocalDate date);
 }
