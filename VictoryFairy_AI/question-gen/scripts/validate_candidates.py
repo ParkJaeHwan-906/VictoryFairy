@@ -11,6 +11,8 @@
 논란·사생활·건강 소재 금지)의 결정적 부분(키워드 부분 문자열 매칭)을 검사한다.
 로스터 기반 템플릿(CAREER_PATH·MEME_ORIGIN·RELATION_LINK)이 경기 유닛에
 섞여 들어가 팀 특화 유닛과 교차 중복을 일으키는 것도 막는다(check 10).
+PREDICTION 지표가 `BATTER_HIT_IN_INNING`(이닝 트리거 기반 실시간 정산)이면
+settlement.inning·half도 형식에 맞는지 검사한다(check 11).
 
 stdlib + PyYAML만 사용(boto3 금지).
 """
@@ -36,7 +38,26 @@ BQ: dict = {}
 
 #: BE가 RDB로 정산 가능한 예측 지표만 허용(check 4). 스펙 6. 리스크 참조 —
 #: 선수 퍼포먼스 등 상세 스탯 예측은 정산 불가라 카탈로그에도 없음.
-METRICS = {"WIN_TEAM", "TOTAL_RUNS", "SCORE_GAP", "PITCHER_DECISION"}
+#: `BATTER_HIT_IN_INNING`(2026-10-04 추가)은 예외다 — py-collector가 S3
+#: inning-events/*에 적재하는 이닝별 안타 사실로 BE가 나중에 정산하는 이닝
+#: 트리거 기반 지표라, 나머지 넷(경기 전 확정 가능한 승패/점수)과 달리 settlement에
+#: inning·half가 추가로 필요하다(check 11).
+METRICS = {"WIN_TEAM", "TOTAL_RUNS", "SCORE_GAP", "PITCHER_DECISION",
+           "BATTER_HIT_IN_INNING"}
+
+#: BATTER_HIT_IN_INNING 전용 settlement.inning 상한(check 11). 정본은 py-collector
+#: `kbo_collector/game_records.py`의 `INNING_MAX = 11`(연장 포함 KBO 경기 이닝
+#: 파서 상한)이고 여기는 그 사본이다 — TEAM_CODE_NAMES와 같은 하드코드 미러 패턴.
+#: 그쪽 값이 바뀌면 여기도 맞출 것.
+INNING_MAX = 11
+
+#: BATTER_HIT_IN_INNING 전용 settlement.half 허용값(check 11). BE
+#: `com.skhynix.domain.game.entity.InningHalf`의 enum 이름 문자열이다(TOP=초,
+#: BOTTOM=말). DB 컬럼(`quiz.settlement_half`)에는 ordinal(0/1)로 저장되지만,
+#: candidate JSON 계약은 **이름 문자열**이다 — `QuizCandidate.Settlement.half()`를
+#: BE가 `InningHalf.valueOf(...)`로 역직렬화한다(VictoryFairy_BE 커밋 3e2f30f0
+#: 실측). 0/1 정수를 그대로 쓰면 그 역직렬화가 깨진다 — 흔한 오해이므로 명시한다.
+INNING_HALVES = {"TOP", "BOTTOM"}
 
 #: format별 필수 option 개수(check 2). 주관식은 계약에 없다.
 FORMAT_OPTION_COUNTS = {"OX": 2, "BINARY": 2, "MULTI4": 4}
@@ -360,6 +381,28 @@ def validate_candidate(c: dict, catalog: dict, banned: list) -> list:
         violations.append(
             f"{template_id}는 경기 유닛(gameId 있음)에 쓸 수 없음 — 로스터 기반이라 "
             f"팀 특화 유닛(perTeam) 전용(교차 중복 방지, check 10)")
+
+    # 11. PREDICTION BATTER_HIT_IN_INNING 전용 — inning·half 필수(2026-10-04 신설)
+    # BE QuizIngestService.ingestPrediction()이 이 metric일 때만 settlement.inning/
+    # half로 Quiz.settlementInning/settlementHalf를 채운다(그 외 metric은 이
+    # 필드를 전혀 보지 않으므로 검사하지 않는다 — 기존 WIN_TEAM 등 후보는 이 필드가
+    # 없어도/있어도 그대로 통과한다, 기존 동작 유지). kind!="PREDICTION"이거나
+    # settlement가 dict가 아니면 이미 위 3/4에서 걸리므로 여기선 재검사하지 않는다.
+    settlement = c.get("settlement")
+    if (kind == "PREDICTION" and isinstance(settlement, dict)
+            and settlement.get("metric") == "BATTER_HIT_IN_INNING"):
+        inning = settlement.get("inning")
+        if not (isinstance(inning, int) and not isinstance(inning, bool)
+                and 1 <= inning <= INNING_MAX):
+            violations.append(
+                f"BATTER_HIT_IN_INNING 문항은 settlement.inning이 1~{INNING_MAX} "
+                f"사이 정수여야 함: {inning!r}")
+        half = settlement.get("half")
+        if half not in INNING_HALVES:
+            violations.append(
+                f"BATTER_HIT_IN_INNING 문항은 settlement.half가 "
+                f"{sorted(INNING_HALVES)!r} 중 하나여야 함(BE InningHalf#name() "
+                f"문자열 — 0/1 정수가 아님): {half!r}")
 
     return violations
 

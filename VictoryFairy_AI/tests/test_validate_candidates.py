@@ -10,9 +10,73 @@ CATALOG = {"H2H_SEASON_RECORD": {"id": "H2H_SEASON_RECORD", "kind": "KNOWLEDGE",
                         "format": "MULTI4", "enabled": False},
            "PRED_WIN_LOSE": {"id": "PRED_WIN_LOSE", "kind": "PREDICTION",
                              "format": "BINARY", "enabled": True},
+           "PRED_BATTER_HIT_INNING": {"id": "PRED_BATTER_HIT_INNING",
+                                      "kind": "PREDICTION", "format": "BINARY",
+                                      "subjectScope": "PLAYER", "enabled": True},
            "CAREER_PATH": {"id": "CAREER_PATH", "kind": "KNOWLEDGE",
                           "format": "MULTI4", "enabled": True}}
 BANNED = ["음주", "폭행"]
+
+
+def ok_batter_hit_inning():
+    # 실제 존재하는 경기(2026-10-03 KIA@LG, naverGameId 20261003HTLG02026)와 실제
+    # 선수(KIA 김도영, kboPlayerId 52605)로 만든 샘플 — away팀(KIA) 소속이라
+    # half="TOP"(초). deadlineAt은 그 경기 startTime(14:00 KST) - 2시간 = 03:00Z.
+    return {"quizId": "QZ-20261003-901", "gameId": "20261003HTLG02026",
+            "kind": "PREDICTION", "type": "PRED_BATTER_HIT_INNING",
+            "templateId": "PRED_BATTER_HIT_INNING", "format": "BINARY",
+            "question": "오늘 KIA-LG 3회 초, 김도영은 안타를 칠까?",
+            "options": [{"id": "A", "text": "안타를 친다"},
+                        {"id": "B", "text": "안타를 치지 못한다"}],
+            "answer": None, "evidence": None,
+            "settlement": {"metric": "BATTER_HIT_IN_INNING",
+                           "gameId": "20261003HTLG02026", "inning": 3, "half": "TOP"},
+            "difficulty": "MEDIUM", "pointReward": 50, "bqReward": 2,
+            "status": "PENDING", "createdAt": "2026-10-02T23:50:00Z",
+            "deadlineAt": "2026-10-03T03:00:00Z", "createdBy": "AI_ENGINE",
+            "teamCodes": ["HT", "LG"],
+            "subject": {"scope": "PLAYER", "playerIds": [52605], "teamCodes": [],
+                        "gameId": None}}
+
+
+def test_batter_hit_inning_valid_passes():
+    assert vc.validate_candidate(ok_batter_hit_inning(), CATALOG, BANNED) == []
+
+
+def test_batter_hit_inning_requires_inning_in_range():
+    c = ok_batter_hit_inning(); c["settlement"]["inning"] = 12   # INNING_MAX=11 초과
+    violations = vc.validate_candidate(c, CATALOG, BANNED)
+    assert any("settlement.inning" in v for v in violations)
+
+    c = ok_batter_hit_inning(); c["settlement"]["inning"] = 0   # 1 미만
+    assert any("settlement.inning" in v for v in vc.validate_candidate(c, CATALOG, BANNED))
+
+    c = ok_batter_hit_inning(); del c["settlement"]["inning"]   # 부재
+    assert any("settlement.inning" in v for v in vc.validate_candidate(c, CATALOG, BANNED))
+
+
+def test_batter_hit_inning_half_must_be_top_or_bottom_string():
+    # half는 BE InningHalf#name() 문자열("TOP"/"BOTTOM")이어야 한다 — 흔히
+    # 오해하는 0/1 정수 표기는 거부된다(BE 역직렬화 계약, generation-rules.md §3).
+    c = ok_batter_hit_inning(); c["settlement"]["half"] = 0
+    violations = vc.validate_candidate(c, CATALOG, BANNED)
+    assert any("settlement.half" in v for v in violations)
+
+    c = ok_batter_hit_inning(); c["settlement"]["half"] = "1"
+    assert any("settlement.half" in v for v in vc.validate_candidate(c, CATALOG, BANNED))
+
+    c = ok_batter_hit_inning(); c["settlement"]["half"] = "MIDDLE"
+    assert any("settlement.half" in v for v in vc.validate_candidate(c, CATALOG, BANNED))
+
+
+def test_other_prediction_metrics_unaffected_by_inning_half_check():
+    # check 11은 metric==BATTER_HIT_IN_INNING일 때만 적용된다 — WIN_TEAM 등
+    # 기존 PRED_* 후보는 inning/half가 없어도(기존 동작) 그대로 통과해야 한다.
+    c = ok_knowledge()
+    c.update(kind="PREDICTION", templateId="PRED_WIN_LOSE", answer=None, evidence=None,
+             settlement={"gameId": "20260730LGOB02026", "metric": "WIN_TEAM"},
+             gameId="20260730LGOB02026")
+    assert vc.validate_candidate(c, CATALOG, BANNED) == []
 
 
 def ok_knowledge():
