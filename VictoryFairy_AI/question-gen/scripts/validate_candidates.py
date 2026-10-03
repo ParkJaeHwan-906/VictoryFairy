@@ -9,6 +9,8 @@
 실재하는지, 활성 상태인지, kind/format이 선언과 일치하는지 확인하고,
 `question-gen/config/banned-topics.txt`로 안전 규칙(스펙 4.2, 사건사고·법적
 논란·사생활·건강 소재 금지)의 결정적 부분(키워드 부분 문자열 매칭)을 검사한다.
+로스터 기반 템플릿(CAREER_PATH·MEME_ORIGIN·RELATION_LINK)이 경기 유닛에
+섞여 들어가 팀 특화 유닛과 교차 중복을 일으키는 것도 막는다(check 10).
 
 stdlib + PyYAML만 사용(boto3 금지).
 """
@@ -64,6 +66,17 @@ TEAM_CODE_NAMES = {
 #: subject.scope 허용값(check 9, 스펙 4.3 v2). scope는 문항별 판단이 아니라
 #: 카탈로그 템플릿의 `subjectScope` 선언을 그대로 따라야 한다.
 SUBJECT_SCOPES = {"PLAYER", "TEAM", "MATCHUP", "LEAGUE", "GAME"}
+
+#: 경기 유닛(gameId 있음)에서 금지하는 템플릿(check 10, 2026-10-03 신설).
+#: 2026-10-03 실행에서 경기 유닛과 팀 특화 유닛이 서로 모른 채 같은 선수의
+#: CAREER_PATH·MEME_ORIGIN·RELATION_LINK를 독립적으로 뽑아 39건 중 28건이
+#: 교차 중복으로 폐기됐다(`wiki/_meta/casebook/bad.md` #102). 이 세 템플릿은
+#: 로스터 기반이라 경기 당일 여부와 무관하고(perTeam이 이미 매일 전담), 경기
+#: 유닛에는 애초에 재료 자격이 없어야 한다 — 프롬프트 설명만으로는 다시 샐 수
+#: 있어 결정적 게이트로 못박는다. 소속은 `subjectScope`(PLAYER)로도 추정
+#: 가능하지만, 이 세 템플릿만 명시적으로 금지하는 것이 과거 이력과 더 안전하게
+#: 호환된다(RECORD_OX 등 다른 PLAYER scope 템플릿까지 건드리지 않음).
+GAME_UNIT_FORBIDDEN_TEMPLATES = {"CAREER_PATH", "MEME_ORIGIN", "RELATION_LINK"}
 
 
 # ── 로더 ────────────────────────────────────────────────
@@ -341,6 +354,12 @@ def validate_candidate(c: dict, catalog: dict, banned: list) -> list:
                 violations.append(
                     f"subject.teamCodes의 팀({code}={name})이 정답 보기 문면에 등장"
                     f"(정답 유출): \"{answer_text}\"")
+
+    # 10. 경기 유닛 전용 템플릿 금지(교차 중복 방지, 2026-10-03 신설)
+    if c.get("gameId") is not None and template_id in GAME_UNIT_FORBIDDEN_TEMPLATES:
+        violations.append(
+            f"{template_id}는 경기 유닛(gameId 있음)에 쓸 수 없음 — 로스터 기반이라 "
+            f"팀 특화 유닛(perTeam) 전용(교차 중복 방지, check 10)")
 
     return violations
 
