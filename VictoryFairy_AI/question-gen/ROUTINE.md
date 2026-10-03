@@ -202,6 +202,66 @@ validate_candidates.py` check 10이 이걸 결정적으로 막는다(`gameId`가
 이 세 템플릿이면 하드 실패) — 프롬프트 설명만으로는 다시 샐 수 있다고
 판단해 게이트로 못박았다.
 
+### 3-1. PRED_BATTER_HIT_INNING 전용 절차 (2026-10-04 신설 — 실험적/제한적)
+
+이 템플릿은 "오늘 경기 특정 이닝에 특정 타자가 안타를 칠지" 예측하고, 다른
+`PRED_*`와 달리 **이닝 트리거 기반 실시간 정산**이다 — py-collector가 그 이닝이
+끝나는 시점에 S3 `inning-events/{date}/{gameId}/{inning}-{half}.json`에 적재하는
+사실로 BE(`QuizSettlementListener`)가 나중에 정산한다(생성 시점엔 다른 `PRED_*`
+처럼 `answer`를 모른다). **경기 문항(perGame) 묶음에서만 쓴다** — 특정 경기·
+이닝이 전제이므로 팀 특화(perTeam)·공통 묶음에는 쓰지 않는다.
+
+- **조사 결과(2026-10-04 실측) — 확정 선발 라인업 소스 없음**: 경기 전 확정
+  타순은 `question-source/`에 없다. py-collector의 `games_sync`가 네이버
+  preview API로 MySQL `game_lineups`에는 적재하지만(`kbo_collector/run.py`의
+  `_land_preview_lineups`), `kbo_collector/exports/exporter.py`의 `READERS`에
+  그 docType용 reader가 없어 S3로 export되지 않는다(이 카탈로그 needs 어휘
+  사전의 `schedule.lineup` 항목도 이미 "미지원"으로 명시돼 있다 — 같은 이유로
+  `TODAY_CLEANUP`·`POSITION_WHO`도 비활성). **py-collector 코드를 고쳐 새 export
+  reader를 추가하는 것은 이번 변경 범위 밖이다**(별도 PR 대상 — 억지로 이 routine
+  단계에서 우회하지 않는다).
+- **그래서 택한 대안**: 위키 선수 문서(`wiki/players/*.md`)에도 "주전/타순"
+  구조화 필드가 없다(`wiki-builder/templates/player-doc.md` 확인 — 프로필 섹션은
+  자유 서술이라 타순 추출 근거로 못 쓴다). 대신 `stats.season_leaders`
+  (`wiki/stats/kbo-official.json#seasonLeaders.hitterBasic`, 타율 상위 30명 —
+  `SEASON_STAT_LEADER` 템플릿이 이미 쓰고 있는 실재 데이터)에서 **오늘 경기 양
+  팀 소속 선수**를 추려 "사실상 매일 출전하는 주전"으로 추정해 쓴다. 그 선수명을
+  `envelope.player_profile`(최신 파티션)의 `title`/`content`와 문자열 대조해
+  `kboPlayerId`(`payload.playerId`)로 매핑한다(동명이인이 있으면 `entities.
+  teamCodes`로 추가 대조할 것).
+- **한계(투명하게 남긴다)**: 이 추정은 확정 라인업이 아니다 — 그 선수가 실제로
+  결장·교체되면 해당 이닝에 전혀 타석에 서지 않을 수 있다. BE
+  `InningEventFact`/`QuizSettlementService` 설계상 "관측 없음"은 "미적중"과
+  동일하게 처리되므로(스펙 범위, 결함 아님) 퀴즈 자체는 항상 정산되지만, 체감상
+  "무조건 미적중" 쪽으로 편향될 수 있다는 점을 안다. 확정 라인업 export가
+  생기면(py-collector 쪽 작업) 이 절을 고쳐 `needs`를 `schedule.lineup`로
+  바꿀 것.
+- **이닝 선택**: 1~5회 중에서 고른다(`settlement.inning`은 계약상 1~11까지
+  허용되지만 — `validate_candidates.py`의 `INNING_MAX`, py-collector
+  `game_records.py`와 동일 — 후반 이닝일수록 그 선수가 교체·결장으로 안 뛸
+  가능성이 커지므로 낮은 이닝을 우선한다. 품질 지침일 뿐 게이트 상한은 아니다).
+- **초/말 결정**: `gameId`(`YYYYMMDD{awayCode}{homeCode}0{season}`)에서 고른
+  선수의 소속이 away팀이면 `half: "TOP"`, home팀이면 `half: "BOTTOM"`(BE
+  `InningHalf` — TOP=초, BOTTOM=말). **문자열이다, `0`/`1` 정수가 아니다** —
+  `validate_candidates.py` check 11이 이를 하드 검사한다.
+- **settlement 채우기**: `settlement.metric: "BATTER_HIT_IN_INNING"`,
+  `settlement.gameId`는 top-level `gameId`와 반드시 같은 값(기존 `PRED_*` 규칙과
+  동일, check 8(a)), `settlement.inning`·`settlement.half`는 위에서 고른 값.
+- **subject 채우기**: `subjectScope: PLAYER`(카탈로그 선언) — `subject.playerIds`
+  에 고른 선수의 `kboPlayerId` 정수 하나(BE `QuizIngestService.resolvePlayer()`
+  가 이 필드로 `players.kbo_player_id`를 찾아 player FK를 정한다 — **subject를
+  빠뜨리면 BE가 player를 못 찾아 영영 정산되지 않는다.** 다른 PREDICTION
+  템플릿과 달리 이 템플릿은 subject가 사실상 필수다). `teamCodes`·`gameId`는
+  빈다(PLAYER scope 카디널리티 규칙, `validate_candidates.py` check 9).
+- **deadlineAt**: 다른 `PRED_*` 템플릿과 **같은 규칙**을 그대로 쓴다
+  (`generation-rules.md` §10 — 경기 시작 2시간 전). 특정 이닝의 시작 시각은
+  알 수 없지만, 이 규칙은 경기 전체 시작을 막으므로 **어떤 이닝을 고르더라도
+  그 이닝 시작보다 항상 먼저다** — 이닝별 별도 deadline 계산이 필요 없는 이유다.
+- **보기(options) 순서 고정 계약**: BE 고정 계약
+  (`QuizIngestService.ingestPrediction` javadoc) — `options[0]`=적중(예: "안타를
+  친다"), `options[1]`=미적중(예: "안타를 치지 못한다"). 텍스트가 아니라 이
+  인덱스 관례로 정산하므로 순서를 바꾸면 정산이 거꾸로 채점된다.
+
 경기 문항·팀 특화 문항 모두 다른 팀 선수를 섞지 않는다. 삼성 팬이 삼성 묶음을
 보는 중에 두산 선수 밈이 뜨는 것이 이 구조가 막으려는 바로 그 상황이다. 오답
 보기도 같은 규칙을 따르되, 오답으로 쓰는 다른 팀 선수 이름은 허용한다(정답이
@@ -277,7 +337,9 @@ validate_candidates.py` check 10이 이걸 결정적으로 막는다(`gameId`가
    - `question-gen/prompts/generation-rules.md`(작성 규칙, §7 quizId 가제
      원칙·§11 subject 규칙 포함)와 casebook 경로(위키 클론이 있으면
      `.work/wiki-repo/wiki/_meta/casebook/{good,bad}.md`, 없으면 리포 시드
-     `question-gen/casebook/{good,bad}.md`)
+     `question-gen/casebook/{good,bad}.md`). 경기 유닛에 `PRED_BATTER_HIT_INNING`
+     이 포함되면 위 §3-1(선수·이닝 선정, settlement/subject 채우기, 보기 순서
+     고정 계약)도 함께 전달한다 — 일반 PRED_* 절차와 다른 부분이 있다
    - 최근 7일 출제 이력 중 **그 유닛의 teamCodes(또는 공통 유닛은
      subject.teamCodes/playerIds)와 겹치는 것만** 추려서 건넨다(중복 회피창,
      §3 — 서브에이전트가 전체 이력을 다시 긁지 않아도 되게)

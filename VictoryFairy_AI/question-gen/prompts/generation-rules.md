@@ -58,10 +58,19 @@ format·needs·intent·distractor·settlement·difficulty)을 정하고, 이 문
   "정답 근거"로 인용하지 않는다(예측은 애초에 정답이 없으므로 evidence 필드 자체가
   `null`이다).
 - `settlement.metric`은 해당 템플릿의 `settlement` 값을 **그대로** 쓴다
-  (`WIN_TEAM` / `TOTAL_RUNS` / `SCORE_GAP` / `PITCHER_DECISION`) — LLM이 새로운
-  지표명을 만들어내지 않는다. `settlement.gameId`는 데이터 바인딩 단계에서 확정된
-  오늘 경기의 `gameId`를 그대로 넣는다.
+  (`WIN_TEAM` / `TOTAL_RUNS` / `SCORE_GAP` / `PITCHER_DECISION` /
+  `BATTER_HIT_IN_INNING`) — LLM이 새로운 지표명을 만들어내지 않는다.
+  `settlement.gameId`는 데이터 바인딩 단계에서 확정된 오늘 경기의 `gameId`를
+  그대로 넣는다.
 - `answer`/`evidence`는 예측 퀴즈에서 항상 `null`.
+- **`BATTER_HIT_IN_INNING`(`PRED_BATTER_HIT_INNING`) 전용** — 이닝 트리거 기반
+  실시간 정산이라 settlement에 필드 두 개가 더 필요하다: `settlement.inning`
+  (1~11 정수)·`settlement.half`(`"TOP"`/`"BOTTOM"` **문자열** — BE
+  `InningHalf#name()`과 같은 축이다, `0`/`1` 정수가 아니다). 선수·이닝을 고르는
+  절차와 이 지표의 실험적 성격(확정 라인업 소스 부재)은 `ROUTINE.md` §3-1 참고.
+  `subject.playerIds`에 그 선수의 `kboPlayerId`를 **반드시** 채운다(§11 — BE가
+  이 필드로 player FK를 찾아 정산 대상을 정하므로, 다른 PREDICTION과 달리 이
+  템플릿은 subject가 빠지면 영영 정산되지 않는다).
 
 ## 4. 안전 규칙 (스펙 4.2 — 생성 단계 1차 방어선)
 
