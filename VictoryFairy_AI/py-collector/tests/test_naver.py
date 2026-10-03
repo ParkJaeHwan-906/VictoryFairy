@@ -57,3 +57,60 @@ def test_relay_is_empty():
     assert naver.relay_is_empty(empty) is True
     assert naver.relay_is_empty({}) is True
     assert naver.relay_is_empty({"result": None}) is True
+
+
+# --------------------------------------------------------------------------- extract_inning_events
+# relay_inning_events.json 은 실측 샘플(2026-09-20 한화-LG전, S3 raw-json/relay)의
+# 5회 실제 구조를 그대로 옮긴 fixture다 — relay_inning.json(relay_is_empty 전용
+# synthetic)과는 별개.
+INN_FIX = json.loads(
+    (FIX / "relay_inning_events.json").read_text(encoding="utf-8"))
+
+
+def test_extract_inning_events_finds_hits_by_result_text_top_half():
+    # 5회초(away 공격, half=0): 한지윤 1루타 / 최인호 1루타 / 정은원 번트안타만
+    # 안타 — 병살타·희생플라이 아웃은 "안타"/"루타"/"홈런" 중 어느 것도 포함하지
+    # 않아 섞이지 않는다.
+    events = naver.extract_inning_events(INN_FIX, inning=5, half=0)
+    assert events == {
+        "60123": {"hit": True},   # 한지윤 : 우익수 앞 1루타
+        "60456": {"hit": True},   # 최인호 : 우익수 앞 1루타
+        "60789": {"hit": True},   # 정은원 : 투수 왼쪽 번트안타
+    }
+    # 병살타(허인서)·희생플라이 아웃(박정현)은 안타가 아니다
+    assert "60999" not in events
+    assert "61000" not in events
+
+
+def test_extract_inning_events_finds_hits_by_result_text_bottom_half():
+    # 5회말(home 공격, half=1): 문정빈 1루타 / 오스틴 1루타 / 박해민 2루타 /
+    # (fallback pcode 타석) 이재원 홈런. 강백호 땅볼 아웃·송찬의 삼진은 비안타.
+    events = naver.extract_inning_events(INN_FIX, inning=5, half=1)
+    assert events == {
+        "62001": {"hit": True},   # 문정빈 : 중견수 왼쪽 1루타
+        "62002": {"hit": True},   # 오스틴 : 좌익수 앞 1루타
+        "62003": {"hit": True},   # 박해민 : 우익수 오른쪽 2루타
+        "62006": {"hit": True},   # 이재원 : 좌익수 뒤 홈런 (batterRecord 없이 fallback)
+    }
+    assert "62004" not in events  # 강백호 : 유격수 땅볼 아웃
+    assert "62005" not in events  # 송찬의 : 삼진 아웃
+
+
+def test_extract_inning_events_pcode_fallback_to_current_game_state_batter():
+    # 마지막 타석은 textOptions 어디에도 batterRecord가 없다(소개 없이 바로 결과) —
+    # currentGameState.batter 로 pcode 를 떨어뜨려 받아야 한다.
+    events = naver.extract_inning_events(INN_FIX, inning=5, half=1)
+    assert events["62006"] == {"hit": True}
+
+
+def test_extract_inning_events_wrong_inning_or_half_returns_empty():
+    assert naver.extract_inning_events(INN_FIX, inning=6, half=0) == {}
+    # half 를 뒤집으면(초<->말) 그 공수의 안타는 전혀 안 걸린다
+    assert "60123" not in naver.extract_inning_events(INN_FIX, inning=5, half=1)
+    assert "62001" not in naver.extract_inning_events(INN_FIX, inning=5, half=0)
+
+
+def test_extract_inning_events_handles_empty_or_missing_relay():
+    assert naver.extract_inning_events({}, inning=5, half=0) == {}
+    assert naver.extract_inning_events(None, inning=5, half=0) == {}
+    assert naver.extract_inning_events({"result": None}, inning=5, half=0) == {}
