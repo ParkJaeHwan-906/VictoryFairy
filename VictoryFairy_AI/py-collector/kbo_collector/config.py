@@ -36,6 +36,12 @@ class Settings(BaseSettings):
         default="{base}/schedule/games/{gameId}/preview",
         validation_alias="COLLECTOR_PREVIEW_URL_TEMPLATE",
     )
+    # games_sync 라이브 폴링에서 이닝/공수 전환을 감지해 막 끝난 이닝의 relay를
+    # 당겨와 안타 이벤트를 S3에 기록할지. 꺼져 있으면(기본) games_sync는 기존
+    # 동작과 100% 동일하다 — BE/Infra의 "이닝 단위 예측 퀴즈 정산" 소비 경로가
+    # 준비되기 전에는 off로 둔다.
+    inning_events_enabled: bool = Field(
+        default=False, validation_alias="COLLECTOR_INNING_EVENTS_ENABLED")
 
     # --- community ---
     targets_file: str = Field(default="config/targets.yaml", validation_alias="COLLECTOR_TARGETS_FILE")
