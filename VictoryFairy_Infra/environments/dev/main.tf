@@ -123,6 +123,9 @@ module "quiz_irsa" {
 
   # ⚠ 이름의 -dev 에 속지 말 것 — crawl-dev 가 크롤 파이프라인의 운영 버킷이다(crawl-local 이 테스트).
   crawl_bucket_name = var.crawl_bucket_name
+
+  # 이닝 종료 이벤트 큐 — py-collector → S3 → SQS(refine_pipeline 소유) → quiz-app 소비.
+  inning_events_queue_arn = module.refine_pipeline.inning_events_queue_arn
 }
 
 # 퍼블릭 DNS(Route53) + TLS(ACM) + ExternalDNS IRSA.
