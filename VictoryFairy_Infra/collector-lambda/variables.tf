@@ -94,6 +94,12 @@ variable "quiz_source_jobs_enabled" {
   default     = false
 }
 
+variable "inning_events_enabled" {
+  description = "games_sync 의 이닝/공수 전환 감지 + 단일 이닝 relay 조회 + S3 inning-events/ 적재 기능 on/off. py-collector 배포 이미지가 이 분기(_sync_games_for_date)를 아는 뒤에 true 로 올린다 — quiz_source_jobs_enabled 와 같은 절차."
+  type        = bool
+  default     = false
+}
+
 variable "kbo_records_schedule" {
   description = "KBO 기록실 스냅샷 -> S3. 기본 07:00 KST = 22:00 UTC (전날 경기가 기록실에 반영된 뒤)."
   type        = string
