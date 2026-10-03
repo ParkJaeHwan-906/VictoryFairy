@@ -57,7 +57,10 @@ bq:
 # 통과분이 모자라면 있는 만큼만, 남으면 재미 점수 내림차순으로 채운다.
 #
 # perGame은 **경기 하나당**, common은 **하루 전체**에 적용된다. 오늘 5경기면
-# 하루 총량은 perGame 합계 × 5 + common 합계 = 20×5 + 22 = 122문항.
+# 하루 총량은 perGame 합계 × 5 + common 합계 = 20×5 + 22 = 122문항
+# (이 절의 "20"은 2026-08-12 당시 값이다 — 2026-10-03 재배분 이후 실제 perGame
+# 합계는 아래 volume.perGame을 봐라. 이 절 자체는 그 시절 조정 근거를 남겨둔
+# 역사 기록이라 숫자를 고치지 않는다).
 #
 # ⚠️ perGame은 **구단별 문항 수와 같다 — 양 팀이 나눠 갖지 않는다.** 귀속 축
 #    (top-level teamCodes = "어느 팀 팬에게 보여줄지")에 그 경기 양 팀이 모두
@@ -122,8 +125,10 @@ bq:
 # 없는 날" 절차(같은 템플릿을 그날의 보충용으로만 쓰던 것)를 **매일 기본으로
 # 돌리는 것**으로 승격한 것이 이 블록이다 — 더는 "보충"이 아니라 "기본 할당".
 #
-# 1인 체감 목표: perGame(20, 경기 있는 날만) + common(22) + perTeam(90) =
-#   경기 있는 날 132 / 경기 없는 날 112 — 둘 다 100~150 범위 안.
+# 1인 체감 목표(2026-10-03 perGame 재배분 반영): perGame(16, 경기 있는 날만) +
+#   common(22) + perTeam(90) = 경기 있는 날 128 / 경기 없는 날 112 — 둘 다
+#   100~150 범위 안(perGame을 20→16으로 줄인 건 재료 없는 몫을 덜어낸 것이라
+#   목표 달성 가능성 자체는 그대로다 — 아래 "2026-10-03" 절 참고).
 #
 # ⚠️ EXPERT는 perTeam에서도 여전히 재료가 얇다 — 유일한 EXPERT 템플릿
 #    `RELATION_LINK`는 팀별 안전 관계 엣지가 실측 1~12건뿐이라(아래 참고),
@@ -173,10 +178,23 @@ bq:
 #    출발하므로 한 사이클 관측 후 candidateMultiplier까지 손봐야 할 수 있다.
 volume:
   perGame:            # 경기 문항 — gameId·teamCodes가 붙는 문항, 경기 하나당
-    EASY: 4           # = 그 경기 양 팀 각각의 구단별 문항 수 (나눠 갖지 않는다)
-    MEDIUM: 10        # 관측 병목 — 10개 묶음 전부 구 슬롯 5에서 잘렸다
-    HARD: 5
-    EXPERT: 1         # 실측 충족 0~1. RELATION_LINK 엣지가 쌓이면 상향
+                      # = 그 경기 양 팀 각각의 구단별 문항 수 (나눠 갖지 않는다)
+                      #
+                      # 2026-10-03 재배분 — CAREER_PATH·MEME_ORIGIN·RELATION_LINK를
+                      # 경기 유닛에서 금지했다(ROUTINE.md §3, validate_candidates.py
+                      # check 10). 이 셋이 perGame의 EASY·HARD·EXPERT 몫을 채우던
+                      # 재료였는데, 팀 특화 유닛(perTeam)과 겹쳐 2026-10-03 실행에서
+                      # 교대로 중복 생성→폐기 39건 중 28건을 냈다(casebook bad.md
+                      # #102). 남는 재료(어제 승자·스코어·승리투수·맞대결·상대전적·
+                      # 예측 8종, 전부 MEDIUM 또는 PRED_SCORE_GAP=HARD 하나)에 맞춰
+                      # EASY·HARD·EXPERT를 크게 줄이고 MEDIUM으로 옮긴다.
+    EASY: 2           # YESTERDAY_WINNER 하나뿐 — 단일 사실, 늘려도 재료 없음
+    MEDIUM: 12        # YESTERDAY_SCORE·WINNING_PITCHER·LAST_MATCHUP·
+                      # H2H_SEASON_RECORD·PRED_WIN_LOSE·PRED_TOTAL_RUNS·
+                      # PRED_UNDERDOG·PRED_STREAK 8종 — perGame에서 유일하게
+                      # 재료가 넉넉한 난이도
+    HARD: 2           # PRED_SCORE_GAP 하나뿐
+    EXPERT: 0         # RELATION_LINK 제외 후 perGame엔 EXPERT 재료가 없다
   common:             # 공통 문항 — gameId 없고 teamCodes도 빈 문항, 하루 전체
     EASY: 8           # 관측 병목(실측 최대 6 = 구 슬롯 6)
     MEDIUM: 6         # 실측 최대 5로 구 슬롯 8에 못 미쳤다 — 올려도 효과 없음
