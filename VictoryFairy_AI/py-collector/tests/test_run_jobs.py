@@ -773,7 +773,8 @@ def test_sync_games_for_date_lands_inning_events_on_transition_when_enabled(monk
     assert len(sink.put_json_calls) == 1
     key, payload = sink.put_json_calls[0]
     assert key == keys.inning_event_key("2026-07-10", "live", 3, 0)
-    assert payload == {"gameId": "live", "date": "2026-07-10", "inning": 3, "half": 0,
+    # BE InningEventFact.half 계약(domain InningHalf#name()) — ordinal 아니라 문자열.
+    assert payload == {"gameId": "live", "date": "2026-07-10", "inning": 3, "half": "TOP",
                        "events": {"99999": {"hit": True}}}
     # 부가 기능이 DB 동기화 자체는 막지 않는다 — "live" 의 새 상태(3, 1)는 그대로 들어간다
     by_id = {c["naver_game_id"]: c for c in db.calls}
