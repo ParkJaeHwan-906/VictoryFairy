@@ -111,6 +111,32 @@ def land_results(date, game_ids, *, settings, sink, client, journal, force=False
     return landed
 
 
+def _fetch_relay_response(game_id, inning, *, settings, client):
+    # land_relays(전체 적재)와 fetch_single_inning_relay(단일 이닝 재조회)가 같이
+    # 쓰는 "relay URL 빌드 + fetch" 한 줄 — 중복 두지 않으려 뺐다. FetchError 는
+    # 그대로 호출자에게 전달한다(재시도/죽은 편지 처리 여부는 호출자마다 다르다).
+    url = naver.relay_url(settings, game_id, inning)
+    return fetch.fetch(client, url, settings=settings, referer=settings.naver_referer)
+
+
+def fetch_single_inning_relay(game_id, inning, *, settings, client) -> dict | None:
+    """이미 끝난 특정 이닝 하나의 relay 문서만 조회한다. 빈 이닝이면 None.
+
+    `land_relays` 내부의 "한 이닝 fetch -> relay_is_empty 체크" 를 재사용 가능하게
+    뺀 버전이다. **1..`RELAY_MAX_INNING` 루프나 "빈 이닝=경기 종료" 판단은 가져오지
+    않는다** — land_relays 는 "경기당 전체 이닝을 끝까지 적재"가 목적이라 빈 이닝을
+    "이 경기는 이제 끝, 다음 경기로" 신호로 쓰지만, 이 함수는 games_sync 의 이닝
+    전환 감지처럼 "이미 끝난 걸 아는 이닝 하나만 안전하게 조회"하는 용도라 그
+    판단 자체가 성립하지 않는다. S3 랜딩·dead-letter·체크포인트도 하지 않는다
+    (그건 land_relays 가 전체 적재 파이프라인으로서 여전히 담당).
+    """
+    resp = _fetch_relay_response(game_id, inning, settings=settings, client=client)
+    data = resp.json()
+    if naver.relay_is_empty(data):
+        return None
+    return data
+
+
 def land_relays(date, game_ids, *, settings, sink, client, journal, force=False) -> int:
     run_id = journal.run_id
     landed = 0
@@ -118,13 +144,13 @@ def land_relays(date, game_ids, *, settings, sink, client, journal, force=False)
     dead: list[str] = []
     for gid in game_ids:
         for inning in range(1, RELAY_MAX_INNING + 1):
-            url = naver.relay_url(settings, gid, inning)
             key = keys.relay_key(gid, inning)
             if not force and sink.exists(key):
                 continue
             try:
-                resp = fetch.fetch(client, url, settings=settings, referer=settings.naver_referer)
+                resp = _fetch_relay_response(gid, inning, settings=settings, client=client)
             except fetch.FetchError as exc:
+                url = naver.relay_url(settings, gid, inning)
                 sink.dead_letter("relay", date, f"{gid}-{inning}", url, exc,
                                  settings.retry_attempts, _now_iso())
                 journal.record(status="dead-letter", item_id=f"{gid}-{inning}", s3_key=key)
@@ -560,12 +586,52 @@ def _land_preview_lineups(settings, db, client, pending, team_ids, log) -> int:
     return landed
 
 
-def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=True) -> int:
+def _land_finished_inning_events(settings, sink, client, game_id, date, inning, half, log):
+    """방금 끝난 (inning, half) 의 relay 를 당겨와 안타 이벤트를 S3에 적재한다.
+
+    `_sync_games_for_date` 가 DB upsert **직전**에 읽은 "이전" (current_inning,
+    inning_half) 가 새로 받아온 값과 달라졌을 때(= 전환 감지)만 불린다. 여기
+    `inning`/`half` 는 그 **이전** 값이다 — "막 끝난 이닝은 이전 값 기준"이라는
+    요구사항 그대로. 둘 중 하나가 None 이면(경기 시작 전이라 애초에 진행 중 상태가
+    아니었음) 부를 이닝이 없으므로 아무것도 하지 않는다.
+
+    구장 조회(`_scheduled_game_stadium`)와 같은 이유로 실패를 자체 삼킨다 — 이건
+    games_sync 의 "부가" 기능(BE의 이닝 단위 퀴즈 정산용)이라, relay 조회·S3 적재가
+    실패해도 **DB 상태 동기화(sync_game)는 그대로 진행돼야** 한다.
+    """
+    if inning is None or half is None:
+        return
+    try:
+        relay = fetch_single_inning_relay(game_id, inning, settings=settings, client=client)
+        if relay is None:
+            return
+        events = naver.extract_inning_events(relay, inning, half)
+        if not events:
+            return
+        sink.put_json(keys.inning_event_key(date, game_id, inning, half), {
+            "gameId": game_id, "date": date, "inning": inning, "half": half,
+            "events": events,
+        })
+        log.info("%s %d회(half=%s) 안타 이벤트 %d명 적재", game_id, inning, half, len(events))
+    except Exception as exc:  # 부가 기능 실패가 DB 동기화를 막으면 안 된다
+        log.warning("이닝 이벤트 적재 실패 %s %d회(half=%s): %s", game_id, inning, half, exc)
+
+
+def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=True,
+                         sink=None) -> int:
     """하루치 경기를 games 에 동기화.
 
     `live_window`(단일 날짜 호출 = live 룰) 일 때만 선발 라인업까지 따라간다.
     선적재(morning/nightly, 오늘~+N일)에서는 켜지 않는다 — 미래 경기의 preview 엔
     라인업이 있을 리 없어 매 실행마다 날짜 수만큼 헛호출이 된다.
+
+    `settings.inning_events_enabled` 가 켜져 있을 때만(기본 꺼짐 — 꺼져 있으면
+    이 함수는 기존 동작과 100% 동일하다), games_sync upsert 직전에 DB의 이전
+    (current_inning, inning_half) 를 읽어 새 값과 비교한다. 달라졌으면(이닝/공수
+    전환, 또는 경기 종료로 인한 None 전환) 그 이전 값 기준 "막 끝난 이닝"의 relay를
+    당겨 안타 이벤트를 S3에 적재한다(`_land_finished_inning_events`). `sink` 가
+    None 이면(플래그를 켰는데 sink 를 안 넘긴 배선 실수) 조회 자체를 건너뛴다 —
+    DB 동기화를 막아선 안 되므로 조용히 skip 한다.
     """
     resp = fetch.fetch(client, game_records.schedule_url(settings, date),
                        settings=settings, referer=settings.naver_referer)
@@ -619,6 +685,18 @@ def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=
                 log.warning("이닝 파싱 실패 %s: statusInfo=%r",
                             g.get("gameId"), g.get("statusInfo"))
             live = status == "IN_PROGRESS"
+            new_current_inning = inning if live else None
+            new_inning_half = inning_half if live else None
+            if settings.inning_events_enabled and sink is not None:
+                # upsert 가 VALUES() 로 블라인드 오버라이트하기 전에 "지금까지"
+                # 값을 읽어둔다 — sync_game 이후에는 이미 덮여서 못 읽는다.
+                old_inning, old_half = db.get_live_inning_state(g["gameId"])
+                if (old_inning, old_half) != (new_current_inning, new_inning_half):
+                    # 전환 감지(이닝/공수 전환, 또는 경기 종료로 인한 None 전환) —
+                    # "막 끝난 이닝"은 이전 값(old_inning/old_half) 기준이다.
+                    _land_finished_inning_events(
+                        settings, sink, client, g["gameId"], date,
+                        old_inning, old_half, log)
             game_pk = db.sync_game(
                 naver_game_id=g["gameId"], game_dt=dt,
                 home_team_id=team_ids[g["homeTeamCode"]],
@@ -627,8 +705,8 @@ def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=
                 away_score=g.get("awayTeamScore") if live_or_done else None,
                 status_id=db.status_id(status),
                 stadium_id=db.stadium_id(stadium),
-                current_inning=inning if live else None,
-                inning_half=inning_half if live else None,
+                current_inning=new_current_inning,
+                inning_half=new_inning_half,
                 last_inning=last_inning)
             synced += 1
             if not live_window:
@@ -650,12 +728,12 @@ def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=
     return synced
 
 
-def job_games_sync(settings, db, date):
+def job_games_sync(settings, db, date, sink=None):
     """당일 KBO 경기 전부의 상태를 games 테이블에 동기화 (취소·예정 포함)."""
-    return job_games_sync_range(settings, db, date, date)
+    return job_games_sync_range(settings, db, date, date, sink=sink)
 
 
-def job_games_sync_range(settings, db, start, end, sleep=time.sleep) -> int:
+def job_games_sync_range(settings, db, start, end, sleep=time.sleep, sink=None) -> int:
     """[start, end] 각 날짜의 KBO 경기를 games 에 동기화하고 총 건수 반환.
 
     오늘~+N일로 부르면 아직 열리지 않은 경기가 SCHEDULED 행으로 미리 깔린다 —
@@ -666,6 +744,9 @@ def job_games_sync_range(settings, db, start, end, sleep=time.sleep) -> int:
     단일 날짜 호출(start==end)은 EventBridge 의 live 룰(days 없음)이 오는 길이라
     '당일 폴링'으로, 구간 호출은 morning/nightly 의 '선적재'로 취급한다 — 무엇을
     더 받아올지가 갈리는 근거는 _sync_games_for_date 참고.
+
+    `sink` 는 `settings.inning_events_enabled` 가 켜졌을 때만 쓰인다(이닝 전환
+    감지 시 relay 재조회 + 이벤트 S3 적재). 꺼져 있으면(기본) 넘기지 않아도 된다.
     """
     log = logging.getLogger("games_sync")
     team_ids = db.upsert_teams(dimensions.TEAMS)
@@ -678,7 +759,7 @@ def job_games_sync_range(settings, db, start, end, sleep=time.sleep) -> int:
             day = d.isoformat()
             try:
                 total += _sync_games_for_date(settings, db, client, day, team_ids, log,
-                                              live_window=live_window)
+                                              live_window=live_window, sink=sink)
             except Exception as exc:  # 하루가 막혀도 나머지 날짜는 적재한다
                 log.warning("games_sync fail %s: %s", day, exc)
             d += timedelta(days=1)
@@ -837,9 +918,11 @@ def main(argv=None) -> int:
                 # job_games_sync_range 는 fetch 클라이언트를 자체 관리한다(Lambda
                 # 핸들러가 settings/db/구간만으로 직접 호출하는 것과 동일 경로).
                 # records 와 같은 --from/--to 로 구간(예: 오늘~+7일)을 받는다.
+                # sink 는 S3RawSink 생성만(네트워크 호출 없음) — inning_events_enabled
+                # 가 꺼져 있으면(기본) 실제로 쓰이지 않는다.
                 start = args.from_date or date
                 end = args.to_date or start
-                job_games_sync_range(settings, db, start, end)
+                job_games_sync_range(settings, db, start, end, sink=S3RawSink(settings))
             else:
                 with fetch.build_client(settings) as client:
                     if args.job == "teams":

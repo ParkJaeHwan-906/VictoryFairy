@@ -30,3 +30,11 @@ def test_dead_letter_and_manifest_keys():
         "dead-letter/result/2026-07-10/gid1.json"
     assert keys.manifest_key("community", "2026-07-10", "run-9") == \
         "manifests/community/2026-07-10/run-9.json"
+
+
+def test_inning_event_key_uses_date_game_inning_half():
+    assert keys.inning_event_key("2026-09-20", "20260920HHLG02026", 5, 1) == \
+        "inning-events/2026-09-20/20260920HHLG02026/5-1.json"
+    # half 가 다르면(초/말) 다른 키 — 같은 이닝이라도 공수가 다르면 덮어쓰지 않는다
+    assert keys.inning_event_key("2026-09-20", "g1", 5, 0) != \
+        keys.inning_event_key("2026-09-20", "g1", 5, 1)
