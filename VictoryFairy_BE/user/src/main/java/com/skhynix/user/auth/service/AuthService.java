@@ -64,7 +64,11 @@ public class AuthService {
         if (userRepository.existsByEmail(request.email())) {
             throw new BusinessException(ErrorCode.DUPLICATE_EMAIL);
         }
-        if (userRepository.existsByTel(request.tel())) {
+        // tel 이 null 이면 검사하지 않는다 — existsByTel(null) 은 Spring Data JPA 파생 쿼리에서
+        // "tel IS NULL" 로 해석되어, 전화번호 없이 가입한 선행 계정 하나 때문에 그 뒤의 모든 무전화번호
+        // 가입이 DUPLICATE_TEL 로 오탐 거부된다. UNIQUE 인덱스도 NULL 중복을 허용하므로 DB 차원에서도
+        // 막을 이유가 없다.
+        if (request.tel() != null && userRepository.existsByTel(request.tel())) {
             throw new BusinessException(ErrorCode.DUPLICATE_TEL);
         }
         if (userAccountRepository.existsByNickname(request.nickname())) {
