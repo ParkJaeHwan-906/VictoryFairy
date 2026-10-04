@@ -74,6 +74,16 @@ data "aws_iam_policy_document" "quiz_app" {
     actions   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"]
     resources = [var.inning_events_queue_arn]
   }
+
+  # SQS 메시지가 가리키는 inning-events/ 문서 본문 읽기. SQS 권한만 주고 이걸 빠뜨려서
+  # (2026-10-04 라이브 운영 중 발견) 리스너가 메시지는 받되 매번 s3:GetObject
+  # AccessDenied 로 정산을 못 하고 있었다 — ListBucket 은 필요 없다(메시지가 정확한
+  # 키를 주므로 나열이 아니라 단건 조회).
+  statement {
+    sid       = "GetInningEvents"
+    actions   = ["s3:GetObject"]
+    resources = ["${local.crawl_bucket_arn}/inning-events/*"]
+  }
 }
 
 resource "aws_iam_role_policy" "quiz_app" {
