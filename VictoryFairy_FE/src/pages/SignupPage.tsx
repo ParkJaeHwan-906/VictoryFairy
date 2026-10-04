@@ -15,17 +15,11 @@ import {
   uploadSignupProfileImage,
   validateProfileImageFile,
 } from '../api';
-import type { Gender, NicknameValidationResponse } from '../api';
+import type { NicknameValidationResponse } from '../api';
 import EmailVerifySheet from '../components/EmailVerifySheet';
 import { ROUTES } from '../routes';
 import { checkPassword, checkPasswordConfirm, PASSWORD_MAX_LENGTH } from '../utils/password';
-import { checkName, checkTel, toTelDigits, TEL_MAX_LENGTH } from '../utils/profile';
-
-/** 성별 선택지. `SignupRequest.gender` 가 받는 두 값이 전부다. */
-const GENDER_OPTIONS: ReadonlyArray<{ value: Gender; label: string }> = [
-  { value: 'MALE', label: '남성' },
-  { value: 'FEMALE', label: '여성' },
-];
+import { checkName } from '../utils/profile';
 
 /**
  * 가입·로그인 실패를 CTA 위에 띄울 한 줄로 옮긴다.
@@ -60,9 +54,9 @@ function toSubmitMessage(error: unknown, afterSignup: boolean): string {
  * 시트에서 인증에 성공해야 이메일 항목이 통과한다. 모든 항목이 통과해야 CTA 가 열리고,
  * 누르면 가입(`signup`) → 로그인(`login`) → 구단 선택(`ROUTES.teamSelect`) 순으로 이어진다.
  *
- * 이름·전화번호·성별은 Figma 에 칸이 없지만 `SignupRequest` 의 필수값이라 함께 받는다.
- * 없이 보내면 가입이 400 으로 떨어져 화면이 성립하지 않는다 — 스타일은 기존 입력 규격을
- * 그대로 따르게 두어 디자인과 어긋나지 않게 했다.
+ * 이름은 Figma 에 칸이 없지만 `SignupRequest` 의 필수값이라 함께 받는다 — 없이 보내면
+ * 가입이 400 으로 떨어져 화면이 성립하지 않는다. 전화번호·성별은 칸 자체를 없애고
+ * 항상 `null` 로 보낸다.
  */
 export default function SignupPage() {
   const navigate = useNavigate();
@@ -72,9 +66,6 @@ export default function SignupPage() {
   const [passwordConfirm, setPasswordConfirm] = useState('');
   const [nickname, setNickname] = useState('');
   const [name, setName] = useState('');
-  /** 숫자만 담는다 — 화면에서 하이픈을 걷어내고(`toTelDigits`) 그대로 전송한다. */
-  const [tel, setTel] = useState('');
-  const [gender, setGender] = useState<Gender | null>(null);
 
   const [isSendingCode, setIsSendingCode] = useState(false);
   const [isVerifySheetOpen, setIsVerifySheetOpen] = useState(false);
@@ -128,9 +119,8 @@ export default function SignupPage() {
     nicknameCheck && nicknameCheck.nickname === trimmedNickname ? nicknameCheck : null;
 
   const trimmedName = name.trim();
-  /** 이름·전화번호도 입력 전에는 판정하지 않는다 — 비밀번호 칸과 같은 이유다. */
+  /** 이름도 입력 전에는 판정하지 않는다 — 비밀번호 칸과 같은 이유다. */
   const nameCheck = name.length > 0 ? checkName(name) : null;
-  const telCheck = tel.length > 0 ? checkTel(tel) : null;
 
   /** 디자인의 CTA 기본값은 Disable 상태 — 모든 항목의 검증이 끝나야 활성화한다. */
   const canSubmit =
@@ -139,8 +129,6 @@ export default function SignupPage() {
     passwordConfirmCheck?.valid === true &&
     nicknameResult?.valid === true &&
     nameCheck?.valid === true &&
-    telCheck?.valid === true &&
-    gender !== null &&
     !isSubmitting;
 
   /*
@@ -223,9 +211,9 @@ export default function SignupPage() {
       // 성공은 201 + raw true. false 가 오면 가입되지 않은 것으로 본다.
       const created = await signup({
         name: trimmedName,
-        tel,
+        tel: null,
         email: trimmedEmail,
-        gender,
+        gender: null,
         nickname: trimmedNickname,
         password,
         profileImgUrl,
@@ -380,8 +368,8 @@ export default function SignupPage() {
 
       <form className="signup-page__form" onSubmit={handleSubmit} noValidate>
         {/*
-          이름·전화번호·성별은 Figma 에 칸이 없지만 `SignupRequest` 의 필수값이라 함께 받는다.
-          확인 왕복(인증 요청·중복확인)이 없는 항목들이라 맨 앞에 둔다 —
+          이름은 Figma 에 칸이 없지만 `SignupRequest` 의 필수값이라 함께 받는다.
+          확인 왕복(인증 요청·중복확인)이 없는 항목이라 맨 앞에 둔다 —
           위에서부터 그냥 채워 내려오다가 이메일에서 한 번, 닉네임에서 한 번만 멈추게 된다.
         */}
         <div className="signup-page__group">
@@ -412,76 +400,6 @@ export default function SignupPage() {
             )}
           </div>
         </div>
-
-        <div className="signup-page__group">
-          <label className="signup-page__label" htmlFor="signup-tel">
-            전화번호
-          </label>
-          <div className="signup-page__field">
-            {/*
-              inputMode="numeric" 으로 모바일에서 숫자 키패드를 띄우되 type 은 text 로 둔다 —
-              type="number" 는 앞자리 0(010…)과 스크롤 증감 때문에 전화번호에 맞지 않는다.
-              하이픈을 쳐도 입력을 막지 않고 toTelDigits 로 걷어낸다.
-            */}
-            <input
-              className={`signup-page__input${
-                telCheck && !telCheck.valid ? ' signup-page__input--invalid' : ''
-              }`}
-              id="signup-tel"
-              type="text"
-              name="tel"
-              value={tel}
-              onChange={(event) => setTel(toTelDigits(event.target.value))}
-              placeholder="01012345678"
-              autoComplete="tel-national"
-              inputMode="numeric"
-              maxLength={TEL_MAX_LENGTH}
-              aria-describedby="signup-tel-hint"
-              aria-invalid={telCheck !== null && !telCheck.valid}
-            />
-            <p
-              className={[
-                'signup-page__hint',
-                telCheck && !telCheck.valid ? 'signup-page__hint--error' : '',
-                telCheck?.valid ? 'signup-page__hint--success' : '',
-              ]
-                .filter(Boolean)
-                .join(' ')}
-              id="signup-tel-hint"
-            >
-              <span className="signup-page__hint-icon" aria-hidden="true" />
-              {telCheck ? telCheck.message : '숫자만 입력해주세요 (- 없이)'}
-            </p>
-          </div>
-        </div>
-
-        {/*
-          라디오 그룹이라 label/htmlFor 대신 fieldset/legend 로 묶는다 —
-          선택지가 여럿이라 가리킬 입력이 하나로 정해지지 않는다.
-        */}
-        <fieldset className="signup-page__group signup-page__fieldset">
-          <legend className="signup-page__label">성별</legend>
-          <div className="signup-page__gender">
-            {GENDER_OPTIONS.map((option) => (
-              <label
-                className={`signup-page__gender-option${
-                  gender === option.value ? ' signup-page__gender-option--selected' : ''
-                }`}
-                key={option.value}
-              >
-                <input
-                  className="signup-page__gender-input"
-                  type="radio"
-                  name="gender"
-                  value={option.value}
-                  checked={gender === option.value}
-                  onChange={() => setGender(option.value)}
-                />
-                {option.label}
-              </label>
-            ))}
-          </div>
-        </fieldset>
 
         <div className="signup-page__group">
           <label className="signup-page__label" htmlFor="signup-email">
