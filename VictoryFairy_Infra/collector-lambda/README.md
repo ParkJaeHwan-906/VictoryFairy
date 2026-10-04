@@ -23,7 +23,8 @@ ECR 리포 하나의 이미지를 Lambda 함수 두 개가 공유한다:
 08:00  games_sync      일정 선적재 오늘~+7일             (RDB)
 08:30  game_schedule   당일 예정경기                     -> S3 question-source/
 11:00  registrations   KBO 1군 등록명단 -> players       (RDB)
-17:00~23:59  games_sync   1분 간격, 당일 LIVE/종료/취소 + 선발 라인업  (RDB)
+13:00~23:59  games_sync   1분 간격, 당일 LIVE/종료/취소 + 선발 라인업  (RDB)
+  (일요일 14:00 경기의 선발 공시를 놓치지 않으려고 13시부터 — 2026-10-04 조정)
   ―    community       커뮤니티 증분 크롤               -> S3 community/
 ```
 
