@@ -191,6 +191,43 @@ trending.md`(있으면), 최근 7일 `.work/quiz-candidates/`의 `templateId`·�
 | 팀 특화 문항 (**구단마다 매일 1묶음**, 경기 유무 무관) | **그 팀 로스터만** — `CAREER_PATH`·`MEME_ORIGIN`·`RELATION_LINK`·`RECORD_OX`(PLAYER scope), `STREAK_CURRENT`·`HOME_AWAY_SPLIT`·`RECENT_VS_EARLY`(TEAM scope) 중심. 위키에 팀당 63~89명이 등재돼 있어 재료는 경기 일정과 무관하게 항상 있다 | `gameId: null`, `teamCodes: [그 팀 하나]` |
 | 공통 문항 (하루 1묶음) | 특정 팀에 치우치지 않는 것만 — 리그 전체 순위·역대 팀 기록·통산 기록·트렌딩 | `gameId: null`, `teamCodes: []` |
 
+**팀 특화 묶음의 PLAYER→TEAM scope 자동 전환(2026-10-06 신설)** — PLAYER scope
+템플릿(`CAREER_PATH`·`MEME_ORIGIN`·`RELATION_LINK`·`RECORD_OX`)의 소재는 그 팀
+로스터(63~89명)에서 나오는데, 최근 7일 미반복 창이 쌓일수록 로스터가 빠르게
+마른다(실측: KT 70명 로스터가 2일치 발행분만으로 이미 50명(71%) 소진, 2026-10-06
+조사 — `wiki/_meta/casebook/bad.md` #101·#102·#106에 같은 현상이 3번 반복 기록돼
+있다). 임시로 그날만 손으로 메우지 않고, **유닛 서브에이전트가 매 실행마다
+기본으로 따르는 절차**로 다음을 못박는다:
+
+1. 먼저 그 난이도의 PLAYER scope 템플릿으로, 최근 7일 이력(§4에서 건네는 그
+   팀의 최근 발행분)과 겹치지 않는 로스터 소재를 채운다.
+2. 그 난이도에서 PLAYER scope 소재가 쿼터에 못 미치면(로스터 소진, 또는
+   `CAREER_PATH`류처럼 애초에 소재(실제 이적·트레이드 서사) 있는 선수 비율이
+   낮음 — 조사 기준 팀당 13~40%) **0건으로 끝내지 말고 같은 난이도의 TEAM
+   scope 템플릿으로 자동 전환**해 나머지 쿼터를 채운다. 난이도별 대응은
+   카탈로그(`question-templates.yaml`) 선언 기준으로 다음과 같다(2026-10-06
+   조사 — 카탈로그에 `enabled: false`가 아닌 것만):
+
+   | 난이도 | PLAYER scope 1차 재료 | TEAM scope 대체 재료 |
+   |---|---|---|
+   | EASY | `MEME_ORIGIN` | `STREAK_CURRENT` |
+   | MEDIUM | `RECORD_OX` | `HOME_AWAY_SPLIT` |
+   | HARD | `CAREER_PATH` | `RECENT_VS_EARLY` |
+   | EXPERT | `RELATION_LINK` | **없음** — TEAM scope에 EXPERT 난이도 템플릿
+     자체가 없다. 아래 3번을 그대로 적용(있는 만큼만) |
+
+3. TEAM scope 템플릿까지 동원해도 모자라면(팀이라는 단일 엔티티가 주제라
+   템플릿 하나당 하루 1문항 안팎이 현실적 상한이다 — PLAYER scope처럼 로스터
+   규모로 늘지 않는다) 그 난이도는 **있는 만큼만 채우고 넘어간다.** 억지로
+   채우려고 7일 미반복 창을 무시하거나 금지 소재(사건연루 등)를 끌어오면
+   안 된다 — 0건도 정상 동작이지 결함이 아니다(`scoring.yaml`의 EXPERT 슬롯
+   주석 참고).
+
+이 전환은 `question-gen/config/scoring.yaml`의 `volume.perTeam` 슬롯 자체를
+바꾸지 않는다 — 슬롯은 여전히 상한이고, 그 상한을 **어떤 재료로 채우는지의
+우선순위**만 바뀐다. 4단계에서 유닛 서브에이전트에게 이 표와 절차를 그대로
+전달할 것(§4 "서브에이전트에게 반드시 줄 것" 목록 참고).
+
 ⚠️ **경기 문항에 `CAREER_PATH`·`MEME_ORIGIN`·`RELATION_LINK`를 쓰지 않는다
 (2026-10-03 변경)** — 이 셋은 로스터 기반이라 경기 당일 여부와 무관하고,
 `perTeam` 신설 이후 팀 특화 유닛이 이미 매일 전담한다. perTeam 이전에는
@@ -345,6 +382,10 @@ validate_candidates.py` check 10이 이걸 결정적으로 막는다(`gameId`가
      §3 — 서브에이전트가 전체 이력을 다시 긁지 않아도 되게)
    - 안전 규칙(banned-topics.txt, `사건사고` 섹션·`사건연루` 엣지 금지)과
      경기 문항·팀 특화 문항에 다른 팀 선수를 섞지 않는다는 원칙(§3)
+   - **팀 특화 유닛에는** 위 "팀 특화 묶음의 PLAYER→TEAM scope 자동 전환" 절의
+     난이도별 대응표와 전환 절차를 그대로 전달한다 — PLAYER scope 로스터
+     소재가 쿼터에 못 미치면 서브에이전트가 스스로 같은 난이도의 TEAM scope
+     템플릿으로 넘어가야 하므로, 이 규칙을 모르면 그냥 0건으로 반환하기 쉽다
 3. 각 서브에이전트는 자기 몫을
    `.work/raw-candidates/$TODAY/{유닛}-{NNN}.json`(예: `team-HH-001.json`,
    `game-NCOB-001.json`, `common-001.json` — 유닛을 구분할 수 있는 임시
