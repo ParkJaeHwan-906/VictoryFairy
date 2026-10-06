@@ -593,8 +593,15 @@ aws s3 cp --recursive "$VALIDATE_DIR/" "s3://$S3_BUCKET/quiz-candidates/$TODAY/"
   - 위키 빌더가 처리해 `processedAt`을 채운 항목은 지우지 않는다(이력 보존 —
     casebook·builder-runs 마커와 같은 원칙).
   이 파일은 `wiki-builder` routine도 같은 `dev` 브랜치에 커밋하는 공유 파일이다
-  — 서로 다른 날 실행되므로(퀴즈는 매일, 위키 빌더는 화·금) 충돌은 드물고,
-  부딪히면 §8 커밋 블록의 `git pull --rebase` 재시도가 그대로 처리한다.
+  — 서로 다른 날 실행되므로(퀴즈는 매일, 위키 빌더는 화·금) 평소엔 충돌이 드물다.
+  **단, 같은 날 수동 재실행이 여러 번 겹치면(2026-10-06 세 번째 실행에서 실제
+  발생) casebook·material-gaps.yaml 둘 다 "파일 끝에 새 번호로 추가"하는
+  append-only 패턴이라, 두 실행이 거의 같은 위치에 서로 다른 번호를 동시에
+  적어 넣으면서 `git rebase`가 라인 단위로 자동 병합을 못 하고 진짜 충돌로
+  떨어진다** — 아래 커밋 블록은 이 경우를 전제로, rebase 1회 실패로 포기하지
+  않고 "최신 원격을 다시 읽어 그 위에 다시 덧붙이는" 방식으로 최대 3회까지
+  재시도한다(내용을 git 병합기에 맡기지 않고, 매번 실제로 최신 파일 끝을 보고
+  번호를 다시 매겨 덧붙인다는 뜻 — git이 못 푸는 걸 이 세션이 직접 다시 푼다).
 
 ```bash
 if [ -d .work/wiki-repo/wiki ]; then
@@ -616,14 +623,37 @@ if [ -d .work/wiki-repo/wiki ]; then
     echo "위키에 반영할 변경 없음 — 커밋 생략"
   else
     git commit -m "wiki: quiz routine $TODAY (stats/casebook/proposals/material-gaps)"
-    # 위키 빌더(화·금 06:00)도 같은 브랜치에 쓴다 — 그 사이 커밋이 있으면 rebase
-    # 후 재시도. material-gaps.yaml은 양쪽이 공유하지만(위 설명 참고) 그 외
-    # 건드리는 파일은 서로 달라 충돌은 거의 없다.
-    git push origin dev || { git pull --rebase origin dev && git push origin dev; }
+    git push origin dev && PUSH_OK=1 || PUSH_OK=0
   fi
   cd -
 fi
 ```
+
+위 `git push`가 실패하면(`PUSH_OK=0`), **git rebase에 맡기지 말고** 최대
+3회까지 아래 절차를 반복한다(한 번 실패했다고 바로 포기하지 않는다 —
+2026-10-06 세 번째 실행이 1회 rebase 실패 후 `git rebase --abort`로 포기해
+그 실행의 casebook·material-gaps 변경이 통째로 사라진 사례가 있다):
+
+1. `cd .work/wiki-repo && git rebase --abort 2>/dev/null; git fetch origin dev`
+   로 원격 최신 상태만 받아온다(로컬 커밋은 그대로 둔다, 아직 버리지 않음).
+2. `git log origin/dev -1 --format=%H`로 방금 받은 원격 HEAD를 확인하고,
+   그 커밋 시점의 `wiki/_meta/casebook/good.md`·`bad.md`·`material-gaps.yaml`을
+   **다시 Read**한다(`git show origin/dev:wiki/_meta/casebook/good.md` 등) —
+   이게 "지금 진짜 최신 꼬리"다. 내가 아까 로컬에서 썼던 번호(`## 108` 등)가
+   그 사이 다른 실행이 이미 썼을 수 있으니, 그 최신 꼬리 다음 번호로 **내용은
+   그대로, 번호만 다시 매겨** 새로 Write한다(같은 섹션을 git이 병합하게
+   두지 않고, 내가 직접 "지금 끝" 뒤에 다시 붙인다).
+3. `git reset --hard origin/dev`로 로컬을 원격과 똑같이 맞춘 뒤, 2번에서
+   다시 쓴 내용으로 해당 파일들을 Write하고 `git add -A wiki/ && git commit
+   -m "wiki: quiz routine $TODAY (retry N/3)" && git push origin dev`.
+4. 성공하면 끝. 실패하면(동시에 또 다른 실행이 끼어든 경우) 1번부터 다시,
+   최대 3회까지.
+
+3회를 다 써도 실패하면 — 이번엔 **포기하되 내용을 버리지 않는다**: 마지막으로
+쓰려던 casebook·material-gaps 내용을 `.work/wiki-push-failed-$TODAY.md`에
+그대로 저장해 두고, 마지막 응답(§보고)에 "위키 push 3회 실패, 보존 파일 경로"를
+반드시 명시한다 — 다음 실행이나 사람이 수동으로 반영할 수 있게 한다. 문항
+S3 업로드(핵심 산출물)는 이 실패와 무관하게 이미 끝나 있으므로 영향 없다.
 
 casebook의 **누적본은 위키(`dev`)에 있고, 리포의 `question-gen/casebook/`은 시드**다.
 주기적으로 사람이 위키 최신본을 리포에 반영한다(이 routine은 VictoryFairy 리포에
