@@ -59,6 +59,11 @@ def _resolve(work: Path, repo_root: Path, source: str) -> Path:
         return work / base
     if base.startswith("question-source/game_result/"):
         return work / "game_result" / "/".join(base.split("/")[2:])
+    if base.startswith("question-source/player_season_stat/"):
+        # player_profile과 같은 "최신 파티션 1개" 동기화 패턴(ROUTINE.md 1단계) —
+        # 날짜 서브디렉토리 없이 .work/player_season_stat/ 바로 아래 평평하게
+        # 내려받으므로, evidence.source의 날짜 세그먼트는 버리고 파일명만 쓴다.
+        return work / "player_season_stat" / name
     return repo_root / base
 
 

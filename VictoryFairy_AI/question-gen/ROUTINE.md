@@ -88,13 +88,17 @@ routine과 동일한 원칙 — `wiki-builder/ROUTINE.md` 참고). **단, ③ �
 경기만 대상 — `game_schedule` export는 KST-오늘 날짜로 호출되고 C1 수정 이후 그
 날짜가 그대로 파티션 키가 되므로 `$TODAY`를 KST로 잡기만 하면 항상 일치한다),
 `question-source/player_profile/`는 **가장 최신 파티션 하나만**(명단은 스냅샷
-성격, 날짜 창이 필요 없음)을 `.work/`로 내려받는다. 위키(문서·그래프·통계 축적
-층)는 S3가 아니라 **`VictoryFairy_WIKI` 리포 `dev` 브랜치를 클론**해서 읽는다.
+성격, 날짜 창이 필요 없음)을, `question-source/player_season_stat/`(2026-10-06
+신설)도 같은 이유로 **가장 최신 파티션 하나만**(시즌 누적 합계라 날짜 창이
+필요 없고, py-collector가 매 실행마다 시즌 전체를 다시 합산해 내놓는 스냅샷이다
+— `TEAMMATE_STAT_COMPARE`의 유일한 재료)을 `.work/`로 내려받는다. 위키(문서·
+그래프·통계 축적 층)는 S3가 아니라 **`VictoryFairy_WIKI` 리포 `dev` 브랜치를
+클론**해서 읽는다.
 
 ```bash
 : "${S3_BUCKET:?S3_BUCKET 환경변수를 설정하라}"
 mkdir -p .work/game_result .work/game_schedule .work/player_profile \
-  .work/kbo-records .work/quiz-candidates .work/stats
+  .work/player_season_stat .work/kbo-records .work/quiz-candidates .work/stats
 
 # 이 routine의 "오늘"은 KST다(리뷰 I1) — game_schedule 오늘 파티션, quiz-candidates
 # 업로드 경로, casebook/템플릿 제안 파일명 등 아래 모든 $TODAY 파생 경로가 KST
@@ -129,6 +133,16 @@ LATEST_PROFILE_DATE=$(aws s3 ls "s3://$S3_BUCKET/question-source/player_profile/
 if [ -n "$LATEST_PROFILE_DATE" ]; then
   aws s3 sync "s3://$S3_BUCKET/question-source/player_profile/$LATEST_PROFILE_DATE/" \
     .work/player_profile/ --exclude "*" --include "*.json"
+fi
+
+# player_season_stat: player_profile과 같은 "최신 파티션 1개만" 패턴(위 설명 참고).
+LATEST_SEASON_STAT_DATE=$(aws s3 ls "s3://$S3_BUCKET/question-source/player_season_stat/" \
+  2>/dev/null | awk '{print $2}' | tr -d '/' | sort | tail -1)
+if [ -n "$LATEST_SEASON_STAT_DATE" ]; then
+  aws s3 sync "s3://$S3_BUCKET/question-source/player_season_stat/$LATEST_SEASON_STAT_DATE/" \
+    .work/player_season_stat/ --exclude "*" --include "*.json"
+else
+  echo "경고: player_season_stat 파티션 없음 — TEAMMATE_STAT_COMPARE는 오늘 후보에서 제외" >&2
 fi
 
 aws s3 sync "s3://$S3_BUCKET/kbo-records/" .work/kbo-records/
@@ -317,6 +331,55 @@ validate_candidates.py` check 10이 이걸 결정적으로 막는다(`gameId`가
   친다"), `options[1]`=미적중(예: "안타를 치지 못한다"). 텍스트가 아니라 이
   인덱스 관례로 정산하므로 순서를 바꾸면 정산이 거꾸로 채점된다.
 
+### 3-2. TEAMMATE_STAT_COMPARE 전용 절차 (2026-10-06 신설)
+
+위키 서사(`CAREER_PATH`·`MEME_ORIGIN` 등)에 의존하는 PLAYER scope 템플릿은 사람이
+수작업으로 큐레이션한 선수만 커버한다(실측: 팀당 13~40%). `envelope.
+player_season_stat`(`question-source/player_season_stat/` 최신 파티션 — 1단계
+동기화 대상에 추가됐다)은 py-collector `batter_records`·`pitcher_records`(그
+선수가 뛴 "모든" 경기의 박스스코어 원자료, 자격 타석수 하한 없음)를 선수별로
+시즌 합산한 것이라 **1군에서 단 1경기라도 뛴 선수면 전부 커버한다**(실측: 롯데
+78명 로스터 중 62명·~79%, 2026-10-06 KBO 공식 사이트 팀필터 교차조회). 이
+템플릿은 그 커버리지를 실제로 활용해 PLAYER scope MEDIUM 슬롯을 채운다.
+
+- **데이터 바인딩**: `.work/`로 동기화된 `question-source/player_season_stat/`의
+  envelope들을 그 팀(`teamCodes`)으로 필터링한다. 같은 지표 그룹(타자는
+  `payload.batting`, 투수는 `payload.pitching`)에서 **표본 하한을 만족하는 두
+  선수**를 고른다 — 타자는 `batting.atBats >= 30`, 투수는 `pitching.ipOuts >= 30`
+  (이닝 10 이상). 하한 미달 선수는 비교 대상에서 제외한다(표본이 적으면 "더
+  우수하다"는 서술이 우연에 가깝다).
+- **지표 선택과 정답 판정**: 타자는 `avg`(타율)·`homeRuns`(홈런)·`rbi`(타점) 중
+  하나, 투수는 `era`(평균자책점)·`strikeouts`(탈삼진) 중 하나를 고정해서 묻는다
+  (질문 하나에 지표 하나만 — 복합 비교 금지). `avg`/`homeRuns`/`rbi`/
+  `strikeouts`는 **수치가 큰 쪽**이 정답, `era`는 **수치가 작은 쪽**이 정답이다.
+  두 선수의 값이 **정확히 같으면 그 지표·그 쌍은 쓰지 않는다**(정답이 하나로
+  확정되지 않음 — 다른 지표 또는 다른 쌍으로 바꾼다). `avg`/`era`가 `null`인
+  선수(무타수/무이닝)는 애초에 표본 하한에서 걸려 제외된다.
+- **보기(options) 작성**: 두 선수의 **이름만** 보기로 쓴다(예: A. 김도영 B.
+  나성범) — 타율·홈런 등 실제 수치는 질문·보기 어디에도 넣지 않는다(암기형
+  수치 유출 방지, 카탈로그 intent 그대로). 질문 문구에 비교할 지표는 명시한다
+  (예: "다음 두 선수 중 올 시즌 타율이 더 높은 쪽은?"). `format: BINARY`,
+  `options` 2개.
+- **evidence 작성**: 기존 evidence 계약(source 1개·quote가 그 파일 content의
+  부분문자열)을 그대로 쓴다 — `evidence.source`는 **정답(더 우수한 쪽) 선수
+  한 명**의 `player_season_stat` S3 키(예: `question-source/player_season_stat/
+  {date}/player_season_stat_60632.json`), `evidence.quote`는 그 선수 envelope의
+  `content` 문장을 **그대로**(수치를 LLM이 다시 쓰지 않는다 — exporter가 이미
+  결정적으로 렌더한 문장이라 원문 대조가 바로 된다 — `runner/finalize.py`
+  `_resolve`가 이 S3 키를 `.work/player_season_stat/{safeId}.json`으로
+  푼다). `validate_candidates.py` check 12가 `evidence.quote`에 숫자가 2개
+  이상 있는지(한 선수의 기록 문장 안에 경기수·안타·타율 등 여러 수치가 이미
+  들어있어 자연히 충족된다) 하드로 검사한다. **상대 선수 값과의 비교
+  정확성은 이 결정적 대조가 아니라 검증 패스(6단계)가 `.work/
+  player_season_stat/`의 두 파일을 직접 열어 판단**한다 — 서브에이전트는
+  자기 점검(`self_check.py`) 단계에서도 반드시 두 파일을 직접 비교해 정답을
+  정했는지 재확인할 것(evidence가 한 파일만 가리킨다고 해서 비교 없이
+  지어내도 된다는 뜻이 아니다).
+- **카디널리티**: `subject.scope: PLAYER`, `subject.playerIds`에 **두 선수의
+  kboPlayerId 정수 정확히 2개**(check 12 — 일반 PLAYER scope 하한인 "1개 이상"
+  보다 이 템플릿만 더 엄격하다). top-level `teamCodes`는 그 팀 하나(두 선수가
+  같은 팀이어야 함, §3 "다른 팀 선수를 섞지 않는다" 원칙).
+
 경기 문항·팀 특화 문항 모두 다른 팀 선수를 섞지 않는다. 삼성 팬이 삼성 묶음을
 보는 중에 두산 선수 밈이 뜨는 것이 이 구조가 막으려는 바로 그 상황이다. 오답
 보기도 같은 규칙을 따르되, 오답으로 쓰는 다른 팀 선수 이름은 허용한다(정답이
@@ -387,14 +450,16 @@ validate_candidates.py` check 10이 이걸 결정적으로 막는다(`gameId`가
    - 그 유닛의 목표 물량 = `scoring.yaml`의 해당 슬롯(`perGame`/`perTeam`/
      `common` 중 하나) × `candidateMultiplier`
    - 1~2단계에서 이미 동기화·재집계된 데이터 파일 경로(`.work/stats/`,
-     `.work/wiki-repo/wiki/`, `.work/game_result/` 등 — 다시 받아오지 않고
-     그대로 읽게 한다)
+     `.work/wiki-repo/wiki/`, `.work/game_result/`, `.work/player_season_stat/`
+     (`TEAMMATE_STAT_COMPARE`용, §3-2) 등 — 다시 받아오지 않고 그대로 읽게 한다)
    - `question-gen/prompts/generation-rules.md`(작성 규칙, §7 quizId 가제
      원칙·§11 subject 규칙 포함)와 casebook 경로(위키 클론이 있으면
      `.work/wiki-repo/wiki/_meta/casebook/{good,bad}.md`, 없으면 리포 시드
      `question-gen/casebook/{good,bad}.md`). 경기 유닛에 `PRED_BATTER_HIT_INNING`
      이 포함되면 위 §3-1(선수·이닝 선정, settlement/subject 채우기, 보기 순서
-     고정 계약)도 함께 전달한다 — 일반 PRED_* 절차와 다른 부분이 있다
+     고정 계약)도 함께 전달한다 — 일반 PRED_* 절차와 다른 부분이 있다. **팀 특화
+     유닛**에 `TEAMMATE_STAT_COMPARE`가 포함되면 위 §3-2(표본 하한, 지표별
+     정답 판정 방향, 보기에 수치 노출 금지, evidence 작성법)도 함께 전달한다
    - 최근 7일 출제 이력 중 **그 유닛의 teamCodes(또는 공통 유닛은
      subject.teamCodes/playerIds)와 겹치는 것만** 추려서 건넨다(중복 회피창,
      §3 — 서브에이전트가 전체 이력을 다시 긁지 않아도 되게)

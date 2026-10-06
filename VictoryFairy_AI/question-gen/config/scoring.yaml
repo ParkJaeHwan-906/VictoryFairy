@@ -241,6 +241,13 @@ volume:
                        # 씀) 난이도 슬롯과 겹쳐 충돌할 자리가 없다.
     EASY: 30
     MEDIUM: 10        # RECORD_OX·HOME_AWAY_SPLIT 재료 소진 — 대개 0~2건, 정상.
+                      # 2026-10-06 — TEAMMATE_STAT_COMPARE(PLAYER, MEDIUM) 신설로
+                      # 이 슬롯의 1차 재료군에 합류한다(question-templates.yaml 참고).
+                      # 위키 서사 큐레이션 의존 없이 envelope.player_season_stat만
+                      # 쓰고, 실측 로스터 커버리지가 ~79%(롯데 기준)로 RECORD_OX·
+                      # HOME_AWAY_SPLIT보다 훨씬 넓어 이 슬롯의 만성 미달을 줄일
+                      # 것으로 기대하지만, 슬롯 숫자(10)는 **아직 올리지 않는다** —
+                      # 이 파일의 관례대로 실측(첫 실행 충족률)을 보고서야 조정한다.
     HARD: 44
     EXPERT: 6         # RELATION_LINK 재료가 얇아 대개 미달로 끝난다 — 정상.
   # 생성 단계에서 만들 후보 배수(검증 폐기율 흡수). 20문항 슬롯이면 30개 생성.
