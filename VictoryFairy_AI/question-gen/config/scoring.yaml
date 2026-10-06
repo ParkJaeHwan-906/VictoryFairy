@@ -217,6 +217,28 @@ volume:
                        # question-templates.yaml) HARD 쪽 재료가 조금은 늘 것으로
                        # 기대하지만, 실측 전까지는 CAREER_PATH가 그 자리를 채운다고
                        # 보수적으로 가정한다.
+                       #
+                       # 2026-10-06 — PLAYER→TEAM scope 자동 전환 추가(숫자는 그대로,
+                       # 재료 우선순위만 바꿈). 10개 팀 중 7개가 0건을 낸 실행이 반복
+                       # 기록되자(`wiki/_meta/casebook/bad.md` #101·#102·#106)
+                       # `question-gen/ROUTINE.md` §3에 "PLAYER scope 로스터가 최근
+                       # 7일 미반복으로 소진되면 같은 난이도의 TEAM scope 템플릿으로
+                       # 넘어간다"는 표준 절차를 추가했다. 이 슬롯 숫자(EASY/MEDIUM/
+                       # HARD/EXPERT)는 그대로 둔다 — 바뀌는 건 "무엇으로 채우는지"이지
+                       # "얼마나 채우는지" 상한이 아니다. 난이도별 1차/대체 재료:
+                       #   EASY   = MEME_ORIGIN(PLAYER) → STREAK_CURRENT(TEAM)
+                       #   MEDIUM = RECORD_OX(PLAYER)   → HOME_AWAY_SPLIT(TEAM)
+                       #   HARD   = CAREER_PATH(PLAYER) → RECENT_VS_EARLY(TEAM)
+                       #   EXPERT = RELATION_LINK(PLAYER) → 대체 없음(TEAM scope에
+                       #            EXPERT 템플릿 자체가 없다 — 아래 EXPERT 주석 그대로
+                       #            유효, 이 변경으로 해소되는 결핍이 아니다)
+                       # STREAK_CURRENT·HOME_AWAY_SPLIT·RECENT_VS_EARLY는 원래도 이
+                       # perTeam 슬롯의 재료 목록에 있었다(위 "perTeam 신설" 절의
+                       # CAREER_PATH·MEME_ORIGIN·RECORD_OX·STREAK_CURRENT·
+                       # HOME_AWAY_SPLIT·RECENT_VS_EARLY 나열 참고) — common·perGame
+                       # 어느 쪽도 이 셋을 쓰지 않으므로(perGame은 2026-10-03부터
+                       # 로스터 기반 템플릿 자체를 금지, common은 LEAGUE scope 템플릿만
+                       # 씀) 난이도 슬롯과 겹쳐 충돌할 자리가 없다.
     EASY: 30
     MEDIUM: 10        # RECORD_OX·HOME_AWAY_SPLIT 재료 소진 — 대개 0~2건, 정상.
     HARD: 44

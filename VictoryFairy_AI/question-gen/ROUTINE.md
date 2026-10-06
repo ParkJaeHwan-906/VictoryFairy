@@ -191,6 +191,43 @@ trending.md`(있으면), 최근 7일 `.work/quiz-candidates/`의 `templateId`·�
 | 팀 특화 문항 (**구단마다 매일 1묶음**, 경기 유무 무관) | **그 팀 로스터만** — `CAREER_PATH`·`MEME_ORIGIN`·`RELATION_LINK`·`RECORD_OX`(PLAYER scope), `STREAK_CURRENT`·`HOME_AWAY_SPLIT`·`RECENT_VS_EARLY`(TEAM scope) 중심. 위키에 팀당 63~89명이 등재돼 있어 재료는 경기 일정과 무관하게 항상 있다 | `gameId: null`, `teamCodes: [그 팀 하나]` |
 | 공통 문항 (하루 1묶음) | 특정 팀에 치우치지 않는 것만 — 리그 전체 순위·역대 팀 기록·통산 기록·트렌딩 | `gameId: null`, `teamCodes: []` |
 
+**팀 특화 묶음의 PLAYER→TEAM scope 자동 전환(2026-10-06 신설)** — PLAYER scope
+템플릿(`CAREER_PATH`·`MEME_ORIGIN`·`RELATION_LINK`·`RECORD_OX`)의 소재는 그 팀
+로스터(63~89명)에서 나오는데, 최근 7일 미반복 창이 쌓일수록 로스터가 빠르게
+마른다(실측: KT 70명 로스터가 2일치 발행분만으로 이미 50명(71%) 소진, 2026-10-06
+조사 — `wiki/_meta/casebook/bad.md` #101·#102·#106에 같은 현상이 3번 반복 기록돼
+있다). 임시로 그날만 손으로 메우지 않고, **유닛 서브에이전트가 매 실행마다
+기본으로 따르는 절차**로 다음을 못박는다:
+
+1. 먼저 그 난이도의 PLAYER scope 템플릿으로, 최근 7일 이력(§4에서 건네는 그
+   팀의 최근 발행분)과 겹치지 않는 로스터 소재를 채운다.
+2. 그 난이도에서 PLAYER scope 소재가 쿼터에 못 미치면(로스터 소진, 또는
+   `CAREER_PATH`류처럼 애초에 소재(실제 이적·트레이드 서사) 있는 선수 비율이
+   낮음 — 조사 기준 팀당 13~40%) **0건으로 끝내지 말고 같은 난이도의 TEAM
+   scope 템플릿으로 자동 전환**해 나머지 쿼터를 채운다. 난이도별 대응은
+   카탈로그(`question-templates.yaml`) 선언 기준으로 다음과 같다(2026-10-06
+   조사 — 카탈로그에 `enabled: false`가 아닌 것만):
+
+   | 난이도 | PLAYER scope 1차 재료 | TEAM scope 대체 재료 |
+   |---|---|---|
+   | EASY | `MEME_ORIGIN` | `STREAK_CURRENT` |
+   | MEDIUM | `RECORD_OX` | `HOME_AWAY_SPLIT` |
+   | HARD | `CAREER_PATH` | `RECENT_VS_EARLY` |
+   | EXPERT | `RELATION_LINK` | **없음** — TEAM scope에 EXPERT 난이도 템플릿
+     자체가 없다. 아래 3번을 그대로 적용(있는 만큼만) |
+
+3. TEAM scope 템플릿까지 동원해도 모자라면(팀이라는 단일 엔티티가 주제라
+   템플릿 하나당 하루 1문항 안팎이 현실적 상한이다 — PLAYER scope처럼 로스터
+   규모로 늘지 않는다) 그 난이도는 **있는 만큼만 채우고 넘어간다.** 억지로
+   채우려고 7일 미반복 창을 무시하거나 금지 소재(사건연루 등)를 끌어오면
+   안 된다 — 0건도 정상 동작이지 결함이 아니다(`scoring.yaml`의 EXPERT 슬롯
+   주석 참고).
+
+이 전환은 `question-gen/config/scoring.yaml`의 `volume.perTeam` 슬롯 자체를
+바꾸지 않는다 — 슬롯은 여전히 상한이고, 그 상한을 **어떤 재료로 채우는지의
+우선순위**만 바뀐다. 4단계에서 유닛 서브에이전트에게 이 표와 절차를 그대로
+전달할 것(§4 "서브에이전트에게 반드시 줄 것" 목록 참고).
+
 ⚠️ **경기 문항에 `CAREER_PATH`·`MEME_ORIGIN`·`RELATION_LINK`를 쓰지 않는다
 (2026-10-03 변경)** — 이 셋은 로스터 기반이라 경기 당일 여부와 무관하고,
 `perTeam` 신설 이후 팀 특화 유닛이 이미 매일 전담한다. perTeam 이전에는
@@ -345,6 +382,10 @@ validate_candidates.py` check 10이 이걸 결정적으로 막는다(`gameId`가
      §3 — 서브에이전트가 전체 이력을 다시 긁지 않아도 되게)
    - 안전 규칙(banned-topics.txt, `사건사고` 섹션·`사건연루` 엣지 금지)과
      경기 문항·팀 특화 문항에 다른 팀 선수를 섞지 않는다는 원칙(§3)
+   - **팀 특화 유닛에는** 위 "팀 특화 묶음의 PLAYER→TEAM scope 자동 전환" 절의
+     난이도별 대응표와 전환 절차를 그대로 전달한다 — PLAYER scope 로스터
+     소재가 쿼터에 못 미치면 서브에이전트가 스스로 같은 난이도의 TEAM scope
+     템플릿으로 넘어가야 하므로, 이 규칙을 모르면 그냥 0건으로 반환하기 쉽다
 3. 각 서브에이전트는 자기 몫을
    `.work/raw-candidates/$TODAY/{유닛}-{NNN}.json`(예: `team-HH-001.json`,
    `game-NCOB-001.json`, `common-001.json` — 유닛을 구분할 수 있는 임시
@@ -417,10 +458,11 @@ aws s3 cp --recursive "$VALIDATE_DIR/" "s3://$S3_BUCKET/quiz-candidates/$TODAY/"
 문항별 독립 파일이라 부분 실패 시에도 이미 올라간 파일은 유효하다(멱등 원칙 —
 동일 `quizId`는 재실행 시 그대로 덮어쓴다).
 
-### 8. 위키 리포 커밋 (통계 + casebook + 템플릿 제안)
+### 8. 위키 리포 커밋 (통계 + casebook + 템플릿 제안 + material-gaps)
 
-2단계에서 복사한 통계 4개 파일, 이번 실행에서 갱신한 casebook, 오늘의 템플릿 제안을
-**한 커밋으로** `VictoryFairy_WIKI`의 `dev`에 올린다.
+2단계에서 복사한 통계 4개 파일, 이번 실행에서 갱신한 casebook, 오늘의 템플릿 제안,
+위키 보강 신호(`material-gaps.yaml`)를 **한 커밋으로** `VictoryFairy_WIKI`의
+`dev`에 올린다.
 
 - casebook `good.md`/`bad.md`는 이 세션이 검증 패스 4단계(재미 채점) 결과로 직접
   갱신한다 — 5점 사례는 `good.md`에, 2점 이하 사례는 사유와 함께 `bad.md`에 추가.
@@ -431,6 +473,38 @@ aws s3 cp --recursive "$VALIDATE_DIR/" "s3://$S3_BUCKET/quiz-candidates/$TODAY/"
   아니었고, 합본 커밋으로 복구했다). 절 번호는 이어서 붙인다
 - 템플릿 제안은 오늘 데이터에서 가능해 보이는 새 아이디어 1~2개(카탈로그에 없어
   못 만든 흥미로운 조합 등)를 이 세션이 직접 작성한다
+- **`material-gaps.yaml`(2026-10-06 신설)** — casebook `bad.md`에 "위키 보강
+  필요"로 남긴 팀 중, 사유가 **`MEME_ORIGIN`·`RELATION_LINK` 소재 고갈인 것만**
+  구조화된 신호로도 남긴다. `wiki-builder`(위키 빌더 routine)가 `pendingPlayers`와
+  같은 우선순위로 먼저 처리하도록 읽는 파일이다(`wiki-builder/ROUTINE.md` §1·
+  §3-3 참고). **`CAREER_PATH`(이적·트레이드 서사) 부족은 여기 남기지 않는다** —
+  실제 트레이드가 없으면 크롤링으로도 생성할 수 없는 소재라 위키 빌더가 할 수
+  있는 일이 없다(헛되이 재시도 큐에 쌓이는 것만 막는다).
+
+  스키마(`.work/wiki-repo/wiki/_meta/material-gaps.yaml`, 팀별 리스트 누적):
+
+  ```yaml
+  gaps:
+    - team: NC                      # 팀 코드 — 카탈로그 팀코드 화이트리스트와 같은 축
+      templateTypes: [MEME_ORIGIN]  # [MEME_ORIGIN] | [RELATION_LINK] | 둘 다. CAREER_PATH는 넣지 않음
+      reason: "perTeam EASY 슬롯 MEME_ORIGIN 소재 0건 — 로스터 대비 밈/별명 섹션 보유 선수 희박"
+      flaggedAt: 2026-10-06          # 이 신호를 남긴 날짜
+      flaggedBy: "QZ-2026-10-06 NC perTeam"   # 추적용(선택) — 어느 실행/묶음이 남겼는지
+      processedAt: null              # wiki-builder가 처리를 마친 날짜. null이면 미처리
+  ```
+
+  절차: 파일이 없으면 새로 만들고(`gaps: []`), 있으면 Read 후 다음 규칙으로
+  갱신해 Write한다.
+  - 같은 `(team, templateTypes)` 조합에 `processedAt: null`인 항목이 이미 있으면
+    `flaggedAt`만 오늘 날짜로 갱신한다(중복 누적 방지).
+  - 같은 조합이 `processedAt`에 날짜가 차 있으면(위키 빌더가 이미 처리했는데도
+    오늘 또 재료가 없다고 나온 것 — 처리가 근본 해결이 못 됐다는 뜻) 새 항목을
+    추가하고 `processedAt: null`로 되돌린다.
+  - 위키 빌더가 처리해 `processedAt`을 채운 항목은 지우지 않는다(이력 보존 —
+    casebook·builder-runs 마커와 같은 원칙).
+  이 파일은 `wiki-builder` routine도 같은 `dev` 브랜치에 커밋하는 공유 파일이다
+  — 서로 다른 날 실행되므로(퀴즈는 매일, 위키 빌더는 화·금) 충돌은 드물고,
+  부딪히면 §8 커밋 블록의 `git pull --rebase` 재시도가 그대로 처리한다.
 
 ```bash
 if [ -d .work/wiki-repo/wiki ]; then
@@ -441,15 +515,20 @@ if [ -d .work/wiki-repo/wiki ]; then
   # 템플릿 제안은 없을 수도 있다(제안할 게 없으면 생략).
   [ -f .work/template-proposals.md ] && cp .work/template-proposals.md \
     ".work/wiki-repo/wiki/_meta/template-proposals/$TODAY.md"
+  # material-gaps.yaml 도 같은 방식(이 세션이 Read → 위 절차대로 갱신 → Write)
+  # 이다 — 결정적 스크립트가 아니라 LLM이 직접 쓴다, casebook과 동일 원칙.
+  # 오늘 MEME_ORIGIN/RELATION_LINK 재료 고갈이 하나도 없었으면 파일을 건드리지
+  # 않는다(없는 파일을 빈 틀로 새로 만들지 않음 — git diff에 잡힐 변경이 없어야 함).
 
   cd .work/wiki-repo
   git add -A wiki/
   if git diff --cached --quiet; then
     echo "위키에 반영할 변경 없음 — 커밋 생략"
   else
-    git commit -m "wiki: quiz routine $TODAY (stats/casebook/proposals)"
+    git commit -m "wiki: quiz routine $TODAY (stats/casebook/proposals/material-gaps)"
     # 위키 빌더(화·금 06:00)도 같은 브랜치에 쓴다 — 그 사이 커밋이 있으면 rebase
-    # 후 재시도. 서로 건드리는 파일이 달라 충돌은 사실상 없다.
+    # 후 재시도. material-gaps.yaml은 양쪽이 공유하지만(위 설명 참고) 그 외
+    # 건드리는 파일은 서로 달라 충돌은 거의 없다.
     git push origin dev || { git pull --rebase origin dev && git push origin dev; }
   fi
   cd -
