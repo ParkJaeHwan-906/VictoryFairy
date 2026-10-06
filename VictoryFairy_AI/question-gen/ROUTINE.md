@@ -458,10 +458,11 @@ aws s3 cp --recursive "$VALIDATE_DIR/" "s3://$S3_BUCKET/quiz-candidates/$TODAY/"
 문항별 독립 파일이라 부분 실패 시에도 이미 올라간 파일은 유효하다(멱등 원칙 —
 동일 `quizId`는 재실행 시 그대로 덮어쓴다).
 
-### 8. 위키 리포 커밋 (통계 + casebook + 템플릿 제안)
+### 8. 위키 리포 커밋 (통계 + casebook + 템플릿 제안 + material-gaps)
 
-2단계에서 복사한 통계 4개 파일, 이번 실행에서 갱신한 casebook, 오늘의 템플릿 제안을
-**한 커밋으로** `VictoryFairy_WIKI`의 `dev`에 올린다.
+2단계에서 복사한 통계 4개 파일, 이번 실행에서 갱신한 casebook, 오늘의 템플릿 제안,
+위키 보강 신호(`material-gaps.yaml`)를 **한 커밋으로** `VictoryFairy_WIKI`의
+`dev`에 올린다.
 
 - casebook `good.md`/`bad.md`는 이 세션이 검증 패스 4단계(재미 채점) 결과로 직접
   갱신한다 — 5점 사례는 `good.md`에, 2점 이하 사례는 사유와 함께 `bad.md`에 추가.
@@ -472,6 +473,38 @@ aws s3 cp --recursive "$VALIDATE_DIR/" "s3://$S3_BUCKET/quiz-candidates/$TODAY/"
   아니었고, 합본 커밋으로 복구했다). 절 번호는 이어서 붙인다
 - 템플릿 제안은 오늘 데이터에서 가능해 보이는 새 아이디어 1~2개(카탈로그에 없어
   못 만든 흥미로운 조합 등)를 이 세션이 직접 작성한다
+- **`material-gaps.yaml`(2026-10-06 신설)** — casebook `bad.md`에 "위키 보강
+  필요"로 남긴 팀 중, 사유가 **`MEME_ORIGIN`·`RELATION_LINK` 소재 고갈인 것만**
+  구조화된 신호로도 남긴다. `wiki-builder`(위키 빌더 routine)가 `pendingPlayers`와
+  같은 우선순위로 먼저 처리하도록 읽는 파일이다(`wiki-builder/ROUTINE.md` §1·
+  §3-3 참고). **`CAREER_PATH`(이적·트레이드 서사) 부족은 여기 남기지 않는다** —
+  실제 트레이드가 없으면 크롤링으로도 생성할 수 없는 소재라 위키 빌더가 할 수
+  있는 일이 없다(헛되이 재시도 큐에 쌓이는 것만 막는다).
+
+  스키마(`.work/wiki-repo/wiki/_meta/material-gaps.yaml`, 팀별 리스트 누적):
+
+  ```yaml
+  gaps:
+    - team: NC                      # 팀 코드 — 카탈로그 팀코드 화이트리스트와 같은 축
+      templateTypes: [MEME_ORIGIN]  # [MEME_ORIGIN] | [RELATION_LINK] | 둘 다. CAREER_PATH는 넣지 않음
+      reason: "perTeam EASY 슬롯 MEME_ORIGIN 소재 0건 — 로스터 대비 밈/별명 섹션 보유 선수 희박"
+      flaggedAt: 2026-10-06          # 이 신호를 남긴 날짜
+      flaggedBy: "QZ-2026-10-06 NC perTeam"   # 추적용(선택) — 어느 실행/묶음이 남겼는지
+      processedAt: null              # wiki-builder가 처리를 마친 날짜. null이면 미처리
+  ```
+
+  절차: 파일이 없으면 새로 만들고(`gaps: []`), 있으면 Read 후 다음 규칙으로
+  갱신해 Write한다.
+  - 같은 `(team, templateTypes)` 조합에 `processedAt: null`인 항목이 이미 있으면
+    `flaggedAt`만 오늘 날짜로 갱신한다(중복 누적 방지).
+  - 같은 조합이 `processedAt`에 날짜가 차 있으면(위키 빌더가 이미 처리했는데도
+    오늘 또 재료가 없다고 나온 것 — 처리가 근본 해결이 못 됐다는 뜻) 새 항목을
+    추가하고 `processedAt: null`로 되돌린다.
+  - 위키 빌더가 처리해 `processedAt`을 채운 항목은 지우지 않는다(이력 보존 —
+    casebook·builder-runs 마커와 같은 원칙).
+  이 파일은 `wiki-builder` routine도 같은 `dev` 브랜치에 커밋하는 공유 파일이다
+  — 서로 다른 날 실행되므로(퀴즈는 매일, 위키 빌더는 화·금) 충돌은 드물고,
+  부딪히면 §8 커밋 블록의 `git pull --rebase` 재시도가 그대로 처리한다.
 
 ```bash
 if [ -d .work/wiki-repo/wiki ]; then
@@ -482,15 +515,20 @@ if [ -d .work/wiki-repo/wiki ]; then
   # 템플릿 제안은 없을 수도 있다(제안할 게 없으면 생략).
   [ -f .work/template-proposals.md ] && cp .work/template-proposals.md \
     ".work/wiki-repo/wiki/_meta/template-proposals/$TODAY.md"
+  # material-gaps.yaml 도 같은 방식(이 세션이 Read → 위 절차대로 갱신 → Write)
+  # 이다 — 결정적 스크립트가 아니라 LLM이 직접 쓴다, casebook과 동일 원칙.
+  # 오늘 MEME_ORIGIN/RELATION_LINK 재료 고갈이 하나도 없었으면 파일을 건드리지
+  # 않는다(없는 파일을 빈 틀로 새로 만들지 않음 — git diff에 잡힐 변경이 없어야 함).
 
   cd .work/wiki-repo
   git add -A wiki/
   if git diff --cached --quiet; then
     echo "위키에 반영할 변경 없음 — 커밋 생략"
   else
-    git commit -m "wiki: quiz routine $TODAY (stats/casebook/proposals)"
+    git commit -m "wiki: quiz routine $TODAY (stats/casebook/proposals/material-gaps)"
     # 위키 빌더(화·금 06:00)도 같은 브랜치에 쓴다 — 그 사이 커밋이 있으면 rebase
-    # 후 재시도. 서로 건드리는 파일이 달라 충돌은 사실상 없다.
+    # 후 재시도. material-gaps.yaml은 양쪽이 공유하지만(위 설명 참고) 그 외
+    # 건드리는 파일은 서로 달라 충돌은 거의 없다.
     git push origin dev || { git pull --rebase origin dev && git push origin dev; }
   fi
   cd -
