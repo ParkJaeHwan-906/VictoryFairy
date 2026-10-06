@@ -13,12 +13,17 @@
 섞여 들어가 팀 특화 유닛과 교차 중복을 일으키는 것도 막는다(check 10).
 PREDICTION 지표가 `BATTER_HIT_IN_INNING`(이닝 트리거 기반 실시간 정산)이면
 settlement.inning·half도 형식에 맞는지 검사한다(check 11).
+`TEAMMATE_STAT_COMPARE`(비교형 PLAYER scope, 2026-10-06 신설)는 보기에 실제
+수치가 노출되면 비교형 설계(암기형 유출 방지)가 무너지므로 그걸 하드로
+막고, 비교 대상 playerIds가 정확히 2명인지·evidence가 실제 집계 수치를
+인용하는지도 검사한다(check 12).
 
 stdlib + PyYAML만 사용(boto3 금지).
 """
 
 import argparse
 import json
+import re
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -98,6 +103,13 @@ SUBJECT_SCOPES = {"PLAYER", "TEAM", "MATCHUP", "LEAGUE", "GAME"}
 #: 가능하지만, 이 세 템플릿만 명시적으로 금지하는 것이 과거 이력과 더 안전하게
 #: 호환된다(RECORD_OX 등 다른 PLAYER scope 템플릿까지 건드리지 않음).
 GAME_UNIT_FORBIDDEN_TEMPLATES = {"CAREER_PATH", "MEME_ORIGIN", "RELATION_LINK"}
+
+#: TEAMMATE_STAT_COMPARE 전용(check 12, 2026-10-06 신설). 비교형 설계 보호 —
+#: 보기 문면에 실제 수치(타율·ERA 등)가 노출되면 "암기형 유출"이 된다. 두
+#: 선수 이름만 보기로 허용한다.
+TEAMMATE_STAT_COMPARE_ID = "TEAMMATE_STAT_COMPARE"
+_HAS_DIGIT_RE = re.compile(r"\d")
+_NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
 
 
 # ── 로더 ────────────────────────────────────────────────
@@ -403,6 +415,43 @@ def validate_candidate(c: dict, catalog: dict, banned: list) -> list:
                 f"BATTER_HIT_IN_INNING 문항은 settlement.half가 "
                 f"{sorted(INNING_HALVES)!r} 중 하나여야 함(BE InningHalf#name() "
                 f"문자열 — 0/1 정수가 아님): {half!r}")
+
+    # 12. TEAMMATE_STAT_COMPARE 전용 — 비교형 설계 보호(2026-10-06 신설)
+    # 보기 문면에 실제 수치가 노출되면 비교형 설계(암기형 유출 방지, 카탈로그
+    # intent)가 무너진다. subject.playerIds도 "정확히 2명"이어야 한다(비교
+    # 대상 둘 — 일반 PLAYER scope 하한인 "1개 이상"보다 이 템플릿만 더
+    # 엄격하다, ROUTINE.md §3-2). evidence는 기존 계약대로 정답 선수 한 명의
+    # envelope만 가리키지만(source 1개·quote 1개, check_evidence/_resolve
+    # 재사용), 그 quote가 실제 집계 수치(숫자 2개 이상 — 그 선수의 결정적으로
+    # 렌더된 기록 문장에는 경기수·안타·타율 등 여러 수치가 이미 들어있다)를
+    # 인용하는지는 검사한다 — 뭉뚱그린 서술만으로는 원문 대조의 의미가 없다.
+    # 상대 선수와의 비교 정확성 자체는 이 결정적 검사 범위 밖이고 검증 패스
+    # (6단계)의 책임이다(ROUTINE.md §3-2 참고).
+    if template_id == TEAMMATE_STAT_COMPARE_ID:
+        for o in options:
+            text = (o.get("text") if isinstance(o, dict) else None) or ""
+            if _HAS_DIGIT_RE.search(text):
+                violations.append(
+                    f"{TEAMMATE_STAT_COMPARE_ID}는 보기에 수치를 노출할 수 없음"
+                    f"(비교형 설계 — 선수 이름만 허용): \"{text}\"")
+        if isinstance(subject, dict) and subject.get("scope") == "PLAYER":
+            pids = subject.get("playerIds")
+            if not (isinstance(pids, list) and len(pids) == 2):
+                violations.append(
+                    f"{TEAMMATE_STAT_COMPARE_ID}는 subject.playerIds가 정확히 "
+                    f"2명(비교 대상)이어야 함: {pids!r}")
+        if isinstance(top_team_codes, list) and len(top_team_codes) != 1:
+            violations.append(
+                f"{TEAMMATE_STAT_COMPARE_ID}는 top-level teamCodes가 정확히 1개 "
+                f"팀이어야 함(같은 팀 두 선수 비교, 다른 팀 섞기 금지, §3): "
+                f"{top_team_codes!r}")
+        evidence = c.get("evidence")
+        quote = evidence.get("quote") if isinstance(evidence, dict) else None
+        numbers = _NUMBER_RE.findall(quote or "")
+        if len(numbers) < 2:
+            violations.append(
+                f"{TEAMMATE_STAT_COMPARE_ID}는 evidence.quote가 실제 집계 수치를 "
+                f"인용해야 함(숫자 2개 이상 필요, 실제 {len(numbers)}개): {quote!r}")
 
     return violations
 

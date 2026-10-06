@@ -14,7 +14,10 @@ CATALOG = {"H2H_SEASON_RECORD": {"id": "H2H_SEASON_RECORD", "kind": "KNOWLEDGE",
                                       "kind": "PREDICTION", "format": "BINARY",
                                       "subjectScope": "PLAYER", "enabled": True},
            "CAREER_PATH": {"id": "CAREER_PATH", "kind": "KNOWLEDGE",
-                          "format": "MULTI4", "enabled": True}}
+                          "format": "MULTI4", "enabled": True},
+           "TEAMMATE_STAT_COMPARE": {"id": "TEAMMATE_STAT_COMPARE", "kind": "KNOWLEDGE",
+                                     "format": "BINARY", "subjectScope": "PLAYER",
+                                     "enabled": True}}
 BANNED = ["음주", "폭행"]
 
 
@@ -286,4 +289,74 @@ def test_roster_template_allowed_outside_game_unit():
     c.update(templateId="CAREER_PATH", format="MULTI4", gameId=None,
              options=[{"id": "A", "text": "KT"}, {"id": "B", "text": "LG"},
                       {"id": "C", "text": "SSG"}, {"id": "D", "text": "키움"}])
+    assert vc.validate_candidate(c, CATALOG, BANNED) == []
+
+
+# ── TEAMMATE_STAT_COMPARE (check 12, 2026-10-06 신설) ────────────
+
+def ok_teammate_stat_compare():
+    # 실제 player_season_stat 집계치를 흉내낸 샘플 — 보기엔 선수 이름만,
+    # evidence는 기존 계약대로 정답(더 우수한 쪽) 선수 한 명의 envelope만
+    # 가리킨다(source 1개·quote 1개 — runner/finalize.py check_evidence와
+    # 같은 단일 소스 계약, ROUTINE.md §3-2).
+    return {"quizId": "QZ-20261006-901", "gameId": None, "kind": "KNOWLEDGE",
+            "type": "STAT", "templateId": "TEAMMATE_STAT_COMPARE", "format": "BINARY",
+            "question": "롯데 두 선수 중 올 시즌 타율이 더 높은 쪽은?",
+            "options": [{"id": "A", "text": "김민석"}, {"id": "B", "text": "전준우"}],
+            "answer": "A",
+            "evidence": {
+                "source": "question-source/player_season_stat/2026-10-06/player_season_stat_53554.json",
+                "quote": "롯데 김민석은(는) 2026시즌 90경기 300타수 102안타(타율 0.340) 8홈런 "
+                         "40타점 10도루를 기록했다."},
+            "settlement": None, "difficulty": "MEDIUM", "pointReward": 50,
+            "bqReward": 2,
+            "status": "PENDING", "createdAt": "2026-10-06T00:00:00Z",
+            "deadlineAt": "2026-10-06T07:30:00Z", "createdBy": "AI_ENGINE",
+            "teamCodes": ["LT"],
+            "subject": {"scope": "PLAYER", "playerIds": [53554, 50129],
+                        "teamCodes": [], "gameId": None}}
+
+
+def test_teammate_stat_compare_valid_passes():
+    assert vc.validate_candidate(ok_teammate_stat_compare(), CATALOG, BANNED) == []
+
+
+def test_teammate_stat_compare_rejects_numbers_in_options():
+    c = ok_teammate_stat_compare()
+    c["options"] = [{"id": "A", "text": "김민석(타율 0.340)"}, {"id": "B", "text": "전준우"}]
+    violations = vc.validate_candidate(c, CATALOG, BANNED)
+    assert any("보기에 수치를 노출" in v for v in violations)
+
+
+def test_teammate_stat_compare_requires_exactly_two_player_ids():
+    c = ok_teammate_stat_compare()
+    c["subject"]["playerIds"] = [53554]
+    violations = vc.validate_candidate(c, CATALOG, BANNED)
+    assert any("정확히 2명" in v for v in violations)
+
+    c = ok_teammate_stat_compare()
+    c["subject"]["playerIds"] = [53554, 50129, 12345]
+    assert any("정확히 2명" in v for v in vc.validate_candidate(c, CATALOG, BANNED))
+
+
+def test_teammate_stat_compare_requires_single_team_code():
+    c = ok_teammate_stat_compare()
+    c["teamCodes"] = ["LT", "KT"]
+    violations = vc.validate_candidate(c, CATALOG, BANNED)
+    assert any("teamCodes가 정확히 1개" in v for v in violations)
+
+
+def test_teammate_stat_compare_requires_evidence_with_two_numbers():
+    c = ok_teammate_stat_compare()
+    c["evidence"]["quote"] = "김민석이 전준우보다 타율이 더 높다."
+    violations = vc.validate_candidate(c, CATALOG, BANNED)
+    assert any("evidence.quote가 실제 집계 수치" in v for v in violations)
+
+
+def test_other_templates_unaffected_by_teammate_stat_compare_check():
+    # check 12는 templateId==TEAMMATE_STAT_COMPARE일 때만 적용된다 — 다른
+    # 템플릿은 보기에 숫자가 있어도(예: YESTERDAY_SCORE류) 영향받지 않는다.
+    c = ok_knowledge()
+    c.update(templateId="H2H_SEASON_RECORD", options=[
+        {"id": "A", "text": "LG가 8승 2패로 우위"}, {"id": "B", "text": "두산이 우위"}])
     assert vc.validate_candidate(c, CATALOG, BANNED) == []

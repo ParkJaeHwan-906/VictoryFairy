@@ -34,6 +34,23 @@ def test_check_evidence_resolves_stats_md(work):
     assert check_evidence(work, REPO, _cand(2, "STREAK_CURRENT", quote="없는 문장")) is False
 
 
+def test_check_evidence_resolves_player_season_stat(work):
+    # player_profile과 같은 "최신 파티션 1개" 동기화 패턴이라 날짜 서브디렉토리
+    # 없이 .work/player_season_stat/ 바로 아래 평평하게 내려받는다(ROUTINE.md
+    # §1) — evidence.source의 날짜 세그먼트는 _resolve가 버리고 파일명만 쓴다.
+    c = _cand(
+        3, "TEAMMATE_STAT_COMPARE",
+        quote="롯데 김민석은(는) 2026시즌 90경기 300타수 102안타(타율 0.340) "
+              "8홈런 40타점 10도루를 기록했다.",
+        source="question-source/player_season_stat/2026-10-06/"
+                "player_season_stat_53554.json")
+    assert check_evidence(work, REPO, c) is True
+    bad = _cand(4, "TEAMMATE_STAT_COMPARE", quote="없는 문장",
+                source="question-source/player_season_stat/2026-10-06/"
+                        "player_season_stat_53554.json")
+    assert check_evidence(work, REPO, bad) is False
+
+
 def test_select_final_drops_by_verdict_and_remaps_points():
     cands = [_cand(1, "A"), _cand(2, "B"), _cand(3, "C")]
     verdicts = {"RAW-01": _ok(diff="MEDIUM"), "RAW-02": _ok(fun=3),
