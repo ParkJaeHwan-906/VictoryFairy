@@ -154,6 +154,126 @@ def read_player_profiles(db, date=None, sink=None):
         )
 
 
+# 시즌 개인 타/투 누적 기록 (2026-10-06 신설). batter_records·pitcher_records는
+# records 잡이 "그 경기에 뛴 선수마다" 적재하는 박스스코어 원자료라 — 위키
+# 서사(CAREER_PATH 등)나 kbo-official 공식 기록실 랭킹 표(타율 상위 30명 등 —
+# 자격 타석수 미달 선수는 애초에 표에 안 뜸)와 달리 **자격 하한이 전혀 없다**.
+# 1군에서 단 1경기라도 타석/투구 기록을 남긴 선수는 전부 집계된다 — 실측
+# 검증(2026-10-06, KBO 공식 사이트 Record/Player/{Hitter,Pitcher}Basic 팀필터
+# 교차조회, 이 레포 바깥 조사)으로 롯데 자이언츠 1군 출전 선수가 62명(타자 39·
+# 투수 31·겸업 8 중복 제거) 확인됐다 — 로스터 78명 기준 커버리지 ~79%로,
+# 위키 서사 기반 PLAYER scope 템플릿의 13%(동일 팀 기준)를 크게 웃돈다.
+_SEASON_BATTING_SQL = (
+    "SELECT p.id, p.kbo_player_id, p.name, t.code, t.name, COUNT(*), "
+    " SUM(br.at_bats), SUM(br.hits), SUM(br.home_runs), SUM(br.rbi), "
+    " SUM(br.walks), SUM(br.strikeouts), SUM(br.stolen_bases) "
+    "FROM batter_records br "
+    "JOIN games g ON g.id = br.game_id "
+    "JOIN players p ON p.id = br.player_id "
+    "JOIN teams t ON t.id = p.team_id "
+    "WHERE p.kbo_player_id IS NOT NULL AND YEAR(g.game_date) = YEAR(CURDATE()) "
+    "GROUP BY p.id, p.kbo_player_id, p.name, t.code, t.name"
+)
+_SEASON_PITCHING_SQL = (
+    "SELECT p.id, p.kbo_player_id, p.name, t.code, t.name, COUNT(*), "
+    " SUM(pr.ip_outs), SUM(pr.earned_runs), SUM(pr.strikeouts), SUM(pr.hits), "
+    " SUM(pr.walks_hbp), SUM(pr.home_runs) "
+    "FROM pitcher_records pr "
+    "JOIN games g ON g.id = pr.game_id "
+    "JOIN players p ON p.id = pr.player_id "
+    "JOIN teams t ON t.id = p.team_id "
+    "WHERE p.kbo_player_id IS NOT NULL AND YEAR(g.game_date) = YEAR(CURDATE()) "
+    "GROUP BY p.id, p.kbo_player_id, p.name, t.code, t.name"
+)
+
+
+@reader("player_season_stat")
+def read_player_season_stats(db, date=None, sink=None):
+    """선수별 시즌(올해) 타/투 누적 기록. player_profile과 같은 "최신 파티션
+    1개" 스냅샷 패턴 — 날짜 창이 아니라 매 실행마다 시즌 전체를 다시 합산한다
+    (date 인자는 S3 파티션 경로에만 쓰이고 쿼리에는 영향 없음, player_profile과
+    동일). 시즌 경계는 YEAR(game_date)=YEAR(CURDATE())로 DB가 직접 판정한다
+    (KBO 시즌이 연말을 걸치지 않아 서버 로컬 타임존 차이는 무해).
+
+    타자·투수 겸업 선수(투수가 타석에 선 경우 등)는 batting·pitching 양쪽 다
+    채운 envelope 하나로 합친다(player_records.py의 batting+pitching 병합과
+    같은 원칙). at_bats=0인 타자, ip_outs=0인 투수는 평균(avg/era)을 None으로
+    남긴다(0으로 나누지 않음 — 소비자가 "집계 불가"로 처리할 근거).
+    """
+    now = _now()
+    season = datetime.now(timezone.utc).year
+
+    batting: dict = {}
+    for (pk, kbo_id, name, code, tname, games, ab, h, hr, rbi, bb, so, sb) in \
+            db.fetch_all(_SEASON_BATTING_SQL):
+        if not kbo_id:
+            continue
+        batting[kbo_id] = {
+            "pk": pk, "name": name, "code": code, "tname": tname, "games": games,
+            "atBats": int(ab or 0), "hits": int(h or 0), "homeRuns": int(hr or 0),
+            "rbi": int(rbi or 0), "walks": int(bb or 0), "strikeouts": int(so or 0),
+            "stolenBases": int(sb or 0),
+        }
+
+    pitching: dict = {}
+    for (pk, kbo_id, name, code, tname, games, ip_outs, er, so, h, bbhp, hr) in \
+            db.fetch_all(_SEASON_PITCHING_SQL):
+        if not kbo_id:
+            continue
+        pitching[kbo_id] = {
+            "pk": pk, "name": name, "code": code, "tname": tname, "games": games,
+            "ipOuts": int(ip_outs or 0), "earnedRuns": int(er or 0),
+            "strikeouts": int(so or 0), "hits": int(h or 0),
+            "walksHbp": int(bbhp or 0), "homeRuns": int(hr or 0),
+        }
+
+    for kbo_id in sorted(set(batting) | set(pitching)):
+        b, p = batting.get(kbo_id), pitching.get(kbo_id)
+        base = b or p
+        name, code, tname, pk = base["name"], base["code"], base["tname"], base["pk"]
+        sentences = []
+        payload = {"playerId": kbo_id, "season": season}
+
+        if b:
+            avg = round(b["hits"] / b["atBats"], 3) if b["atBats"] else None
+            avg_txt = f"{avg:.3f}" if avg is not None else "집계불가(무타수)"
+            sentences.append(
+                f"{tname} {name}은(는) {season}시즌 {b['games']}경기 {b['atBats']}타수 "
+                f"{b['hits']}안타(타율 {avg_txt}) {b['homeRuns']}홈런 {b['rbi']}타점 "
+                f"{b['stolenBases']}도루를 기록했다."
+            )
+            payload["batting"] = {k: v for k, v in b.items() if k not in ("pk", "name", "code", "tname")}
+            payload["batting"]["avg"] = avg
+
+        if p:
+            era = round(p["earnedRuns"] * 27 / p["ipOuts"], 2) if p["ipOuts"] else None
+            era_txt = f"{era:.2f}" if era is not None else "집계불가(무이닝)"
+            ip_whole, ip_frac = divmod(p["ipOuts"], 3)
+            ip_txt = f"{ip_whole}{['', ' ⅓', ' ⅔'][ip_frac]}"
+            sentences.append(
+                f"{tname} {name}은(는) {season}시즌 {p['games']}경기 {ip_txt}이닝 "
+                f"평균자책점 {era_txt} {p['strikeouts']}탈삼진을 기록했다."
+            )
+            payload["pitching"] = {k: v for k, v in p.items() if k not in ("pk", "name", "code", "tname")}
+            payload["pitching"]["era"] = era
+
+        entities = empty_entities()
+        entities["teamCodes"] = [code]
+        entities["playerUids"] = [pk]
+        yield Envelope(
+            doc_id=f"player_season_stat:{kbo_id}",
+            doc_type="player_season_stat",
+            source="naver",
+            source_ref=f"mysql://batter_records,pitcher_records/{kbo_id}",
+            collected_at=now,
+            title=f"{tname} {name} {season}시즌 기록",
+            content=" ".join(sentences),
+            tags=["개인기록", "시즌통계"],
+            entities=entities,
+            payload=payload,
+        )
+
+
 @reader("community_post")
 def read_community_posts(db, date=None, sink=None):
     """S3 RawPost 재포장(본문 재크롤 없음). date 필수."""

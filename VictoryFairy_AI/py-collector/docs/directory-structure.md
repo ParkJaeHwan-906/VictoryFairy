@@ -100,11 +100,13 @@ py-collector/
 | 파일 | 역할 |
 |---|---|
 | **envelope.py** | `Envelope` dataclass(직렬화 시 JSON 12키 고정) + `validate()` + `s3_key`/`safe_id`(키 안전화). `ENVELOPE_VERSION=1` |
-| **exporter.py** | docType별 `reader` 레지스트리(`game_result`·`player_profile`·`community_post`는 MySQL/S3에서 읽어 envelope 생성). `export()`가 reader 없으면 해당 docType을 방출하는 소스의 `collect`로 위임 |
+| **exporter.py** | docType별 `reader` 레지스트리(`game_result`·`player_profile`·`player_season_stat`·`community_post`는 MySQL/S3에서 읽어 envelope 생성). `export()`가 reader 없으면 해당 docType을 방출하는 소스의 `collect`로 위임 |
 
-> `sources/`(수집·적재)와 `exports/`(재포장)의 차이: `game_result`·`player_profile`는 소스가
-> **MySQL에 적재**하고, exporter가 그 MySQL을 **읽어** envelope를 만듭니다. `player_meme`는 reader가
-> 없어 소스 `collect`가 곧 export입니다.
+> `sources/`(수집·적재)와 `exports/`(재포장)의 차이: `game_result`·`player_profile`·`player_season_stat`은
+> 소스가 **MySQL에 적재**하고, exporter가 그 MySQL을 **읽어** envelope를 만듭니다(`player_season_stat`은
+> 2026-10-06 신설 — 전담 `sources/*.py` 모듈 없이 `records` 잡이 이미 쌓아 둔 `batter_records`·
+> `pitcher_records`를 그대로 읽는다, 별도 수집 불필요). `player_meme`는 reader가 없어 소스 `collect`가
+> 곧 export입니다.
 
 ---
 

@@ -45,6 +45,15 @@ def work(tmp_path: Path) -> Path:
         json.dumps(GAME_ENV, ensure_ascii=False), encoding="utf-8")
     (w / "wiki/players").mkdir(parents=True)
     (w / "wiki/players/69238.md").write_text(WIKI_DOC, encoding="utf-8")
+    (w / "player_season_stat").mkdir(parents=True)
+    (w / "player_season_stat/player_season_stat_53554.json").write_text(
+        json.dumps({
+            "docId": "player_season_stat:53554", "docType": "player_season_stat",
+            "content": "롯데 김민석은(는) 2026시즌 90경기 300타수 102안타(타율 0.340) "
+                       "8홈런 40타점 10도루를 기록했다.",
+            "entities": {"teamCodes": ["LT"], "playerUids": [123]},
+            "payload": {"playerId": "53554", "season": 2026},
+        }, ensure_ascii=False), encoding="utf-8")
     (w / "quiz-candidates/2026-08-01").mkdir(parents=True)
     (w / "quiz-candidates/2026-08-01/QZ-20260801-005.json").write_text(json.dumps(
         {"quizId": "QZ-20260801-005", "templateId": "MEME_OWNER",

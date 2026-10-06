@@ -51,6 +51,17 @@
 #   wiki.*                  → wiki/players/{kboPlayerId}.md 해당 섹션 (위키 빌더 미등록 —
 #                             아직 S3에 없음)
 #   graph                   → wiki/graph.json (위키 빌더 미등록 — 아직 S3에 없음)
+#   envelope.player_season_stat → question-source/player_season_stat/ (최신 파티션 —
+#                             2026-10-06 신설. py-collector가 batter_records·pitcher_records
+#                             (그 선수가 뛴 "모든" 경기의 박스스코어 원자료 — 자격 타석수
+#                             하한이 전혀 없음)를 선수별로 시즌 합산해 뿜는 envelope.
+#                             CAREER_PATH 등 위키 서사 템플릿은 사람이 수작업 큐레이션한
+#                             선수만 커버(실측: 팀당 13~40%)하지만, 이 docType은 1군에서
+#                             단 1경기라도 뛴 선수면 전부 커버한다(실측: 롯데 78명 로스터
+#                             중 62명·~79% — KBO 공식 사이트 팀필터 교차조회, 2026-10-06).
+#                             payload.batting/pitching은 선택 필드(타자면 batting만,
+#                             투수면 pitching만, 겸업이면 둘 다)이고 avg/era는 타수/이닝이
+#                             0이면 null이다(0 나누기 금지, exporter.py 주석 참고)
 
 # ── 지식 · 최근 경기 (시의성 층) ──────────────────────────────
 
@@ -291,6 +302,31 @@
     `retired: true` 항목은 절대 특정 팀 perTeam 묶음에 넣지 않는다(은퇴 선수를 현재
     로스터인 것처럼 묻는 오류 방지) — 필요하면 LEAGUE 공통 묶음에서 '은퇴 선수' 취지로만
     다룰 것(이 필드는 팀 귀속 결정용이지 그 자체로 안전 검증 게이트는 아니다)."
+  difficulty: MEDIUM
+
+- id: TEAMMATE_STAT_COMPARE
+  kind: KNOWLEDGE
+  format: BINARY
+  needs: [envelope.player_season_stat]
+  subjectScope: PLAYER
+  intent: "같은 팀 소속 두 선수의 올 시즌 같은 지표(타자는 타율·홈런·타점 중 하나,
+    투수는 평균자책점·탈삼진 중 하나)를 비교해 더 우수한 쪽을 맞힌다(ERA는 낮은
+    쪽이 우수). 2026-10-06 신설 — CAREER_PATH/MEME_ORIGIN처럼 위키 서사 큐레이션에
+    의존하지 않고 envelope.player_season_stat(자격 하한 없음, 실측 로스터 커버리지
+    ~79% — 위 needs 어휘 사전 참고)만으로 로스터 거의 전원을 재료로 쓸 수 있다.
+    **보기에는 실제 수치를 절대 노출하지 않는다** — 두 선수 이름만 보기로 제시하고
+    실제 타율/ERA 값은 evidence에만 담는다(암기형 수치 유출 방지, 순수 비교형
+    설계 — validate_candidates.py check 12가 보기의 숫자 포함을 하드 금지).
+    표본이 지나치게 적은 선수(타자는 시즌 누적 타수 30 미만, 투수는 이닝 10
+    (ip_outs 30) 미만)는 비교 대상에서 제외한다 — 극소 표본 지표는 우연성이 커
+    '더 우수하다'는 서술 자체가 성립하기 어렵다. evidence는 **정답(더 우수한
+    쪽) 선수 한 명의 envelope 하나만** 가리킨다(기존 evidence 계약 — source
+    1개·quote가 그 파일 content의 부분문자열, `runner/finalize.py`
+    `check_evidence`/`_resolve` 그대로 재사용 — 2026-10-06 player_season_stat
+    분기 추가). 상대 선수 수치와의 비교 정확성은 evidence 원문 대조가 아니라
+    검증 패스(6단계, LLM이 `.work/player_season_stat/`의 두 파일을 직접 대조)가
+    책임진다 — 데이터 바인딩 절차는 ROUTINE.md §3-2 참고."
+  distractor: "없음(BINARY — 두 선수 이름 자체가 두 보기)"
   difficulty: MEDIUM
 
 - id: SEASON_STAT_LEADER
