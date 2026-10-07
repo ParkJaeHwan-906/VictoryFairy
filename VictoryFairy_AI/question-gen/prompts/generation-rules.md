@@ -109,6 +109,11 @@ format·needs·intent·distractor·settlement·difficulty)을 정하고, 이 문
 이 문서에 숫자를 다시 적지 않는다 — 정본은 그 파일 하나다). 실행 시 그 파일을
 열어 현재 값을 확인하고 쓴다. 값이 바뀌어도 이 문서는 고치지 않는다.
 
+**예외: `TEAMMATE_STAT_COMPARE`**(2026-10-07)는 카탈로그 `difficulty`(MEDIUM)를
+그대로 쓰지 않는다 — 고른 지표에 따라 EASY/MEDIUM/HARD 중 하나를 그때그때
+정한다. 지표별 대응표와 자격 기준은 `question-gen/config/question-templates.yaml`의
+이 템플릿 `intent`와 `question-gen/ROUTINE.md` §3-2를 따른다.
+
 두 필드는 **둘 다 필수**이며 한 문항 안에서 같은 난이도를 가리켜야 한다. 한쪽만
 채우거나 서로 다른 난이도의 값을 쓰면 업로드 직전 게이트(`validate_candidates.py`
 check 6)에서 각각 걸린다.

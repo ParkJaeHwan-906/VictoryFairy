@@ -340,41 +340,68 @@ player_season_stat`(`question-source/player_season_stat/` 최신 파티션 — 1
 선수가 뛴 "모든" 경기의 박스스코어 원자료, 자격 타석수 하한 없음)를 선수별로
 시즌 합산한 것이라 **1군에서 단 1경기라도 뛴 선수면 전부 커버한다**(실측: 롯데
 78명 로스터 중 62명·~79%, 2026-10-06 KBO 공식 사이트 팀필터 교차조회). 이
-템플릿은 그 커버리지를 실제로 활용해 PLAYER scope MEDIUM 슬롯을 채운다.
+템플릿은 그 커버리지를 실제로 활용해 PLAYER scope 슬롯을 채운다.
+
+**2026-10-07 — 난이도 다변화.** 신설 당시(2026-10-06)엔 모든 지표를 MEDIUM
+하나로만 분류했는데, 2026-10-07 실측에서 HH(한화)·LT(롯데)의 perTeam
+`TEAMMATE_STAT_COMPARE` 후보가 **정확히 10건**(= `scoring.yaml`
+`volume.perTeam.MEDIUM`과 같은 값)에서 멈췄다 — 재료 부족이 아니라 지표를
+전부 MEDIUM 하나로만 분류해 슬롯 캡(10)에 바로 막힌 것이었다. 이 템플릿은
+`generation-rules.md` §5의 "카탈로그 difficulty 값을 그대로 쓴다" 일반 규칙의
+**예외**다 — candidate의 `difficulty`는 **고른 지표**로 정한다(카탈로그
+선언값 MEDIUM을 그대로 복사하지 말 것). 이렇게 하면 지금 위키 고갈로 못
+채워지는 perTeam EASY·HARD 슬롯도 로스터 통계(위키 큐레이션 불필요) 재료로
+메울 수 있다.
 
 - **데이터 바인딩**: `.work/`로 동기화된 `question-source/player_season_stat/`의
   envelope들을 그 팀(`teamCodes`)으로 필터링한다. 같은 지표 그룹(타자는
   `payload.batting`, 투수는 `payload.pitching`)에서 **표본 하한을 만족하는 두
   선수**를 고른다 — 타자는 `batting.atBats >= 30`, 투수는 `pitching.ipOuts >= 30`
-  (이닝 10 이상). 하한 미달 선수는 비교 대상에서 제외한다(표본이 적으면 "더
-  우수하다"는 서술이 우연에 가깝다).
-- **지표 선택과 정답 판정**: 타자는 `avg`(타율)·`homeRuns`(홈런)·`rbi`(타점) 중
-  하나, 투수는 `era`(평균자책점)·`strikeouts`(탈삼진) 중 하나를 고정해서 묻는다
-  (질문 하나에 지표 하나만 — 복합 비교 금지). `avg`/`homeRuns`/`rbi`/
-  `strikeouts`는 **수치가 큰 쪽**이 정답, `era`는 **수치가 작은 쪽**이 정답이다.
-  두 선수의 값이 **정확히 같으면 그 지표·그 쌍은 쓰지 않는다**(정답이 하나로
-  확정되지 않음 — 다른 지표 또는 다른 쌍으로 바꾼다). `avg`/`era`가 `null`인
-  선수(무타수/무이닝)는 애초에 표본 하한에서 걸려 제외된다.
+  (이닝 10 이상, WHIP도 **동일 기준**). 하한 미달 선수는 비교 대상에서
+  제외한다(표본이 적으면 "더 우수하다"는 서술이 우연에 가깝다).
+- **지표 선택 — 난이도별 대응표(고정)**:
+
+  | 난이도 | 타자 지표 | 투수 지표 |
+  |---|---|---|
+  | EASY | `hits`(안타, 누적 개수) | `strikeouts`(탈삼진, 누적 개수) |
+  | MEDIUM(기존) | `avg`(타율) | `era`(평균자책점) |
+  | HARD | `rbi`(타점, 누적 개수) | `whip`((hits+walksHbp)/(ipOuts/3), exporter가 계산해 payload에 이미 담음) |
+
+  질문 하나에 지표 하나만 고정해서 묻는다(복합 비교 금지). **candidate의
+  `difficulty`·`pointReward`·`bqReward`는 고른 지표의 난이도 행을 따라
+  `scoring.yaml` 기준으로 맞춘다**(check 6) — 예: `rbi`나 `whip`을 고르면
+  HARD(80P/3BQ), `hits`나 `strikeouts`를 고르면 EASY(30P/1BQ)로 적는다.
+- **정답 판정**: `hits`/`avg`/`rbi`/`strikeouts`는 **수치가 큰 쪽**이 정답,
+  `era`/`whip`은 **수치가 작은 쪽**이 정답이다(WHIP은 ERA와 같은 "낮을수록
+  좋음" 방향). 두 선수의 값이 **정확히 같으면 그 지표·그 쌍은 쓰지 않는다**
+  (정답이 하나로 확정되지 않음 — 다른 지표 또는 다른 쌍으로 바꾼다). `avg`/
+  `era`/`whip`이 `null`인 선수(무타수/무이닝/이닝 10 미만)는 애초에 표본
+  하한에서 걸려 제외된다.
 - **보기(options) 작성**: 두 선수의 **이름만** 보기로 쓴다(예: A. 김도영 B.
-  나성범) — 타율·홈런 등 실제 수치는 질문·보기 어디에도 넣지 않는다(암기형
-  수치 유출 방지, 카탈로그 intent 그대로). 질문 문구에 비교할 지표는 명시한다
-  (예: "다음 두 선수 중 올 시즌 타율이 더 높은 쪽은?"). `format: BINARY`,
+  나성범) — 안타·타율·타점·탈삼진·WHIP 등 실제 수치는 질문·보기 어디에도
+  넣지 않는다(암기형 수치 유출 방지, 카탈로그 intent 그대로). 질문 문구에
+  비교할 지표는 명시한다(예: "다음 두 선수 중 올 시즌 타율이 더 높은 쪽은?",
+  "다음 두 투수 중 올 시즌 WHIP이 더 낮은 쪽은?"). `format: BINARY`,
   `options` 2개.
 - **evidence 작성**: 기존 evidence 계약(source 1개·quote가 그 파일 content의
   부분문자열)을 그대로 쓴다 — `evidence.source`는 **정답(더 우수한 쪽) 선수
   한 명**의 `player_season_stat` S3 키(예: `question-source/player_season_stat/
   {date}/player_season_stat_60632.json`), `evidence.quote`는 그 선수 envelope의
   `content` 문장을 **그대로**(수치를 LLM이 다시 쓰지 않는다 — exporter가 이미
-  결정적으로 렌더한 문장이라 원문 대조가 바로 된다 — `runner/finalize.py`
-  `_resolve`가 이 S3 키를 `.work/player_season_stat/{safeId}.json`으로
-  푼다). `validate_candidates.py` check 12가 `evidence.quote`에 숫자가 2개
-  이상 있는지(한 선수의 기록 문장 안에 경기수·안타·타율 등 여러 수치가 이미
-  들어있어 자연히 충족된다) 하드로 검사한다. **상대 선수 값과의 비교
+  결정적으로 렌더한 문장이라 원문 대조가 바로 된다 — 투수 문장은 2026-10-07부터
+  WHIP도 포함한다 — `runner/finalize.py` `_resolve`가 이 S3 키를
+  `.work/player_season_stat/{safeId}.json`으로 푼다). `validate_candidates.py`
+  check 12가 `evidence.quote`에 숫자가 2개 이상 있는지(한 선수의 기록 문장
+  안에 경기수·안타·타율 등 여러 수치가 이미 들어있어 자연히 충족된다) 하드로
+  검사한다 — 이 검사는 지표가 무엇이든(hits/rbi/strikeouts/whip 포함) 구조만
+  보므로 그대로 적용된다. **상대 선수 값과의 비교
   정확성은 이 결정적 대조가 아니라 검증 패스(6단계)가 `.work/
   player_season_stat/`의 두 파일을 직접 열어 판단**한다 — 서브에이전트는
   자기 점검(`self_check.py`) 단계에서도 반드시 두 파일을 직접 비교해 정답을
   정했는지 재확인할 것(evidence가 한 파일만 가리킨다고 해서 비교 없이
-  지어내도 된다는 뜻이 아니다).
+  지어내도 된다는 뜻이 아니다). WHIP처럼 content 문장에 없는 지표를 고를
+  경우에도(이 템플릿은 2026-10-07부터 WHIP을 문장에 포함하므로 해당 없음)
+  payload의 원값을 직접 대조할 것 — 문장 유무와 무관하게 payload가 정본이다.
 - **카디널리티**: `subject.scope: PLAYER`, `subject.playerIds`에 **두 선수의
   kboPlayerId 정수 정확히 2개**(check 12 — 일반 PLAYER scope 하한인 "1개 이상"
   보다 이 템플릿만 더 엄격하다). top-level `teamCodes`는 그 팀 하나(두 선수가

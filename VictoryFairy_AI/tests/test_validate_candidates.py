@@ -353,6 +353,44 @@ def test_teammate_stat_compare_requires_evidence_with_two_numbers():
     assert any("evidence.quote가 실제 집계 수치" in v for v in violations)
 
 
+def test_teammate_stat_compare_valid_passes_for_easy_hits_metric():
+    # 2026-10-07 난이도 다변화 — 타자 안타(hits, raw count) 비교는 EASY다.
+    # check 12는 지표에 무관하게 구조만 검사하므로(보기 숫자 금지·playerIds
+    # 2명·teamCodes 1개·evidence.quote 숫자 2개 이상) EASY/HARD 지표에도 그대로
+    # 통과해야 한다.
+    c = ok_teammate_stat_compare()
+    c.update(
+        question="롯데 두 선수 중 올 시즌 안타가 더 많은 쪽은?",
+        difficulty="EASY", pointReward=30, bqReward=1)
+    assert vc.validate_candidate(c, CATALOG, BANNED) == []
+
+
+def test_teammate_stat_compare_valid_passes_for_hard_rbi_metric():
+    # 타자 타점(rbi) 비교는 HARD다.
+    c = ok_teammate_stat_compare()
+    c.update(
+        question="롯데 두 선수 중 올 시즌 타점이 더 많은 쪽은?",
+        difficulty="HARD", pointReward=80, bqReward=3)
+    assert vc.validate_candidate(c, CATALOG, BANNED) == []
+
+
+def test_teammate_stat_compare_valid_passes_for_hard_whip_metric():
+    # 투수 WHIP(2026-10-07 exporter 신규 필드) 비교는 HARD다 — evidence.quote는
+    # exporter가 렌더한 투수 기록 문장(경기수·이닝·평균자책점·탈삼진·WHIP 등
+    # 숫자 여러 개 포함)을 그대로 쓰므로 check 12(숫자 2개 이상)를 자연히
+    # 만족한다.
+    c = ok_teammate_stat_compare()
+    c.update(
+        question="롯데 두 투수 중 올 시즌 WHIP이 더 낮은 쪽은?",
+        difficulty="HARD", pointReward=80, bqReward=3,
+        options=[{"id": "A", "text": "박세웅"}, {"id": "B", "text": "다른투수"}],
+        evidence={
+            "source": "question-source/player_season_stat/2026-10-07/player_season_stat_60100.json",
+            "quote": "롯데 박세웅은(는) 2026시즌 20경기 33⅓이닝 평균자책점 8.10 "
+                     "80탈삼진 WHIP 2.85를 기록했다."})
+    assert vc.validate_candidate(c, CATALOG, BANNED) == []
+
+
 def test_other_templates_unaffected_by_teammate_stat_compare_check():
     # check 12는 templateId==TEAMMATE_STAT_COMPARE일 때만 적용된다 — 다른
     # 템플릿은 보기에 숫자가 있어도(예: YESTERDAY_SCORE류) 영향받지 않는다.
