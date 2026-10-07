@@ -240,14 +240,24 @@ volume:
                        # 로스터 기반 템플릿 자체를 금지, common은 LEAGUE scope 템플릿만
                        # 씀) 난이도 슬롯과 겹쳐 충돌할 자리가 없다.
     EASY: 30
-    MEDIUM: 10        # RECORD_OX·HOME_AWAY_SPLIT 재료 소진 — 대개 0~2건, 정상.
-                      # 2026-10-06 — TEAMMATE_STAT_COMPARE(PLAYER, MEDIUM) 신설로
-                      # 이 슬롯의 1차 재료군에 합류한다(question-templates.yaml 참고).
-                      # 위키 서사 큐레이션 의존 없이 envelope.player_season_stat만
-                      # 쓰고, 실측 로스터 커버리지가 ~79%(롯데 기준)로 RECORD_OX·
-                      # HOME_AWAY_SPLIT보다 훨씬 넓어 이 슬롯의 만성 미달을 줄일
-                      # 것으로 기대하지만, 슬롯 숫자(10)는 **아직 올리지 않는다** —
-                      # 이 파일의 관례대로 실측(첫 실행 충족률)을 보고서야 조정한다.
+    MEDIUM: 20        # 2026-10-07 — 10 → 20 상향(실측 병목 해소, 이 파일의 "실측
+                      # 병목만 넓힌다" 원칙). 근거: 2026-10-06 TEAMMATE_STAT_COMPARE
+                      # (PLAYER, 당시 MEDIUM 전용) 신설 이후, 2026-10-07 S3
+                      # quiz-candidates/2026-10-07/ 직접 집계에서 HH(한화)·LT(롯데)의
+                      # perTeam TEAMMATE_STAT_COMPARE가 **정확히 10건**(이 슬롯의
+                      # 옛 상한과 정확히 같은 값)에서 멈췄다 — envelope.
+                      # player_season_stat 재료는 로스터 커버리지 ~79%로 RECORD_OX·
+                      # HOME_AWAY_SPLIT보다 훨씬 넓어 재료 부족이 아니라 **슬롯 캡
+                      # 자체가 병목**이었다(재료는 더 있었을 가능성이 높다). 같은
+                      # 2026-10-07 변경으로 TEAMMATE_STAT_COMPARE을 난이도 3단계
+                      # (EASY=hits/strikeouts, MEDIUM=avg/era, HARD=rbi/whip)로
+                      # 다변화해 재료가 EASY·HARD로도 분산되므로, MEDIUM 전용
+                      # 수요는 상향 후에도 어느 정도 줄 것으로 예상된다 — 그래서
+                      # 2배(20)로만 보수적으로 올린다(RECORD_OX·HOME_AWAY_SPLIT
+                      # 자체 재료가 거의 없다는 사실은 안 바뀌었으므로, 상향분을
+                      # 전부 TEAMMATE_STAT_COMPARE가 메울 것이라는 가정). EASY(30)·
+                      # HARD(44)는 이번엔 건드리지 않는다 — 난이도 다변화 이후
+                      # 다음 실행에서 실측하고 조정할 것(과도한 선제 조정 지양).
     HARD: 44
     EXPERT: 6         # RELATION_LINK 재료가 얇아 대개 미달로 끝난다 — 정상.
   # 생성 단계에서 만들 후보 배수(검증 폐기율 흡수). 20문항 슬롯이면 30개 생성.

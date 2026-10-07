@@ -199,6 +199,12 @@ def read_player_season_stats(db, date=None, sink=None):
     채운 envelope 하나로 합친다(player_records.py의 batting+pitching 병합과
     같은 원칙). at_bats=0인 타자, ip_outs=0인 투수는 평균(avg/era)을 None으로
     남긴다(0으로 나누지 않음 — 소비자가 "집계 불가"로 처리할 근거).
+
+    whip(투수, (hits + walksHbp) / (ipOuts/3))은 2026-10-07 TEAMMATE_STAT_COMPARE
+    난이도 다변화(HARD 지표)를 위해 추가한 필드다 — era와 같은 0-나누기 가드
+    패턴을 쓰되, era보다 더 엄격한 자격 하한(이닝 10 미만, 즉 ip_outs<30이면
+    표본 부족으로 None)을 적용한다. 수치 계산은 여기 exporter가 결정적으로
+    끝내고 LLM은 그 값을 그대로 읽기만 한다(ROUTINE.md "LLM 수치 계산 금지").
     """
     now = _now()
     season = datetime.now(timezone.utc).year
@@ -248,14 +254,21 @@ def read_player_season_stats(db, date=None, sink=None):
         if p:
             era = round(p["earnedRuns"] * 27 / p["ipOuts"], 2) if p["ipOuts"] else None
             era_txt = f"{era:.2f}" if era is not None else "집계불가(무이닝)"
+            # WHIP = (피안타 + 볼넷+사구) / (ip_outs/3이닝). era보다 엄격한 자격
+            # 하한(이닝 10 미만이면 None — ip_outs<30)을 쓴다(TEAMMATE_STAT_COMPARE
+            # HARD 지표, 2026-10-07). era와 같은 0-나누기 가드 패턴.
+            whip = (round((p["hits"] + p["walksHbp"]) * 3 / p["ipOuts"], 2)
+                    if p["ipOuts"] >= 30 else None)
             ip_whole, ip_frac = divmod(p["ipOuts"], 3)
             ip_txt = f"{ip_whole}{['', ' ⅓', ' ⅔'][ip_frac]}"
+            whip_txt = f"{whip:.2f}" if whip is not None else "집계불가(이닝부족)"
             sentences.append(
                 f"{tname} {name}은(는) {season}시즌 {p['games']}경기 {ip_txt}이닝 "
-                f"평균자책점 {era_txt} {p['strikeouts']}탈삼진을 기록했다."
+                f"평균자책점 {era_txt} {p['strikeouts']}탈삼진 WHIP {whip_txt}를 기록했다."
             )
             payload["pitching"] = {k: v for k, v in p.items() if k not in ("pk", "name", "code", "tname")}
             payload["pitching"]["era"] = era
+            payload["pitching"]["whip"] = whip
 
         entities = empty_entities()
         entities["teamCodes"] = [code]

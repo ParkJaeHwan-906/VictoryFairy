@@ -275,6 +275,35 @@ def test_read_player_season_stats_pitching_only_era():
     assert e.payload["pitching"]["era"] == 8.1
     assert "평균자책점 8.10" in e.content
     assert "batting" not in e.payload
+    # whip = (hits + walksHbp) * 3 / ipOuts = (70+25)*3/100 = 2.85
+    # (TEAMMATE_STAT_COMPARE HARD 지표, 2026-10-07 추가. ipOuts=100 >= 30이라 자격 충족)
+    assert e.payload["pitching"]["whip"] == 2.85
+    assert "WHIP 2.85" in e.content
+
+
+def test_read_player_season_stats_whip_null_below_innings_floor():
+    # ip_outs=29(= 9⅔이닝, 10이닝 미달)면 era는 계산되지만 whip은 자격 하한에
+    # 걸려 None이어야 한다 — era보다 더 엄격한 하한(이닝<10)을 쓰는 설계.
+    row = (456, "60100", "박세웅", "LT", "롯데", 20, 29, 10, 20, 20, 5, 1)
+    db = FakeDb({"FROM batter_records": [], "FROM pitcher_records": [row]})
+    envs = list(exporter.read_player_season_stats(db))
+    e = envs[0]
+    assert e.payload["pitching"]["era"] is not None
+    assert e.payload["pitching"]["whip"] is None
+    assert "집계불가(이닝부족)" in e.content
+
+
+def test_read_player_season_stats_whip_no_division_by_zero():
+    # ip_outs=0인 투수는 era·whip 둘 다 None(0으로 나누지 않음 — era와 같은
+    # 0-나누기 가드 패턴).
+    row = (456, "60100", "박세웅", "LT", "롯데", 1, 0, 0, 0, 0, 0, 0)
+    db = FakeDb({"FROM batter_records": [], "FROM pitcher_records": [row]})
+    envs = list(exporter.read_player_season_stats(db))
+    e = envs[0]
+    assert e.payload["pitching"]["era"] is None
+    assert e.payload["pitching"]["whip"] is None
+    assert "집계불가(무이닝)" in e.content
+    assert "집계불가(이닝부족)" in e.content
 
 
 def test_read_player_season_stats_merges_two_way_player():
