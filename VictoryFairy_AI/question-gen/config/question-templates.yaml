@@ -309,23 +309,44 @@
   format: BINARY
   needs: [envelope.player_season_stat]
   subjectScope: PLAYER
-  intent: "같은 팀 소속 두 선수의 올 시즌 같은 지표(타자는 타율·홈런·타점 중 하나,
-    투수는 평균자책점·탈삼진 중 하나)를 비교해 더 우수한 쪽을 맞힌다(ERA는 낮은
-    쪽이 우수). 2026-10-06 신설 — CAREER_PATH/MEME_ORIGIN처럼 위키 서사 큐레이션에
-    의존하지 않고 envelope.player_season_stat(자격 하한 없음, 실측 로스터 커버리지
-    ~79% — 위 needs 어휘 사전 참고)만으로 로스터 거의 전원을 재료로 쓸 수 있다.
+  intent: "같은 팀 소속 두 선수의 올 시즌 같은 지표를 비교해 더 우수한 쪽을
+    맞힌다(ERA·WHIP는 낮은 쪽이 우수, 그 외는 큰 쪽이 우수). 2026-10-06 신설 —
+    CAREER_PATH/MEME_ORIGIN처럼 위키 서사 큐레이션에 의존하지 않고
+    envelope.player_season_stat(자격 하한 없음, 실측 로스터 커버리지 ~79% — 위
+    needs 어휘 사전 참고)만으로 로스터 거의 전원을 재료로 쓸 수 있다.
     **보기에는 실제 수치를 절대 노출하지 않는다** — 두 선수 이름만 보기로 제시하고
-    실제 타율/ERA 값은 evidence에만 담는다(암기형 수치 유출 방지, 순수 비교형
+    실제 수치는 evidence에만 담는다(암기형 수치 유출 방지, 순수 비교형
     설계 — validate_candidates.py check 12가 보기의 숫자 포함을 하드 금지).
     표본이 지나치게 적은 선수(타자는 시즌 누적 타수 30 미만, 투수는 이닝 10
-    (ip_outs 30) 미만)는 비교 대상에서 제외한다 — 극소 표본 지표는 우연성이 커
-    '더 우수하다'는 서술 자체가 성립하기 어렵다. evidence는 **정답(더 우수한
-    쪽) 선수 한 명의 envelope 하나만** 가리킨다(기존 evidence 계약 — source
-    1개·quote가 그 파일 content의 부분문자열, `runner/finalize.py`
-    `check_evidence`/`_resolve` 그대로 재사용 — 2026-10-06 player_season_stat
-    분기 추가). 상대 선수 수치와의 비교 정확성은 evidence 원문 대조가 아니라
-    검증 패스(6단계, LLM이 `.work/player_season_stat/`의 두 파일을 직접 대조)가
-    책임진다 — 데이터 바인딩 절차는 ROUTINE.md §3-2 참고."
+    (ip_outs 30) 미만 — WHIP도 동일 기준)는 비교 대상에서 제외한다 — 극소
+    표본 지표는 우연성이 커 '더 우수하다'는 서술 자체가 성립하기 어렵다.
+    evidence는 **정답(더 우수한 쪽) 선수 한 명의 envelope 하나만** 가리킨다
+    (기존 evidence 계약 — source 1개·quote가 그 파일 content의 부분문자열,
+    `runner/finalize.py` `check_evidence`/`_resolve` 그대로 재사용 —
+    2026-10-06 player_season_stat 분기 추가). 상대 선수 수치와의 비교 정확성은
+    evidence 원문 대조가 아니라 검증 패스(6단계, LLM이
+    `.work/player_season_stat/`의 두 파일을 직접 대조)가 책임진다 — 데이터
+    바인딩 절차는 ROUTINE.md §3-2 참고.
+
+    **난이도는 지표로 결정한다(2026-10-07 — 이 템플릿 전용으로
+    generation-rules.md §5 '카탈로그 difficulty 값을 그대로 쓴다' 일반
+    규칙의 예외다. 아래 `difficulty: MEDIUM`은 avg/era 기본값일 뿐, 실제
+    candidate.difficulty는 고른 지표에 따라 EASY/MEDIUM/HARD 중 하나로 써야
+    한다 — `runner/finalize.py`의 `select_final`/`_fill`이 candidate 자신의
+    difficulty로 perTeam EASY/MEDIUM/HARD 슬롯에 나눠 담기 때문에, 지표를
+    다양화해도 difficulty를 전부 MEDIUM으로 적으면 이 템플릿은 여전히
+    perTeam.MEDIUM 슬롯 하나로만 몰린다 — 2026-10-07 HH/LT 실측, 정확히
+    MEDIUM 캡(10)에서 막힘):
+    - EASY: 타자 `hits`(안타 누적 개수) 비교, 투수 `strikeouts`(탈삼진 누적
+      개수) 비교 — payload의 raw count라 그대로 큰 쪽이 정답.
+    - MEDIUM(기존): 타자 `avg`(타율), 투수 `era`(평균자책점) 비교.
+    - HARD: 타자 `rbi`(타점 누적 개수) 비교, 투수 `whip`(이닝당 투수가 내준
+      루상 주자 수 — `(hits+walksHbp)/(ipOuts/3)`, exporter가 이미 계산해
+      payload에 담음) 비교 — rbi는 raw count지만 '팀 기여도'라는 맥락 해석이
+      필요해 HARD, whip은 두 수치의 비율이라 HARD.
+    질문 하나당 지표 하나만 고정해서 묻는다(복합 비교 금지, 기존 원칙 유지).
+    고른 지표에 맞는 difficulty·pointReward·bqReward를 scoring.yaml 기준으로
+    맞춰 적는다(check 6)."
   distractor: "없음(BINARY — 두 선수 이름 자체가 두 보기)"
   difficulty: MEDIUM
 
