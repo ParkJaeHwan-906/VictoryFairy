@@ -33,12 +33,41 @@ public interface QuizRepository extends JpaRepository<Quiz, Long> {
     @EntityGraph(attributePaths = {"quizType", "team", "opponentTeam", "player", "game"})
     List<Quiz> findAllByQuizDateOrderByIdAsc(LocalDate quizDate);
 
-    /** 그날 세트의 현재 크기 — 편성 잡이 부족분 계산에 쓴다. */
-    long countByQuizDate(LocalDate quizDate);
+    /**
+     * 공통(팀 비귀속) 쿼터 전용 — 그날 세트 중 {@code team}이 비어 있는 문항의 현재 크기.
+     * 일반 퀴즈(팀·선수·경기 전부 null)뿐 아니라 선수 전용 문항(정답 유출 방지로 {@code team}을
+     * 일부러 비움 — {@link com.skhynix.domain.quiz.entity.Quiz} 클래스 javadoc)도 여기 포함된다.
+     * 편성 잡({@code QuizPublishService})이 공통 쿼터 부족분 계산에 쓴다.
+     */
+    long countByQuizDateAndTeamIsNull(LocalDate quizDate);
 
     /**
-     * 미편성 풀({@code quiz_date IS NULL})에서 {@code limit}건을 그날 세트로 편성(날짜 스탬프)한다.
-     * 반환값은 실제로 스탬프된 행 수(풀이 부족하면 limit 미만).
+     * 팀 쿼터 전용 — 그 팀이 {@code team} 또는 {@code opponentTeam}으로 들어간, 그날 세트의 현재
+     * 크기. 맞대결·경기 문항(두 FK 모두 참)은 양팀 쿼터 각각에 한 번씩 세어진다 — 실제 적재 행은
+     * 하나뿐이지만 그 팀 팬에게도, 상대 팀 팬에게도 "오늘 받은 우리 팀 문항"이므로 중복 집계가
+     * 의도다. 편성 잡이 팀별 부족분 계산에 쓴다.
+     */
+    @Query("SELECT COUNT(q) FROM Quiz q WHERE q.quizDate = :quizDate "
+            + "AND (q.team.id = :teamId OR q.opponentTeam.id = :teamId)")
+    long countByQuizDateAndTeam(@Param("quizDate") LocalDate quizDate, @Param("teamId") Long teamId);
+
+    /**
+     * 미편성 풀({@code quiz_date IS NULL})에서 <b>팀 비귀속({@code team_id IS NULL})</b> 문항만
+     * {@code limit}건 그날 세트로 편성한다. 반환값은 실제로 스탬프된 행 수(풀이 부족하면 limit
+     * 미만). 전략은 {@link #publishFromPoolForTeam}과 동일(오름차순 id, PREDICTION 정산 가드) —
+     * 차이는 대상 범위뿐이다(팀 비귀속 한정).
+     */
+    @Modifying
+    @Query(value = "UPDATE quizzes SET quiz_date = :quizDate "
+            + "WHERE quiz_date IS NULL AND team_id IS NULL "
+            + "AND (settlement_metric IS NULL OR answer IS NOT NULL) "
+            + "ORDER BY id ASC LIMIT :limit", nativeQuery = true)
+    int publishCommonFromPool(@Param("quizDate") LocalDate quizDate, @Param("limit") int limit);
+
+    /**
+     * 미편성 풀({@code quiz_date IS NULL})에서 <b>그 팀이 {@code team} 또는 {@code opponentTeam}으로
+     * 들어간</b> 문항만 {@code limit}건 그날 세트로 편성(날짜 스탬프)한다. 반환값은 실제로 스탬프된
+     * 행 수(풀이 부족하면 limit 미만).
      *
      * <p><b>{@code ORDER BY id ASC} — 오래된 것부터 결정적으로 채운다.</b> 어떤 행이 뽑히는지가
      * 실행 시점·파드에 따라 갈리면 같은 날 두 번 실행이 서로 다른 문제를 편성할 수 있는데, 순서를
@@ -49,6 +78,11 @@ public interface QuizRepository extends JpaRepository<Quiz, Long> {
      * <b>허용</b> — 그날 문제 수가 늘어날 뿐 세트는 여전히 전원 동일하고, 락(ShedLock 등)을 들이는
      * 비용이 이 무해한 결과보다 크다.
      *
+     * <p><b>맞대결 문항의 멱등성</b>: {@code team}·{@code opponentTeam}이 둘 다 찬 행은 두 팀의
+     * 쿼터 호출 모두에서 조건에 걸린다. 하지만 {@code WHERE quiz_date IS NULL} 가드 덕에 먼저 실행된
+     * 팀의 호출이 그 행을 스탬프하고 나면 이후(다른 팀) 호출에는 더 이상 보이지 않으므로, 실제
+     * {@code quiz_date} 갱신은 항상 1회만 일어난다.
+     *
      * <p><b>{@code AND (settlement_metric IS NULL OR answer IS NOT NULL)}</b> — 미정산 PREDICTION
      * (정답을 아직 모르는 문제)이 섞여 들어가는 것을 막는다. {@code quiz_date IS NULL}만으로는
      * 걸러지지 않는다 — PREDICTION 은 게임 귀속이라 적재 시점에 이미 {@code quiz_date}가 찍히는 게
@@ -58,9 +92,11 @@ public interface QuizRepository extends JpaRepository<Quiz, Long> {
      */
     @Modifying
     @Query(value = "UPDATE quizzes SET quiz_date = :quizDate "
-            + "WHERE quiz_date IS NULL AND (settlement_metric IS NULL OR answer IS NOT NULL) "
+            + "WHERE quiz_date IS NULL AND (team_id = :teamId OR opponent_team_id = :teamId) "
+            + "AND (settlement_metric IS NULL OR answer IS NOT NULL) "
             + "ORDER BY id ASC LIMIT :limit", nativeQuery = true)
-    int publishFromPool(@Param("quizDate") LocalDate quizDate, @Param("limit") int limit);
+    int publishFromPoolForTeam(@Param("quizDate") LocalDate quizDate, @Param("teamId") Long teamId,
+            @Param("limit") int limit);
 
     /**
      * 경기 기반 선택(계약 {@code docs/requirements/quiz/game-scoped-selection.md}, QUIZ-GSS-14)의
