@@ -3,7 +3,7 @@
 > **도메인** `character` — 아바타 캐릭터에 입히는 아이템의 상점·인벤토리·착용 상태.
 > **모듈** user (포트 8080) · **경로 접두사** `/api/characters/items` · **엔드포인트** 3개
 > **컨트롤러** `user/src/main/java/com/skhynix/user/character/controller/CharacterItemController.java` (`@RequestMapping("/characters/items")`)
-> **최종 갱신** 2026-08-28 — 도메인 신설. 상점·인벤토리 통합 목록 1개, 구매 1개, 착용 토글 1개. 같은 날 [account.md](account.md)의 `GET /api/users/me` 응답에 `characterImgUrl`·`characterItems` 두 필드가 함께 추가됐다.
+> **최종 갱신** 2026-10-08 — 가입 시 기본 지급이 '기본 의상'(의상) 1종에서 '기본 의상'+'레드 캡'(모자) 2종으로 늘었다(엔드포인트·스키마 불변, 응답 값의 기본 상태만 변경). (직전: 2026-08-28 — 도메인 신설. 상점·인벤토리 통합 목록 1개, 구매 1개, 착용 토글 1개. 같은 날 [account.md](account.md)의 `GET /api/users/me` 응답에 `characterImgUrl`·`characterItems` 두 필드가 함께 추가됐다.)
 > **요구사항** `docs/requirements/user/character-shop.md` (USER-CS-1 ~ 37)
 > 공통 규약(응답 래퍼·JWT·401 정책)은 [README.md](README.md)를 먼저 볼 것.
 
@@ -36,7 +36,7 @@
 ---
 
 ## GET /api/characters/items
-> 최종 변경: 2026-08-28 (신설)
+> 최종 변경: 2026-10-08 — 가입 기본 지급이 2종(기본 의상+레드 캡)으로 늘어 '레드 캡'이 전원 `having=true, active=true`로 내려간다. (직전: 2026-08-28 신설)
 
 상점 + 인벤토리 통합 목록. `CharacterItemController` → `CharacterItemService.findAll()`. 요구사항: USER-CS-20 ~ 24, 36.
 
@@ -50,7 +50,8 @@
   "data": [
     {"id":1,"itemType":"의상","name":"기본 의상","displayImg":"stores/cloth/basic.svg","price":100,"having":true,"active":true},
     {"id":2,"itemType":"의상","name":"블랙 라인 유니폼","displayImg":"stores/cloth/uniform-blackline.svg","price":100,"having":false,"active":false},
-    {"id":12,"itemType":"모자","name":"블루 캡","displayImg":"stores/head/cap-blue.svg","price":100,"having":false,"active":false}
+    {"id":12,"itemType":"모자","name":"블루 캡","displayImg":"stores/head/cap-blue.svg","price":100,"having":false,"active":false},
+    {"id":13,"itemType":"모자","name":"레드 캡","displayImg":"stores/head/cap-red.svg","price":100,"having":true,"active":true}
   ],
   "message": null
 }
@@ -69,6 +70,8 @@
 **항목의 키는 정확히 이 7개다.** 착용용 이미지(`usingImg`)는 **일부러 빼 두었다** — 좌표계가 상점 격자와 맞지 않아 여기서 쓰면 어긋나고, 실제로 필요한 시점(`/users/me`)에 그쪽이 준다.
 
 **정렬은 부위 → 아이템 id 순이다(USER-CS-23).** 부위가 1차 키라 목록이 부위별로 묶여 나오며, 같은 요청은 언제나 같은 순서다. 현재 시드 기준으로 id 1~11이 의상, 12~17이 모자, 18~23이 소품이다.
+
+**기본 지급 2종('기본 의상'·'레드 캡')은 전원 `having: true, active: true`로 보인다.** 가입 시 무상으로 지급되고 곧바로 켜지며(의상 1 + 모자 1, 서로 다른 부위라 "부위당 하나"가 유지된다), 위 예시의 id 1·13이 그것이다(id는 환경마다 다를 수 있어 이름으로 지급된다). 카탈로그에는 그대로 남고 가격 100도 유지되지만 전원이 이미 보유라 구매 경로에서는 409(`이미 보유한 아이템입니다.`)가 난다. 기존 계정도 시드 백필로 같은 상태가 된다.
 
 **빈 배열이 나올 수 있다.** 카탈로그 시드가 아직 적용되지 않은 환경에서는 `data: []`이며 200이다(404가 아니다).
 
@@ -164,7 +167,7 @@
 
 ⚠ **PUT이지만 멱등이 아니다.** 같은 요청을 두 번 보내면 켜졌다 꺼진다. 그래서 결과 상태를 응답이 돌려준다 — 요청을 세지 말고 응답의 `active`를 볼 것.
 
-⚠ **끄기는 끄기만 한다.** 착용 중인 의상을 끄면 그 부위는 아무것도 입지 않은 상태가 되며, 서버가 기본 의상을 대신 입혀 주지 않는다.
+⚠ **끄기는 끄기만 한다.** 착용 중인 의상·모자를 끄면 그 부위는 아무것도 입지 않은 상태가 되며, 서버가 기본 세트('기본 의상'·'레드 캡')를 대신 입혀 주지 않는다. 기본 지급 2종도 같은 규칙이다.
 
 ⚠ **다른 부위는 건드리지 않는다.** 모자를 바꿔도 의상·소품의 착용 상태는 그대로다. 배타 조건의 단위는 계정이 아니라 **(계정, 부위)** 다.
 
