@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import com.skhynix.domain.character.entity.Character;
@@ -17,6 +18,7 @@ import com.skhynix.domain.character.repository.UserCharacterInventoryRepository;
 import com.skhynix.domain.character.repository.UserCharacterItemInventoryRepository;
 import com.skhynix.domain.user.entity.UserAccount;
 import com.skhynix.user.character.policy.DefaultCharacterPolicy;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -71,7 +73,7 @@ class DefaultCharacterGrantServiceTest {
         CharacterItem item = CharacterItem.builder()
                 .character(character())
                 .itemType(cloth)
-                .name(DefaultCharacterPolicy.ITEM_NAME)
+                .name("기본 의상")
                 .displayImg("stores/cloth/basic.svg")
                 .usingImg("items/cloth/basic.svg")
                 .price(100L)
@@ -80,14 +82,42 @@ class DefaultCharacterGrantServiceTest {
         return item;
     }
 
+    private static CharacterItem redCap() {
+        ItemType hat = ItemType.builder().name("모자").build();
+        ReflectionTestUtils.setField(hat, "id", 2L);
+        CharacterItem item = CharacterItem.builder()
+                .character(character())
+                .itemType(hat)
+                .name("레드 캡")
+                .displayImg("stores/head/cap-red.svg")
+                .usingImg("items/head/cap-red.svg")
+                .price(100L)
+                .build();
+        ReflectionTestUtils.setField(item, "id", 11L);
+        return item;
+    }
+
+    private List<UserCharacterItemInventory> savedItemRows(int times) {
+        ArgumentCaptor<UserCharacterItemInventory> captor =
+                ArgumentCaptor.forClass(UserCharacterItemInventory.class);
+        verify(itemInventoryRepository, times(times)).save(captor.capture());
+        return captor.getAllValues();
+    }
+
     @Test
-    @DisplayName("기본 캐릭터와 기본 의상을 각각 켜진 상태로 지급한다")
-    void grantDefaults_seedPresent_savesBothActive() {
+    @DisplayName("[USER-CS-9] 지급 대상 이름은 '기본 의상'·'레드 캡' 두 개다")
+    void policy_itemNames_areBasicClothAndRedCap() {
+        assertThat(DefaultCharacterPolicy.ITEM_NAMES).containsExactly("기본 의상", "레드 캡");
+    }
+
+    @Test
+    @DisplayName("[USER-CS-9] 기본 캐릭터와 기본 의상·레드 캡을 각각 켜진 상태로 지급한다")
+    void grantDefaults_seedPresent_savesAllActive() {
         UserAccount account = account();
         given(characterRepository.findByName(DefaultCharacterPolicy.CHARACTER_NAME))
                 .willReturn(Optional.of(character()));
-        given(characterItemRepository.findByName(DefaultCharacterPolicy.ITEM_NAME))
-                .willReturn(Optional.of(basicCloth()));
+        given(characterItemRepository.findByName("기본 의상")).willReturn(Optional.of(basicCloth()));
+        given(characterItemRepository.findByName("레드 캡")).willReturn(Optional.of(redCap()));
 
         defaultCharacterGrantService.grantDefaults(account);
 
@@ -97,38 +127,73 @@ class DefaultCharacterGrantServiceTest {
         assertThat(characterRow.getValue().isActive()).isTrue();
         assertThat(characterRow.getValue().getUserAccount()).isSameAs(account);
 
-        ArgumentCaptor<UserCharacterItemInventory> itemRow =
-                ArgumentCaptor.forClass(UserCharacterItemInventory.class);
-        verify(itemInventoryRepository).save(itemRow.capture());
-        assertThat(itemRow.getValue().isActive()).isTrue();
-        assertThat(itemRow.getValue().getUserAccount()).isSameAs(account);
+        List<UserCharacterItemInventory> rows = savedItemRows(2);
+        assertThat(rows).extracting(r -> r.getCharacterItem().getName())
+                .containsExactly("기본 의상", "레드 캡");
+        assertThat(rows).allSatisfy(r -> {
+            assertThat(r.isActive()).isTrue();
+            assertThat(r.getUserAccount()).isSameAs(account);
+        });
     }
 
     @Test
-    @DisplayName("기본 캐릭터 시드가 없으면 예외 없이 건너뛰고 아이템 지급은 계속한다 — 가입을 막지 않는다")
+    @DisplayName("[USER-CS-12] 기본 캐릭터 시드가 없으면 예외 없이 건너뛰고 아이템 두 개 지급은 계속한다")
     void grantDefaults_characterSeedMissing_skipsWithoutThrowing() {
         given(characterRepository.findByName(DefaultCharacterPolicy.CHARACTER_NAME))
                 .willReturn(Optional.empty());
-        given(characterItemRepository.findByName(DefaultCharacterPolicy.ITEM_NAME))
-                .willReturn(Optional.of(basicCloth()));
+        given(characterItemRepository.findByName("기본 의상")).willReturn(Optional.of(basicCloth()));
+        given(characterItemRepository.findByName("레드 캡")).willReturn(Optional.of(redCap()));
 
         defaultCharacterGrantService.grantDefaults(account());
 
         verify(characterInventoryRepository, never()).save(any());
-        verify(itemInventoryRepository).save(any(UserCharacterItemInventory.class));
+        assertThat(savedItemRows(2)).extracting(r -> r.getCharacterItem().getName())
+                .containsExactly("기본 의상", "레드 캡");
     }
 
     @Test
-    @DisplayName("두 시드가 모두 없어도 예외를 던지지 않는다 — 백필이 다음 기동에 채운다")
+    @DisplayName("[USER-CS-12] 모든 시드가 없어도 예외를 던지지 않는다 — 백필이 다음 기동에 채운다")
     void grantDefaults_allSeedsMissing_doesNotThrow() {
         given(characterRepository.findByName(DefaultCharacterPolicy.CHARACTER_NAME))
                 .willReturn(Optional.empty());
-        given(characterItemRepository.findByName(DefaultCharacterPolicy.ITEM_NAME))
-                .willReturn(Optional.empty());
+        given(characterItemRepository.findByName("기본 의상")).willReturn(Optional.empty());
+        given(characterItemRepository.findByName("레드 캡")).willReturn(Optional.empty());
 
         defaultCharacterGrantService.grantDefaults(account());
 
         verify(characterInventoryRepository, never()).save(any());
         verify(itemInventoryRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("[USER-CS-12] 레드 캡 시드만 없으면 기본 의상은 지급되고 예외는 나지 않는다")
+    void grantDefaults_redCapSeedMissing_grantsBasicClothOnly() {
+        given(characterRepository.findByName(DefaultCharacterPolicy.CHARACTER_NAME))
+                .willReturn(Optional.of(character()));
+        given(characterItemRepository.findByName("기본 의상")).willReturn(Optional.of(basicCloth()));
+        given(characterItemRepository.findByName("레드 캡")).willReturn(Optional.empty());
+
+        defaultCharacterGrantService.grantDefaults(account());
+
+        verify(characterInventoryRepository).save(any(UserCharacterInventory.class));
+        List<UserCharacterItemInventory> rows = savedItemRows(1);
+        assertThat(rows.get(0).getCharacterItem().getName()).isEqualTo("기본 의상");
+        assertThat(rows.get(0).isActive()).isTrue();
+    }
+
+    @Test
+    @DisplayName("[USER-CS-12] 기본 의상 시드만 없으면 레드 캡은 지급되고 예외는 나지 않는다")
+    void grantDefaults_basicClothSeedMissing_grantsRedCapOnly() {
+        given(characterRepository.findByName(DefaultCharacterPolicy.CHARACTER_NAME))
+                .willReturn(Optional.of(character()));
+        given(characterItemRepository.findByName("기본 의상")).willReturn(Optional.empty());
+        given(characterItemRepository.findByName("레드 캡")).willReturn(Optional.of(redCap()));
+
+        defaultCharacterGrantService.grantDefaults(account());
+
+        verify(characterInventoryRepository).save(any(UserCharacterInventory.class));
+        List<UserCharacterItemInventory> rows = savedItemRows(1);
+        assertThat(rows.get(0).getCharacterItem().getName()).isEqualTo("레드 캡");
+        assertThat(rows.get(0).isActive()).isTrue();
     }
 }
