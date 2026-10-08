@@ -12,6 +12,8 @@ import static org.mockito.Mockito.verify;
 
 import com.skhynix.domain.chat.repository.ChatRepository;
 import com.skhynix.domain.chat.repository.ChatroomRepository;
+import com.skhynix.domain.community.repository.CommunityCommentRepository;
+import com.skhynix.domain.community.repository.CommunityPostRepository;
 import com.skhynix.domain.quiz.repository.QuizLikeRepository;
 import com.skhynix.domain.user.entity.Gender;
 import com.skhynix.domain.user.entity.User;
@@ -55,6 +57,12 @@ class ExpiredAccountEraserTest {
     private ChatRepository chatRepository;
 
     @Mock
+    private CommunityPostRepository communityPostRepository;
+
+    @Mock
+    private CommunityCommentRepository communityCommentRepository;
+
+    @Mock
     private UserRepository userRepository;
 
     @Mock
@@ -65,7 +73,8 @@ class ExpiredAccountEraserTest {
     @BeforeEach
     void setUp() {
         eraser = new ExpiredAccountEraser(quizLikeRepository, chatroomRepository, chatRepository,
-                userRepository, userRefreshTokenRepository);
+                communityPostRepository, communityCommentRepository, userRepository,
+                userRefreshTokenRepository);
     }
 
     private ExpiredAccountView target() {
@@ -172,6 +181,91 @@ class ExpiredAccountEraserTest {
         assertThatThrownBy(() -> eraser.erase(target(), unknown)).isInstanceOf(RuntimeException.class);
         verify(chatRepository, never()).reassignSender(any(), any());
         verify(userRepository, never()).deleteUserById(any());
+    }
+
+    @Test
+    @DisplayName("[USER-EDC-51, USER-EDC-52, USER-EDC-54] 게시글 이관 -> 댓글(답글 포함) 이관이 chats 이관 뒤,"
+            + " users 삭제 앞에서 대상 계정 id와 더미 계정을 그대로 넘겨 실행된다")
+    void erase_reassignsCommunityPostsAndComments_afterChats_beforeUserDeletion() {
+        // given
+        UserAccount unknown = unknownAccount();
+        given(userRepository.deleteUserById(USER_ID)).willReturn(1);
+
+        // when
+        eraser.erase(target(), unknown);
+
+        // then
+        InOrder inOrder = inOrder(chatRepository, communityPostRepository, communityCommentRepository,
+                userRepository);
+        inOrder.verify(chatRepository).reassignSender(ACCOUNT_ID, unknown);
+        inOrder.verify(communityPostRepository).reassignAuthor(ACCOUNT_ID, unknown);
+        inOrder.verify(communityCommentRepository).reassignAuthor(ACCOUNT_ID, unknown);
+        inOrder.verify(userRepository).deleteUserById(USER_ID);
+    }
+
+    @Test
+    @DisplayName("[USER-EDC-55] 게시글·댓글 이관 건수가 결과의 postsTransferred·commentsTransferred에 각각 실린다")
+    void erase_carriesCommunityTransferCountsInResult() {
+        // given
+        UserAccount unknown = unknownAccount();
+        given(communityPostRepository.reassignAuthor(ACCOUNT_ID, unknown)).willReturn(3);
+        given(communityCommentRepository.reassignAuthor(ACCOUNT_ID, unknown)).willReturn(5);
+        given(userRepository.deleteUserById(USER_ID)).willReturn(1);
+
+        // when
+        AccountEraseResult result = eraser.erase(target(), unknown);
+
+        // then
+        assertThat(result.postsTransferred()).isEqualTo(3);
+        assertThat(result.commentsTransferred()).isEqualTo(5);
+        assertThat(result.accountRemoved()).isTrue();
+    }
+
+    @Test
+    @DisplayName("[USER-EDC-54] 게시글 이관이 실패하면 댓글 이관과 users 삭제는 호출되지 않는다(fail-closed)")
+    void erase_postReassignFails_neverReachesCommentsOrUserDeletion() {
+        // given
+        UserAccount unknown = unknownAccount();
+        willThrow(new RuntimeException("boom")).given(communityPostRepository)
+                .reassignAuthor(ACCOUNT_ID, unknown);
+
+        // when / then
+        assertThatThrownBy(() -> eraser.erase(target(), unknown)).isInstanceOf(RuntimeException.class);
+        verify(communityCommentRepository, never()).reassignAuthor(any(), any());
+        verify(userRepository, never()).deleteUserById(any());
+    }
+
+    @Test
+    @DisplayName("[USER-EDC-54] 댓글 이관이 실패하면 users 삭제는 호출되지 않는다(fail-closed)")
+    void erase_commentReassignFails_neverReachesUserDeletion() {
+        // given
+        UserAccount unknown = unknownAccount();
+        willThrow(new RuntimeException("boom")).given(communityCommentRepository)
+                .reassignAuthor(ACCOUNT_ID, unknown);
+
+        // when / then
+        assertThatThrownBy(() -> eraser.erase(target(), unknown)).isInstanceOf(RuntimeException.class);
+        verify(userRepository, never()).deleteUserById(any());
+    }
+
+    @Test
+    @DisplayName("[USER-EDC-56, USER-EDC-57, AC-CM-195-1] 이레이저는 순수 DB 작업이다 — 반응·신고 리포지토리, 이미지 행, S3 저장소, Redis 협력자가 없다")
+    void eraser_hasNoReactionOrReportRepositoryDependency() {
+        // when
+        var parameterTypes = java.util.Arrays.stream(ExpiredAccountEraser.class.getDeclaredConstructors()[0]
+                .getParameterTypes()).map(Class::getSimpleName).toList();
+
+        // then
+        assertThat(parameterTypes).noneMatch(n -> n.contains("Reaction") || n.contains("Report")
+                || n.contains("Image") || n.contains("Storage") || n.contains("Redis")
+                || n.contains("Template"));
+    }
+
+    @Test
+    @DisplayName("[USER-EDC-59] 이관 대상 더미 계정의 profileImgUrl은 null이다 — 이관된 글의 author.profileImgUrl이 null이 되는 전제")
+    void unknownAccount_hasNullProfileImage() {
+        assertThat(unknownAccount().getProfileImgUrl()).isNull();
+        assertThat(unknownAccount().getNickname()).isEqualTo(UnknownAccountPolicy.NICKNAME);
     }
 
     @Test
