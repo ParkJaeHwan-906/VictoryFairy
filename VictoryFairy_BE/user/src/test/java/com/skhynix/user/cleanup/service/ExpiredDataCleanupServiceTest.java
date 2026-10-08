@@ -17,7 +17,7 @@ import com.skhynix.domain.user.entity.UserAccount;
 import com.skhynix.domain.user.repository.ExpiredAccountView;
 import com.skhynix.domain.user.repository.UserAccountRepository;
 import com.skhynix.user.cleanup.policy.UnknownAccountPolicy;
-import com.skhynix.user.cleanup.support.QuizLikeDeleteRuleInspector;
+import com.skhynix.user.cleanup.support.AccountFkDeleteRuleInspector;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -51,13 +51,13 @@ class ExpiredDataCleanupServiceTest {
     private ExpiredAccountEraser eraser;
 
     @Mock
-    private QuizLikeDeleteRuleInspector quizLikeDeleteRuleInspector;
+    private AccountFkDeleteRuleInspector accountFkDeleteRuleInspector;
 
     private ExpiredDataCleanupService service;
 
     @BeforeEach
     void setUp() {
-        service = new ExpiredDataCleanupService(userAccountRepository, eraser, quizLikeDeleteRuleInspector);
+        service = new ExpiredDataCleanupService(userAccountRepository, eraser, accountFkDeleteRuleInspector);
     }
 
     private UserAccount unknownAccount() {
@@ -69,7 +69,7 @@ class ExpiredDataCleanupServiceTest {
     }
 
     private void stubHappyPathPreconditions() {
-        given(quizLikeDeleteRuleInspector.isSetNull()).willReturn(true);
+        given(accountFkDeleteRuleInspector.findMisconfigured()).willReturn(List.of());
         given(userAccountRepository.findByUid(UnknownAccountPolicy.UID))
                 .willReturn(Optional.of(unknownAccount()));
     }
@@ -108,7 +108,7 @@ class ExpiredDataCleanupServiceTest {
             + "만료 토큰 삭제는 계속 수행된다")
     void removeExpiredData_unknownAccountMissing_skipsAccountDeletion_butStillPurgesTokens() {
         // given
-        given(quizLikeDeleteRuleInspector.isSetNull()).willReturn(true);
+        given(accountFkDeleteRuleInspector.findMisconfigured()).willReturn(List.of());
         given(userAccountRepository.findByUid(UnknownAccountPolicy.UID)).willReturn(Optional.empty());
         given(eraser.purgeExpiredTokens(BASE_TIME)).willReturn(5);
 
@@ -126,8 +126,28 @@ class ExpiredDataCleanupServiceTest {
             + "(erase 미호출, 더미 계정 조회조차 안 함) 만료 토큰 삭제는 계속 수행된다")
     void removeExpiredData_fkNotSetNullYet_skipsAccountDeletion_butStillPurgesTokens() {
         // given
-        given(quizLikeDeleteRuleInspector.isSetNull()).willReturn(false);
+        given(accountFkDeleteRuleInspector.findMisconfigured())
+                .willReturn(List.of(AccountFkDeleteRuleInspector.TARGETS.get(0)));
         given(eraser.purgeExpiredTokens(BASE_TIME)).willReturn(3);
+
+        // when
+        service.removeExpiredData(BASE_TIME);
+
+        // then
+        verify(userAccountRepository, never()).findByUid(anyString());
+        verify(userAccountRepository, never()).findExpiredAccounts(any(), anyString());
+        verify(eraser, never()).erase(any(), any());
+        verify(eraser).purgeExpiredTokens(BASE_TIME);
+    }
+
+    @Test
+    @DisplayName("[USER-EDC-58] 커뮤니티 반응·신고 FK가 어긋난 대상이 여럿이어도 계정 삭제 단계는 통째로 건너뛰고"
+            + " 만료 토큰 삭제는 계속된다")
+    void removeExpiredData_communityFkMisconfigured_skipsAccountDeletion_butStillPurgesTokens() {
+        // given
+        given(accountFkDeleteRuleInspector.findMisconfigured()).willReturn(
+                AccountFkDeleteRuleInspector.TARGETS.subList(1, 4));
+        given(eraser.purgeExpiredTokens(BASE_TIME)).willReturn(1);
 
         // when
         service.removeExpiredData(BASE_TIME);
@@ -150,9 +170,9 @@ class ExpiredDataCleanupServiceTest {
         ExpiredAccountView target3 = new ExpiredAccountView(3L, "uid-3", 13L);
         given(userAccountRepository.findExpiredAccounts(any(), anyString()))
                 .willReturn(List.of(target1, target2, target3));
-        given(eraser.erase(eq(target1), any())).willReturn(new AccountEraseResult(0, 0, 0, true));
+        given(eraser.erase(eq(target1), any())).willReturn(new AccountEraseResult(0, 0, 0, 0, 0, true));
         willThrow(new RuntimeException("boom")).given(eraser).erase(eq(target2), any());
-        given(eraser.erase(eq(target3), any())).willReturn(new AccountEraseResult(0, 0, 0, true));
+        given(eraser.erase(eq(target3), any())).willReturn(new AccountEraseResult(0, 0, 0, 0, 0, true));
 
         // when / then
         assertThatCode(() -> service.removeExpiredData(BASE_TIME)).doesNotThrowAnyException();
@@ -170,8 +190,8 @@ class ExpiredDataCleanupServiceTest {
         ExpiredAccountView target2 = new ExpiredAccountView(2L, "uid-2", 12L);
         given(userAccountRepository.findExpiredAccounts(any(), anyString()))
                 .willReturn(List.of(target1, target2));
-        given(eraser.erase(eq(target1), any())).willReturn(new AccountEraseResult(0, 0, 0, false));
-        given(eraser.erase(eq(target2), any())).willReturn(new AccountEraseResult(0, 0, 0, true));
+        given(eraser.erase(eq(target1), any())).willReturn(new AccountEraseResult(0, 0, 0, 0, 0, false));
+        given(eraser.erase(eq(target2), any())).willReturn(new AccountEraseResult(0, 0, 0, 0, 0, true));
 
         // when
         assertThatCode(() -> service.removeExpiredData(BASE_TIME)).doesNotThrowAnyException();
@@ -189,7 +209,7 @@ class ExpiredDataCleanupServiceTest {
         stubHappyPathPreconditions();
         ExpiredAccountView target = new ExpiredAccountView(1L, "uid-1", 11L);
         given(userAccountRepository.findExpiredAccounts(any(), anyString())).willReturn(List.of(target));
-        given(eraser.erase(eq(target), any())).willReturn(new AccountEraseResult(1, 2, 3, true));
+        given(eraser.erase(eq(target), any())).willReturn(new AccountEraseResult(1, 2, 3, 4, 5, true));
         willThrow(new RuntimeException("token purge failed")).given(eraser).purgeExpiredTokens(BASE_TIME);
 
         // when / then
@@ -205,7 +225,7 @@ class ExpiredDataCleanupServiceTest {
         stubHappyPathPreconditions();
         ExpiredAccountView target = new ExpiredAccountView(1L, "uid-1", 11L);
         given(userAccountRepository.findExpiredAccounts(any(), anyString())).willReturn(List.of(target));
-        given(eraser.erase(eq(target), any())).willReturn(new AccountEraseResult(0, 0, 0, true));
+        given(eraser.erase(eq(target), any())).willReturn(new AccountEraseResult(0, 0, 0, 0, 0, true));
 
         // when
         service.removeExpiredData(BASE_TIME);
@@ -222,11 +242,11 @@ class ExpiredDataCleanupServiceTest {
     void removeExpiredData_passesResolvedUnknownAccountInstanceToErase() {
         // given
         UserAccount unknown = unknownAccount();
-        given(quizLikeDeleteRuleInspector.isSetNull()).willReturn(true);
+        given(accountFkDeleteRuleInspector.findMisconfigured()).willReturn(List.of());
         given(userAccountRepository.findByUid(UnknownAccountPolicy.UID)).willReturn(Optional.of(unknown));
         ExpiredAccountView target = new ExpiredAccountView(1L, "uid-1", 11L);
         given(userAccountRepository.findExpiredAccounts(any(), anyString())).willReturn(List.of(target));
-        given(eraser.erase(eq(target), any())).willReturn(new AccountEraseResult(0, 0, 0, true));
+        given(eraser.erase(eq(target), any())).willReturn(new AccountEraseResult(0, 0, 0, 0, 0, true));
 
         // when
         service.removeExpiredData(BASE_TIME);

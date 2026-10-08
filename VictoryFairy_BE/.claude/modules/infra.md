@@ -97,6 +97,7 @@ push(main) + `workflow_dispatch` → 변경 모듈 감지 → Docker 빌드 → 
   ⚠ 적용은 끝났지만 **왜 순서가 강제였는지는 남긴다**(같은 형태의 시드+부트스트랩 조합이 또 나오면 그대로 재현된다) — 코드를 먼저 배포하고 SQL을 나중에 돌리면 `chat-init.sql`의 멱등성 가드가 새 uid로 `WHERE NOT EXISTS`를 걸게 바뀌는데 DB엔 아직 옛 uid 행만 있어 SYSTEM 계정·구단 채팅방 10건이 **중복 생성**되고, `UnknownAccountBootstrapper`(`ApplicationRunner`라 **기동 경로**에 있다)는 새 uid로 `(알수없음)` 계정을 못 찾아 새로 만들려다 `users.email`/`users.tel` UNIQUE 충돌로 **INSERT가 실패해 앱이 아예 뜨지 않는다.** "SQL 먼저, 배포 나중"이 순서다. 상세는 `.claude/modules/user.md`(`UnknownAccountPolicy`)·`.claude/modules/domain.md`.
   참고: 채팅방 uid는 SSE 구독 URL 등 외부 노출 식별자라 적용 순간 그 값을 물고 있던 클라이언트 연결이 끊긴다(방 목록을 다시 받으면 새 uid로 복구되나 무중단은 아니다 — 트래픽 적은 시간대 권장). 계정 쪽 uid 2건은 로그인이 성립하지 않는 예약 계정(BCrypt 패턴이 아닌 placeholder 비밀번호)이라 발급된 토큰이 없고, 무효화되는 실사용자 토큰도 없다.
 - ~~**`infra/sql/migrate-quiz-like-account-set-null.sql`**~~ — 해소(2026-08-18, devdb·운영 DB 양쪽 적용 완료). `quizzes_like`의 계정 FK를 `ON DELETE CASCADE`→`SET NULL`로 바꾼다(만료 데이터 정리 스케줄러가 계정을 하드 삭제할 때 추천 수가 조용히 깎이지 않게 하는 선행 조건). 상세는 `.claude/modules/domain.md`.
+- **`infra/sql/migrate-community.sql`**(2026-10-08, 1회성, `data-locations` 등록 금지) — 커뮤니티 테이블이 제약 없이 먼저 생긴 환경용(계정 FK SET NULL 등 보정). 시드 `infra/sql/community-categories-init.sql` 은 반대로 `data-locations` 에 등록돼 매 기동 실행(재실행 안전). **앱 배포 선행 조건: CloudFront `/community/*` behavior, IRSA `community/` 접두 권한**(미적용·미검증).
 
 ## 로컬 개발
 

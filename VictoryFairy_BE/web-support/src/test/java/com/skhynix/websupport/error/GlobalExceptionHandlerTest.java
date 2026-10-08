@@ -50,7 +50,8 @@ class GlobalExceptionHandlerTest {
     void handleMaxUploadSizeExceeded_returns413() {
         MaxUploadSizeExceededException exception = new MaxUploadSizeExceededException(5 * 1024 * 1024L);
 
-        ResponseEntity<ApiResponse<Void>> response = handler.handleMaxUploadSizeExceeded(exception);
+        ResponseEntity<ApiResponse<Void>> response = handler.handleMaxUploadSizeExceeded(exception,
+                new MockHttpServletRequest("POST", "/api/auth/profile-image"));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.valueOf(413));
     }
@@ -61,7 +62,8 @@ class GlobalExceptionHandlerTest {
     void handleMaxUploadSizeExceeded_wrapsBodyInApiResponse() {
         MaxUploadSizeExceededException exception = new MaxUploadSizeExceededException(5 * 1024 * 1024L);
 
-        ResponseEntity<ApiResponse<Void>> response = handler.handleMaxUploadSizeExceeded(exception);
+        ResponseEntity<ApiResponse<Void>> response = handler.handleMaxUploadSizeExceeded(exception,
+                new MockHttpServletRequest("POST", "/api/auth/profile-image"));
 
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().success()).isFalse();
@@ -315,5 +317,104 @@ class GlobalExceptionHandlerTest {
         Method resolved = RESOLVER.resolveMethodByExceptionType(RuntimeException.class);
 
         assertThat(resolved.getName()).isEqualTo("handleUnexpected");
+    }
+
+    // ---------- 413 경로 분기 / HandlerMethodValidationException (커뮤니티 개정) ----------
+
+    @Test
+    @DisplayName("[USER-CM-143, AC-CM-200-3] /community/ 경로의 업로드 초과는 COMMUNITY_IMAGE_TOO_LARGE(413)로 분기된다")
+    void handleMaxUploadSizeExceeded_communityPath_usesCommunityCode() {
+        MaxUploadSizeExceededException exception = new MaxUploadSizeExceededException(5 * 1024 * 1024L);
+
+        ResponseEntity<ApiResponse<Void>> response = handler.handleMaxUploadSizeExceeded(exception,
+                new MockHttpServletRequest("POST", "/api/community/images"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.valueOf(413));
+        assertThat(response.getBody().success()).isFalse();
+        assertThat(response.getBody().data()).isNull();
+        assertThat(response.getBody().message()).isEqualTo(ErrorCode.COMMUNITY_IMAGE_TOO_LARGE.getMessage());
+    }
+
+    @Test
+    @DisplayName("[USER-PI-39] /community/ 가 아닌 경로(프로필 이미지)는 기존대로 PROFILE_IMAGE_TOO_LARGE 다")
+    void handleMaxUploadSizeExceeded_profilePath_keepsProfileCode() {
+        ResponseEntity<ApiResponse<Void>> response = handler.handleMaxUploadSizeExceeded(
+                new MaxUploadSizeExceededException(1L),
+                new MockHttpServletRequest("POST", "/api/users/me/profile-image"));
+
+        assertThat(response.getBody().message()).isEqualTo(ErrorCode.PROFILE_IMAGE_TOO_LARGE.getMessage());
+    }
+
+    @SuppressWarnings("unused")
+    private void pagedEndpoint(
+            @org.springframework.web.bind.annotation.RequestParam(name = "size") int size,
+            @org.springframework.web.bind.annotation.RequestParam(name = "page") int page,
+            int unannotated) {
+    }
+
+    private static org.springframework.validation.method.ParameterValidationResult validationResult(
+            MethodParameter parameter, String message) {
+        var result = org.mockito.Mockito.mock(org.springframework.validation.method.ParameterValidationResult.class);
+        org.mockito.BDDMockito.given(result.getMethodParameter()).willReturn(parameter);
+        org.mockito.BDDMockito.given(result.getResolvableErrors()).willReturn(java.util.List.of(
+                new org.springframework.context.support.DefaultMessageSourceResolvable(
+                        new String[] {"Max"}, message)));
+        return result;
+    }
+
+    private MethodParameter param(int index) throws NoSuchMethodException {
+        Method method = GlobalExceptionHandlerTest.class.getDeclaredMethod("pagedEndpoint", int.class, int.class, int.class);
+        MethodParameter parameter = new MethodParameter(method, index);
+        parameter.initParameterNameDiscovery(new org.springframework.core.DefaultParameterNameDiscoverer());
+        return parameter;
+    }
+
+    @Test
+    @DisplayName("[AC-CM-8-1] HandlerMethodValidationException은 400과 ApiResponse 래퍼로, data는 파라미터명->메시지 맵이다"
+            + "(@RequestParam name 이 있으면 그 이름)")
+    void handleMethodValidation_returns400WithParamNameToMessageMap() throws Exception {
+        var exception = org.mockito.Mockito.mock(
+                org.springframework.web.method.annotation.HandlerMethodValidationException.class);
+        var sizeResult = validationResult(param(0), "size는 50 이하여야 합니다.");
+        var pageResult = validationResult(param(1), "page는 0 이상이어야 합니다.");
+        org.mockito.BDDMockito.given(exception.getParameterValidationResults())
+                .willReturn(java.util.List.of(sizeResult, pageResult));
+
+        ResponseEntity<ApiResponse<java.util.Map<String, String>>> response =
+                handler.handleMethodValidation(exception);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().success()).isFalse();
+        assertThat(response.getBody().message()).isEqualTo("입력값이 올바르지 않습니다.");
+        assertThat(response.getBody().data()).containsOnly(
+                java.util.Map.entry("size", "size는 50 이하여야 합니다."),
+                java.util.Map.entry("page", "page는 0 이상이어야 합니다."));
+    }
+
+    @Test
+    @DisplayName("@RequestParam 이름이 없고 파라미터명도 알 수 없으면 arg{index} 로 키를 만든다(NPE 없이 400)")
+    void handleMethodValidation_unnamedParameter_fallsBackToArgIndex() throws Exception {
+        var exception = org.mockito.Mockito.mock(
+                org.springframework.web.method.annotation.HandlerMethodValidationException.class);
+        Method method = GlobalExceptionHandlerTest.class.getDeclaredMethod("pagedEndpoint", int.class,
+                int.class, int.class);
+        var result = validationResult(new MethodParameter(method, 2), "범위 위반");
+        org.mockito.BDDMockito.given(exception.getParameterValidationResults())
+                .willReturn(java.util.List.of(result));
+
+        var response = handler.handleMethodValidation(exception);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().data()).containsOnly(java.util.Map.entry("arg2", "범위 위반"));
+    }
+
+    @Test
+    @DisplayName("HandlerMethodValidationException은 catch-all(재던지기)이 아니라 handleMethodValidation 으로 간다")
+    void resolution_handlerMethodValidation_goesToOwnHandler() {
+        Method resolved = new ExceptionHandlerMethodResolver(GlobalExceptionHandler.class)
+                .resolveMethodByExceptionType(
+                        org.springframework.web.method.annotation.HandlerMethodValidationException.class);
+
+        assertThat(resolved.getName()).isEqualTo("handleMethodValidation");
     }
 }
