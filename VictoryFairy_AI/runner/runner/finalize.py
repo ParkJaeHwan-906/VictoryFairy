@@ -49,6 +49,52 @@ def load_scoring(path=SCORING_PATH):
 POINTS, BQ, VOLUME = load_scoring()
 KST = timezone(timedelta(hours=9))
 
+#: 실존 KBO 10개 구단 코드→이름(_backfill_subject_team_codes의 정답 유출 검사용).
+#: 정본은 BE teams-init.sql이고, question-gen/scripts/validate_candidates.py의
+#: 동명 상수와 같은 하드코드 미러 사본이다(구단 증감 시 함께 맞출 것).
+TEAM_CODE_NAMES = {
+    "OB": "두산", "LG": "LG", "SS": "삼성", "KT": "KT", "WO": "키움",
+    "HT": "KIA", "HH": "한화", "NC": "NC", "LT": "롯데", "SK": "SSG",
+}
+
+
+def _backfill_subject_team_codes(cand: dict) -> None:
+    """최상위 `teamCodes`(귀속 축 — 이 그룹핑(`select_final`)이 이미 "팀특화"
+    분류에 쓰는 값)를 `subject.teamCodes`(주제 축)에도 반영한다.
+
+    BE `QuizIngestService.ingest()`는 `Quiz.team` FK를 `subject.teamCodes`에서만
+    읽는다(최상위 `teamCodes`는 안 봄 — 정답 유출 방지, `Quiz.java` 불변식·
+    `QuizIngestServiceTest#ingest_noSubject_leavesAllTargetFksNull` 참고). 그런데
+    MEME_ORIGIN·RELATION_LINK·TEAMMATE_STAT_COMPARE처럼 team이 질문의 전제일
+    뿐 정답이 될 수 없는 템플릿까지 `subject.teamCodes`를 비워 두면, BE가 이
+    문항들을 전부 "공통"(`team_id` NULL)으로 잘못 분류해 공통 쿼터(하루 10건)에
+    막혀 팀별 발행 쿼터(하루 200건)를 채우지 못한다(2026-10-08 실측: perTeam
+    186건 중 BE 발행은 31건뿐 — 원인 진단 세션 참고).
+
+    그래서 `subject.scope`가 PLAYER이고 `subject.teamCodes`가 비었을 때만
+    최상위 `teamCodes`를 베낀다 — 단 그 팀 이름이 정답 보기 문면에 등장하면
+    (= team이 실제로 정답일 수 있는 경우, 예: CAREER_PATH "새로 합류한 팀은?")
+    백필하지 않는다(`validate_candidates.py` check 9의 정답 유출 검사와 같은
+    규칙). TEAM/MATCHUP/LEAGUE/GAME scope는 이미 자체 카디널리티 규칙이 있어
+    손대지 않는다.
+    """
+    subject = cand.get("subject")
+    if not isinstance(subject, dict) or subject.get("scope") != "PLAYER":
+        return
+    if subject.get("teamCodes"):
+        return
+    top_codes = cand.get("teamCodes") or []
+    if not top_codes:
+        return
+    answer_text = next(
+        (o.get("text") or "" for o in (cand.get("options") or [])
+         if isinstance(o, dict) and o.get("id") == cand.get("answer")), "")
+    for code in top_codes:
+        name = TEAM_CODE_NAMES.get(code)
+        if name and name in answer_text:
+            return
+    subject["teamCodes"] = list(top_codes)
+
 
 def _resolve(work: Path, repo_root: Path, source: str) -> Path:
     base = source.split(" (")[0].split("#")[0].strip()
@@ -205,6 +251,7 @@ def assign_and_write(final, entity_of, work: Path, today: str, reasons: "list | 
     paths = []
     seq = 0
     for cand in ordered:
+        _backfill_subject_team_codes(cand)
         if cand.get("kind") == "PREDICTION":
             game_id = (cand.get("settlement") or {}).get("gameId")
             payload = _schedule_payload(work, today, game_id)
