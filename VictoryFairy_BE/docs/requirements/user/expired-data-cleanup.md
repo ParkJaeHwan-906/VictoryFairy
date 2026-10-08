@@ -1,5 +1,6 @@
 # 만료 데이터 정리 스케줄러(removeExpiredData) 요구사항
-> 상태: **승인됨 (2026-08-18)** · 모듈: user (파급: `:domain`, quiz, prod DB 스키마) · 최종 수정: 2026-08-18
+> 상태: **승인 대기(개정 7차, 2026-10-08)** — USER-EDC-1~50은 2026-08-18 승인본 그대로이고, 7차에서 신설된 USER-EDC-51~59만 승인을 기다린다 · 모듈: user (파급: `:domain`, quiz, prod DB 스키마) · 최종 수정: 2026-10-08
+> **2026-10-08 7차 개정(승인 대기)**: 커뮤니티 요구사항(`community.md`, 2026-10-08 승인)이 게시글·댓글·답글 작성자 FK를 **CASCADE 없이** 두기로 했다(USER-CM-194). 그래서 이 배치의 ② 이관 단계가 `chatrooms`·`chats`에 이어 **커뮤니티 게시글·댓글·답글 작성자를 `(알수없음)` 더미 계정으로 이관**해야 `users` 행 삭제가 FK 위반 없이 통과한다(USER-CM-191·205). 반응·신고 행은 DB `SET NULL`이라 배치가 UPDATE하지 않고, 이관된 글의 이미지 객체는 그대로 둔다 — **이 배치가 S3를 호출하지 않는 성질은 유지된다.** 신설 USER-EDC-51~59, 서술만 보강한 기존 항목 USER-EDC-10·26·39·43(요구사항 문장은 그대로, 인수 기준에 확장 포인터만 추가). 기존 ID·번호는 손대지 않았다. 7차의 미해결 질문은 문서 끝 "미해결 질문 (7차)" 절 1건이다.
 > **ID 접두사 `USER-EDC`** — 기존 접두사(`WD`/`PE`/`ME`/`ATI`/`SP`/`PL`/`PLF`/`GSP`/`GL`/`TM`/`NICK`/`EMV`)와 겹치지 않는다.
 > **2026-08-18 1차 개정**: 쟁점 3(채팅방을 소유한 계정) 확정 — `(알수없음)` 더미 계정으로 **소유권 이관** 후 삭제. USER-EDC-12·13 삭제, 30~45 신설.
 > **2026-08-18 2차 개정**: 쟁점 9(`quizzes_like` UNIQUE 충돌) 확정 — 후보 A~C가 아닌 **네 번째 길**이다. 퀴즈 추천은 이관하지 않고 **FK를 `ON DELETE SET NULL`로 바꿔 행만 남긴다.** USER-EDC-37·38 삭제, 46~50 신설. 이 결정으로 정리 방식이 **하이브리드**가 됐다(아래 "결정 기록" — 가르는 기준은 "역참조로 사람 이름을 읽는가").
@@ -21,11 +22,13 @@
 
 두 차례 개정을 거쳐 목적이 하나 더 늘었다: **떠난 사람의 흔적을 지우되, 남은 사람의 콘텐츠와 집계는 지우지 않는다.** 그 방법은 데이터마다 다르다 — 사람 이름을 표시해야 하는 것은 `(알수없음)`으로 **이관**하고, 세기만 하는 것은 소유자를 **비운다**(SET NULL).
 
+7차 개정(2026-10-08)은 그 기준을 **새로 생기는 커뮤니티 테이블에 적용한 것**이지 기준 자체를 바꾼 것이 아니다. 커뮤니티 게시글·댓글·답글은 `author{nickname, profileImgUrl}`로 작성자를 역참조해 표시하므로(USER-CM-4) 이관 대상이고, 반응·신고는 세기만 하므로 SET NULL이다. 이 개정 없이 커뮤니티가 먼저 배포되면 글을 가진 탈퇴 계정의 첫 하드 삭제 회차가 FK 위반으로 계정 단위 실패한다(USER-CM-194가 의도한 fail-closed — 데이터는 안전하지만 ERROR 로그가 매일 쌓인다).
+
 ## 범위
 
 - 포함
   - 매일 1회(Asia/Seoul 03:00) 도는 정리 작업 1개
-  - `(알수없음)` **더미 계정의 존재 보장**(부트스트랩)과 그 계정으로의 **소유권 이관**(`chatrooms`·`chats`)
+  - `(알수없음)` **더미 계정의 존재 보장**(부트스트랩)과 그 계정으로의 **소유권 이관**(`chatrooms`·`chats`, **7차부터 커뮤니티 게시글·댓글·답글 작성자 포함**)
   - `quizzes_like`의 **소유자 분리**(FK `ON DELETE SET NULL`) 및 그 전제인 **DDL 마이그레이션**
   - 탈퇴(`users_account.exit_at IS NOT NULL`) 후 30일이 지난 계정의 **하드 삭제**(부모 `users` 행부터)
   - `users_refreshtoken`의 **만료된 토큰 행 삭제**
@@ -39,6 +42,10 @@
   - **재가입 정책 변경** — UNIQUE 제약을 손대지 않는다. 다만 삭제된 계정의 email·tel·nickname은 **결과적으로** 재사용 가능해진다(확정 근거: 결정 기록 3차 2)
   - **채팅방·채팅의 soft delete(`deleted_at`) 정리, 오래된 채팅 이력 정리, 퀴즈 제출 이력 보존기간** — 요청 범위 밖
   - **Redis에 남는 이메일 인증 키 정리** — TTL이 이미 회수한다
+  - **(7차) 이관된 커뮤니티 게시글·댓글의 이미지 객체 삭제** — 글이 남으니 이미지도 남는다. 이 배치는 S3를 호출하지 않는다(USER-EDC-56)
+  - **(7차) 커뮤니티 반응·신고 행의 UPDATE** — DB `SET NULL`이 처리한다(USER-CM-192·193). 배치가 손대지 않는다(USER-EDC-57)
+  - **(7차) 커뮤니티 소프트 삭제(`deleted_at`) 행·블라인드 행의 정리** — 이관은 하되 지우지 않는다. 오래된 글 정리는 범위 밖
+  - **(7차) 조회 창 Redis 키(`community:post:view:*`) 정리** — 300초 TTL이 회수한다(USER-CM-195)
 
 ## 확인된 사실 (요구사항의 전제 — 다시 조사하지 말 것)
 
@@ -55,6 +62,17 @@
 | `users_account` | **`quizzes_like`** | CASCADE | **`SET NULL`로 변경 + 컬럼 nullable** ← 2차 개정, DDL 필요 |
 | `users_account` | `chats` | CASCADE | 그대로 두되 **삭제 전에 더미 계정으로 이관**(UPDATE) |
 | `users_account` | **`chatrooms`(`owner_account_id`)** | **NO ACTION** | 그대로 두되 **삭제 전에 더미 계정으로 이관**(UPDATE) |
+
+**(7차 추가) 커뮤니티 테이블 — 엔티티 선언 기준 예정값. 테이블이 아직 없어 실측이 아니다**(`community.md` 데이터 모델 절, USER-CM-192~194). 테이블명은 제안명이며 확정은 구현자 몫이다.
+
+| 부모 | 자식 테이블(FK) | 예정 DELETE_RULE | 이 문서가 요구하는 처리 |
+|---|---|---|---|
+| `users_account` | 커뮤니티 게시글(`user_account_id`) | **없음(NO ACTION) + NOT NULL** | **삭제 전에 더미 계정으로 이관**(UPDATE) — USER-EDC-51 |
+| `users_account` | 커뮤니티 댓글·답글(한 테이블, `user_account_id`) | **없음(NO ACTION) + NOT NULL** | **삭제 전에 더미 계정으로 이관**(UPDATE) — USER-EDC-52 |
+| `users_account` | 게시글 반응 · 댓글 반응(`user_account_id`) | SET NULL + nullable | 그대로(DB가 처리) — USER-EDC-57 |
+| `users_account` | 신고(`reporter_account_id`) | SET NULL + nullable | 그대로(DB가 처리) — USER-EDC-57 |
+
+⚠ 커뮤니티 테이블은 user `ddl-auto=update`가 **처음 만들 때** 선언대로 제약을 건다(`quizzes_like`처럼 "이미 있는 테이블의 제약을 못 고치는" 문제는 신규 테이블엔 없다). 다만 어떤 이유로든 제약 없이 먼저 생긴 환경은 `infra/sql/migrate-community.sql`(USER-CM-202)이 맡는다. **배포 후 운영 DB 재대조(제약 5의 "다음에 스키마를 건드릴 때")가 이 표에도 필요하다.**
 
 - **"`users` 한 줄 지우면 전부 사라진다"는 예상은 `chatrooms` 때문에 성립하지 않는다.** `chatrooms.owner_account_id`는 `NOT NULL`이라 NULL로 비울 수도 없어, 이관하지 않으면 `DELETE FROM users` 자체가 FK 위반으로 실패한다.
 - 엔티티 애노테이션과 현재 DB 제약은 어긋난 곳이 없다.
@@ -132,11 +150,11 @@ devdb에서 "112건 중 108건이 만료"로 관측된 것은 토큰이 방치�
 |---|---|---|---|
 | USER-EDC-36 | 이벤트 | WHEN 삭제 대상 계정이 선정되면, THE 시스템 SHALL 그 계정이 소유한 `chatrooms.owner_account_id`를 더미 계정의 id로 변경한다 | 방 2개를 소유한 탈퇴 30일 경과 계정 → 삭제 후에도 방 2개가 남고 `owner_account_id`가 더미 계정 id. `chatrooms`에는 소유자 UNIQUE가 없어 방이 몇 개든 충돌하지 않는다 |
 | USER-EDC-50 | 이벤트 | WHEN 삭제 대상 계정이 선정되면, THE 시스템 SHALL 그 계정이 남긴 `chats.user_account_id`를 더미 계정의 id로 변경한다 | 메시지 10건을 남긴 계정 삭제 후 그 방의 히스토리 조회 → 메시지 10건이 그대로 있고 `senderNickname`이 `(알수없음)`. **SET NULL을 쓸 수 없는 이유는 `MessageResponse.from()`의 닉네임 역참조 NPE**(확정 근거: 결정 기록 3차 10) |
-| USER-EDC-39 | 유비쿼터스 | THE 시스템 SHALL 이관·보존 대상이 아닌 자식 데이터를 계정과 함께 삭제한다 | 분류 — **이관**: `chatrooms`·`chats` / **소유자 분리(SET NULL)**: `quizzes_like` / **삭제**: `quiz_users_submit`·`users_refreshtoken`·`users_bq`·`user_support_team`·`user_support_player`(확정 근거: 결정 기록 3차 10) |
+| USER-EDC-39 | 유비쿼터스 | THE 시스템 SHALL 이관·보존 대상이 아닌 자식 데이터를 계정과 함께 삭제한다 | 분류 — **이관**: `chatrooms`·`chats` / **소유자 분리(SET NULL)**: `quizzes_like` / **삭제**: `quiz_users_submit`·`users_refreshtoken`·`users_bq`·`user_support_team`·`user_support_player`(확정 근거: 결정 기록 3차 10). **(7차 확장)** 커뮤니티 — **이관**: 게시글·댓글·답글(USER-EDC-51·52) / **SET NULL**: 반응 2테이블·신고(USER-EDC-57) / **삭제**: 없음 |
 | USER-EDC-40 | 유비쿼터스 | THE 시스템 SHALL 한 계정의 이관·정리·삭제를 하나의 트랜잭션으로 처리한다 | 삭제 단계에서 예외가 나면 그 계정의 이관도 되돌아간다 — "소유권만 넘어가고 계정은 남은" 중간 상태가 관측되지 않음 |
 | USER-EDC-41 | 예외 | IF 어떤 계정의 이관이 실패하면, THEN THE 시스템 SHALL 그 계정을 삭제하지 않는다 | 이관 UPDATE가 실패한 계정의 `users` 행은 회차 종료 후에도 잔존(fail-closed — 이관 없는 삭제는 공용 데이터 소실이므로 절대 진행하지 않는다) |
 | USER-EDC-42 | 예외 | IF 회차 실행 시점에 더미 계정이 존재하지 않으면, THEN THE 시스템 SHALL 계정 삭제 단계를 수행하지 않고 ERROR 로그를 남긴다 | 더미 계정 행을 지운 DB에서 회차 실행 → 삭제 0건, ERROR 1건. 만료 토큰 삭제(USER-EDC-19)는 이관과 무관하므로 계속 수행 |
-| USER-EDC-43 | 이벤트 | WHEN 이관이 끝나면, THE 시스템 SHALL 테이블별 이관 행 수를 로그에 남긴다 | 결과 로그에 `chatrooms`·`chats` 각각의 이관 건수가 포함 |
+| USER-EDC-43 | 이벤트 | WHEN 이관이 끝나면, THE 시스템 SHALL 테이블별 이관 행 수를 로그에 남긴다 | 결과 로그에 `chatrooms`·`chats` 각각의 이관 건수가 포함. **(7차 확장)** 커뮤니티 게시글·댓글 건수는 USER-EDC-55 |
 | USER-EDC-44 | 유비쿼터스 | THE 시스템 SHALL 이관된 데이터와 소유자가 비워진 데이터를 기존 조회 경로에서 다른 데이터와 동일하게 취급한다 | 이관된 채팅방·메시지가 목록에서 사라지거나 별도 필드가 붙지 않고, 소유자 없는 추천도 추천 수 집계에 그대로 포함. 노출되는 차이는 닉네임 `(알수없음)` 하나뿐 |
 
 ### 퀴즈 추천(`quizzes_like`) — 이관하지 않고 소유자만 비운다 (2차 개정)
@@ -150,12 +168,28 @@ devdb에서 "112건 중 108건이 만료"로 관측된 것은 토큰이 방치�
 | USER-EDC-37 | — | **(삭제됨 — 2026-08-18 2차)** `quizzes_like`를 더미 계정으로 이관하던 요구사항. USER-EDC-46이 대체 | — |
 | USER-EDC-38 | — | **(삭제됨 — 2026-08-18 2차)** 이관 시 UNIQUE 충돌 행을 삭제하던 요구사항. SET NULL 방식에서는 충돌 자체가 없다 | — |
 
+### 소유권 이관 — 커뮤니티 게시글·댓글·답글 (2026-10-08 7차 개정, 승인 대기)
+
+> 적용 기준은 2차 개정에서 확정한 "그 데이터를 읽는 코드가 계정을 역참조해 사람 이름을 표시하는가"다. 커뮤니티 응답은 `author{nickname, profileImgUrl}`를 작성자 행에서 읽으므로(USER-CM-4) 게시글·댓글·답글은 **이관**, 반응·신고는 세기만 하므로 **SET NULL**이다. 테이블·컬럼명은 커뮤니티 문서의 제안명이며 계약은 "작성자 FK가 가리키는 계정"이다. `(가정)`이 붙은 항목은 문서 끝 "미해결 질문 (7차)"에 올려 뒀다.
+
+| ID | 유형 | 요구사항 | 인수 기준 |
+|---|---|---|---|
+| USER-EDC-51 | 이벤트 | WHEN 삭제 대상 계정이 선정되면, THE 시스템 SHALL 그 계정이 작성한 커뮤니티 게시글의 작성자(`user_account_id`)를 더미 계정의 id로 변경한다 | 게시글 3건을 쓴 탈퇴 30일 경과 계정 → 회차 후 그 3행이 남고 `user_account_id`가 `UnknownAccountPolicy.UID` 계정의 id. `GET /api/community/posts/{postId}` → 200, `author.nickname`이 `(알수없음)`, `isAuthor: false`(누가 조회하든). 게시글 테이블에는 작성자 UNIQUE가 없어 글이 몇 건이든 충돌하지 않는다(USER-CM-191) |
+| USER-EDC-52 | 이벤트 | WHEN 삭제 대상 계정이 선정되면, THE 시스템 SHALL 그 계정이 작성한 커뮤니티 댓글·답글의 작성자(`user_account_id`)를 더미 계정의 id로 변경한다 | 댓글 2건·답글 3건을 쓴 계정 → 회차 후 5행 전부 잔존, 작성자가 더미 계정. `GET /api/community/posts/{postId}/comments`에서 그 댓글·답글의 `author.nickname`이 `(알수없음)`, 답글의 `parentCommentId`는 불변(부모-자식 관계가 끊기지 않는다). 댓글과 답글은 한 테이블이라 `parent_comment_id` 유무로 거르지 않는다 |
+| USER-EDC-53 | 유비쿼터스 | THE 시스템 SHALL 소프트 삭제(`deleted_at` 기록)된 행과 블라인드(`blinded = true`)된 행도 거르지 않고 이관한다 | 정상 1·소프트 삭제 1·블라인드 1 게시글을 가진 계정 → 3행 모두 이관되고 계정 삭제 성공. **하나라도 남으면 FK가 `users` 삭제를 막는다**(USER-CM-191 AC-3, `reassignSender`와 같은 이유). 이관 뒤에도 `deleted_at`·`blinded` 값은 그대로다 — 이관은 작성자만 바꾼다 |
+| USER-EDC-54 | 유비쿼터스 | THE 시스템 SHALL 커뮤니티 이관을 USER-EDC-40의 계정 트랜잭션 안에서 `users` 행 삭제(USER-EDC-9)보다 먼저 수행한다 | 게시글 이관 UPDATE를 실패시키면 그 계정의 `users` 행·`chatrooms`·`chats` 이관이 전부 원상태(USER-EDC-41 fail-closed가 그대로 적용). 채팅 이관(USER-EDC-36·50)과 커뮤니티 이관 사이의 순서는 계약이 아니다 — 둘 다 삭제보다 앞이면 된다 |
+| USER-EDC-55 | 이벤트 | WHEN 커뮤니티 이관이 끝나면, THE 시스템 SHALL 게시글·댓글(답글 포함) 각각의 이관 행 수를 결과 로그에 포함한다 | USER-EDC-26의 INFO 한 줄에 `chatrooms`·`chats`에 이어 게시글·댓글 이관 건수가 들어간다(한 줄 유지). 위 USER-EDC-52 시나리오에서 댓글 이관 수가 5(댓글과 답글을 합산 — 한 테이블이고 따로 세는 소비처가 없다) |
+| USER-EDC-56 | 유비쿼터스 | THE 시스템 SHALL 커뮤니티 이관 과정에서 S3를 호출하지 않는다 | 이미지 2장이 붙은 게시글을 쓴 계정의 회차 전후, 그 확정 EP(`community/…`) `HeadObject` → 둘 다 200. 이미지 행도 그대로다(글이 남으므로 이미지도 남는다). 이 배치가 **순수 DB 작업**이라는 성질(`WithdrawnProfileImageListener` 항목에서 지켜 온 결정)이 유지된다 — 회차 로그에 S3 관련 ERROR가 0건 |
+| USER-EDC-57 | 유비쿼터스 | THE 시스템 SHALL 커뮤니티 반응 행과 신고 행을 UPDATE하지 않고 DB `ON DELETE SET NULL`에 맡긴다 | 게시글 A에 LIKE 1건을 남기고 게시글 B를 신고한 계정 삭제 후: 반응 행이 `user_account_id IS NULL`로 잔존하고 A의 `likeCount` 불변(USER-CM-192), 신고 행이 `reporter_account_id IS NULL`로 잔존하고 B는 여전히 블라인드(USER-CM-193). 스케줄러 코드에 커뮤니티 반응·신고 리포지토리 의존이 없다. 퀴즈 취소 추천 삭제(USER-EDC-47)에 해당하는 단계도 없다 — 커뮤니티 반응은 취소 시 행이 사라져 취소 행이 없다 |
+| USER-EDC-58 | 예외 **(구현 재량) (가정)** | IF 회차 실행 시점에 커뮤니티 반응 2테이블·신고 테이블의 계정 FK 삭제 규칙이 `SET NULL`이 아니면, THEN THE 시스템 SHALL 계정 삭제 단계를 수행하지 않고 ERROR 로그를 남긴다 | 세 FK 중 하나를 `CASCADE`로 바꾼 DB에서 회차 실행 → 삭제 0건, ERROR 1건, 만료 토큰 삭제는 계속(USER-EDC-49와 같은 성질). **CASCADE면 반응 행이 사라지는데 카운터 컬럼(`like_count`)은 남아 USER-CM-130(카운터=행 수)이 조용히 깨진다** — 되돌릴 수 없다. 검사 방식(회차마다 `information_schema` 조회·`QuizLikeDeleteRuleInspector` 일반화·다른 신호)은 구현자가 고른다. `(가정)` 근거: USER-CM-192 AC-2가 "확인 대상에 들어간다"고 적었으나 이번 개정 요청은 "반응·신고는 배치 변경 없음"이라 했다 — 미해결 질문 1 |
+| USER-EDC-59 | 유비쿼터스 | THE 시스템 SHALL 더미 계정의 `profile_img_url`을 NULL로 유지한다 | 이관된 게시글 상세의 `author.profileImgUrl`이 `null`(USER-CM-191 AC-2가 이 값을 전제한다). 더미 계정은 로그인이 성립하지 않아(USER-EDC-33) `POST /api/users/me/profile-image`로 바뀔 경로가 없고, 부트스트랩(USER-EDC-45)은 이미지를 넣지 않는다 — 현행 `UserAccount.reserved(...)`가 이미 그렇게 동작하며 이 요구사항이 그 보장을 고정한다 |
+
 ### 하드 삭제
 
 | ID | 유형 | 요구사항 | 인수 기준 |
 |---|---|---|---|
 | USER-EDC-9 | 이벤트 | WHEN 이관과 취소 추천 정리가 완료되면, THE 시스템 SHALL 그 계정과 1:1로 연결된 `users` 행을 삭제한다 | 회차 실행 후 해당 `users.id` 행 0건 |
-| USER-EDC-10 | 이벤트 | WHEN `users` 행이 삭제되면, THE 시스템 SHALL 그 계정을 참조하는 `users_account`·`users_refreshtoken`·`users_bq`·`user_support_team`·`user_support_player`·`quiz_users_submit` 행이 남지 않게 한다 | 6개 테이블에 각각 1건 이상 행이 있던 계정을 삭제 → 6개 테이블 모두 해당 계정 참조 행 0건. **`chatrooms`·`chats`(이관)·`quizzes_like`(SET NULL)는 이 목록에 없다** |
+| USER-EDC-10 | 이벤트 | WHEN `users` 행이 삭제되면, THE 시스템 SHALL 그 계정을 참조하는 `users_account`·`users_refreshtoken`·`users_bq`·`user_support_team`·`user_support_player`·`quiz_users_submit` 행이 남지 않게 한다 | 6개 테이블에 각각 1건 이상 행이 있던 계정을 삭제 → 6개 테이블 모두 해당 계정 참조 행 0건. **`chatrooms`·`chats`(이관)·`quizzes_like`(SET NULL)는 이 목록에 없다.** (7차) 커뮤니티 게시글·댓글(이관)·반응·신고(SET NULL)도 이 목록에 없다 — 계정 삭제로 행이 사라지는 커뮤니티 테이블은 없다 |
 | USER-EDC-12 | — | **(삭제됨 — 2026-08-18 1차)** 채팅방 소유 계정을 삭제 대상에서 제외하던 요구사항. USER-EDC-36이 대체 | — |
 | USER-EDC-13 | — | **(삭제됨 — 2026-08-18 1차)** 위 제외를 ERROR 로그로 남기던 요구사항. USER-EDC-43이 대체 | — |
 | USER-EDC-14 | 예외 | IF 한 계정의 처리(이관·정리·삭제)가 예외로 실패하면, THEN THE 시스템 SHALL 그 계정만 건너뛰고 남은 대상 처리를 계속한다 | 대상 3건 중 2번째가 실패 → 1·3번째는 완료, 회차는 정상 종료 |
@@ -180,7 +214,7 @@ devdb에서 "112건 중 108건이 만료"로 관측된 것은 토큰이 방치�
 |---|---|---|---|
 | USER-EDC-24 | 유비쿼터스 | THE 시스템 SHALL 같은 회차가 파드 두 곳에서 동시에 진행되지 않도록 상호배제한다 | **Redis 락**(user 앱에 `spring-boot-starter-data-redis`가 이미 있어 새 의존 없음). 파드 2개(HPA max 2)에서 03:00 도달 → 한 파드만 시작 로그, 다른 파드는 "선점됨" 로그 후 종료. 초안 가정(방치)에서 바뀐 항목이다 — **이관이 들어오며 두 파드가 같은 계정을 처리할 위험이 생겼다**(확정 근거: 결정 기록 3차 5) |
 | USER-EDC-25 | 예외 | IF 상호배제가 성립하지 않아 두 파드가 같은 대상을 처리하면, THEN THE 시스템 SHALL 뒤늦은 쪽의 실패를 해당 계정만 건너뛰는 것으로 흡수한다 | 한쪽 성공, 다른 쪽 "이미 없음"·락 경합 실패 → 회차 전체는 정상 종료(USER-EDC-14와 동일 처리). 락을 도입해도 TTL 만료·네트워크 분단에서 겹칠 수 있으므로 이 안전망은 남긴다 |
-| USER-EDC-26 | 이벤트 | WHEN 정리가 끝나면, THE 시스템 SHALL 이관 행 수·취소 추천 삭제 수·삭제된 계정 수·실패한 계정 수·삭제된 토큰 행 수를 INFO 로그 한 줄로 남긴다 | 회차마다 정확히 1줄, 다섯 수치가 모두 포함 |
+| USER-EDC-26 | 이벤트 | WHEN 정리가 끝나면, THE 시스템 SHALL 이관 행 수·취소 추천 삭제 수·삭제된 계정 수·실패한 계정 수·삭제된 토큰 행 수를 INFO 로그 한 줄로 남긴다 | 회차마다 정확히 1줄, 다섯 수치가 모두 포함. **(7차)** "이관 행 수"에 커뮤니티 게시글·댓글 건수가 들어간다(USER-EDC-55) — 여전히 한 줄이다 |
 | USER-EDC-27 | 예외 | IF 계정 처리가 실패하면, THEN THE 시스템 SHALL 그 계정의 `uid`와 예외를 ERROR 로그로 남긴다 | 실패 1건당 ERROR 1줄. 내부 PK `id`가 아니라 `uid`를 쓴다(토큰 subject 규약과 같은 이유 — 내부 PK 비노출) |
 | USER-EDC-28 | 유비쿼터스 | THE 시스템 SHALL 로그에 이메일·전화번호·닉네임·비밀번호 해시를 남기지 않는다 | 회차 로그 전문에 `@`가 포함된 주소·`010`으로 시작하는 번호·닉네임 문자열·`$2a$`가 없음 |
 | USER-EDC-29 | 유비쿼터스 | THE 시스템 SHALL 실패한 대상을 같은 회차 안에서 재시도하지 않는다 | 실패 대상은 다음 날 03:00 회차가 다시 시도(재시도 큐·알림 없음, 결정 기록 3차 7) |
@@ -229,7 +263,20 @@ devdb에서 "112건 중 108건이 만료"로 관측된 것은 토큰이 방치�
 | 11 | 더미 계정은 **앱 기동 시 find-or-create** | USER-EDC-45·30 | 시드 SQL은 적용을 잊으면 USER-EDC-42로 삭제가 통째로 멈춘다. **남는 위험**: 완전히 빈 DB에 파드 2개가 동시에 뜨면 UNIQUE 충돌로 한쪽 기동이 실패할 수 있다(기존 시드가 이미 가진 함정 — `application-prod.yaml` 주석, 재시작으로 자가 치유) |
 | 12 | 더미 계정 예약값 **`unknown@victoryfairy.internal` / `00000000001`** | USER-EDC-30 | SYSTEM 계정(`system@victoryfairy.internal` / `00000000000`)과 같은 방식이라 "예약 계정은 `.internal` 도메인"이라는 규칙이 유지된다 |
 
-확정된 쟁점 3(1차)·9(2차)는 위 두 절에 있다. **요구사항 결정에 남은 질문은 없다.**(제약 2의 시각 출처 정렬은 계약을 바꾸는 쟁점이 아니라 별개의 정리 작업이다 — "구현·검증 기록" 참고)
+확정된 쟁점 3(1차)·9(2차)는 위 두 절에 있다. **2026-08-18 승인본 범위에서 요구사항 결정에 남은 질문은 없다.**(제약 2의 시각 출처 정렬은 계약을 바꾸는 쟁점이 아니라 별개의 정리 작업이다 — "구현·검증 기록" 참고) 7차 개정분의 질문은 문서 끝 "미해결 질문 (7차)" 절에 따로 둔다.
+
+### 2026-10-08 (7차) — 커뮤니티 테이블을 2차 기준으로 분류 (승인 대기)
+
+새 결정이 아니라 **2차 개정의 분류 기준을 커뮤니티 문서(`community.md`, 승인됨)가 이미 적용해 둔 결과를 이 문서로 받아들인 것**이다. 커뮤니티 쪽 결정은 Q4(탈퇴 계정 글·댓글 — "채팅과 동일")·Q10(소프트 삭제)·USER-CM-190~195·205이고, 이 문서가 그것과 어긋나지 않게 이관 단계를 넓혔다.
+
+| 답("역참조로 사람 이름을 읽는가") | 처리 | 해당 커뮤니티 테이블 | 근거 |
+|---|---|---|---|
+| 예 | `(알수없음)` **이관** | 게시글, 댓글·답글(한 테이블) | `author{nickname, profileImgUrl}`를 작성자 행에서 읽는다(USER-CM-4). FK가 CASCADE 없이 NOT NULL이라 이관 외의 길은 DDL뿐이고, 커뮤니티 문서가 fail-closed를 의도해 그렇게 뒀다(USER-CM-194) |
+| 아니오(집계·카운트만) | FK **SET NULL** | 게시글 반응·댓글 반응·신고 | `quizzes_like`와 같은 구도. UNIQUE(계정, 대상) 때문에 이관하면 탈퇴자 여럿의 같은 글 반응이 충돌한다(USER-CM-192) |
+| 삭제 | — | 없음 | 커뮤니티 반응은 취소 시 행 자체가 사라져(`QUIZ-LIKE-8`과 다른 선택) 취소 행 정리 단계가 필요 없다 |
+
+- 채팅 때(1차)와 다른 점 하나 — **모듈 경계가 넓어지지 않는다.** 커뮤니티 컨트롤러·서비스는 user 모듈에 있고(USER-CM Q16) 엔티티·리포지토리는 `:domain`이라, 스케줄러가 "다른 앱이 서빙하는 테이블"을 건드리는 구도(제약 4)가 아니다. 작성자 일괄 변경 메서드는 `:domain` 리포지토리에 붙어 quiz 앱에서도 보이게 되는 점만 같다.
+- 더미 계정에 쌓이는 데이터가 채팅방·메시지에서 게시글·댓글로 늘어난다(제약 8 확장). 이관된 글은 `isAuthor`가 누구에게도 참이 아니라 수정·삭제 경로가 없고(`COMMUNITY_NOT_AUTHOR` 403), 신고·블라인드는 여전히 된다.
 
 ## 제약 (구현이 지켜야 할 사실 — 구현 방법 지시가 아님)
 
@@ -253,6 +300,9 @@ devdb에서 "112건 중 108건이 만료"로 관측된 것은 토큰이 방치�
 11. **예약 uid 마이그레이션(`infra/sql/migrate-reserved-uids-to-uuid.sql`)이 앱 배포보다 먼저다 — 제약 9와 같은 계열이지만 실패 모드가 훨씬 험하다.** 예약 행의 `uid`가 사람이 지어낸 순차값(`...0001` 류)에서 **실제 생성된 UUID v4**로 교체되면서, 이미 DB에 들어가 있는 12건(SYSTEM 계정 1 + 구단 채팅방 10 + `(알수없음)` 더미 계정 1)을 제자리 갱신하는 1회성 SQL이 생겼다(`UPDATE ... WHERE uid = '<옛 값>'`, 재실행하면 0행 매칭 no-op).
     - **순서를 뒤집으면 두 가지가 동시에 깨진다**: ① `chat-init.sql`의 멱등성 가드가 `WHERE NOT EXISTS (... uid = '<새 값>')`로 바뀌었으므로, 옛 uid 행만 있는 DB에서 그 시드가 다시 돌면 매칭이 0이라 **SYSTEM 계정과 채팅방 10건이 통째로 중복 생성**된다(구단마다 방이 둘). ② `UnknownAccountBootstrapper`가 `ApplicationRunner`라 더미 계정을 새 uid로 못 찾고 다시 만들려 하다 **email·tel UNIQUE 충돌로 앱 기동 자체가 실패**한다. 제약 9는 "조용히 데이터가 줄어드는" 실패였지만 이쪽은 **기동 실패 + 중복 시드**라 더 시끄럽고 더 아프다.
     - **uid 값을 이 문서에 나열하지 않는다.** 더미 계정 값의 단일 출처는 `cleanup.policy.UnknownAccountPolicy.UID`(USER-EDC-32), SYSTEM 계정·채팅방 값의 단일 출처는 `infra/sql/chat-init.sql`이다 — 값이 또 바뀌면 문서만 낡는다.
+12. **(7차) 배포 순서 — 이 개정의 구현이 커뮤니티 배포와 같거나 먼저여야 한다(USER-CM-205).** 뒤집히면 글을 가진 탈퇴 30일 경과 계정의 회차가 `users` 삭제에서 FK 위반으로 **계정 단위 실패**한다 — 데이터는 안 사라지고(USER-CM-194의 fail-closed) 다음 날 다시 집히지만, 그 사이 매일 ERROR가 쌓이고 그 계정의 개인정보 삭제가 미뤄진다. 제약 9·11과 달리 "조용한 손실"이 아니라 "시끄러운 지연"이라 덜 아프지만, 30일 삭제 약속이 늦어지는 것은 사용자에게 한 약속의 문제다.
+13. **(7차) 커뮤니티 테이블은 첫 회차 전에 존재해야 한다.** user 앱 기동 시 `ddl-auto=update`가 만들고 회차는 03:00이라 자연히 만족한다. 단, USER-EDC-58을 채택해 FK 검사를 두면 "테이블 없음 = FK 0개 = fail-closed"가 되므로, 커뮤니티 엔티티 없이 이 배치만 먼저 배포하는 조합은 계정 삭제 단계가 통째로 멈춘다 — 둘을 떼어 배포하지 말 것.
+14. **(7차) 운영 DB 재대조.** 제약 5의 확인은 2026-08-18 시점 테이블에만 유효하다. 커뮤니티 테이블이 운영에 생긴 뒤 `information_schema.REFERENTIAL_CONSTRAINTS`로 위 "커뮤니티 테이블" 표의 예정값(작성자 FK 없음·반응/신고 SET NULL)이 실제로 그렇게 걸렸는지 한 번 더 봐야 한다 — 신규 테이블이라 어긋날 가능성은 낮지만, 이 배치가 돌이킬 수 없는 삭제를 하는 이상 "낮다"로 넘기지 않는다.
 
 
 ## 구현·검증 기록 (2026-08-18)
@@ -268,4 +318,12 @@ devdb에서 "112건 중 108건이 만료"로 관측된 것은 토큰이 방치�
 - **스키마**: 운영 DB 대조 완료(제약 5), `infra/sql/migrate-quiz-like-account-set-null.sql` 적용 완료(제약 9).
 - **시각 출처 정렬**: `UserAccountService.withdraw`가 `Clock` 빈을 쓰도록 정렬돼 `exit_at`을 기록하는 쪽과 30일 경과를 판정하는 쪽이 같은 시계를 쓴다(`UserAccountServiceTest`를 `Clock.fixed`로 조정, `:user:test` 516건 통과).
 
-**이 문서 범위에 남은 항목은 없다.** 모듈 전체로는 `AuthService`·`SupportService`가 아직 `LocalDateTime.now()`를 쓰지만, **둘 다 이 기능의 계약에 영향을 주지 않으며 별도 작업으로 남긴 것**이다(영향 범위와 근거는 제약 2).
+**2026-08-18 승인본 범위에 남은 항목은 없다.** 모듈 전체로는 `AuthService`·`SupportService`가 아직 `LocalDateTime.now()`를 쓰지만, **둘 다 이 기능의 계약에 영향을 주지 않으며 별도 작업으로 남긴 것**이다(영향 범위와 근거는 제약 2).
+
+**7차 개정분(USER-EDC-51~59)은 아직 구현되지 않았다** — 2026-10-08 기준 `ExpiredAccountEraser.erase()`는 ①취소 좋아요 삭제 ②`reassignOwner`·`reassignSender` ③`deleteUserById` 그대로이고, `AccountEraseResult`도 네 필드(`chatroomsTransferred`·`chatsTransferred`·`cancelledLikesDeleted`·`accountRemoved`)뿐이다. 커뮤니티 테이블 자체가 아직 없으므로 위 "확인된 사실"의 커뮤니티 표는 실측이 아니라 예정값이다.
+
+## 미해결 질문 (7차)
+
+1. **커뮤니티 반응·신고 FK 삭제 규칙 선행 검사(USER-EDC-58)를 둘 것인가.** 커뮤니티 문서 USER-CM-192 AC-2는 "`QuizLikeDeleteRuleInspector`류의 확인 대상에 들어간다"고 적었고, 이번 개정 요청은 "반응·신고 행은 SET NULL이라 배치 변경 없음"이라 했다 — 둘이 어긋난다. 문서에는 A를 `(가정)`으로 적어 뒀다.
+   - **A. 검사를 둔다(현재 문서의 가정)** — 세 FK가 `SET NULL`이 아니면 계정 삭제 단계를 건너뛰고 ERROR(USER-EDC-49와 같은 fail-closed). 지키는 것: FK가 잘못 걸린 환경에서 반응 행이 CASCADE로 사라져 카운터 컬럼과 어긋나는(USER-CM-130 위반) 비가역 손실. 대가: 검사기를 테이블 목록으로 일반화하는 배치 코드 변경이 생기고(요청서의 "배치 변경 없음"과 어긋남), 회차마다 `information_schema` 조회 3건이 늘며, 커뮤니티 테이블이 없는 환경에서는 계정 삭제가 통째로 멈춘다(제약 13).
+   - **B. 검사를 두지 않는다** — USER-EDC-58을 삭제(번호는 비워 둠)하고 USER-CM-192 AC-2의 해당 문구는 "신규 테이블이라 선언만으로 걸린다"까지만 남기도록 커뮤니티 문서를 손본다. 지키는 것: 배치 코드는 이관 2줄·로그 수치만 늘어나는 최소 변경. 대가: `quizzes_like` 때와 같은 "FK가 생각과 다른" 환경을 막는 장치가 커뮤니티엔 없고, 그 경우 반응 행이 조용히 사라진다(`migrate-community.sql`과 제약 14의 운영 재대조가 유일한 방어선).

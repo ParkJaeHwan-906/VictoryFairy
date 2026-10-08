@@ -56,10 +56,18 @@ public final class ProfileImagePolicy {
      * {@code user-profile-img/…} 는 여기서 걸린다.
      */
     public static void validateTempEndpoint(String endpoint) {
-        if (endpoint == null || endpoint.length() > MAX_ENDPOINT_LENGTH
-                || !TEMP_ENDPOINT.matcher(endpoint).matches()) {
+        if (!isTempEndpoint(endpoint)) {
             throw new BusinessException(ErrorCode.INVALID_PROFILE_IMAGE_ENDPOINT);
         }
+    }
+
+    /**
+     * 위 판정의 던지지 않는 형태 — 같은 temp 모양을 쓰되 거절 코드가 다른 호출자(커뮤니티 이미지)가
+     * 자기 코드로 던질 수 있게 연다. 판정 자체는 한 곳({@code TEMP_ENDPOINT})뿐이다.
+     */
+    public static boolean isTempEndpoint(String endpoint) {
+        return endpoint != null && endpoint.length() <= MAX_ENDPOINT_LENGTH
+                && TEMP_ENDPOINT.matcher(endpoint).matches();
     }
 
     /**

@@ -160,6 +160,47 @@ public enum ErrorCode {
     // "크기"이고, 이 응답은 컨트롤러에 닿기도 전에 멀티파트 해석 단계에서 나간다(web-support의
     // GlobalExceptionHandler.handleMaxUploadSizeExceeded).
     PROFILE_IMAGE_TOO_LARGE(413, "이미지 크기는 5MB를 넘을 수 없습니다."),
+    // 커뮤니티 이미지의 413. 문구는 위와 같지만 코드를 가른다 — 멀티파트 해석 단계의 413 은
+    // GlobalExceptionHandler 가 요청 경로(/community/)로 둘을 분기한다.
+    COMMUNITY_IMAGE_TOO_LARGE(413, "이미지 크기는 5MB를 넘을 수 없습니다."),
+
+    // 404 Not Found - 커뮤니티
+    // 삭제된 글·댓글도 같은 404 다 — "삭제됐음"을 구분해 주지 않는다(채팅의 삭제 메시지 404 와 같은 처리).
+    // 조회 필터(?categoryId=)의 없는 값은 빈 페이지이고, 대상 자원 지정(본문 categoryId)만 여기다.
+    COMMUNITY_CATEGORY_NOT_FOUND(404, "존재하지 않는 카테고리입니다."),
+    COMMUNITY_POST_NOT_FOUND(404, "존재하지 않는 게시글입니다."),
+    // 다른 글의 댓글을 parentCommentId 로 지목한 경우도 여기다 — 글 스코프 밖은 "그 글에 없는 댓글"이다.
+    COMMUNITY_COMMENT_NOT_FOUND(404, "존재하지 않는 댓글입니다."),
+
+    // 410 Gone - 커뮤니티 블라인드
+    // 이 저장소 최초의 410. 404 는 "없는 글"과 섞여 프론트가 "신고로 숨김" 안내를 못 하고, 403 은 프론트
+    // 인터셉터가 권한 문제로 오해한다. 작성자·신고자·제3자 전원에게 같은 코드가 나간다 — 작성자만
+    // 200 을 주면 수정이 블라인드 우회 수단이 된다.
+    COMMUNITY_POST_BLINDED(410, "신고로 숨김 처리된 게시글입니다."),
+    COMMUNITY_COMMENT_BLINDED(410, "신고로 숨김 처리된 댓글입니다."),
+
+    // 403 Forbidden - 커뮤니티
+    COMMUNITY_NOT_AUTHOR(403, "작성자만 수정·삭제할 수 있습니다."),
+    // 위 SELF_REPORT_NOT_ALLOWED("자신의 메시지는…")를 재사용하지 않는다 — 문구가 채팅 전용이고, 그 문구를
+    // 바꾸면 채팅 API 문서·테스트가 함께 바뀐다. 글·댓글·답글 공용 문구다.
+    COMMUNITY_SELF_REPORT_NOT_ALLOWED(403, "자신의 글은 신고할 수 없습니다."),
+
+    // 400 Bad Request - 커뮤니티 답글
+    // 깊이 1 고정. 서버는 요청의 parentCommentId 를 그 답글의 부모로 바꿔 주지 않는다 — 클라이언트 선택이다.
+    COMMUNITY_REPLY_DEPTH_EXCEEDED(400, "답글에는 답글을 달 수 없습니다."),
+
+    // 400 Bad Request - 커뮤니티 이미지
+    // PROFILE_* 세 코드와 판정 로직(선두 바이트·5MiB·파트 존재)을 공유하지만 코드는 가른다 — 문구에
+    // "프로필"이 들어 있어 커뮤니티에서 나가면 사용자가 원인을 오해한다.
+    COMMUNITY_IMAGE_REQUIRED(400, "이미지를 첨부해 주세요."),
+    INVALID_COMMUNITY_IMAGE_FORMAT(400, "JPG, PNG, WEBP 이미지만 업로드할 수 있습니다."),
+    // 거절 사유 다섯(temp 모양 아님·그 객체가 없음·남의 글의 확정 EP·중복 원소·null/빈 원소)을 한 문구로
+    // 합친 코드 — 사유를 나누면 "그 EP 가 실재하는가"를 응답으로 탐색할 수 있다(INVALID_PROFILE_IMAGE_ENDPOINT
+    // 와 같은 계열의 은닉).
+    INVALID_COMMUNITY_IMAGE_ENDPOINT(400, "유효하지 않은 이미지입니다."),
+    // ⚠ 문구의 5/3 은 CommunityImagePolicy 의 상한과 같은 값이어야 한다 — :common 은 앱 모듈을 참조할 수 없어
+    //   상수로 조립할 수 없으니 한쪽만 고치지 말 것.
+    COMMUNITY_IMAGE_LIMIT_EXCEEDED(400, "이미지는 게시글 5장, 댓글 3장까지 첨부할 수 있습니다."),
 
     // 429 Too Many Requests - 이메일 인증
     EMAIL_SEND_COOLDOWN(429, "인증번호를 방금 발송했습니다. 잠시 후 다시 시도해 주세요."),
