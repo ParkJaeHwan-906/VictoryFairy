@@ -10,10 +10,10 @@
 | 도메인 | 문서 | 소속 모듈 | 경로 접두사 | 엔드포인트 | 인증 | 최종 업데이트 | Notion |
 |---|---|---|---|---|---|---|---|
 | 인증 | [auth.md](auth.md) | user | `/api/auth` | 10 | 전부 불필요 | 2026-09-18 | [🔗](https://app.notion.com/p/3b278fa9b0f981b39166c408778394e9) |
-| 계정 | [account.md](account.md) | user | `/api/users` | 5 | 필수 | 2026-09-04 | [🔗](https://app.notion.com/p/3b278fa9b0f981f8b5bcf163fc897b12) |
+| 계정 | [account.md](account.md) | user | `/api/users` | 5 | 필수 | 2026-10-08 | [🔗](https://app.notion.com/p/3b278fa9b0f981f8b5bcf163fc897b12) |
 | 차단 | [block.md](block.md) | user | `/api/users/me/blocks` | 2 | 필수 | 2026-09-30 | [🔗](https://app.notion.com/p/3ea78fa9b0f981c5aadaefdda6611641) |
 | 순위 | [ranking.md](ranking.md) | user | `/api/rankings/bq` | 3 | 필수 | 2026-09-30 | [🔗](https://app.notion.com/p/3d178fa9b0f981caabb7ed810abff541) |
-| 캐릭터 | [character.md](character.md) | user | `/api/characters/items` | 3 | 필수 | 2026-08-28 | [🔗](https://app.notion.com/p/3ca78fa9b0f981a6b87fdd2a9c21c1d3) |
+| 캐릭터 | [character.md](character.md) | user | `/api/characters/items` | 3 | 필수 | 2026-10-08 | [🔗](https://app.notion.com/p/3ca78fa9b0f981a6b87fdd2a9c21c1d3) |
 | 구단 | [team.md](team.md) | user | `/api/teams` | 1 | 불필요(GET 한정) | 2026-07-28 (추정) | [🔗](https://app.notion.com/p/3b278fa9b0f981859999f42bfc4dd56b) |
 | 선수 | [player.md](player.md) | user | `/api/players` | 1 | 불필요(GET 한정, 단 로그인 시 결과가 달라짐) | 2026-08-20 | [🔗](https://app.notion.com/p/3b278fa9b0f981afb501f9e94e1f32f4) |
 | 경기 | [game.md](game.md) | user | `/api/games` | 3 | 혼합(`GET`·`GET /lineup` 불필요, `GET /support` 필수) | 2026-08-20 | [🔗](https://app.notion.com/p/3b278fa9b0f981938659cb3681750105) |
