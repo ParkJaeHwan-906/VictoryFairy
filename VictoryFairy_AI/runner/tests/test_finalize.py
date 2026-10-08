@@ -94,6 +94,49 @@ def test_assign_and_write_orders_by_template_entity(work):
     assert first["deadlineAt"] == "2026-08-03T14:59:00Z"
 
 
+def test_assign_and_write_backfills_subject_team_codes_from_top_level(work):
+    """MEME_ORIGIN·RELATION_LINK·TEAMMATE_STAT_COMPARE는 team이 질문의 전제일
+    뿐 정답이 될 수 없는데도 subject.teamCodes를 비워 두는 경우가 실제로 있다
+    (2026-10-08 실측). BE QuizIngestService는 Quiz.team FK를 subject.teamCodes
+    에서만 읽으므로(최상위 teamCodes는 안 봄), 비워 두면 이 문항들이 전부
+    "공통"으로 잘못 분류돼 팀별 발행 쿼터를 못 채운다 — assign_and_write가
+    기록 직전에 백필해야 한다."""
+    c = _cand(1, "MEME_ORIGIN")
+    c["teamCodes"] = ["OB"]
+    c["subject"] = {"scope": "PLAYER", "playerIds": [69238], "teamCodes": [],
+                     "gameId": None}
+    paths = assign_and_write([c], {}, work, TODAY)
+    saved = json.loads(paths[0].read_text(encoding="utf-8"))
+    assert saved["subject"]["teamCodes"] == ["OB"]
+
+
+def test_assign_and_write_skips_backfill_when_team_name_in_answer_text(work):
+    """CAREER_PATH처럼 team이 실제 정답일 수 있으면(정답 보기 문면에 그 팀
+    이름이 등장) 백필하지 않는다 — 안 그러면 Quiz.team FK로 정답이 새어나간다
+    (validate_candidates.py check 9와 같은 정답 유출 규칙)."""
+    c = _cand(1, "CAREER_PATH")
+    c["teamCodes"] = ["OB"]
+    c["options"] = [{"id": "A", "text": "두산"}, {"id": "B", "text": "LG"}]
+    c["answer"] = "A"
+    c["subject"] = {"scope": "PLAYER", "playerIds": [69238], "teamCodes": [],
+                     "gameId": None}
+    paths = assign_and_write([c], {}, work, TODAY)
+    saved = json.loads(paths[0].read_text(encoding="utf-8"))
+    assert saved["subject"]["teamCodes"] == []
+
+
+def test_assign_and_write_does_not_touch_non_player_subject_scope(work):
+    """subject.scope가 PLAYER가 아니면(TEAM/MATCHUP/LEAGUE/GAME) 이미 자체
+    카디널리티 규칙이 있으므로 백필 로직이 손대지 않는다."""
+    c = _cand(1, "TEAM_RECORD")
+    c["teamCodes"] = ["OB"]
+    c["subject"] = {"scope": "TEAM", "playerIds": [], "teamCodes": ["OB"],
+                     "gameId": None}
+    paths = assign_and_write([c], {}, work, TODAY)
+    saved = json.loads(paths[0].read_text(encoding="utf-8"))
+    assert saved["subject"]["teamCodes"] == ["OB"]
+
+
 def test_select_final_applies_per_game_quota_independently():
     """경기 문항은 gameId별로 슬롯이 따로 돈다 — 한 경기 재료가 넘쳐도 다른
     경기 몫을 잡아먹지 않고, 초과분만 그 경기 사유로 폐기된다."""
