@@ -102,7 +102,14 @@ SUBJECT_SCOPES = {"PLAYER", "TEAM", "MATCHUP", "LEAGUE", "GAME"}
 #: 있어 결정적 게이트로 못박는다. 소속은 `subjectScope`(PLAYER)로도 추정
 #: 가능하지만, 이 세 템플릿만 명시적으로 금지하는 것이 과거 이력과 더 안전하게
 #: 호환된다(RECORD_OX 등 다른 PLAYER scope 템플릿까지 건드리지 않음).
-GAME_UNIT_FORBIDDEN_TEMPLATES = {"CAREER_PATH", "MEME_ORIGIN", "RELATION_LINK"}
+#: INTERNATIONAL_CALLUP·FRANCHISE_RECORD(2026-10-08 신설)도 같은 이유로
+#: 추가한다 — 위키 '커리어 이력' 섹션 기반이라 똑같이 로스터 기반·경기 당일
+#: 무관이다(subjectScope는 TEAM이라 PLAYER 추정 휴리스틱으로도 안 걸려서,
+#: 명시 등재가 더더욱 필요하다).
+GAME_UNIT_FORBIDDEN_TEMPLATES = {
+    "CAREER_PATH", "MEME_ORIGIN", "RELATION_LINK",
+    "INTERNATIONAL_CALLUP", "FRANCHISE_RECORD",
+}
 
 #: TEAMMATE_STAT_COMPARE 전용(check 12, 2026-10-06 신설). 비교형 설계 보호 —
 #: 보기 문면에 실제 수치(타율·ERA 등)가 노출되면 "암기형 유출"이 된다. 두

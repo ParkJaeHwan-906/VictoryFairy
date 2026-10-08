@@ -15,6 +15,12 @@ CATALOG = {"H2H_SEASON_RECORD": {"id": "H2H_SEASON_RECORD", "kind": "KNOWLEDGE",
                                       "subjectScope": "PLAYER", "enabled": True},
            "CAREER_PATH": {"id": "CAREER_PATH", "kind": "KNOWLEDGE",
                           "format": "MULTI4", "enabled": True},
+           "INTERNATIONAL_CALLUP": {"id": "INTERNATIONAL_CALLUP", "kind": "KNOWLEDGE",
+                                    "format": "MULTI4", "subjectScope": "TEAM",
+                                    "enabled": True},
+           "FRANCHISE_RECORD": {"id": "FRANCHISE_RECORD", "kind": "KNOWLEDGE",
+                                "format": "MULTI4", "subjectScope": "TEAM",
+                                "enabled": True},
            "TEAMMATE_STAT_COMPARE": {"id": "TEAMMATE_STAT_COMPARE", "kind": "KNOWLEDGE",
                                      "format": "BINARY", "subjectScope": "PLAYER",
                                      "enabled": True}}
@@ -289,6 +295,47 @@ def test_roster_template_allowed_outside_game_unit():
     c.update(templateId="CAREER_PATH", format="MULTI4", gameId=None,
              options=[{"id": "A", "text": "KT"}, {"id": "B", "text": "LG"},
                       {"id": "C", "text": "SSG"}, {"id": "D", "text": "키움"}])
+    assert vc.validate_candidate(c, CATALOG, BANNED) == []
+
+
+@pytest.mark.parametrize("template_id", ["INTERNATIONAL_CALLUP", "FRANCHISE_RECORD"])
+def test_new_roster_templates_forbidden_in_game_unit(template_id):
+    """2026-10-08 신설 — INTERNATIONAL_CALLUP·FRANCHISE_RECORD도 위키 '커리어
+    이력' 기반 로스터 템플릿이라 CAREER_PATH 등과 같은 이유로 경기 유닛에서
+    금지된다(check 10, GAME_UNIT_FORBIDDEN_TEMPLATES)."""
+    c = ok_knowledge()
+    c.update(templateId=template_id, format="MULTI4", gameId="20261003LTKT02026",
+             options=[{"id": "A", "text": "김선수"}, {"id": "B", "text": "이선수"},
+                      {"id": "C", "text": "박선수"}, {"id": "D", "text": "최선수"}])
+    assert any("경기 유닛" in v and template_id in v
+               for v in vc.validate_candidate(c, CATALOG, BANNED))
+
+
+def test_international_callup_valid_subject_passes():
+    """팀은 질문 문면의 전제, 선수가 정답(CAREER_PATH와 반대 방향) — scope=TEAM,
+    teamCodes 정확히 1개·playerIds 빔이면 정답 유출 없이 통과한다."""
+    c = ok_knowledge()
+    c.update(templateId="INTERNATIONAL_CALLUP", format="MULTI4", gameId=None,
+              difficulty="MEDIUM", pointReward=50, bqReward=2,
+              question="2023년 항저우 아시안게임에 NC 소속으로 선발된 선수는?",
+              options=[{"id": "A", "text": "김주원"}, {"id": "B", "text": "박건우"},
+                       {"id": "C", "text": "손아섭"}, {"id": "D", "text": "노진혁"}],
+              answer="A",
+              subject={"scope": "TEAM", "playerIds": [], "teamCodes": ["NC"],
+                       "gameId": None})
+    assert vc.validate_candidate(c, CATALOG, BANNED) == []
+
+
+def test_franchise_record_valid_subject_passes():
+    c = ok_knowledge()
+    c.update(templateId="FRANCHISE_RECORD", format="MULTI4", gameId=None,
+              difficulty="HARD", pointReward=80, bqReward=3,
+              question="NC 구단 통산 만루홈런 공동 2위(5개)인 선수는?",
+              options=[{"id": "A", "text": "나성범"}, {"id": "B", "text": "박석민"},
+                       {"id": "C", "text": "테임즈"}, {"id": "D", "text": "에르난데스"}],
+              answer="A",
+              subject={"scope": "TEAM", "playerIds": [], "teamCodes": ["NC"],
+                       "gameId": None})
     assert vc.validate_candidate(c, CATALOG, BANNED) == []
 
 
