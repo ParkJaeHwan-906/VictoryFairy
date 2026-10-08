@@ -166,21 +166,36 @@ class AuthControllerEmailVerificationTest {
     }
 
     @Test
-    @DisplayName("[USER-EMV-14] 이미 가입된 이메일로 발송을 요청하면 409와 중복 안내 메시지를 반환한다")
-    void sendCode_serviceThrowsDuplicateEmail_returns409WithMessage() throws Exception {
-        // given
-        doThrow(new BusinessException(ErrorCode.DUPLICATE_EMAIL))
-                .when(emailVerificationService).sendCode("registered@example.com");
-        String json = objectMapper.writeValueAsString(new EmailSendCodeRequest("registered@example.com"));
+    @DisplayName("[USER-EMV-19, USER-EMV-20, USER-EMV-29] 이미 가입된 이메일로 발송을 요청해도 미가입 "
+            + "이메일과 동일하게 200과 동일한 본문을 반환한다 — 409(DUPLICATE_EMAIL·SOCIAL_ACCOUNT_ONLY) "
+            + "로 새지 않는다(서비스가 예외 없이 정상 반환하는 상황을 재현해 컨트롤러 배선을 확인한다. "
+            + "가입 여부에 따른 분기 자체는 EmailVerificationServiceTest 소관)")
+    void sendCode_registeredEmail_returns200SameAsUnregisteredEmail() throws Exception {
+        // given: 두 이메일 모두 서비스가 예외 없이 정상 반환한다(가입 여부와 무관하게 200이라는 계약).
+        String registeredJson = objectMapper.writeValueAsString(new EmailSendCodeRequest("registered@example.com"));
+        String unregisteredJson = objectMapper.writeValueAsString(new EmailSendCodeRequest("unregistered@example.com"));
 
         // when & then
-        mockMvc.perform(post("/auth/email/send-code")
+        String registeredBody = mockMvc.perform(post("/auth/email/send-code")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.success").value(false))
+                        .content(registeredJson))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data").doesNotExist())
-                .andExpect(jsonPath("$.message").value(ErrorCode.DUPLICATE_EMAIL.getMessage()));
+                .andReturn().getResponse().getContentAsString();
+        String unregisteredBody = mockMvc.perform(post("/auth/email/send-code")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(unregisteredJson))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data").doesNotExist())
+                .andReturn().getResponse().getContentAsString();
+
+        // USER-EMV-29: 두 200 응답의 본문이 상태코드뿐 아니라 바이트 단위로도 동일해야 한다.
+        org.assertj.core.api.Assertions.assertThat(registeredBody).isEqualTo(unregisteredBody);
+
+        verify(emailVerificationService).sendCode("registered@example.com");
+        verify(emailVerificationService).sendCode("unregistered@example.com");
     }
 
     // ---------- POST /auth/email/verify ----------

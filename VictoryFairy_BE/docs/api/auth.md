@@ -3,7 +3,7 @@
 > **도메인** `auth` — 회원가입 전 사전 검사, 이메일 소유 확인, 가입 전 프로필 이미지 업로드, 가입, 로그인/토큰 수명 관리.
 > **모듈** user (포트 8080) · **경로 접두사** `/api/auth` · **엔드포인트** 10개
 > **컨트롤러** `user/src/main/java/com/skhynix/user/auth/controller/AuthController.java` (`@RequestMapping("/auth")`)
-> **최종 갱신** 2026-08-20 — **`POST /api/auth/profile-image` 신규 추가**(가입 전 프로필 이미지 업로드, 이 저장소에서 인증 없이 쓰기가 되는 유일한 경로) + **`POST /api/auth/signup` 요청에 선택 필드 `profileImgUrl` 추가**(가입 성공 시 `temp/` → `user-profile-img/` 이동, 이동 실패는 가입 자체를 막지 않고 값만 `null`). 계약 원본 `docs/requirements/user/profile-image.md`(승인됨 2026-08-20, USER-PI-1~121). (직전: 2026-08-17 `POST /api/auth/refresh`가 **비밀번호 변경 이전에 발급된 refresh 토큰도 거절**하게 됨(`main` 84f6f4a 머지 완료, PR #425 — 응답은 기존 401 `EXPIRED_REFRESH_TOKEN`과 동일, 신규 코드 없음).) 그 이전 이력은 각 엔드포인트 섹션의 `최종 변경` 줄에 남아 있다.
+> **최종 갱신** 2026-09-18 — **계정 열거(account enumeration) 차단 패치.** `POST /api/auth/email/send-code`는 가입 여부·가입 수단과 무관하게 **항상 200**이 되어(`DUPLICATE_EMAIL`·`SOCIAL_ACCOUNT_ONLY` 409 두 종을 이 경로에서 제거) 상태코드로 가입 여부를 읽어내던 경로를 막았고, `POST /api/auth/email/verify`는 가입 이력 있는 이메일에도 인증번호가 저장되어 오답 시 두 갈래 모두 `INVALID_VERIFICATION_CODE`로 응답이 같아졌다(종전엔 가입 이메일이 `EXPIRED_VERIFICATION_CODE`로 갈려 열거 경로였다). `POST /api/auth/login`은 **외부 계약(401 `INVALID_CREDENTIALS`·본문·헤더)이 불변**이며, 계정을 못 찾아도(미가입·탈퇴) 코드 상수 더미 BCrypt 해시로 검증을 1회 수행해 응답시간으로 가입 여부가 새던 부채널을 닫는 내부 동작만 추가됐다. signup의 409 3종(`DUPLICATE_EMAIL`/`DUPLICATE_TEL`/`DUPLICATE_NICKNAME`)과 oauth 관련 엔드포인트는 이번 패치 범위 밖이라 불변이다. auth 엔드포인트 수(10개)·경로·상태코드는 그대로다. 계약 원본 `docs/requirements/user/login-account-enumeration.md`(승인됨 2026-09-18, USER-LAE-1~13) · `docs/requirements/user/email-verification.md` 개정분(승인됨 2026-09-18, USER-EMV-19~38). (직전: 2026-08-20 — **`POST /api/auth/profile-image` 신규 추가**(가입 전 프로필 이미지 업로드, 이 저장소에서 인증 없이 쓰기가 되는 유일한 경로) + **`POST /api/auth/signup` 요청에 선택 필드 `profileImgUrl` 추가**(가입 성공 시 `temp/` → `user-profile-img/` 이동, 이동 실패는 가입 자체를 막지 않고 값만 `null`). 계약 원본 `docs/requirements/user/profile-image.md`(승인됨 2026-08-20, USER-PI-1~121). (직전: 2026-08-17 `POST /api/auth/refresh`가 **비밀번호 변경 이전에 발급된 refresh 토큰도 거절**하게 됨(`main` 84f6f4a 머지 완료, PR #425 — 응답은 기존 401 `EXPIRED_REFRESH_TOKEN`과 동일, 신규 코드 없음).)) 그 이전 이력은 각 엔드포인트 섹션의 `최종 변경` 줄에 남아 있다.
 > 공통 규약(응답 래퍼·JWT payload·401 4종·403 부재·**토큰 무효화**·**시스템 예외 래핑**)은 [README.md](README.md)를 먼저 볼 것.
 
 ## 엔드포인트 목록
@@ -13,7 +13,7 @@
 | POST | [/api/auth/password/validate](#post-apiauthpasswordvalidate) | 200 | 비밀번호 정책 사전 검사(DB 미조회) |
 | POST | [/api/auth/nickname/validate](#post-apiauthnicknamevalidate) | 200 | 닉네임 정책 + 중복 2단 검사 |
 | POST | [/api/auth/nickname/duplicate](#post-apiauthnicknameduplicate) | 200 | 닉네임 중복 단독 검사 |
-| POST | [/api/auth/email/send-code](#post-apiauthemailsend-code) | 200 | 이메일 인증번호 발송 |
+| POST | [/api/auth/email/send-code](#post-apiauthemailsend-code) | 200 | 이메일 인증번호 발송(가입 여부·가입 수단과 무관하게 항상 200) |
 | POST | [/api/auth/email/verify](#post-apiauthemailverify) | 200 | 이메일 인증번호 대조 |
 | POST | [/api/auth/profile-image](#post-apiauthprofile-image) | 200 | **가입 전 프로필 이미지 업로드**(비인증, `temp/` 저장) — 신규 |
 | POST | [/api/auth/signup](#post-apiauthsignup) | 201 | 회원가입 |
@@ -198,7 +198,7 @@ curl -i -X POST http://localhost:8080/api/auth/nickname/duplicate \
 ---
 
 ## POST /api/auth/email/send-code
-> 최종 변경: 2026-08-24 — 소셜 전용 계정 이메일에 `SOCIAL_ACCOUNT_ONLY` 안내 추가
+> 최종 변경: 2026-09-18 — **계정 열거 차단**: 가입 여부·가입 수단과 무관하게 항상 200. `DUPLICATE_EMAIL`·`SOCIAL_ACCOUNT_ONLY` 409 두 종을 이 경로에서 제거하고, 갈림을 응답이 아니라 메일 본문으로 옮겼다. 요청 스키마·성공 상태코드(200)는 불변. 계약 원본 `docs/requirements/user/email-verification.md` 개정분(승인됨 2026-09-18, USER-EMV-19~38). (직전: 2026-08-24 — 소셜 전용 계정 이메일에 `SOCIAL_ACCOUNT_ONLY` 안내 추가 — 이번 개정으로 철회)
 
 회원가입용 이메일 소유 확인 절차의 1단계. 입력한 이메일로 6자리 인증번호를 발송한다.
 
@@ -210,37 +210,31 @@ curl -i -X POST http://localhost:8080/api/auth/nickname/duplicate \
 |---|---|---|---|
 | email | String | `@NotBlank` `@Email` `@Size(max=100)` | 인증번호를 받을 이메일 |
 
-**응답 200 OK** `ApiResponse<Void>`
+**응답 200 OK** `ApiResponse<Void>` — **가입 여부·가입 수단과 무관하게 항상 200이며, 두 갈래의 응답은 상태코드·본문·헤더까지 바이트 단위로 동일하다(클라이언트가 관측할 수 있는 차이가 없다).**
 ```json
 {"success":true,"data":null,"message":null}
 ```
 
-내부 동작(`EmailVerificationService.sendCode()`):
-1. `userRepository.existsByEmail(email)`이 true면 **가입 이력이 있는 이메일**이므로 즉시 409로 거부한다(이미 탈퇴한 계정이 점유한 이메일도 soft delete라 여전히 `existsByEmail` true — signup과 동일한 재가입 불가 정책). 이때 그 계정이 **소셜로만 가입된 계정**이면 `DUPLICATE_EMAIL` 대신 `SOCIAL_ACCOUNT_ONLY`로 갈리고, 응답 `data`에 로그인 가능한 provider 목록이 실린다(아래 참고).
-2. 같은 이메일에 대한 쿨다운(60초 TTL) 마커가 살아 있으면 429로 거부한다.
-3. 6자리 숫자 코드를 생성하고, 그 이메일의 기존 코드·시도 카운터를 무효화한 뒤 새 코드를 TTL 5분으로 저장하고, 쿨다운 마커를 TTL 60초로 설정한다.
-4. `EmailSender`로 메일을 발송한다. **`prod` 프로파일이 아니면 `LogEmailSender`가 로딩돼 실제 메일 없이 로그(`[MOCK-EMAIL] 인증번호 발송 to=... code=...`)로만 남긴다.** 실제 SMTP 발송은 `SmtpEmailSender`(`@Profile("prod")`, `spring.mail.*` 설정과 `app.mail.from` 필요)가 `prod`에서만 담당한다.
+**2026-09-18부터: 계정 열거 차단.** 종전에는 이미 가입된 이메일에 409(`DUPLICATE_EMAIL`, 소셜 전용이면 `SOCIAL_ACCOUNT_ONLY`)를 돌려줘 인증 없이 열려 있는 이 경로가 그대로 가입자 명부 열람 수단이 됐다. 개정의 핵심은 정보를 없애는 게 아니라 **옮기는 것**이다 — 갈림은 이제 **그 주소의 메일함 주인만 볼 수 있는 메일 본문**에서만 일어난다.
 
-같은 이메일로 재요청(재발송)하면 쿨다운이 끝난 뒤 이전 코드·시도 횟수가 무효화되고 새 코드로 교체된다 — 여러 번 발송해도 **가장 최근에 발송한 코드만 유효**하다.
+내부 동작(`EmailVerificationService.sendCode()`):
+1. 쿨다운(60초 TTL) 마커가 살아 있으면 429로 거부한다(메일 0통 — 갈래 무관 공통, 가장 먼저 본다).
+2. `userRepository.existsByEmail(email)`로 가입 이력을 조회한다. **이 결과는 더 이상 거절 사유가 아니라 "어떤 메일을 보낼지"만 정한다.** 자체 가입·소셜 전용·탈퇴 계정이 점유한 이메일(soft delete라 `existsByEmail`이 여전히 true) 셋 모두 하나의 갈래(가입 이력 있음)로 접힌다 — 소셜 전용 여부를 더 이상 세분화하지 않는다.
+3. 6자리 숫자 코드를 생성해 **가입 여부와 무관하게 항상** 그 이메일의 기존 코드·시도 카운터를 무효화한 뒤 새 코드를 TTL 5분으로 저장하고, 쿨다운 마커를 TTL 60초로 설정한다(두 갈래의 작업량이 같아야 응답시간 부채널이 생기지 않는다).
+4. `EmailSender`로 메일을 발송한다 — **미가입**이면 종전과 같은 6자리 인증번호 메일(제목 현행 유지), **가입 이력 있음**이면 "이미 사용 중인 이메일" 안내 메일(전용 제목, **인증번호는 본문 어디에도 실리지 않는다** — `EmailSender.sendAlreadyRegisteredNotice(email)`는 시그니처 자체에 `code` 인자가 없다). `prod`가 아니면 `LogEmailSender`가 갈래별로 다른 로그 문구(`[MOCK-EMAIL] 인증번호 발송 to=... code=...` / `[MOCK-EMAIL] 이미 사용 중 안내 발송 to=...`)만 남기고 실제 메일은 없다.
+
+**⚠ 가입 이력이 있는 이메일에도 인증번호가 저장된다(메일로 나가지 않을 뿐).** 저장을 건너뛰면 뒤이은 `POST /api/auth/email/verify`가 "코드 없음(`EXPIRED_VERIFICATION_CODE`)"과 "코드 틀림(`INVALID_VERIFICATION_CODE`)"으로 갈려 요청 2회로 가입 여부가 다시 드러난다 — send-code만 200으로 통일하는 것으로는 열거기가 한 단계 뒤로 옮겨질 뿐이다(아래 `email/verify` 절의 동등성 참고). 이 저장이 안전한 근거는 두 겹이다: ①그 코드는 메일로 나가지 않아 사용자가 값을 알 수 없고, ②설령 맞혀 인증완료 상태를 만들어도 `signup`이 여전히 `DUPLICATE_EMAIL`(409)로 가입을 막는다(signup의 이 409는 이번 개정 대상이 **아니며** 그대로다 — 아래 signup 절 참고).
+
+같은 이메일로 재요청(재발송)하면 쿨다운이 끝난 뒤 이전 코드·시도 횟수가 무효화되고 새 코드로 교체된다 — 여러 번 발송해도 **가장 최근에 발송한 코드만 유효**하다(갈래 무관 공통).
 
 **실패**
 
 | 상태 | ErrorCode | 조건 |
 |---|---|---|
 | 400 | (검증 실패, ErrorCode 없음) | `email` 형식 위반(`@NotBlank`/`@Email`/`@Size(max=100)`) |
-| 409 | DUPLICATE_EMAIL | 이미 가입(또는 탈퇴 포함 가입 이력)된 이메일 |
-| 409 | SOCIAL_ACCOUNT_ONLY | 위 중 **소셜로만 가입된 활성 계정**의 이메일. `data`가 `null`이 아닌 **유일한 실패 응답**이다 |
 | 429 | EMAIL_SEND_COOLDOWN | 같은 이메일로 60초 이내 재요청(**이 API 전체에서 유일한 429 응답**) |
 
-### `SOCIAL_ACCOUNT_ONLY`가 `DUPLICATE_EMAIL`에서 갈리는 조건
-
-셋을 **모두** 만족할 때만 갈린다. 하나라도 어긋나면 종전의 `DUPLICATE_EMAIL`이다.
-
-1. 그 이메일의 **활성**(`exit_at IS NULL`) 계정이 있다 — 탈퇴 계정이 점유한 이메일은 그 소셜로 로그인해도 같은 409라 안내가 제자리로 돌려보낸다.
-2. `users_account.password`가 소셜 전용 잠금값이다 — 자체 가입 뒤 소셜을 **추가로** 연동한 계정은 비밀번호가 살아 있어 여기 걸리면 안 된다.
-3. 연동 행이 하나 이상이다.
-
-**이 세분화를 로그인(`INVALID_CREDENTIALS`)으로 옮기지 말 것.** 로그인은 계정 존재를 감추는 계약이라 같은 안내를 붙이면 계정 열거가 된다. 이 엔드포인트에서만 허용되는 이유는 **원래부터 409로 가입 사실을 알려 왔기** 때문이며(USER-EMV-14의 의도적 예외), 추가로 새는 정보는 provider 이름뿐이다.
+**이 엔드포인트에서 409는 더 이상 나오지 않는다.** 어떤 입력(가입된 이메일·소셜 전용 이메일 포함)으로도 이 경로는 409를 반환하지 않는다. `:common`의 `ErrorCode`에서 `DUPLICATE_EMAIL`·`SOCIAL_ACCOUNT_ONLY` 자체를 지운 것은 아니다 — `DUPLICATE_EMAIL`은 `POST /api/auth/signup`에서 계속 쓰이고, `SOCIAL_ACCOUNT_ONLY`는 이 저장소에서 더 이상 어디서도 `throw`되지 않는 채로 정의만 남아 있다(`SocialAccountHintResponse`·`SocialOnlyAccountInspector`도 삭제되지 않았다 — 소셜 로그인 정리는 이번 패치 범위 밖이다).
 
 **예시**
 ```bash
@@ -248,22 +242,20 @@ curl -i -X POST http://localhost:8080/api/auth/email/send-code \
   -H 'Content-Type: application/json' \
   -d '{"email":"user@example.com"}'
 ```
+가입 여부·가입 수단과 무관하게 응답은 동일하다:
+```json
+{"success":true,"data":null,"message":null}
+```
 
 실패 예시(쿨다운, 429):
 ```json
 {"success":false,"data":null,"message":"인증번호를 방금 발송했습니다. 잠시 후 다시 시도해 주세요."}
 ```
 
-실패 예시(소셜 전용 계정, 409) — `providers`는 경로 변수와 같은 소문자라 클라이언트가 자기 로그인 버튼 id에 그대로 대응시킬 수 있다:
-```json
-{"success":false,"data":{"providers":["naver"]},
- "message":"소셜 로그인으로 가입된 이메일입니다. 가입할 때 사용한 소셜 계정으로 로그인해 주세요."}
-```
-
 ---
 
 ## POST /api/auth/email/verify
-> 최종 변경: 2026-07-27 (추정) — 도메인 분리 이전 이력이 없어 `AuthController` 마지막 커밋 기준
+> 최종 변경: 2026-09-18 — 요청/응답 시그니처·상태코드는 불변. `send-code`가 가입 이력 있는 이메일에도 코드를 저장하게 되면서, **오답 시 미가입·가입 두 갈래 모두 `INVALID_VERIFICATION_CODE`로 응답이 같아졌다**(종전엔 가입 이메일이 코드 미저장으로 `EXPIRED_VERIFICATION_CODE`로 갈려 그 자체가 열거 경로였다). 계약 원본 `docs/requirements/user/email-verification.md` 개정분(승인됨 2026-09-18, USER-EMV-34).
 
 회원가입용 이메일 소유 확인 절차의 2단계. 발송받은 6자리 인증번호를 이메일과 함께 제출해 대조한다.
 
@@ -288,6 +280,12 @@ curl -i -X POST http://localhost:8080/api/auth/email/send-code \
 4. 코드가 일치하면 코드(및 시도 카운터)를 무효화하고, 그 이메일을 **인증완료 상태**로 TTL 30분 저장한다. 이 인증완료 상태가 `POST /api/auth/signup`의 선행 조건이다(아래 signup 절 참고).
 
 시도 횟수 한도에 걸리면(`VERIFICATION_ATTEMPTS_EXCEEDED`) 코드가 무효화되므로, 같은 코드로 다시 시도해도 소용없고 **`send-code`를 다시 호출해 새 코드를 받아야** 한다(단, 60초 쿨다운은 별도로 적용).
+
+**2026-09-18부터: 미가입·가입 두 갈래의 오답 응답이 완전히 같다.** `POST /api/auth/email/send-code`가 이제 가입 이력이 있는 이메일(전용 안내 메일이 나가는 쪽)에도 미가입 이메일과 **같은 키·TTL 5분**으로 코드를 저장하므로(위 `email/send-code` 절 참고), 이 엔드포인트 입장에서는 어느 이메일이든 "코드가 저장돼 있는" 상태로 동일하게 시작한다.
+- 저장된 코드와 다른 값을 보내면 **미가입·가입 두 갈래 모두** 400 `INVALID_VERIFICATION_CODE`를 반환한다. 상태코드·ErrorCode·본문이 완전히 동일하다.
+- **종전에는 가입된 이메일에 `send-code`가 409로 막혀 코드 자체가 저장되지 않았으므로, 가입된 이메일로 `verify`를 호출하면 "코드 없음" 400 `EXPIRED_VERIFICATION_CODE`로 갈렸다 — 이 차이 하나로 요청 2회(발송 1회 + 임의 코드로 검증 1회)만에 가입 여부가 드러났다.** 지금은 두 갈래가 코드 저장 여부에서부터 같아 이 구분이 사라졌다.
+- 시도 횟수 초과(`VERIFICATION_ATTEMPTS_EXCEEDED`)·검증 성공(200, 인증완료 상태 저장) 거동도 갈래 무관 동일하다 — 저장된 코드를 직접 읽어 넣으면 가입 이력 있는 이메일도 200으로 인증완료 상태를 만들 수 있지만, 그 값은 메일로 나가지 않아 사용자가 알 수 없고 설령 맞혀도 `signup`이 `DUPLICATE_EMAIL`(409)로 막아 가입으로 이어지지 않는다(안전은 그 지점에서 담보된다).
+- `EXPIRED_VERIFICATION_CODE`는 여전히 존재하지만, 조건이 "그 이메일로 `send-code`를 한 번도 호출한 적이 없거나, TTL 5분이 지났거나, 이미 소비(검증 성공/시도초과)된 경우"로 **가입 여부와 무관하게** 동일하게 적용된다.
 
 **실패**
 
@@ -517,7 +515,7 @@ curl -i -X POST http://localhost:8080/api/auth/signup \
 ---
 
 ## POST /api/auth/login
-> 최종 변경: 2026-07-27 (추정) — 도메인 분리 이전 이력이 없어 `AuthController` 마지막 커밋 기준
+> 최종 변경: 2026-09-18 — **외부 계약(상태코드·본문·헤더)은 불변.** 계정을 못 찾아도(미가입·탈퇴) 코드 상수 더미 BCrypt 해시로 `passwordEncoder.matches()`를 1회 수행하는 내부 동작이 추가돼, 응답시간으로 가입 여부가 드러나던 부채널을 닫았다(종전엔 계정 미발견 시 BCrypt 검증 자체를 타지 않아 그만큼 응답이 빨랐다). 계약 원본 `docs/requirements/user/login-account-enumeration.md`(승인됨 2026-09-18, USER-LAE-1~13).
 
 이메일/비밀번호로 로그인하고 access/refresh 토큰 쌍을 발급받는다.
 
@@ -548,7 +546,9 @@ curl -i -X POST http://localhost:8080/api/auth/signup \
 | 400 | (검증 실패, ErrorCode 없음) | email/password 형식 위반 |
 | 401 | INVALID_CREDENTIALS | 이메일에 해당하는 **활성** `UserAccount`가 없거나(`findByUser_EmailAndExitAtIsNull` 실패 — 미가입이거나 **탈퇴한 계정**), 비밀번호가 `passwordEncoder.matches()`로 불일치 |
 
-이메일 미존재와 비밀번호 불일치를 동일한 `INVALID_CREDENTIALS`로 응답해 계정 존재 여부를 노출하지 않는다. **탈퇴한 계정의 이메일로 로그인을 시도하면(비밀번호가 정확해도) 조회 자체가 활성 계정만 대상으로 하므로 비밀번호 검사조차 하지 않고 곧바로 같은 401을 반환한다** — 미가입 이메일로 로그인했을 때와 응답이 완전히 동일해 그 이메일의 가입 이력(탈퇴 여부 포함)을 노출하지 않는다.
+이메일 미존재와 비밀번호 불일치를 동일한 `INVALID_CREDENTIALS`로 응답해 계정 존재 여부를 노출하지 않는다. 탈퇴한 계정의 이메일로 로그인을 시도하면(비밀번호가 정확해도) 조회(`findByUser_EmailAndExitAtIsNull`) 자체가 활성 계정만 대상으로 하므로 미가입 이메일로 로그인했을 때와 응답이 완전히 동일해 그 이메일의 가입 이력(탈퇴 여부 포함)을 노출하지 않는다.
+
+**2026-09-18부터: 계정을 못 찾아도 비밀번호 검증을 건너뛰지 않는다(응답시간 부채널 차단).** 응답 **내용**(상태코드·본문·헤더)은 위와 한 글자도 다르지 않지만, 종전에는 계정을 못 찾은 시점(미가입·탈퇴)에 곧바로 401로 빠져 `passwordEncoder.matches()`를 **아예 타지 않았다** — BCrypt(cost 10, 실측 수십~수백 ms)를 태우는 가입 계정 갈래와 안 태우는 미가입·탈퇴 갈래 사이에 응답 **시간** 차이가 나, 내용으로 감춘 계정 존재 여부가 시간으로 다시 드러났다. 지금은 계정을 못 찾은 요청도 코드에 고정된 더미 BCrypt 해시(`AuthService.DUMMY_PASSWORD_HASH`, 실제 계정 비밀번호와 동일 알고리즘·동일 cost 10, 원문은 어디에도 저장돼 있지 않음)를 대상으로 `matches()`를 실행한 뒤에야 401로 응답한다 — 즉 미가입·탈퇴·가입(오답)·가입(정답) **네 갈래 모두 `matches()` 호출이 정확히 1회**다. **이 더미 검증의 결과는 어떤 경우에도 분기 조건으로 쓰이지 않는다**(계정 존재 여부를 먼저 판정하고, 더미 해시가 우연히 일치해도 토큰은 발급되지 않는다 — `if (found.isEmpty() || !passwordMatched)` 순서가 그 보장이다). 실제 응답시간 실측(중앙값 비교)은 배포 전 1회 수동 확인 항목이며 CI에는 강제되지 않는다(요구사항 문서의 "수동 실측 항목" 참고). 소셜 전용 계정의 잠금 비밀번호(BCrypt 형식이 아님)가 만드는 별도의 타이밍 차이는 이번 패치의 범위 밖이며, 소셜 로그인이 실제로 연결되는 시점에 재검토 대상이다.
 
 **예시**
 ```bash
@@ -643,4 +643,4 @@ curl -i -X POST http://localhost:8080/api/auth/logout \
 
 - [계정(account)](account.md) — 회원탈퇴, `GET /api/users/me`(내 프로필 요약 조회 — signup이 만든 `users_bq` 행의 `bq_score`를 `bqScore`로 노출, `profileImgUrl` 포함), `POST /api/users/me/profile-image`(인증된 프로필 이미지 변경 — 이 문서의 `POST /api/auth/profile-image`와 저장소(`temp/` vs `user-profile-img/`)·인증 여부가 반대다). 탈퇴가 이 도메인의 login/refresh/signup 응답에 미치는 영향, 그리고 `PATCH /api/users/me/password`가 `POST /api/auth/refresh`의 실패 조건에 미치는 영향(2026-08-17)도 정리돼 있다.
 - [채팅(chat)](chat.md) — `MessageResponse`/`MessageEvent`의 `profileImgUrl`이 이 도메인·[계정(account)](account.md)의 `profileImgUrl`과 같은 형태(BaseURL 없는 EP)를 재사용한다.
-- 요구사항: `docs/requirements/user/email-verification.md`, `docs/requirements/user/nickname-policy.md`, `docs/requirements/user/withdraw.md`, `docs/requirements/user/me-profile.md`(USER-ME-23~25·30 — signup의 `users_bq` 생성 계약), `docs/requirements/user/access-token-invalidation.md`(USER-ATI-20·22 — `POST /api/auth/refresh`가 비밀번호 변경 이전 `iat`를 거절하는 계약의 출처), `docs/requirements/user/profile-image.md`(승인됨 2026-08-20, USER-PI-1~121 — 프로필 이미지 업로드·가입 연계 계약의 단일 출처)
+- 요구사항: `docs/requirements/user/email-verification.md`(2026-09-18 개정분 USER-EMV-19~38 — `email/send-code`·`email/verify`의 계정 열거 차단 계약 단일 출처), `docs/requirements/user/login-account-enumeration.md`(승인됨 2026-09-18, USER-LAE-1~13 — `login`의 응답시간 부채널 차단 계약 단일 출처), `docs/requirements/user/nickname-policy.md`, `docs/requirements/user/withdraw.md`, `docs/requirements/user/me-profile.md`(USER-ME-23~25·30 — signup의 `users_bq` 생성 계약), `docs/requirements/user/access-token-invalidation.md`(USER-ATI-20·22 — `POST /api/auth/refresh`가 비밀번호 변경 이전 `iat`를 거절하는 계약의 출처), `docs/requirements/user/profile-image.md`(승인됨 2026-08-20, USER-PI-1~121 — 프로필 이미지 업로드·가입 연계 계약의 단일 출처)

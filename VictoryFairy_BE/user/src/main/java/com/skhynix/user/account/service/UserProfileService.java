@@ -7,6 +7,7 @@ import com.skhynix.domain.character.repository.UserCharacterInventoryRepository;
 import com.skhynix.domain.character.repository.UserCharacterItemInventoryRepository;
 import com.skhynix.domain.quiz.repository.QuizSubmitAccuracyView;
 import com.skhynix.domain.quiz.repository.QuizUserSubmitRepository;
+import com.skhynix.domain.support.entity.UserSupportTeam;
 import com.skhynix.domain.support.repository.UserSupportTeamRepository;
 import com.skhynix.domain.user.entity.UserAccount;
 import com.skhynix.domain.user.entity.UserBq;
@@ -15,12 +16,14 @@ import com.skhynix.domain.user.repository.UserBqRepository;
 import com.skhynix.user.account.dto.UserAccountResponse;
 import com.skhynix.user.character.dto.EquippedCharacterItemResponse;
 import com.skhynix.user.player.dto.PlayerResponse;
+import com.skhynix.user.ranking.service.BqRankingService;
 import com.skhynix.user.support.service.SupportService;
 import com.skhynix.user.team.dto.TeamResponse;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,6 +45,8 @@ public class UserProfileService {
     private final UserCharacterInventoryRepository characterInventoryRepository;
     private final UserCharacterItemInventoryRepository characterItemInventoryRepository;
     private final QuizUserSubmitRepository quizUserSubmitRepository;
+    // 순위 규칙은 랭킹 서비스 한 곳에만 둔다 — 여기서 count 를 직접 하면 /rankings/bq/me 와 갈라질 수 있다.
+    private final BqRankingService bqRankingService;
 
     // DTO 조립을 이 트랜잭션 안에서 끝낸다 — 컨트롤러로 옮기면 LAZY 프록시가 open-in-view: false 인
     // prod 에서만 LazyInitializationException 으로 터진다(dev 는 이 설정이 없어 로컬에서는 통과한다).
@@ -53,8 +58,9 @@ public class UserProfileService {
 
         // 응원 구단이 없으면 예외가 아니라 null 이다(안전망) — 활성 구단 행이 2개 이상인
         // 깨진 데이터는 리포지토리가 예외로 드러낸다.
-        TeamResponse supportTeam = userSupportTeamRepository
-                .findWithTeamByUserAccount_IdAndOpposeIsNull(userAccountId)
+        Optional<UserSupportTeam> activeSupport = userSupportTeamRepository
+                .findWithTeamByUserAccount_IdAndOpposeIsNull(userAccountId);
+        TeamResponse supportTeam = activeSupport
                 .map(support -> TeamResponse.from(support.getTeam()))
                 .orElse(null);
 
@@ -83,8 +89,14 @@ public class UserProfileService {
                 .map(EquippedCharacterItemResponse::from)
                 .toList();
 
+        // 이미 읽은 bqScore 를 넘겨 순위 조회가 count 1 회로 끝나게 한다. 구단이 없으면 null 이다(안전망) —
+        // 구단 행은 위에서 이미 로딩됐으므로 team id 접근에 SELECT 가 붙지 않는다.
+        Integer bqRank = activeSupport
+                .map(support -> bqRankingService.rankOf(support.getTeam().getId(), bqScore))
+                .orElse(null);
+
         return UserAccountResponse.of(account, supportTeam, supportPlayers, bqScore,
-                characterImgUrl, characterItems, quizAccuracy(userAccountId));
+                characterImgUrl, characterItems, quizAccuracy(userAccountId), bqRank);
     }
 
     // 집계는 DB 가, 나눗셈과 반올림은 여기가 한다 — 나눗셈까지 SQL 로 밀면 반올림 방식이 방언에 딸려

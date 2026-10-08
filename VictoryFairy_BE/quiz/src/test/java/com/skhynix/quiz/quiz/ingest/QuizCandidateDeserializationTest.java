@@ -10,17 +10,19 @@ import tools.jackson.databind.ObjectMapper;
  * S3 후보 JSON → {@link QuizCandidate} 역직렬화 계약 테스트. 실제 후보 파일 형태의 문자열을
  * Jackson 3({@code tools.jackson.databind.ObjectMapper})로 파싱한다 — S3·Spring 컨텍스트 없음.
  *
- * <p>record 에 없는 계약 필드({@code evidence}·{@code settlement}·{@code status}·{@code createdAt}
- * 등)는 일부러 안 받는 설계라({@link QuizCandidate} javadoc), 모르는 필드가 있어도 파싱이 깨지지
- * 않는 것(Jackson 3 은 {@code FAIL_ON_UNKNOWN_PROPERTIES} 기본 off)이 곧 계약이다.
+ * <p>record 에 없는 계약 필드({@code evidence}·{@code status}·{@code createdAt} 등)는 일부러 안 받는
+ * 설계라({@link QuizCandidate} javadoc), 모르는 필드가 있어도 파싱이 깨지지 않는 것(Jackson 3 은
+ * {@code FAIL_ON_UNKNOWN_PROPERTIES} 기본 off)이 곧 계약이다. {@code settlement}는 더 이상 그 목록에
+ * 없다 — PREDICTION 적재 지원과 함께 {@link QuizCandidate.Settlement}로 받는다(아래 별도 테스트).
  */
 class QuizCandidateDeserializationTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
-    @DisplayName("record에 없는 계약 필드(evidence·settlement·status·createdAt 등)가 섞인 실제 후보 "
-            + "JSON도 모르는 필드를 무시하고 전 필드가 배선된 채 파싱된다")
+    @DisplayName("record에 없는 계약 필드(evidence·status·createdAt 등)가 섞인 실제 KNOWLEDGE 후보 "
+            + "JSON도 모르는 필드를 무시하고 전 필드가 배선된 채 파싱되며, settlement:null은 "
+            + "candidate.settlement()가 null인 것으로 반영된다")
     void deserialize_realCandidateJsonWithUnknownFields_ignoresThemAndWiresEveryField() {
         String json = """
                 {
@@ -76,6 +78,47 @@ class QuizCandidateDeserializationTest {
         assertThat(candidate.subject().playerIds()).containsExactly(50662L);
         assertThat(candidate.subject().teamCodes()).isNotNull().isEmpty();
         assertThat(candidate.subject().gameId()).isNull();
+        // KNOWLEDGE 는 settlement 가 없다 — JSON의 "settlement": null 이 그대로 반영된다
+        assertThat(candidate.settlement()).isNull();
+    }
+
+    @Test
+    @DisplayName("PREDICTION 후보의 settlement 블록(metric·gameId·inning·half)이 그대로 배선된다")
+    void deserialize_predictionSettlement_wiresMetricGameIdInningAndHalf() {
+        String json = """
+                {
+                  "quizId": "QZ-20260812-101",
+                  "kind": "PREDICTION",
+                  "templateId": "INNING_TRIGGER",
+                  "format": "BINARY",
+                  "question": "이 선수가 7회 초에 안타를 칠까?",
+                  "options": [
+                    {"id": "A", "text": "안타를 친다"},
+                    {"id": "B", "text": "안타를 치지 못한다"}
+                  ],
+                  "answer": null,
+                  "difficulty": "MEDIUM",
+                  "pointReward": 30,
+                  "bqReward": 2,
+                  "subject": {"scope": "PLAYER", "playerIds": [54260]},
+                  "settlement": {
+                    "metric": "BATTER_HIT_IN_INNING",
+                    "gameId": "20260812HHKT02026",
+                    "inning": 7,
+                    "half": "TOP"
+                  }
+                }
+                """;
+
+        QuizCandidate candidate = objectMapper.readValue(json, QuizCandidate.class);
+
+        assertThat(candidate.kind()).isEqualTo("PREDICTION");
+        assertThat(candidate.answer()).isNull();
+        assertThat(candidate.settlement()).isNotNull();
+        assertThat(candidate.settlement().metric()).isEqualTo("BATTER_HIT_IN_INNING");
+        assertThat(candidate.settlement().gameId()).isEqualTo("20260812HHKT02026");
+        assertThat(candidate.settlement().inning()).isEqualTo(7);
+        assertThat(candidate.settlement().half()).isEqualTo("TOP");
     }
 
     @Test

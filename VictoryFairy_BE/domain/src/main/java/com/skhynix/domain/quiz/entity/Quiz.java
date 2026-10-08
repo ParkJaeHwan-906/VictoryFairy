@@ -72,6 +72,16 @@ import org.hibernate.annotations.UpdateTimestamp;
  * <p>{@code answer}는 정답 보기의 번호로, {@link QuizOption#getOption()}과 같은 축이다
  * (O/X는 0=O, 1=X — 후보 JSON의 A=0, B=1 순번 그대로). 보기 엔티티를 가리키는 FK가 아니라 <b>번호
  * 값</b>인 것에 주의 — 보기 행이 재생성돼도 번호만 유지되면 정답이 따라 깨지지 않는다.
+ *
+ * <p><b>PREDICTION(이닝 트리거 예측) 퀴즈는 {@code answer}가 적재 시점에 비어 있다.</b> 경기가 그
+ * 이닝을 지나야 정답을 알 수 있기 때문이다 — {@code settlementMetric}이 그 정산이 <i>무엇을</i> 볼지
+ * (예: {@code BATTER_HIT_IN_INNING}), {@code settlementInning}·{@code settlementHalf}가 <i>언제</i>
+ * (어느 이닝·초/말)를 볼지 가리킨다. {@code settlementHalf}는 {@link com.skhynix.domain.game.entity.InningHalf}의
+ * ordinal(TOP=0/BOTTOM=1)과 같은 값 체계다. 세 컬럼이 전부 null이면 KNOWLEDGE(정답이 적재 시점에
+ * 이미 확정된 문제)이고, {@code settlementMetric != null && answer == null}이면 정산 대기 중인
+ * PREDICTION이다({@link #isUnsettledPrediction()}). 정산은 {@code quiz.settlement}
+ * 패키지(py-collector의 S3 {@code inning-events/*} 산출물을 SQS로 받는 리스너)가 {@link #settle(int)}로
+ * 수행한다 — KNOWLEDGE의 {@code answer}와 달리 적재 후에 한 번 더 쓰기가 일어나는 유일한 경로다.
  */
 @Entity
 @Table(
@@ -144,8 +154,23 @@ public class Quiz {
     // 정답 보기 번호(QuizOption.option 과 같은 축). 보기 FK가 아니라 번호 값이다.
     // TINYINT 는 QuizOption.option 과 맞춘 것 — 같은 축의 값을 서로 비교하는데 컬럼 폭이 다르면
     // 스키마만 보고는 같은 축임이 드러나지 않는다.
-    @Column(name = "answer", columnDefinition = "TINYINT", nullable = false)
+    // nullable — PREDICTION 은 적재 시점에 정답을 모른다(클래스 javadoc). KNOWLEDGE 는 여전히
+    // 적재 시점에 항상 채워지며(QuizIngestService), 그 축에서는 이 컬럼이 실질적으로 NOT NULL 이다.
+    @Column(name = "answer", columnDefinition = "TINYINT", nullable = true)
     private Integer answer;
+
+    // PREDICTION 정산 지표 이름(예: "BATTER_HIT_IN_INNING"). null = KNOWLEDGE(정산 불필요).
+    @Column(name = "settlement_metric", length = 64, nullable = true)
+    private String settlementMetric;
+
+    // 정산이 볼 이닝. settlementMetric 이 null 이면 함께 null.
+    @Column(name = "settlement_inning", columnDefinition = "TINYINT", nullable = true)
+    private Integer settlementInning;
+
+    // 정산이 볼 초/말 — InningHalf(TOP=0/BOTTOM=1) 와 같은 값 체계의 ordinal. settlementMetric 이
+    // null 이면 함께 null.
+    @Column(name = "settlement_half", columnDefinition = "TINYINT", nullable = true)
+    private Integer settlementHalf;
 
     // 재화 축 배점 — AI 산출물의 pointReward. 사람이 쓴 퀴즈는 null 가능(클래스 javadoc 참고)
     // ⚠ 값이 늘 정수여도 Double 을 Integer 로 좁히지 말 것 — 응답 JSON 의 30.0 이 30 으로 바뀌어
@@ -200,7 +225,8 @@ public class Quiz {
     @Builder
     private Quiz(QuizType quizType, Team team, Team opponentTeam, Player player, Game game,
             String content, Integer answer, Double point, Integer bq, String externalId,
-            LocalDate quizDate, String difficulty, String templateId) {
+            LocalDate quizDate, String difficulty, String templateId,
+            String settlementMetric, Integer settlementInning, Integer settlementHalf) {
         this.quizType = quizType;
         this.team = team;
         this.opponentTeam = opponentTeam;
@@ -214,6 +240,9 @@ public class Quiz {
         this.quizDate = quizDate;
         this.difficulty = difficulty;
         this.templateId = templateId;
+        this.settlementMetric = settlementMetric;
+        this.settlementInning = settlementInning;
+        this.settlementHalf = settlementHalf;
     }
 
     public boolean isPlayerQuiz() {
@@ -234,5 +263,27 @@ public class Quiz {
 
     public boolean isGeneralQuiz() {
         return team == null && player == null && game == null;
+    }
+
+    /** {@code settlementMetric}이 있는데 아직 {@code answer}가 없는 PREDICTION — 정산 대기 중. */
+    public boolean isUnsettledPrediction() {
+        return settlementMetric != null && answer == null;
+    }
+
+    /**
+     * PREDICTION 문제의 정산 결과를 반영한다({@code quiz.settlement} 패키지 전용 쓰기 경로).
+     * KNOWLEDGE({@code settlementMetric == null})는 정산 대상이 아니고, 이미 정산된 문제
+     * ({@code answer != null})를 다시 정산하면 재정산 버그를 숨기게 되므로 둘 다 방어적으로 막는다.
+     *
+     * @param answerIndex 정산이 확정한 정답 보기 번호({@link QuizOption#getOption()}과 같은 축)
+     */
+    public void settle(int answerIndex) {
+        if (settlementMetric == null) {
+            throw new IllegalStateException("PREDICTION 이 아닌 문제는 정산 대상이 아니다: id=" + id);
+        }
+        if (answer != null) {
+            throw new IllegalStateException("이미 정산된 문제를 다시 정산하려 함: id=" + id);
+        }
+        this.answer = answerIndex;
     }
 }

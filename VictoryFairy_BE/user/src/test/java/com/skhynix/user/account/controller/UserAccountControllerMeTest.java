@@ -100,16 +100,17 @@ class UserAccountControllerMeTest {
                 List.of(playerOf(100L, "김선수")), 1200L, 340L, null,
                 "characters/victory-fairy.svg",
                 List.of(new EquippedCharacterItemResponse("의상", "items/cloth/basic.svg")),
-                new BigDecimal("0.667"));
+                new BigDecimal("0.667"), 5);
     }
 
     // ---------- 응답 본문 (USER-ME-12 ~ 20) ----------
 
     @Test
-    @DisplayName("[USER-ME-12, 13, 14, 15, 17, 18, 37][USER-PI-65] 인증된 사용자가 요청하면 200과 ApiResponse에 담긴 "
-            + "프로필을 반환하고, data의 키는 정확히 nickname·supportTeam·supportPlayers·point·bqScore·"
-            + "profileImgUrl·characterImgUrl·characterItems·quizAccuracy 9개뿐이다")
-    void getMyProfile_authenticated_returns200WithExactlyNineKeys() throws Exception {
+    @DisplayName("[USER-ME-12, 13, 14, 15, 17, 18, 37][USER-PI-65][USER-RK-70, 71] 인증된 사용자가 요청하면 "
+            + "200과 ApiResponse에 담긴 프로필을 반환하고, data의 키는 정확히 nickname·supportTeam·"
+            + "supportPlayers·point·bqScore·profileImgUrl·characterImgUrl·characterItems·quizAccuracy·"
+            + "bqRank 10개뿐이다")
+    void getMyProfile_authenticated_returns200WithExactlyTenKeys() throws Exception {
         // given
         String uid = UUID.randomUUID().toString();
         Long accountId = 1L;
@@ -123,7 +124,7 @@ class UserAccountControllerMeTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.message").doesNotExist())
-                .andExpect(jsonPath("$.data.length()").value(9))
+                .andExpect(jsonPath("$.data.length()").value(10))
                 .andExpect(jsonPath("$.data.nickname").value("nick"))
                 .andExpect(jsonPath("$.data.supportTeam.id").value(6))
                 .andExpect(jsonPath("$.data.supportTeam.name").value("KIA"))
@@ -138,7 +139,10 @@ class UserAccountControllerMeTest {
                 .andExpect(jsonPath("$.data.characterItems[0].imgUrl").value("items/cloth/basic.svg"))
                 // USER-ME-41: JSON 숫자로 나가고 문자열 "0.667"이 아니다.
                 .andExpect(jsonPath("$.data.quizAccuracy").isNumber())
-                .andExpect(jsonPath("$.data.quizAccuracy").value(0.667));
+                .andExpect(jsonPath("$.data.quizAccuracy").value(0.667))
+                // USER-RK-71: bqRank는 정수 하나로 나가고 순위 객체를 통째로 싣지 않는다.
+                .andExpect(jsonPath("$.data.bqRank").isNumber())
+                .andExpect(jsonPath("$.data.bqRank").value(5));
     }
 
     @Test
@@ -178,7 +182,7 @@ class UserAccountControllerMeTest {
                 .willReturn(Optional.of(new ActiveAccountView(accountId, null)));
         given(userProfileService.getMyProfile(accountId))
                 .willReturn(new UserAccountResponse("nick", new TeamResponse(6L, "KIA"), List.of(), 1200L, 340L,
-                        null, "characters/victory-fairy.svg", List.of(), BigDecimal.ZERO));
+                        null, "characters/victory-fairy.svg", List.of(), BigDecimal.ZERO, 3));
 
         // when & then
         mockMvc.perform(get("/users/me").header("Authorization", "Bearer " + token))
@@ -222,7 +226,7 @@ class UserAccountControllerMeTest {
                 .willReturn(Optional.of(new ActiveAccountView(accountId, null)));
         given(userProfileService.getMyProfile(accountId))
                 .willReturn(new UserAccountResponse("nick", null, List.of(), 0L, 0L, null,
-                        "characters/victory-fairy.svg", List.of(), BigDecimal.ZERO));
+                        "characters/victory-fairy.svg", List.of(), BigDecimal.ZERO, null));
 
         // when & then
         mockMvc.perform(get("/users/me").header("Authorization", "Bearer " + token))
@@ -242,7 +246,7 @@ class UserAccountControllerMeTest {
                 .willReturn(Optional.of(new ActiveAccountView(accountId, null)));
         given(userProfileService.getMyProfile(accountId))
                 .willReturn(new UserAccountResponse("nick", null, List.of(), 1200L, 0L, null,
-                        "characters/victory-fairy.svg", List.of(), BigDecimal.ZERO));
+                        "characters/victory-fairy.svg", List.of(), BigDecimal.ZERO, null));
 
         // when & then: jsonPath.value(1200)은 숫자 1200과만 매칭되고 문자열 "1200"과는 매칭되지 않는다
         mockMvc.perform(get("/users/me").header("Authorization", "Bearer " + token))
@@ -263,7 +267,7 @@ class UserAccountControllerMeTest {
                 .willReturn(Optional.of(new ActiveAccountView(accountId, null)));
         given(userProfileService.getMyProfile(accountId))
                 .willReturn(new UserAccountResponse("nick", null, List.of(), 0L, 0L, null,
-                        "characters/victory-fairy.svg", List.of(), BigDecimal.ZERO));
+                        "characters/victory-fairy.svg", List.of(), BigDecimal.ZERO, null));
 
         // when & then
         mockMvc.perform(get("/users/me").header("Authorization", "Bearer " + token))
@@ -285,7 +289,7 @@ class UserAccountControllerMeTest {
                 .willReturn(Optional.of(new ActiveAccountView(accountId, null)));
         given(userProfileService.getMyProfile(accountId))
                 .willReturn(new UserAccountResponse("nick", null, List.of(), 0L, 0L, null,
-                        "characters/victory-fairy.svg", List.of(), new BigDecimal("0.063")));
+                        "characters/victory-fairy.svg", List.of(), new BigDecimal("0.063"), null));
 
         // when & then
         mockMvc.perform(get("/users/me").header("Authorization", "Bearer " + token))
@@ -293,7 +297,7 @@ class UserAccountControllerMeTest {
                 .andExpect(jsonPath("$.data.quizAccuracy").isNumber())
                 .andExpect(jsonPath("$.data.quizAccuracy").value(0.063))
                 .andExpect(jsonPath("$.data.quizAccuracyText").doesNotExist())
-                .andExpect(jsonPath("$.data.length()").value(9));
+                .andExpect(jsonPath("$.data.length()").value(10));
     }
 
     @Test
@@ -330,7 +334,7 @@ class UserAccountControllerMeTest {
         given(userProfileService.getMyProfile(accountId)).willReturn(new UserAccountResponse(
                 "nick", new TeamResponse(6L, "KIA"), List.of(), 1200L, 340L,
                 "user-profile-img/9f1c1e2a-aaaa-4bbb-8ccc-1234567890ab.jpg",
-                "characters/victory-fairy.svg", List.of(), BigDecimal.ZERO));
+                "characters/victory-fairy.svg", List.of(), BigDecimal.ZERO, 2));
 
         // when & then
         mockMvc.perform(get("/users/me").header("Authorization", "Bearer " + token))
@@ -356,6 +360,74 @@ class UserAccountControllerMeTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data").value(org.hamcrest.Matchers.hasKey("profileImgUrl")))
                 .andExpect(jsonPath("$.data.profileImgUrl").value(org.hamcrest.Matchers.nullValue()));
+    }
+
+    // ---------- bqRank (USER-RK-70 ~ 73) ----------
+
+    @Test
+    @DisplayName("[USER-RK-70, 71] 활성 응원 구단이 있는 계정이면 bqRank는 정수로 담긴다")
+    void getMyProfile_withSupportTeam_bqRankIsInteger() throws Exception {
+        // given
+        String uid = UUID.randomUUID().toString();
+        Long accountId = 1L;
+        String token = stubValidAccessToken(uid);
+        given(userAccountRepository.findActiveAuthByUid(uid))
+                .willReturn(Optional.of(new ActiveAccountView(accountId, null)));
+        given(userProfileService.getMyProfile(accountId)).willReturn(new UserAccountResponse(
+                "nick", new TeamResponse(6L, "KIA"), List.of(), 1200L, 340L, null,
+                "characters/victory-fairy.svg", List.of(), BigDecimal.ZERO, 7));
+
+        // when & then
+        mockMvc.perform(get("/users/me").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.bqRank").isNumber())
+                .andExpect(jsonPath("$.data.bqRank").value(7));
+    }
+
+    @Test
+    @DisplayName("[USER-RK-72, 안전망] 응원 구단이 없는 계정이면 bqRank는 0이나 키 생략이 아니라 null로 담긴다")
+    void getMyProfile_noSupportTeam_bqRankIsNull() throws Exception {
+        // given
+        String uid = UUID.randomUUID().toString();
+        Long accountId = 1L;
+        String token = stubValidAccessToken(uid);
+        given(userAccountRepository.findActiveAuthByUid(uid))
+                .willReturn(Optional.of(new ActiveAccountView(accountId, null)));
+        given(userProfileService.getMyProfile(accountId)).willReturn(new UserAccountResponse(
+                "nick", null, List.of(), 0L, 0L, null,
+                "characters/victory-fairy.svg", List.of(), BigDecimal.ZERO, null));
+
+        // when & then
+        mockMvc.perform(get("/users/me").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").value(org.hamcrest.Matchers.hasKey("bqRank")))
+                .andExpect(jsonPath("$.data.bqRank").value(org.hamcrest.Matchers.nullValue()));
+    }
+
+    @Test
+    @DisplayName("[USER-RK-73] bqRank를 제외한 나머지 9개 키의 이름·값은 이 개정 전후로 동일하다")
+    void getMyProfile_bqRankAside_otherNineKeysUnchanged() throws Exception {
+        // given
+        String uid = UUID.randomUUID().toString();
+        Long accountId = 1L;
+        String token = stubValidAccessToken(uid);
+        given(userAccountRepository.findActiveAuthByUid(uid))
+                .willReturn(Optional.of(new ActiveAccountView(accountId, null)));
+        given(userProfileService.getMyProfile(accountId)).willReturn(fullProfile());
+
+        // when & then
+        mockMvc.perform(get("/users/me").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(10))
+                .andExpect(jsonPath("$.data.nickname").value("nick"))
+                .andExpect(jsonPath("$.data.supportTeam.id").value(6))
+                .andExpect(jsonPath("$.data.supportTeam.name").value("KIA"))
+                .andExpect(jsonPath("$.data.supportPlayers.length()").value(1))
+                .andExpect(jsonPath("$.data.point").value(1200))
+                .andExpect(jsonPath("$.data.bqScore").value(340))
+                .andExpect(jsonPath("$.data.characterImgUrl").value("characters/victory-fairy.svg"))
+                .andExpect(jsonPath("$.data.characterItems.length()").value(1))
+                .andExpect(jsonPath("$.data.quizAccuracy").value(0.667));
     }
 
     // ---------- 인증 (USER-ME-7 ~ 10) ----------

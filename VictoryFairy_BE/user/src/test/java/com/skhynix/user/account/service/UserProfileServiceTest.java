@@ -27,6 +27,7 @@ import com.skhynix.domain.user.repository.UserAccountRepository;
 import com.skhynix.domain.user.repository.UserBqRepository;
 import com.skhynix.user.account.dto.UserAccountResponse;
 import com.skhynix.user.player.dto.PlayerResponse;
+import com.skhynix.user.ranking.service.BqRankingService;
 import com.skhynix.user.support.service.SupportService;
 import com.skhynix.user.team.dto.TeamResponse;
 import java.math.BigDecimal;
@@ -73,6 +74,9 @@ class UserProfileServiceTest {
 
     @Mock
     private QuizUserSubmitRepository quizUserSubmitRepository;
+
+    @Mock
+    private BqRankingService bqRankingService;
 
     @InjectMocks
     private UserProfileService userProfileService;
@@ -135,6 +139,7 @@ class UserProfileServiceTest {
         given(userBqRepository.findByUserAccount_Id(ACCOUNT_ID)).willReturn(Optional.of(bq));
         given(quizUserSubmitRepository.aggregateAccuracy(ACCOUNT_ID)).willReturn(accuracyView(0, 0L));
         given(supportService.currentSupportedPlayers(ACCOUNT_ID)).willReturn(List.of());
+        given(bqRankingService.rankOf(6L, 340L)).willReturn(2);
 
         // when
         UserAccountResponse response = userProfileService.getMyProfile(ACCOUNT_ID);
@@ -278,6 +283,7 @@ class UserProfileServiceTest {
         given(userBqRepository.findByUserAccount_Id(ACCOUNT_ID)).willReturn(Optional.of(bqOf(account, 340L)));
         given(quizUserSubmitRepository.aggregateAccuracy(ACCOUNT_ID)).willReturn(accuracyView(0, 0L));
         given(supportService.currentSupportedPlayers(ACCOUNT_ID)).willReturn(List.of());
+        given(bqRankingService.rankOf(6L, 340L)).willReturn(1);
 
         // when
         userProfileService.getMyProfile(ACCOUNT_ID);
@@ -587,5 +593,75 @@ class UserProfileServiceTest {
         // then
         assertThat(response.characterImgUrl()).isNull();
         assertThat(response.characterItems()).isEmpty();
+    }
+
+    // ---------- bqRank (USER-RK-70 ~ 74) ----------
+
+    @Test
+    @DisplayName("[USER-RK-70, 71] 활성 응원 구단이 있으면 bqRank는 BqRankingService.rankOf가 계산한 값을 "
+            + "그대로 담고, 그 호출에는 이미 읽은 구단 id·bqScore가 그대로 넘어간다(다시 조회하지 않는다)")
+    void getMyProfile_withSupportTeam_bqRankIsRankOfResult() {
+        // given
+        UserAccount account = accountWithPoint("nick", 0L);
+        Team kia = teamOf(6L, "KIA");
+        given(userAccountRepository.findById(ACCOUNT_ID)).willReturn(Optional.of(account));
+        given(userSupportTeamRepository.findWithTeamByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(Optional.of(activeSupportTeamOf(account, kia)));
+        given(userBqRepository.findByUserAccount_Id(ACCOUNT_ID)).willReturn(Optional.of(bqOf(account, 340L)));
+        given(quizUserSubmitRepository.aggregateAccuracy(ACCOUNT_ID)).willReturn(accuracyView(0, 0L));
+        given(supportService.currentSupportedPlayers(ACCOUNT_ID)).willReturn(List.of());
+        given(bqRankingService.rankOf(6L, 340L)).willReturn(7);
+
+        // when
+        UserAccountResponse response = userProfileService.getMyProfile(ACCOUNT_ID);
+
+        // then
+        assertThat(response.bqRank()).isEqualTo(7);
+        verify(bqRankingService).rankOf(6L, 340L);
+    }
+
+    @Test
+    @DisplayName("[USER-RK-72, 안전망] 활성 응원 구단이 없으면 bqRank는 null이고 BqRankingService.rankOf는 "
+            + "호출되지 않는다")
+    void getMyProfile_noSupportTeam_bqRankIsNullAndRankingServiceNotCalled() {
+        // given
+        UserAccount account = accountWithPoint("nick", 0L);
+        given(userAccountRepository.findById(ACCOUNT_ID)).willReturn(Optional.of(account));
+        given(userSupportTeamRepository.findWithTeamByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(Optional.empty());
+        given(userBqRepository.findByUserAccount_Id(ACCOUNT_ID)).willReturn(Optional.empty());
+        given(quizUserSubmitRepository.aggregateAccuracy(ACCOUNT_ID)).willReturn(accuracyView(0, 0L));
+        given(supportService.currentSupportedPlayers(ACCOUNT_ID)).willReturn(List.of());
+
+        // when
+        UserAccountResponse response = userProfileService.getMyProfile(ACCOUNT_ID);
+
+        // then
+        assertThat(response.bqRank()).isNull();
+        verify(bqRankingService, never()).rankOf(any(), org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    @Test
+    @DisplayName("[USER-RK-14, 74] 구단은 있지만 users_bq 행이 없으면(0점 안전망) rankOf에도 0점이 그대로 "
+            + "넘어간다")
+    void getMyProfile_supportTeamWithoutBqRow_rankOfCalledWithZeroScore() {
+        // given
+        UserAccount account = accountWithPoint("nick", 0L);
+        Team kia = teamOf(6L, "KIA");
+        given(userAccountRepository.findById(ACCOUNT_ID)).willReturn(Optional.of(account));
+        given(userSupportTeamRepository.findWithTeamByUserAccount_IdAndOpposeIsNull(ACCOUNT_ID))
+                .willReturn(Optional.of(activeSupportTeamOf(account, kia)));
+        given(userBqRepository.findByUserAccount_Id(ACCOUNT_ID)).willReturn(Optional.empty());
+        given(quizUserSubmitRepository.aggregateAccuracy(ACCOUNT_ID)).willReturn(accuracyView(0, 0L));
+        given(supportService.currentSupportedPlayers(ACCOUNT_ID)).willReturn(List.of());
+        given(bqRankingService.rankOf(6L, 0L)).willReturn(4);
+
+        // when
+        UserAccountResponse response = userProfileService.getMyProfile(ACCOUNT_ID);
+
+        // then
+        assertThat(response.bqScore()).isZero();
+        assertThat(response.bqRank()).isEqualTo(4);
+        verify(bqRankingService).rankOf(6L, 0L);
     }
 }
