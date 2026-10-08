@@ -201,8 +201,8 @@ trending.md`(있으면), 최근 7일 `.work/quiz-candidates/`의 `templateId`·�
 
 | 묶음 | 대상 엔티티 범위 | `gameId`·`teamCodes` |
 |---|---|---|
-| 경기 문항 (경기 수만큼) | **그 경기 자체·오늘 매치업에 관한 것만** — 어제 승자·스코어·승리투수·시즌 상대전적·맞대결·예측(`YESTERDAY_WINNER`·`YESTERDAY_SCORE`·`WINNING_PITCHER`·`LAST_MATCHUP`·`H2H_SEASON_RECORD`·`PRED_*`). **`CAREER_PATH`·`MEME_ORIGIN`·`RELATION_LINK`는 절대 쓰지 않는다**(2026-10-03 — 아래 참고) | `gameId` 채움, `teamCodes`에 양 팀 |
-| 팀 특화 문항 (**구단마다 매일 1묶음**, 경기 유무 무관) | **그 팀 로스터만** — `CAREER_PATH`·`MEME_ORIGIN`·`RELATION_LINK`·`RECORD_OX`(PLAYER scope), `STREAK_CURRENT`·`HOME_AWAY_SPLIT`·`RECENT_VS_EARLY`(TEAM scope) 중심. 위키에 팀당 63~89명이 등재돼 있어 재료는 경기 일정과 무관하게 항상 있다 | `gameId: null`, `teamCodes: [그 팀 하나]` |
+| 경기 문항 (경기 수만큼) | **그 경기 자체·오늘 매치업에 관한 것만** — 어제 승자·스코어·승리투수·시즌 상대전적·맞대결·예측(`YESTERDAY_WINNER`·`YESTERDAY_SCORE`·`WINNING_PITCHER`·`LAST_MATCHUP`·`H2H_SEASON_RECORD`·`PRED_*`). **`CAREER_PATH`·`MEME_ORIGIN`·`RELATION_LINK`·`INTERNATIONAL_CALLUP`·`FRANCHISE_RECORD`는 절대 쓰지 않는다**(2026-10-03 — 아래 참고. 뒤 두 개는 2026-10-08 신설이지만 같은 로스터 기반이라 처음부터 같은 금지 목록) | `gameId` 채움, `teamCodes`에 양 팀 |
+| 팀 특화 문항 (**구단마다 매일 1묶음**, 경기 유무 무관) | **그 팀 로스터만** — `CAREER_PATH`·`MEME_ORIGIN`·`RELATION_LINK`·`RECORD_OX`·`INTERNATIONAL_CALLUP`·`FRANCHISE_RECORD`(위키 '커리어 이력'·로스터 큐레이션 기반), `STREAK_CURRENT`·`HOME_AWAY_SPLIT`·`RECENT_VS_EARLY`(TEAM scope, 순수 통계 기반) 중심. 위키에 팀당 63~89명이 등재돼 있어 재료는 경기 일정과 무관하게 항상 있다 | `gameId: null`, `teamCodes: [그 팀 하나]` |
 | 공통 문항 (하루 1묶음) | 특정 팀에 치우치지 않는 것만 — 리그 전체 순위·역대 팀 기록·통산 기록·트렌딩 | `gameId: null`, `teamCodes: []` |
 
 **팀 특화 묶음의 PLAYER→TEAM scope 자동 전환(2026-10-06 신설)** — PLAYER scope
@@ -222,16 +222,25 @@ trending.md`(있으면), 최근 7일 `.work/quiz-candidates/`의 `templateId`·�
    카탈로그(`question-templates.yaml`) 선언 기준으로 다음과 같다(2026-10-06
    조사 — 카탈로그에 `enabled: false`가 아닌 것만):
 
-   | 난이도 | PLAYER scope 1차 재료 | TEAM scope 대체 재료 |
+   | 난이도 | 1차 재료(위키 로스터 큐레이션 기반) | TEAM scope 대체 재료(순수 통계, 항상 가능) |
    |---|---|---|
    | EASY | `MEME_ORIGIN` | `STREAK_CURRENT` |
-   | MEDIUM | `RECORD_OX` | `HOME_AWAY_SPLIT` |
-   | HARD | `CAREER_PATH` | `RECENT_VS_EARLY` |
+   | MEDIUM | `RECORD_OX`, `INTERNATIONAL_CALLUP`(2026-10-08 신설) | `HOME_AWAY_SPLIT` |
+   | HARD | `CAREER_PATH`, `FRANCHISE_RECORD`(2026-10-08 신설) | `RECENT_VS_EARLY` |
    | EXPERT | `RELATION_LINK` | **없음** — TEAM scope에 EXPERT 난이도 템플릿
      자체가 없다. 아래 3번을 그대로 적용(있는 만큼만) |
 
-   ⚠️ **전환은 반드시 위 표의 세 템플릿(`STREAK_CURRENT`·`HOME_AWAY_SPLIT`·
-   `RECENT_VS_EARLY`)만으로 한다 — 그 외에는 아무것도 허용되지 않는다**
+   `INTERNATIONAL_CALLUP`·`FRANCHISE_RECORD`는 카탈로그상 `subjectScope: TEAM`
+   이지만(팀은 전제, 선수가 정답 — PLAYER scope들과 반대 방향), 재료 자체는
+   그 둘과 똑같이 위키 '커리어 이력' 섹션의 선수별 서술에서 나온다. 그래서
+   "TEAM scope 대체 재료" 열(순수 통계라 로스터 상태와 무관하게 항상 가능)이
+   아니라 "1차 재료" 열에 둔다 — 로스터가 마르면 이 둘도 같이 마른다. 같은
+   난이도의 1차 재료 두세 개는 **순서 없이 섞어서(둘 다 시도)** 채우고, 그래도
+   쿼터에 못 미치면 다음 단계(TEAM scope 대체 재료)로 넘어간다.
+
+   ⚠️ **전환은 반드시 위 표의 "TEAM scope 대체 재료" 열(`STREAK_CURRENT`·
+   `HOME_AWAY_SPLIT`·`RECENT_VS_EARLY`)만으로 한다 — 그 외에는 아무것도
+   허용되지 않는다**
    (2026-10-06 문구 강화). "TEAM scope로 전환"을 "로스터 관련 소재면 무엇이든
    즉흥 생성해도 된다"로 오해하면 안 된다. **로스터 트랜잭션(부상·콜업·말소
    동반자 맞히기 등), 단순 드래프트 라운드/순번 트리비아, 그 외 카탈로그에
