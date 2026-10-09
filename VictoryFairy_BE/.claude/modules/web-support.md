@@ -3,7 +3,7 @@
 > web-support 작업 시에만 로드되는 슬림 컨텍스트. (공통: `com.skhynix` 독립 앱 생태계, `:common`=ApiResponse/BusinessException/ErrorCode, `:domain`=엔티티/리포지토리, MySQL+spring-dotenv, prod `ddl-auto`는 앱마다 다름 — user=`update`, quiz=`none`)
 
 ## 책임
-`user`·`quiz`·`chat` 세 배포 앱이 공유하는 web/security 인프라를 담는 `java-library` 모듈. **자체 실행 앱이 아니라 포트 없음, 컨테이너로 안 뜸.** JWT 발급/검증 부품 + 전역 예외 어드바이스 + 401 인증 엔트리포인트. 배포 앱은 여전히 `user`(8080)·`quiz`(8081) 2개뿐.
+`user`·`quiz`·`chat` 세 배포 앱이 공유하는 web/security 인프라를 담는 `java-library` 모듈. **자체 실행 앱이 아니라 포트 없음, 컨테이너로 안 뜸.** JWT 발급/검증 부품 + 전역 예외 어드바이스 + 401 인증 엔트리포인트. 배포 앱은 `user`(8080)·`quiz`(8081)·`chat`(8082) 3개다.
 
 ## 핵심 클래스 (`web-support/src/main/java/com/skhynix/websupport/`)
 - `jwt.JwtTokenProvider` (HS256 생성/검증) — `createAccessToken(String uid)`/`createRefreshToken(String uid)`/`getUid(String): String`/`validateToken`/`isRefreshToken`/`getIssuedAtEpochSecond(String): long`(토큰 무효화 대조용, `iat`를 epoch 초로 반환 — `Date`/`LocalDateTime`이 아닌 이유는 비교 상대인 계정 기준 시각도 존 없는 값이라서다. `iat`가 없는 토큰은 `Long.MIN_VALUE`로 흡수해 fail-closed)
