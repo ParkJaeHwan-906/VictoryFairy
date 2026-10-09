@@ -1,8 +1,16 @@
 import type { AxiosResponse } from 'axios';
 import { userClient } from './httpClient';
+import { USER_BASE_URL } from './config';
 import { ApiError } from './errors';
+import type { SseFrame } from './eventStream';
+import {
+  openSseSubscription,
+  STABLE_CONNECTION_MS,
+  type SseLifecycleHandlers,
+  type SseSubscription,
+} from './sseSubscription';
 import type { ApiResponse } from '../types/api';
-import type { Game, TeamLineUp } from '../types/game';
+import type { Game, GameUpdateEvent, TeamLineUp } from '../types/game';
 
 /**
  * 경기 API (user 모듈).
@@ -16,6 +24,10 @@ import type { Game, TeamLineUp } from '../types/game';
  * 아래에서 인증 정책이 갈리는 첫 사례라, 경로만 보고 짐작하지 말고 각 함수의 주석을 봐야 한다.
  *
  * 세 엔드포인트 모두 페이징이 없고, 빈 배열(`[]`)은 오류가 아니라 정상 200 이다.
+ *
+ * `/games/subscribe` · `/games/support/subscribe`(2026-10-09 신규)는 각각 `/games` ·
+ * `/games/support` 의 **SSE 판**이다. 인증 정책·`date` 해석·항목 13필드가 짝과 같고,
+ * 응답만 래퍼가 아니라 이벤트 스트림이다. 기존 GET 은 폴백·최초 1회 조회용으로 그대로 남는다.
  *
  * `/games/lineup` 은 `/games` 의 하위 경로지만 백엔드에서 공개 규칙이 따로 걸려 있다
  * (`/games` 의 공개 매처가 정확 경로 매칭이라 하위 경로를 커버하지 못한다).
@@ -65,8 +77,8 @@ export function isGameNotFound(error: unknown): boolean {
  * 서버가 채우면 "사유를 아는 경우"와 "모르는 경우"의 구분이 응답에서 사라지기 때문에 일부러 안 채운다.
  * 그래서 기본 문구 fallback 은 이 계층이 아니라 표시 계층(`getGameStateDisplay`)의 몫이다.
  *
- * `inning`·`inningHalf`(2026-08-11 신설)는 **지금 항상 `null` 이다** — 컬럼만 생겼고 값을
- * 채우는 수집기 구현이 아직 없다. 진행 중 경기라도 이닝을 못 받는다고 보고 화면을 짜야 한다.
+ * `inning`·`inningHalf` 는 `IN_PROGRESS` 경기에서만 값이 있다(2026-08-12 부터 수집기가 채운다).
+ * 못 채운 구간이 있을 수 있으니 `null` 표시 처리는 여전히 필요하다.
  *
  * 형식이 어긋나면(`20260801`, `2026-13-01` 등) 400 이다. **이 400 도 2026-08-20 부터
  * `{success, data, message}` 래퍼를 탄다**(백엔드 `GlobalExceptionHandler.handleTypeMismatch` 신설).
@@ -133,4 +145,175 @@ export function getLineUp(gameId: string): Promise<TeamLineUp[]> {
   return userClient
     .get<ApiResponse<TeamLineUp[]>>('/games/lineup', { params: { gameId } })
     .then(unwrap);
+}
+
+/* ------------------------------------------------------------------ *
+ * 실시간 구독 (SSE) — ApiResponse 래핑이 없는 이벤트 스트림
+ * ------------------------------------------------------------------ */
+
+export interface GameSubscriptionHandlers extends SseLifecycleHandlers {
+  /**
+   * 연결(재연결 포함) 직후 1회 — 같은 `date` 의 GET 응답 `data` 와 같은 배열.
+   * 목록을 **통째로 교체**하면 된다. 끊긴 사이의 갱신도 이것이 흡수한다
+   * (Last-Event-ID 재전송은 없지만 재접속마다 snapshot 이 다시 오므로 따로 복구할 필요가 없다).
+   */
+  onSnapshot: (games: Game[]) => void;
+  /** 경기 1건의 이닝·점수·상태 변화. `applyGameUpdate` 로 목록에 반영한다. */
+  onUpdate: (event: GameUpdateEvent) => void;
+}
+
+export interface SupportGameSubscriptionHandlers extends GameSubscriptionHandlers {
+  /**
+   * 활성 응원 구단이 없어 서버가 빈 `snapshot` 뒤 곧바로 연결을 닫았을 때.
+   * 호출 시점에 구독은 이미 종료돼 있고 재접속하지 않는다(에러가 아니다).
+   * 가능하면 열기 전에 `GET /users/me` 의 `supportTeam` 으로 먼저 거르는 편이 낫다.
+   */
+  onNoSupportTeam?: () => void;
+}
+
+export type GameSubscription = SseSubscription;
+
+/** 깨진 프레임은 버린다. 배열이 아니면 snapshot 으로 보지 않는다. */
+function parseSnapshot(data: string): Game[] | null {
+  try {
+    const parsed: unknown = JSON.parse(data);
+    return Array.isArray(parsed) ? (parsed as Game[]) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 검사는 교체 키인 `game.gameId` 하나로 최소화한다 — 채팅의 `parseMessageEvent` 와 같은 이유로,
+ * 필드가 늘 때마다 검사를 조이면 옛 프론트가 새 프레임을 통째로 버리게 된다.
+ */
+function parseGameUpdate(data: string): GameUpdateEvent | null {
+  try {
+    const parsed = JSON.parse(data) as Partial<GameUpdateEvent>;
+    if (typeof parsed?.game?.gameId !== 'string') return null;
+    return {
+      ...parsed,
+      changed: Array.isArray(parsed.changed) ? parsed.changed : [],
+    } as GameUpdateEvent;
+  } catch {
+    return null;
+  }
+}
+
+/** `snapshot`·`game-update` 프레임을 핸들러로 넘기는 공통 분배기. 그 외 이벤트는 무시한다. */
+function dispatchGameFrame(
+  frame: SseFrame,
+  handlers: Pick<GameSubscriptionHandlers, 'onSnapshot' | 'onUpdate'>,
+): void {
+  if (frame.event === 'snapshot') {
+    const games = parseSnapshot(frame.data);
+    if (games) handlers.onSnapshot(games);
+  } else if (frame.event === 'game-update') {
+    const update = parseGameUpdate(frame.data);
+    if (update) handlers.onUpdate(update);
+  }
+}
+
+/** axios 를 타지 않으므로 USER_BASE_URL 과 쿼리를 직접 붙인다. */
+function subscribeUrl(path: string, date?: string): string {
+  const query = date ? `?date=${encodeURIComponent(date)}` : '';
+  return `${USER_BASE_URL}${path}${query}`;
+}
+
+/**
+ * `game-update` 를 목록에 반영한 **새 배열**을 돌려준다(원본 불변).
+ *
+ * 같은 `gameId` 항목을 `event.game` 으로 통째 교체한다 — 부분 머지 규칙은 없다.
+ * 목록에 없는 `gameId` 면(정상 계약에선 오지 않는다) 버리지 않고 끝에 붙인다.
+ */
+export function applyGameUpdate(games: Game[], event: GameUpdateEvent): Game[] {
+  const index = games.findIndex((g) => g.gameId === event.game.gameId);
+  if (index === -1) return [...games, event.game];
+  const next = games.slice();
+  next[index] = event.game;
+  return next;
+}
+
+/**
+ * GET /games/subscribe — 날짜별 경기 목록의 SSE 판. **인증 없음**(공개 매처).
+ *
+ * @param date `yyyy-MM-dd`. 해석 규칙·경고는 `getGameList` 와 같다. 구독은 **연결 시점에 해석한
+ * 날짜에 고정**되므로, 생략한 채 자정을 넘기면 계속 전날 경기를 받는다 — 화면이 날짜를 알면
+ * 넘기고, 날짜가 바뀌면 `close()` 후 다시 구독해야 한다.
+ *
+ * 프레임: 연결 직후 `snapshot`(경기 배열) 1회 → 이후 `game-update`. 15초마다 오는 `:ping` 은
+ * 파서가 거른다. 해상도는 1분(수집기 라이브 폴링, KST 13:00~23:59)이라 그 밖의 시간엔
+ * `game-update` 가 오지 않는 게 정상이다. 경기가 없는 날은 빈 `snapshot` 뒤 아무것도 오지 않는다.
+ *
+ * 서버 타임아웃 30분 등으로 끊기면 지수 백오프로 재접속하고 `snapshot` 을 다시 받는다.
+ * 400(날짜 형식)은 스트림을 열지 않고 래퍼로 오므로 `onError` 후 종료한다.
+ */
+export function subscribeGameList(
+  handlers: GameSubscriptionHandlers,
+  date?: string,
+): GameSubscription {
+  const { onSnapshot, onUpdate, ...lifecycle } = handlers;
+  return openSseSubscription({
+    ...lifecycle,
+    url: subscribeUrl('/games/subscribe', date),
+    requiresAuth: false,
+    onFrame: (frame) => dispatchGameFrame(frame, { onSnapshot, onUpdate }),
+  });
+}
+
+/**
+ * GET /games/support/subscribe — 내 응원 구단 경기의 SSE 판. **인증 필수**.
+ *
+ * @param date `subscribeGameList` 와 같다(날짜 고정·자정 경계 주의 포함).
+ *
+ * 프레임 형식은 `subscribeGameList` 와 같고, 범위만 활성 응원 구단이 홈 또는 원정인 경기로
+ * 좁혀진다. 어느 쪽이 내 구단인지는 알려주지 않으므로 `GET /users/me` 의 `supportTeam.id` 와
+ * 대조한다. 응원 구단은 **연결 시점에 고정**된다 — 구독 중 `/support` 로 바꾸면 `close()` 후
+ * 다시 구독해야 새 구단 경기가 온다.
+ *
+ * 활성 응원 구단이 없으면 서버가 200 으로 연 뒤 빈 `snapshot` 만 보내고 즉시 닫는다.
+ * 이 경우 재접속하지 않고 `onNoSupportTeam` 을 부른다. 판정은 "빈 snapshot 만 받고 업데이트 없이
+ * `STABLE_CONNECTION_MS` 안에 정상 종료"다 — 응원 구단 경기가 없는 날 30분 타임아웃으로 닫히는
+ * 경우는 오래 버텼으므로 여기에 걸리지 않고 평소대로 재접속한다.
+ *
+ * 에러: 401(미인증·무효 토큰·탈퇴 계정) — UNAUTHENTICATED 면 1회 재발급 후 재시도하고, 그래도
+ * 안 되면 `onError`. 400(날짜 형식)도 `onError` 후 종료.
+ */
+export function subscribeSupportGameList(
+  handlers: SupportGameSubscriptionHandlers,
+  date?: string,
+): GameSubscription {
+  const { onSnapshot, onUpdate, onNoSupportTeam, onOpen, ...lifecycle } = handlers;
+
+  /** 이번 연결에서 받은 것 — 재연결마다 onOpen 에서 초기화한다. */
+  let snapshotEmpty = false;
+  let receivedUpdate = false;
+
+  return openSseSubscription({
+    ...lifecycle,
+    url: subscribeUrl('/games/support/subscribe', date),
+    requiresAuth: true,
+    onOpen: (info) => {
+      snapshotEmpty = false;
+      receivedUpdate = false;
+      onOpen?.(info);
+    },
+    onFrame: (frame) =>
+      dispatchGameFrame(frame, {
+        onSnapshot: (games) => {
+          snapshotEmpty = games.length === 0;
+          onSnapshot(games);
+        },
+        onUpdate: (event) => {
+          receivedUpdate = true;
+          onUpdate(event);
+        },
+      }),
+    shouldStopOnEnd: ({ lifetimeMs }) => {
+      const noSupportTeam =
+        snapshotEmpty && !receivedUpdate && lifetimeMs < STABLE_CONNECTION_MS;
+      if (noSupportTeam) onNoSupportTeam?.();
+      return noSupportTeam;
+    },
+  });
 }

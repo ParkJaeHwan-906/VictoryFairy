@@ -57,13 +57,21 @@ export {
 // 구단(user 모듈) 엔드포인트 함수 — 인증 없이 호출한다
 export { getTeamList } from './team';
 
-// 경기(user 모듈) 엔드포인트 함수 — `getSupportGameList` 만 인증이 필요하고 나머지는 공개다
+// 경기(user 모듈) 엔드포인트 함수 — `getSupportGameList`·`subscribeSupportGameList` 만 인증이 필요하고 나머지는 공개다
 export {
   getGameList,
   getSupportGameList,
   getLineUp,
+  subscribeGameList,
+  subscribeSupportGameList,
+  applyGameUpdate,
   isGameNotFound,
   GAME_ERROR_MESSAGE,
+} from './game';
+export type {
+  GameSubscription,
+  GameSubscriptionHandlers,
+  SupportGameSubscriptionHandlers,
 } from './game';
 
 // 선수(user 모듈) 엔드포인트 함수 — 인증 없이 호출한다
@@ -200,6 +208,8 @@ export type {
   Game,
   GameState,
   InningHalf,
+  GameUpdateField,
+  GameUpdateEvent,
   PositionName,
   TeamLineUp,
   LineUpPitcher,

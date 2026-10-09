@@ -35,7 +35,8 @@ export type GameState =
 export type InningHalf = 'TOP' | 'BOTTOM';
 
 /**
- * 경기 1건. `GET /games` · `GET /games/support` 의 `data` 는 이 객체의 **배열**이다
+ * 경기 1건. `GET /games` · `GET /games/support` 의 `data`, 그리고 두 SSE 구독의
+ * `snapshot` 이벤트 `data` 는 이 객체의 **배열**이다
  * (경기 시각 오름차순, 페이징 없음).
  *
  * 두 경로의 항목은 키·타입·의미가 **완전히 같다** — `/games/support` 는 `/games` 의
@@ -72,19 +73,46 @@ export interface Game {
    *
    * `gameState` 가 `IN_PROGRESS` 일 때만 값이 있고 그 외에는 `null` 이다.
    *
-   * ⚠️ **지금은 `IN_PROGRESS` 여도 항상 `null` 이다**(2026-08-11 신설, 채우는 주체인
-   * py-collector 쪽 쓰기 구현이 아직 없다 — `cancelReason` 이 밟았던 경로와 같다).
-   * 그러니 이 값이 있다고 가정하고 화면을 짜면 안 된다. 값이 없을 때 무엇을 보여줄지가
-   * 당분간은 **정상 경로**이고, 값이 채워지기 시작해도 그 처리는 그대로 필요하다.
+   * 2026-08-12 부터 수집기가 라이브 폴링(KST 13:00~23:59, 1분 간격)에서 실제로 채운다
+   * (2026-10-09 명세 정정 — 그 전 주석의 "항상 `null`"은 더 이상 사실이 아니다).
+   * 경기가 끝나면 수집기가 다시 `null` 로 지운다. 다만 `IN_PROGRESS` 인데 아직 못 채운
+   * 구간은 여전히 있을 수 있으므로 값이 없을 때의 표시 처리는 그대로 필요하다.
    */
   inning: number | null;
   /**
-   * 이닝 초/말. `inning` 과 성질이 같다 — `IN_PROGRESS` 일 때만 값이 있고, 지금은 항상 `null`.
+   * 이닝 초/말. `inning` 과 성질이 같다 — `IN_PROGRESS` 일 때만 값이 있다.
    *
    * 표시 형태(`9회초` 처럼 합쳐 보여주기)는 서버가 정하지 않는다. 두 값을 조합해
    * 화면 계층에서 만들되, **한쪽만 있는 경우**(수집 중간 상태)도 다뤄야 한다.
    */
   inningHalf: InningHalf | null;
+}
+
+/**
+ * `game-update` 의 `changed` 에 오는 필드 이름.
+ *
+ * **`Game` 의 키 이름과 다르다** — `homeScore` 는 `homeTeamScore`, `status` 는 `gameState`,
+ * `inning` 은 `inning`·`inningHalf` 둘 다(초/말 전환·종료로 인한 null 전환 포함)를 가리킨다.
+ * 수집기 쪽 이름이라 늘어날 수 있으므로 `GameState` 처럼 열어 둔다.
+ */
+export type GameUpdateField = 'inning' | 'homeScore' | 'awayScore' | 'status' | (string & {});
+
+/**
+ * SSE `game-update` 이벤트의 `data` (`GET /games/subscribe` · `GET /games/support/subscribe`).
+ *
+ * `game` 은 `GET /games` 항목과 같은 13필드다. 같은 `gameId` 항목을 **통째로 교체**하면 되고
+ * 부분 머지 규칙은 없다(`applyGameUpdate`). 같은 이벤트가 두 번 올 수 있지만(SQS at-least-once)
+ * 통째 교체라 결과가 같아 중복 제거는 필요 없다.
+ */
+export interface GameUpdateEvent {
+  game: Game;
+  /**
+   * 직전 폴링 대비 달라진 필드. 비어 있지 않다.
+   * **표시용 힌트**(득점 강조 등)일 뿐 상태의 근거가 아니다 — 근거는 `game`.
+   */
+  changed: GameUpdateField[];
+  /** 수집기 관측 시각(UTC ISO-8601). 같은 경기의 이벤트는 이 값이 단조 증가한다. */
+  observedAt: string;
 }
 
 /**
