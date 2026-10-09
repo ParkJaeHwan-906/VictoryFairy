@@ -1,7 +1,7 @@
 # 차단(block) API 명세
 
 > **도메인** `block` — 회원 간 차단 생성·목록 조회(신설). 차단 해제(unblock) API는 이번 스코프에 없다 — 한번 생긴 차단은 후속 작업 전까지 영구적이다.
-> **모듈** user (포트 8080) · **경로 접두사** `/api/users/me/blocks` · **엔드포인트** 2개
+> **모듈** user · **경로 접두사** `/api/users/me/blocks` · **엔드포인트** 2개
 > **컨트롤러** `user/src/main/java/com/skhynix/user/block/controller/UserBlockController.java` (`@RequestMapping("/users/me/blocks")`)
 > **최종 갱신** 2026-09-30 — 도메인 신설(`POST /api/users/me/blocks`·`GET /api/users/me/blocks`). 계약 원본 `docs/requirements/user/user-block.md`(승인됨 2026-09-30, USER-BLK-1~21).
 > 공통 규약(응답 래퍼·JWT payload·401 4종·시스템 예외 래핑)은 [README.md](README.md)를 먼저 볼 것.
@@ -71,7 +71,7 @@
 
 **예시**
 ```bash
-curl -i -X POST http://localhost:8080/api/users/me/blocks \
+curl -i -X POST https://victoryfairy.com/api/users/me/blocks \
   -H 'Authorization: Bearer eyJ...' \
   -H 'Content-Type: application/json' \
   -d '{"targetNickname":"홍길동"}'
@@ -126,7 +126,7 @@ curl -i -X POST http://localhost:8080/api/users/me/blocks \
 
 **예시**
 ```bash
-curl -i http://localhost:8080/api/users/me/blocks \
+curl -i https://victoryfairy.com/api/users/me/blocks \
   -H 'Authorization: Bearer eyJ...'
 ```
 

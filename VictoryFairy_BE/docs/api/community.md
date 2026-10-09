@@ -1,7 +1,7 @@
 # 커뮤니티(community) API 명세
 
 > **도메인** `community` — 구단별/자유 게시판의 게시글·댓글·답글·반응·신고·이미지.
-> **모듈** user (포트 8080) · **경로 접두사** `/api/community` · **엔드포인트** 17개
+> **모듈** user · **경로 접두사** `/api/community` · **엔드포인트** 17개
 > **컨트롤러** `user/src/main/java/com/skhynix/user/community/controller/` — `CommunityCategoryController`(`/community/categories`) · `CommunityPostController`(`/community/posts`) · `CommunityCommentController`(`/community/comments`) · `CommunityImageController`(`/community/images`)
 > **최종 갱신** 2026-10-08 — 도메인 신설(17개 전부 신규)
 > **요구사항** `docs/requirements/user/community.md` (USER-CM-1 ~ 218, 승인됨 2026-10-08)
@@ -119,7 +119,7 @@
 **실패** 401만.
 
 ```bash
-curl http://localhost:8080/api/community/categories -H 'Authorization: Bearer <accessToken>'
+curl https://victoryfairy.com/api/community/categories -H 'Authorization: Bearer <accessToken>'
 ```
 
 ---
@@ -153,7 +153,7 @@ curl http://localhost:8080/api/community/categories -H 'Authorization: Bearer <a
 저장소 장애는 래퍼 없는 5xx가 아니라 `INTERNAL_SERVER_ERROR` 500 래퍼다(README 1-1).
 
 ```bash
-curl -X POST http://localhost:8080/api/community/images \
+curl -X POST https://victoryfairy.com/api/community/images \
   -H 'Authorization: Bearer <accessToken>' -F 'image=@photo.jpg'
 ```
 
@@ -187,7 +187,7 @@ curl -X POST http://localhost:8080/api/community/images \
 판정 순서: 본문 검증 → 카테고리 404 → 이미지 400 → 저장.
 
 ```bash
-curl -X POST http://localhost:8080/api/community/posts \
+curl -X POST https://victoryfairy.com/api/community/posts \
   -H 'Authorization: Bearer <accessToken>' -H 'Content-Type: application/json' \
   -d '{"categoryId":16,"title":"오늘 경기","content":"역전승!","imageUrls":["temp/4f1c0e3a-8b0e-4c47-9a35-2d2f0f1d9c11.jpg"]}'
 ```
@@ -229,7 +229,7 @@ curl -X POST http://localhost:8080/api/community/posts \
 **실패** 400(`page`/`size` 범위, `sort` 값 오류), 401.
 
 ```bash
-curl 'http://localhost:8080/api/community/posts?categoryId=16&sort=likes&page=0&size=20' -H 'Authorization: Bearer <accessToken>'
+curl 'https://victoryfairy.com/api/community/posts?categoryId=16&sort=likes&page=0&size=20' -H 'Authorization: Bearer <accessToken>'
 ```
 
 ---
@@ -246,7 +246,7 @@ curl 'http://localhost:8080/api/community/posts?categoryId=16&sort=likes&page=0&
 **실패** 401만.
 
 ```bash
-curl 'http://localhost:8080/api/community/posts/popular?categoryId=16' -H 'Authorization: Bearer <accessToken>'
+curl 'https://victoryfairy.com/api/community/posts/popular?categoryId=16' -H 'Authorization: Bearer <accessToken>'
 ```
 
 ---
@@ -263,7 +263,7 @@ curl 'http://localhost:8080/api/community/posts/popular?categoryId=16' -H 'Autho
 **실패** 400(페이징 범위), 401.
 
 ```bash
-curl 'http://localhost:8080/api/community/posts/me' -H 'Authorization: Bearer <accessToken>'
+curl 'https://victoryfairy.com/api/community/posts/me' -H 'Authorization: Bearer <accessToken>'
 ```
 
 ---
@@ -301,7 +301,7 @@ curl 'http://localhost:8080/api/community/posts/me' -H 'Authorization: Bearer <a
 | 410 | COMMUNITY_POST_BLINDED | 블라인드(작성자 포함 전원) |
 
 ```bash
-curl http://localhost:8080/api/community/posts/42 -H 'Authorization: Bearer <accessToken>'
+curl https://victoryfairy.com/api/community/posts/42 -H 'Authorization: Bearer <accessToken>'
 ```
 
 ---
@@ -329,7 +329,7 @@ curl http://localhost:8080/api/community/posts/42 -H 'Authorization: Bearer <acc
 판정 순서: 400(본문) → 글 404 → 작성자 403 → 블라인드 410 → 카테고리 404 → EP 400.
 
 ```bash
-curl -X PUT http://localhost:8080/api/community/posts/42 \
+curl -X PUT https://victoryfairy.com/api/community/posts/42 \
   -H 'Authorization: Bearer <accessToken>' -H 'Content-Type: application/json' \
   -d '{"categoryId":16,"title":"수정","content":"내용","imageUrls":[]}'
 ```
@@ -346,7 +346,7 @@ curl -X PUT http://localhost:8080/api/community/posts/42 \
 **실패** 404 `COMMUNITY_POST_NOT_FOUND`(재삭제 포함) · 403 `COMMUNITY_NOT_AUTHOR` · 401.
 
 ```bash
-curl -X DELETE http://localhost:8080/api/community/posts/42 -H 'Authorization: Bearer <accessToken>'
+curl -X DELETE https://victoryfairy.com/api/community/posts/42 -H 'Authorization: Bearer <accessToken>'
 ```
 
 ---
@@ -368,7 +368,7 @@ curl -X DELETE http://localhost:8080/api/community/posts/42 -H 'Authorization: B
 **실패** 400(검증/파싱) · 404 `COMMUNITY_POST_NOT_FOUND` · 410 `COMMUNITY_POST_BLINDED`.
 
 ```bash
-curl -X PUT http://localhost:8080/api/community/posts/42/reaction \
+curl -X PUT https://victoryfairy.com/api/community/posts/42/reaction \
   -H 'Authorization: Bearer <accessToken>' -H 'Content-Type: application/json' -d '{"reaction":"LIKE"}'
 ```
 
@@ -384,7 +384,7 @@ curl -X PUT http://localhost:8080/api/community/posts/42/reaction \
 **실패** 404 `COMMUNITY_POST_NOT_FOUND` · 403 `COMMUNITY_SELF_REPORT_NOT_ALLOWED`(자기 글) · 401. 판정 순서: 404 → 403 → 블라인드. (블라인드 글 재신고는 410이 아니라 200이다.) 블라인드된 글은 이후 목록·인기에서 빠지고 상세·수정·반응·댓글 작성은 410, 내 글 목록에는 `blinded:true`로 남는다.
 
 ```bash
-curl -X POST http://localhost:8080/api/community/posts/42/report -H 'Authorization: Bearer <accessToken>'
+curl -X POST https://victoryfairy.com/api/community/posts/42/report -H 'Authorization: Bearer <accessToken>'
 ```
 
 ---
@@ -419,7 +419,7 @@ curl -X POST http://localhost:8080/api/community/posts/42/report -H 'Authorizati
 판정 순서: 본문 400 → 글 404 → 글 410 → 부모 404 → 깊이 400 → 부모 410 → 이미지 400.
 
 ```bash
-curl -X POST http://localhost:8080/api/community/posts/42/comments \
+curl -X POST https://victoryfairy.com/api/community/posts/42/comments \
   -H 'Authorization: Bearer <accessToken>' -H 'Content-Type: application/json' \
   -d '{"content":"좋은 글","imageUrls":[],"parentCommentId":null}'
 ```
@@ -466,7 +466,7 @@ curl -X POST http://localhost:8080/api/community/posts/42/comments \
 **실패** 400(페이징) · 404 `COMMUNITY_POST_NOT_FOUND` · 410 `COMMUNITY_POST_BLINDED` · 401.
 
 ```bash
-curl 'http://localhost:8080/api/community/posts/42/comments?page=0&size=20' -H 'Authorization: Bearer <accessToken>'
+curl 'https://victoryfairy.com/api/community/posts/42/comments?page=0&size=20' -H 'Authorization: Bearer <accessToken>'
 ```
 
 ---
@@ -496,7 +496,7 @@ curl 'http://localhost:8080/api/community/posts/42/comments?page=0&size=20' -H '
 판정 순서: 400(본문) → 404 → 403 → 글 410 → 댓글 410 → 이미지 400.
 
 ```bash
-curl -X PUT http://localhost:8080/api/community/comments/101 \
+curl -X PUT https://victoryfairy.com/api/community/comments/101 \
   -H 'Authorization: Bearer <accessToken>' -H 'Content-Type: application/json' \
   -d '{"content":"수정","imageUrls":[]}'
 ```
@@ -513,7 +513,7 @@ curl -X PUT http://localhost:8080/api/community/comments/101 \
 **실패** 404 `COMMUNITY_COMMENT_NOT_FOUND`(소속 글 삭제 포함) · 403 `COMMUNITY_NOT_AUTHOR` · 401.
 
 ```bash
-curl -X DELETE http://localhost:8080/api/community/comments/101 -H 'Authorization: Bearer <accessToken>'
+curl -X DELETE https://victoryfairy.com/api/community/comments/101 -H 'Authorization: Bearer <accessToken>'
 ```
 
 ---
@@ -528,7 +528,7 @@ curl -X DELETE http://localhost:8080/api/community/comments/101 -H 'Authorizatio
 **실패** 400(검증/파싱) · 404 `COMMUNITY_COMMENT_NOT_FOUND` · 410 `COMMUNITY_POST_BLINDED` · 410 `COMMUNITY_COMMENT_BLINDED`. 판정 순서: 댓글 404 → 글 404 → 글 410 → 댓글 410.
 
 ```bash
-curl -X PUT http://localhost:8080/api/community/comments/101/reaction \
+curl -X PUT https://victoryfairy.com/api/community/comments/101/reaction \
   -H 'Authorization: Bearer <accessToken>' -H 'Content-Type: application/json' -d '{"reaction":"DISLIKE"}'
 ```
 
@@ -544,5 +544,5 @@ curl -X PUT http://localhost:8080/api/community/comments/101/reaction \
 **실패** 404 `COMMUNITY_COMMENT_NOT_FOUND`(소속 글 삭제 포함) · 410 `COMMUNITY_POST_BLINDED` · 403 `COMMUNITY_SELF_REPORT_NOT_ALLOWED`(자기 댓글) · 401. 판정 순서: 댓글 404 → 글 404 → 글 410 → 자기 신고 403 → 블라인드(이미면 no-op 200).
 
 ```bash
-curl -X POST http://localhost:8080/api/community/comments/101/report -H 'Authorization: Bearer <accessToken>'
+curl -X POST https://victoryfairy.com/api/community/comments/101/report -H 'Authorization: Bearer <accessToken>'
 ```

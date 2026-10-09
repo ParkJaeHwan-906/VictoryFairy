@@ -113,7 +113,7 @@ push(main) + `workflow_dispatch` → 변경 모듈 감지 → Docker 빌드 → 
 
 ## redis
 
-`chat`(2026-10-09): 방 메타·Stream 히스토리·dedup·속도 제한(키 목록은 `.claude/modules/chat.md`) — **히스토리가 Redis 에만 있어 영속(AOF)이 전제**다. `user`: 이메일 인증 상태 저장(TTL 휘발성, 영속 볼륨 불필요). `quiz`: 용도가 둘이다 —
+`chat`(2026-10-09): 방 메타·Stream 히스토리·dedup·속도 제한(키 목록은 `.claude/modules/chat.md`) + 좋아요 pub/sub 채널 `chat:likes`(휘발, 키 아님) — **히스토리가 Redis 에만 있어 영속(AOF)이 전제**다. `user`: 이메일 인증 상태 저장(TTL 휘발성, 영속 볼륨 불필요). `quiz`: 용도가 둘이다 —
 prod 프로파일 실시간 fan-out(`RedisPubSubPublisher`) + **프로파일 무관**(2026-08-19) 보기별 투표 집계
 (`RedisQuizVoteTally`, dev도 실제 Redis에 쓴다. 상세는 `.claude/modules/quiz.md`).
 `user`·`quiz` 둘 다 `docker-compose.yml`에서 `SPRING_DATA_REDIS_HOST`/`PORT`가 주입되고, 같은
