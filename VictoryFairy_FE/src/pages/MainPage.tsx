@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { getBqTopRanking, getSupportGameList } from '../api';
-import type { BqRankingEntry, Game } from '../api';
+import { getBqTopRanking } from '../api';
+import type { BqRankingEntry } from '../api';
 import CharacterAvatar from '../components/CharacterAvatar';
 import GameDetailSheet from '../components/GameDetailSheet';
 import MatchCard from '../components/MatchCard';
 import RankingPodium from '../components/RankingPodium';
 import { ROUTES } from '../routes';
+import { useLiveGames } from '../hooks/useLiveGames';
 import { useMyProfile } from '../stores/useAccountStore';
 import { getTodayInSeoul } from '../utils/date';
 import '../styles/MainPage.css';
@@ -42,10 +43,6 @@ export default function MainPage() {
 
   // 서버가 판정하는 "오늘"과 같은 기준(Asia/Seoul). 화면이 살아 있는 동안 고정이다.
   const [today] = useState(getTodayInSeoul);
-  const [games, setGames] = useState<Game[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [loadFailed, setLoadFailed] = useState(false);
-  const [selectedGame, setSelectedGame] = useState<Game | null>(null);
 
   /*
    * 랭킹 시상대. 경기와 별개 요청이라 상태도 따로 든다 — 한쪽이 실패해도 다른 쪽은
@@ -56,31 +53,18 @@ export default function MainPage() {
   const [rankingFailed, setRankingFailed] = useState(false);
 
   /*
-   * 내 응원 구단 경기만 받는다 — 거르는 일은 서버가 한다(`GET /games/support`).
+   * 내 응원 구단 경기만 받는다 — 거르는 일은 서버가 한다(`/games/support`).
+   * 오늘 경기라 SSE(`/games/support/subscribe`)로 이닝·점수·상태를 실시간으로 갈아 끼운다.
    *
    * 프로필이 아직 안 왔더라도 그냥 부른다. 대상 계정은 본문이 아니라 토큰으로 정해지므로
    * 프로필을 기다릴 이유가 없고, 기다리면 두 응답의 도착 순서에 따라 조회가 늦어진다.
    * 프로필은 아래에서 **빈 결과의 문구를 고를 때만** 쓴다.
    */
-  useEffect(() => {
-    // 늦게 도착한 응답이 떠난 화면을 건드리지 않게 막는다(GamePage 와 같은 방식).
-    let alive = true;
+  const { games, isLoading, loadFailed } = useLiveGames('support', today, true);
 
-    getSupportGameList(today)
-      .then((list) => {
-        if (alive) setGames(list);
-      })
-      .catch(() => {
-        if (alive) setLoadFailed(true);
-      })
-      .finally(() => {
-        if (alive) setIsLoading(false);
-      });
-
-    return () => {
-      alive = false;
-    };
-  }, [today]);
+  // 시트가 열린 동안에도 실시간 갱신이 반영되도록 id 로 들고 목록에서 다시 찾는다(GamePage 와 같다).
+  const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
+  const selectedGame = games.find((game) => game.gameId === selectedGameId) ?? null;
 
   // 순위도 경기와 같은 규칙으로 받는다. 대상은 토큰의 응원 구단이라 넘길 값이 없다.
   useEffect(() => {
@@ -191,7 +175,11 @@ export default function MainPage() {
         {!isLoading && !loadFailed && games.length > 0 && (
           <ol className="main-page__game-list">
             {games.map((game) => (
-              <MatchCard key={game.gameId} game={game} onSelect={setSelectedGame} />
+              <MatchCard
+                key={game.gameId}
+                game={game}
+                onSelect={(selected) => setSelectedGameId(selected.gameId)}
+              />
             ))}
           </ol>
         )}
@@ -228,7 +216,7 @@ export default function MainPage() {
       </section>
 
       {selectedGame && (
-        <GameDetailSheet game={selectedGame} onClose={() => setSelectedGame(null)} />
+        <GameDetailSheet game={selectedGame} onClose={() => setSelectedGameId(null)} />
       )}
     </main>
   );

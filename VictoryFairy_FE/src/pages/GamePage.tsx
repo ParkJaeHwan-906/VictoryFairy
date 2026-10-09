@@ -1,10 +1,7 @@
-import { useEffect, useState } from 'react';
-// [DUMMY] UI 확인용. 백엔드가 뜨면 아래 한 줄을 되살리고 dummyGames import 를 지운다.
-import { getGameList } from '../api';
-import type { Game } from '../api';
+import { useState } from 'react';
 import GameDetailSheet from '../components/GameDetailSheet';
 import MatchCard from '../components/MatchCard';
-// import { getDummyGameList } from '../data/dummyGames';
+import { useLiveGames } from '../hooks/useLiveGames';
 import { formatDateLabel, getTodayInSeoul, shiftDate } from '../utils/date';
 import '../styles/GamePage.css';
 
@@ -24,41 +21,23 @@ function getHeading(date: string, today: string): [string, string] {
  *
  * 세 노드는 별개 화면이 아니라 같은 화면의 날짜 차이다 — 상단 바에서 날짜를
  * 옮기면 인사말과 목록이 바뀐다. 카드를 누르면 상세 시트가 올라온다.
+ *
+ * 오늘 날짜는 SSE(`/games/subscribe`)로 이닝·점수·상태를 실시간으로 갈아 끼운다.
+ * 다른 날짜는 바뀔 일이 없어 GET 만 한다(`useLiveGames`).
  */
 export default function GamePage() {
   // 서버가 판정하는 "오늘"과 같은 기준(Asia/Seoul)을 쓴다. 화면이 살아 있는 동안 고정이다.
   const [today] = useState(getTodayInSeoul);
   const [date, setDate] = useState(today);
 
-  const [games, setGames] = useState<Game[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [loadFailed, setLoadFailed] = useState(false);
-  const [selectedGame, setSelectedGame] = useState<Game | null>(null);
+  const { games, isLoading, loadFailed } = useLiveGames('all', date, date === today);
 
-  useEffect(() => {
-    // 날짜를 연달아 넘길 때 늦게 도착한 이전 날짜 응답이 화면을 덮지 않도록 막는다.
-    let alive = true;
-
-    setIsLoading(true);
-    setLoadFailed(false);
-
-    // 날짜는 항상 명시해 보낸다 — 생략하면 자정 경계에서 서버의 "오늘"과 어긋난다.
-    // [DUMMY] 되돌릴 때: getDummyGameList → getGameList
-    getGameList(date)
-      .then((list) => {
-        if (alive) setGames(list);
-      })
-      .catch(() => {
-        if (alive) setLoadFailed(true);
-      })
-      .finally(() => {
-        if (alive) setIsLoading(false);
-      });
-
-    return () => {
-      alive = false;
-    };
-  }, [date]);
+  /*
+   * 고른 경기는 객체가 아니라 id 로 든다 — 시트가 열린 동안에도 실시간 갱신이 반영되도록
+   * 매 렌더 목록에서 다시 찾는다.
+   */
+  const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
+  const selectedGame = games.find((game) => game.gameId === selectedGameId) ?? null;
 
   const [headingTop, headingBottom] = getHeading(date, today);
 
@@ -109,14 +88,19 @@ export default function GamePage() {
         {!isLoading && !loadFailed && games.length > 0 && (
           <ol className="game-page__list">
             {games.map((game) => (
-              <MatchCard key={game.gameId} game={game} onSelect={setSelectedGame} />
+              <MatchCard
+                key={game.gameId}
+                game={game}
+                showScore
+                onSelect={(selected) => setSelectedGameId(selected.gameId)}
+              />
             ))}
           </ol>
         )}
       </div>
 
       {selectedGame && (
-        <GameDetailSheet game={selectedGame} onClose={() => setSelectedGame(null)} />
+        <GameDetailSheet game={selectedGame} onClose={() => setSelectedGameId(null)} />
       )}
     </div>
   );
