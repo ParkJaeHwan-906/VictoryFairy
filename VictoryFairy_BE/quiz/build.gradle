@@ -8,6 +8,7 @@ dependencies {
     implementation project(':common')
     implementation project(':domain')
     implementation project(':web-support')   // JWT 검증 부품(JwtVerificationConfig)·401 엔트리포인트·예외 핸들러 재사용
+    implementation project(':profanity')     // 채팅 욕설 탐지 장치·데이터(구단 치환어 조립은 quiz 의 ProfanityFilter)
 
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-security'
