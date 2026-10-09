@@ -2,6 +2,7 @@
 
 > 소속 모듈 `chat` (포트 8082) · 경로 접두사 `/chat` (`server.servlet.context-path`) · 엔드포인트 7개
 > 최종 갱신: 2026-10-09 (신규 문서 — chat 모듈 최초 명세)
+> 운영 base URL: `https://victoryfairy.com/chat` (2026-10-09 운영 가동, 로컬은 `http://localhost:8082`)
 > 공통 규약(응답 래퍼·인증·401 정책)은 [README.md](README.md) 참고.
 > 대상 컨트롤러: `chat/src/main/java/com/skhynix/chat/room/controller/ChatRoomController.java`, `message/controller/ChatMessageController.java`, `subscription/controller/ChatSubscriptionController.java` (+ `SubscriptionExceptionHandler`)
 > 계약 원본: `docs/requirements/chat/game-chat.md` (CHAT-GC-*, 승인 2026-10-09)
