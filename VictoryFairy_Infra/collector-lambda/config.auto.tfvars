@@ -53,6 +53,19 @@ cancel_reasons_enabled = true
 # 이 플래그가 쓴 inning-events/ 문서가 실제로 소비된다.
 inning_events_enabled = true
 
+# --- 경기 상태 변화(game-state-events) 적재 게이트 ---
+# 기본 false. 켜기 전 선행 조건(quiz_source_jobs_enabled 와 같은 절차):
+#   1. 이미지 배포 — dev_ai 의 "games_sync 가 이닝·점수·상태 변화를 S3 game-state-events/ 에
+#      적재한다" 커밋이 main 에 머지되고 CI 가 kbo-collector 이미지를 푸시해 두 함수의
+#      ImageUri 가 그 태그로 갱신된 것을 확인한다.
+#   2. 메인 인프라(environments/dev) apply — refine_pipeline 의 game_state_events 큐 +
+#      S3 알림 + user-irsa 소비 권한이 먼저 있어야 적재된 문서가 소비된다.
+#   3. 경기 시간대에 games_sync 수동 호출 1회 — S3 game-state-events/{오늘}/ 에 문서가
+#      생기고 user-app 로그에 수신이 찍히는지 본다.
+# 모르는 env 는 이미지가 무시하므로 먼저 켜도 사고는 안 나지만, 켜진 줄 알고 소비자를
+# 기다리는 헛수고를 막기 위해 순서를 지킨다.
+game_state_events_enabled = false
+
 # --- DB 적재 잡 (records/registrations) — 2026-07-29 조회값 ---
 # 서브넷/SG는 infra 스택 소유. db_host 는 데이터 EC2 프라이빗 IP —
 # 인스턴스 재생성(프라이빗 복귀 등) 시 여기와 k8s/30-external-data.yaml 둘 다 갱신.

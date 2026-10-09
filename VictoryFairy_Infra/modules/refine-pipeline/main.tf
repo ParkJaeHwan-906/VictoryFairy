@@ -149,6 +149,82 @@ resource "aws_sqs_queue_policy" "inning_events" {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# SQS — 경기 상태 변화 이벤트. BE user-app(이 모듈 밖)이 소비해 경기 SSE 로 푸시한다
+# ─────────────────────────────────────────────────────────────────────────────
+# py-collector 의 games_sync 라이브 폴링(1분)이 경기의 이닝·점수·상태 중 하나라도 직전
+# 폴링과 다르면 crawl 버킷에
+#   game-state-events/{date}/{gameId}/{observedAt}.json
+# 을 쓰고, 아래 aws_s3_bucket_notification.crawl 의 queue 알림이 이 큐로 SendMessage 한다.
+#
+# 위 inning_events 큐와 **별개 큐**인 이유: SQS 는 pub/sub 이 아니다 — 소비자가 둘이면
+# 메시지를 나눠 갖는다. quiz-app 이 정산용으로 inning_events 를 소비·삭제하고 있으므로
+# user-app 이 같은 큐를 읽으면 정산 메시지를 뺏는다. 또 S3 알림은 같은 prefix 에 대상
+# 둘을 허용하지 않아(Configurations overlap) prefix 도 갈랐다. 페이로드도 다르다 —
+# 저쪽은 "막 끝난 이닝의 안타"(정산 사실), 이쪽은 "지금 상태"(점수·이닝·상태 스냅샷).
+#
+# 이 모듈은 큐와 S3→SQS 배선만 소유한다. 소비자는 EKS 의 BE user-app 이라 Lambda 이벤트
+# 소스 매핑이 없다 — 수신 권한은 modules/user-irsa 가 IRSA 역할에 부여한다.
+resource "aws_sqs_queue" "game_state_events_dlq" {
+  name                      = "${var.name_prefix}-refine-game-state-events-dlq"
+  message_retention_seconds = 1209600 # 14일 — 실패분을 사람이 확인할 시간
+
+  tags = merge(var.tags, { Name = "${var.name_prefix}-refine-game-state-events-dlq" })
+}
+
+resource "aws_sqs_queue" "game_state_events" {
+  name = "${var.name_prefix}-refine-game-state-events"
+
+  # 소비자는 user-app(Spring, 폴링). 처리는 games 행 1건 재조회 + Redis 발행이라 짧다.
+  # 가시성 안에 DeleteMessage 가 안 되면 같은 스냅샷이 재배달된다 — 소비 쪽은 멱등이어야
+  # 한다(같은 상태를 두 번 푸시해도 클라이언트 표시는 같다).
+  visibility_timeout_seconds = 30
+
+  # 보존이 짧은 이유: "지금 상태" 알림이라 경기가 끝난 뒤 남은 메시지는 가치가 없다.
+  # 소비자가 한참 죽어 있다가 살아나도 스냅샷 순서대로 밀어내면 최종 상태는 맞는다.
+  message_retention_seconds = 21600 # 6시간
+  receive_wait_time_seconds = 20    # 롱 폴링 — 빈 수신 요청 비용 절감
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.game_state_events_dlq.arn
+    maxReceiveCount     = 3
+  })
+
+  tags = merge(var.tags, { Name = "${var.name_prefix}-refine-game-state-events" })
+}
+
+data "aws_iam_policy_document" "game_state_events_queue_policy" {
+  statement {
+    sid     = "AllowCrawlBucketSendMessage"
+    effect  = "Allow"
+    actions = ["sqs:SendMessage"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["s3.amazonaws.com"]
+    }
+
+    resources = [aws_sqs_queue.game_state_events.arn]
+
+    condition {
+      test     = "ArnEquals"
+      variable = "aws:SourceArn"
+      values   = [local.crawl_bucket_arn]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [data.aws_caller_identity.current.account_id]
+    }
+  }
+}
+
+resource "aws_sqs_queue_policy" "game_state_events" {
+  queue_url = aws_sqs_queue.game_state_events.id
+  policy    = data.aws_iam_policy_document.game_state_events_queue_policy.json
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # IAM — 함수별 최소 권한 (SKILL §7)
 # ─────────────────────────────────────────────────────────────────────────────
 data "aws_iam_policy_document" "lambda_assume" {
@@ -419,7 +495,21 @@ resource "aws_s3_bucket_notification" "crawl" {
     filter_suffix = ".json"
   }
 
-  depends_on = [aws_lambda_permission.s3_invoke_pattern, aws_sqs_queue_policy.inning_events]
+  # 경기 상태 변화 → SQS(game_state_events). py-collector 가 game-state-events/{date}/{gameId}/
+  # {observedAt}.json 을 쓰면 BE user-app 이 이 큐를 폴링해 경기 SSE 구독자에게 푸시한다.
+  # ⚠ prefix 가 위 inning-events/ 와 겹치면 S3 가 알림 설정 전체를 거부한다.
+  queue {
+    queue_arn     = aws_sqs_queue.game_state_events.arn
+    events        = ["s3:ObjectCreated:*"]
+    filter_prefix = "game-state-events/"
+    filter_suffix = ".json"
+  }
+
+  depends_on = [
+    aws_lambda_permission.s3_invoke_pattern,
+    aws_sqs_queue_policy.inning_events,
+    aws_sqs_queue_policy.game_state_events,
+  ]
 }
 
 # SQS → Bedrock Lambda. batch_size 가 곧 "한 번의 모델 호출에 묶는 게시글 수"다.

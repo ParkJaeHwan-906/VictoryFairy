@@ -1,5 +1,5 @@
-# user-app 파드용 IRSA — asset 버킷의 프로필 이미지 접두사 2개만 읽고 쓴다
-# (파드 단위 최소 권한, SKILL §4).
+# user-app 파드용 IRSA — asset 버킷의 프로필 이미지 접두사 2개 읽기·쓰기 + 경기 상태
+# 변화 큐 소비(crawl 버킷 game-state-events/ 읽기 전용) (파드 단위 최소 권한, SKILL §4).
 #
 # 왜 필요한가: 프로필 이미지 업로드(BE :user 모듈)가 사용자가 올린 파일을 S3 에 넣고, 가입이
 #   확정되면 temp/ → user-profile-img/ 로 옮기고, 스케줄러가 미완주분을 지운다. 노드 인스턴스
@@ -17,7 +17,8 @@
 #   파드 쪽 코드 변경은 없다 — AWS SDK 기본 자격증명 체인이 EKS 웹훅이 주입한 토큰을 집어 쓴다.
 
 locals {
-  bucket_arn = "arn:aws:s3:::${var.asset_bucket_name}"
+  bucket_arn       = "arn:aws:s3:::${var.asset_bucket_name}"
+  crawl_bucket_arn = "arn:aws:s3:::${var.crawl_bucket_name}"
 }
 
 data "aws_iam_policy_document" "user_app_assume" {
@@ -88,6 +89,26 @@ data "aws_iam_policy_document" "user_app" {
       "${local.bucket_arn}/${var.profile_prefix}*",
       "${local.bucket_arn}/${var.temp_prefix}*",
     ]
+  }
+
+  # 경기 상태 변화 SQS 큐 소비 — py-collector 가 S3 에 쓴 이닝·점수·상태 스냅샷 알림을 받아
+  # 경기 SSE 구독자(GET /api/games/subscribe)에게 푸시한다(modules/refine-pipeline 이 큐와
+  # S3→SQS 배선을 소유). SendMessage 는 S3 서비스 principal 몫이라 여기엔 없다 — 소비만 한다.
+  # quiz-irsa 의 ConsumeInningEvents 와 같은 모양이지만 큐가 다르다(SQS 는 소비자가 둘이면
+  # 메시지를 나눠 갖으므로 정산 큐를 같이 읽으면 안 된다).
+  statement {
+    sid       = "ConsumeGameStateEvents"
+    actions   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"]
+    resources = [var.game_state_events_queue_arn]
+  }
+
+  # SQS 메시지가 가리키는 game-state-events/ 문서 본문 읽기. quiz-irsa 가 2026-10-04 라이브
+  # 운영 중 겪은 누락(SQS 권한만 주고 GetObject 를 빠뜨려 매번 AccessDenied)을 처음부터
+  # 막는다 — ListBucket 은 필요 없다(메시지가 정확한 키를 주므로 단건 조회).
+  statement {
+    sid       = "GetGameStateEvents"
+    actions   = ["s3:GetObject"]
+    resources = ["${local.crawl_bucket_arn}/game-state-events/*"]
   }
 }
 

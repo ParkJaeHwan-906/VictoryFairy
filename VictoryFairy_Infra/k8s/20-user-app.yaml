@@ -104,6 +104,16 @@ spec:
             #   다시 지우는 일이라 멱등하지만, 삭제 외 부수효과가 생기면 이 전제가 깨진다.
             - name: USER_CLEANUP_TEMP_PROFILE_IMAGE_CRON
               value: "0 0 4 * * *"
+            # 경기 상태 변화 SQS 큐(py-collector → S3 game-state-events/ → SQS). user-app 의
+            #   GameStateEventListener 가 롱폴링해 GET /api/games/subscribe 구독자에게 SSE 로 푸시한다.
+            #   비어 있으면 리스너가 폴링을 시작하지 않는다(기동은 정상) — 큐가 없는 환경 보호.
+            # ⚠ 값은 terraform output game_state_events_queue_url 과 문자 그대로 일치해야 한다.
+            #   이름 기반 URL 이라 고정이지만, 큐 이름(modules/refine-pipeline)을 바꾸면 여기도 바꾼다.
+            # 수신 권한은 위 SA 의 IRSA 역할(modules/user-irsa ConsumeGameStateEvents)이 준다.
+            - name: USER_GAME_EVENTS_SQS_QUEUE_URL
+              value: "https://sqs.ap-northeast-2.amazonaws.com/555209622409/victoryfairy-dev-refine-game-state-events"
+            - name: USER_GAME_EVENTS_SQS_REGION
+              value: "ap-northeast-2"
           envFrom:
             - configMapRef:
                 name: app-config

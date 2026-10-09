@@ -5,6 +5,16 @@ variable "asset_bucket_name" {
   type        = string
 }
 
+variable "crawl_bucket_name" {
+  description = "크롤 버킷 이름(game-state-events/ 가 쓰이는 곳). GetObject 정책 ARN 조립에 쓴다 — refine-pipeline·quiz-irsa 와 같은 값이어야 한다."
+  type        = string
+}
+
+variable "game_state_events_queue_arn" {
+  description = "경기 상태 변화 이벤트 SQS 큐 ARN (modules/refine-pipeline 출력). user-app 이 소비할 큐"
+  type        = string
+}
+
 variable "name_prefix" {
   description = "역할·정책 이름 접두사 (예: victoryfairy-dev → victoryfairy-dev-user-app)"
   type        = string
