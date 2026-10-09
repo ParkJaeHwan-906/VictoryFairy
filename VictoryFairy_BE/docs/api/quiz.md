@@ -1,7 +1,7 @@
 # 퀴즈(quiz) API 명세
 
 > **도메인** `quiz` — 오늘의 퀴즈 조회·개별 조회·제출(채점)·풀이 이력·좋아요.
-> **모듈** quiz (포트 8081) · **경로 접두사** `/rt/quizzes` · **엔드포인트** 6개
+> **모듈** quiz · **경로 접두사** `/rt/quizzes` · **엔드포인트** 6개
 > **컨트롤러** `quiz/src/main/java/com/skhynix/quiz/quiz/controller/QuizController.java`(조회·좋아요 토글), `QuizSubmissionController.java`(제출·이력) — `/rt`는 context-path가 붙인다
 > **최종 갱신** 2026-10-04 — **`GET /rt/quizzes/today`의 문제 선택 로직이 경기 기반 캐스케이드로 전면 교체됐다.** 요청 파라미터·응답 스키마(필드 집합)·상태코드·`ErrorCode` 구성은 전부 그대로이고 **선택 알고리즘만 바뀌었다.** 종전 "`gameId`는 문제를 고르는 값이 아니다"가 뒤집혀 이제 `gameId`가 가리키는 경기의 **참가 팀·소속 선수가 선택 기준 자체**다. 두 제약이 함께 폐기됐다: **①"응원 구단 경기만 조회 가능(불참이면 403)"** — 이제 응원 구단과 무관한 오늘 경기도 조회할 수 있다(QUIZ-INN-109 폐기). **②"응원 구단이 없으면 403"** — 응원 구단이 없으면 모든 경기를 "무관한 경기"로 간주해 랜덤 응답을 준다, 더 이상 거절하지 않는다(QUIZ-INN-87 폐기). 기준 경기를 "응원 구단 경기"(참가 팀이 내 응원 구단)와 "무관한 경기"(그 외 전부 — 응원 구단이 없는 사용자는 항상 이쪽)로 분류해, 응원 구단 경기는 **5단계 캐스케이드**로 목표 수(`quiz.serve.max-today-count`, 기본 20, 새 파라미터 없음)를 채운다 — ①오늘+선호팀 전체(선호팀 자체 문제·응원 선수 문제·응원팀 소속 비응원 선수 문제를 구분 없이 한 계층으로) ②다른 날짜(과거 편성 이력)+선호팀 전체 ③오늘+상대팀 전체(상대팀 소속 선수 포함) ④다른 날짜+상대팀 전체 ⑤일반 퀴즈 바닥단계. 앞 단계만으로 목표 수를 채우면 다음 단계는 후보 조회조차 하지 않고, 5단계까지 합쳐도 부족하면 **에러 없이 모은 만큼만 200으로 반환**한다(QUIZ-GSS-19). 무관한 경기는 날짜 캐스케이드 없이 **오늘 세트 한정**으로 기준 경기의 홈·어웨이 양팀 + 소속 선수를 무가중치로 랜덤 채움하고, 부족분은 같은 일반 퀴즈 바닥단계(단 오늘 세트로 한정)로 채운다. 매치업(`isMatchupQuiz`)·경기 전용(`isGameQuiz`) 문제는 `quiz.team`을 classifier로 써서 이 캐스케이드에 자연 편입된다(선수 문제만 `player.team` 기준). 모든 무작위 채움은 기존과 동일하게 **사용자별 고정 시드**라 재현 가능하다. `preferredOnly` 쿼리 파라미터는 하위 호환을 위해 그대로 받지만 **더 이상 결과에 영향을 주지 않는다**(QUIZ-GSS-13 — true/false/생략 세 경우가 완전히 같은 응답). ⚠ **응답의 `preferred` 플래그는 이 캐스케이드의 선택 계층과 다시 일치하지 않는다** — `isPreferred()` 판정(응원 구단과 quiz.team/opponentTeam 일치 또는 **개별적으로 응원하는** 선수)은 이번에 손대지 않아, "선호팀 관련 문제"로 1단계에 뽑힌 **응원팀 소속 비응원 선수 문제**는 `preferred:false`로 응답될 수 있다(선택 계층과 표시 플래그 판정 기준이 다르다는 비대칭이 의도적으로 고정됨, `QuizServiceTest` 참고) — **종전 "선호 문제가 항상 먼저 온다"는 정렬 보장이 더 이상 성립하지 않는다**(아래 GET /today 절 참고). 403 `QUIZ_NOT_SERVABLE`의 사유도 다섯에서 넷으로 줄었다 — "내 응원 구단 경기 아님"이 더 이상 거절 사유가 아니다(존재·오늘(KST) 아님·`IN_PROGRESS` 아님·이닝 확보 실패만 남음). 계약 원본 `docs/requirements/quiz/game-scoped-selection.md`(승인됨 2026-10-04, QUIZ-GSS-1~20 — QUIZ-INN-87·109 폐기). 반영 문서: [quiz.md](quiz.md). (직전: 2026-09-03 — **배점 축 분리(point/bq)와 두 축 적립.** `quizzes.score` 컬럼이 `point`로 이름만 바뀌었다(JSON 필드명·타입(Double)·값은 전부 불변 — 프론트가 관측 가능한 변화는 없다, 엔티티 필드명 `Quiz.score`→`Quiz.point`만 바뀜). 신설된 정수 배점 `bq`(널 허용, 난이도 매핑 EASY=1/MEDIUM=2/HARD=3/EXPERT=4)가 네 응답에 노출된다: `/today`(`data[].bq` 신설 — **null이어도 키가 실린다**, 이 응답 record엔 `@JsonInclude`가 없다) · `/{quizId}`(`data.bq` 신설 — **null이면 키가 생략된다**, `@JsonInclude(NON_NULL)` — `/today`와 `/{quizId}` 두 엔드포인트의 null 처리 규칙이 서로 다른 것은 의도된 것이고 이번에 통일되지 않았다, `point`가 이미 같은 방식으로 갈려 있었다) · `POST /submit`(`earnedBq`·`totalBq` 신규, 5키→7키. `totalBq`는 적립 후 누적 `users_bq.bq_score` — `GET /api/users/me`의 같은 값이 `bqScore`라는 다른 이름인 것은 알고 택한 것이다, 이 응답 안의 `earnedBq`와 짝을 맞춤) · `GET /submissions`(문제 항목에 `earnedBq`, **경기 전체 `summary`에만** `earnedBq` 추가(4키→5키) — `innings[].summary`는 3키(`correctCount`/`total`/`accuracy`) 그대로 불변). 정답 확정 시 `users_account.point`와 `users_bq.bq_score`를 **같은 트랜잭션**에서 함께 적립(계정에 `users_bq` 행이 없으면 이 트랜잭션이 만든다), 두 배점 중 하나가 NULL이거나 bq가 0 이하면 그 축만 스킵되고 다른 축은 정상 적립되며, 409(중복 제출)로 갈리면 두 축 다 롤백된다. ⚠ **정정 — 종전 문서 두 곳이 거짓이 됐다**: ①"`users_bq.bq_score`는 레이팅 설계 확정 전이라 건드리지 않는다"는 이제 사실이 아니다(정답 시 적립한다). ②`GET /submissions`의 `summary.earnedPoint` 정의였던 "`quizzes.score` 합"은 컬럼명이 `quizzes.point`로 바뀌어 "`quizzes.point` 합"으로 정정됐다(값·산식은 불변). `GET /{quizId}/vote-count`는 이번 변경과 무관(불변). 엔드포인트 6개 그대로, 신규 경로 없음. 계약 원본 `docs/requirements/quiz/quiz-point-bq-split.md`(승인됨 2026-09-03, QUIZ-PBQ-1~46). (직전: 2026-08-26 — **`GET /rt/quizzes/{quizId}/vote-count` 신설**(엔드포인트 5개 → 6개). 아직 답하지 않은 문제의 보기별 투표 수를 **폴링으로 다시 받을 수 있는 유일한 경로**다 — 종전에는 `/today` 응답 한 번이 분포를 전달하는 유일한 기회였고 갱신 수단이 없었다. 응답 항목은 `/today` 와 **같은 타입**(`{no, text, voteCount}`)이고 서버가 백분율을 계산해 주지 않는다(값은 비율이 아니라 개수 그대로다 — 경로 이름도 그에 맞춰 `vote-count` 다). **자격이 없으면 404·403 이 아니라 200 + `data:null`** 이다(응답 코드로 '그 문제를 받았는지'가 드러나지 않게 함). 기존 5개 엔드포인트의 요청·응답·상태코드는 전부 불변. (직전: 2026-08-20 — **공통 시스템 예외가 이제 `ApiResponse` 래퍼를 탄다**(415 미지원 Content-Type·405 잘못된 메서드·400 깨진 JSON·400 경로변수/쿼리 타입 불일치·500 미처리 예외 전부 — `web-support`의 `GlobalExceptionHandler` 신설 핸들러, 공유 컴포넌트라 quiz 쪽 코드 변경 없이 적용됨). 실제로 형태가 바뀌는 사례: `Content-Type` 없이 `POST /{quizId}/submit` 호출(415), `GET /{quizId}/submit`처럼 POST 전용 경로에 GET(405), 깨진 JSON 본문(400), `/rt/quizzes/abc/submit`처럼 `quizId`가 숫자가 아님(400). 이 도메인의 `BusinessException` 매핑(403·404·409 등)·401 엔트리포인트·SSE는 전부 불변. 자세한 내용은 [README.md](README.md#1-응답-래퍼--도메인엔드포인트마다-다르다) 참고. (직전: 2026-08-19 **`GET /rt/quizzes/today` 응답의 보기 항목에 투표 수 필드 `voteCount` 신설**(각 `options[]` 원소에 0 이상 JSON 정수, 항상 존재 — Redis 장애·키 부재·TTL 만료·값 파싱 실패 시에도 0으로 채워 200 유지). 서빙 시점 근사 스냅샷이며 갱신 경로(SSE·폴링) 없음, 총합·비율 필드 없음, 미제출 상태에서도 노출(다수결 정답 힌트 수용). 상세(`GET /{quizId}`)·제출(`POST /submit`)·이력(`GET /submissions`) 세 응답은 **불변**(voteCount 없음). 엔드포인트 5개 그대로, 신규 경로 없음. 계약 원본 `docs/requirements/quiz/quiz-vote-exposure.md`(승인됨 2026-08-19, QUIZ-VOTEVIEW-1~30).)))) 그 이전 이력은 각 엔드포인트 섹션의 `최종 변경` 줄에 남아 있다.
 > 공통 규약(응답 래퍼·인증·401 정책)은 [README.md](README.md)를 먼저 볼 것.
@@ -124,7 +124,7 @@
 이 경로는 Redis를 쓰지 않는다(2026-08-12부터 — 폐기된 Redis 티켓 방식은 Redis 장애 시 500이었다). DB 장애 시 500 — 2026-08-20부터 `GlobalExceptionHandler.handleUnexpected`(catch-all 신설)가 잡아 `ApiResponse` 래퍼가 붙지만(`{"success":false,"data":null,"message":"서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."}`, `INTERNAL_SERVER_ERROR`), 실제 DB 장애를 재현한 실측은 없다(코드 근거로만 확인, 종전 "래퍼 없음"은 정정됨).
 
 ```bash
-curl "http://localhost:8081/rt/quizzes/today?gameId=20260812SSHT02026&preferredOnly=true" \
+curl "https://victoryfairy.com/rt/quizzes/today?gameId=20260812SSHT02026&preferredOnly=true" \
   -H 'Authorization: Bearer eyJ...'
 # 성공 (구성 예시 — 경기 기반 캐스케이드 반영, 2026-10-04. preferredOnly=true 는 2026-10-04부터 결과에
 # 영향 없음 — 생략했을 때와 응답이 완전히 같다)
@@ -135,20 +135,20 @@ curl "http://localhost:8081/rt/quizzes/today?gameId=20260812SSHT02026&preferredO
 # (위 "선택·정렬 규칙" 참고 — 캐스케이드 단계와 preferred 플래그는 서로 다른 기준)
 
 # 응원 구단과 무관한 오늘 IN_PROGRESS 경기 — 2026-10-04부터 403이 아니라 "무관한 경기" 랜덤 응답(200)
-curl "http://localhost:8081/rt/quizzes/today?gameId=20260812LGOB02026" -H 'Authorization: Bearer eyJ...'
+curl "https://victoryfairy.com/rt/quizzes/today?gameId=20260812LGOB02026" -H 'Authorization: Bearer eyJ...'
 # 200 {"success":true,"data":[...]} — 그 경기의 홈·어웨이 양팀 + 소속 선수 전체에서 무가중치 랜덤(오늘 세트 한정)
 
 # gameId 누락 (실측)
-curl http://localhost:8081/rt/quizzes/today -H 'Authorization: Bearer eyJ...'
+curl https://victoryfairy.com/rt/quizzes/today -H 'Authorization: Bearer eyJ...'
 # 400 {"success":false,"data":null,"message":"필수 요청 파라미터가 누락되었습니다: gameId"}
 
 # 없는 경기 / 어제 경기 / SCHEDULED 경기 등 — 전부 이 하나의 응답 (실측, 2026-10-04부터 "남의 팀 경기"는
 # 더 이상 이 사유에 포함되지 않는다)
-curl "http://localhost:8081/rt/quizzes/today?gameId=20260101XXYY01234" -H 'Authorization: Bearer eyJ...'
+curl "https://victoryfairy.com/rt/quizzes/today?gameId=20260101XXYY01234" -H 'Authorization: Bearer eyJ...'
 # 403 {"success":false,"data":null,"message":"경기가 진행 중일 때만 문제를 받을 수 있습니다."}
 
 # 같은 (경기, 이닝)에 재요청 (실측)
-curl "http://localhost:8081/rt/quizzes/today?gameId=20260812SSHT02026" -H 'Authorization: Bearer eyJ...'
+curl "https://victoryfairy.com/rt/quizzes/today?gameId=20260812SSHT02026" -H 'Authorization: Bearer eyJ...'
 # 409 {"success":false,"data":null,"message":"이번 이닝에는 이미 문제를 받았습니다."}
 ```
 
@@ -200,7 +200,7 @@ curl "http://localhost:8081/rt/quizzes/today?gameId=20260812SSHT02026" -H 'Autho
 **예시 — 미제출(진행 중)**
 
 ```bash
-curl http://localhost:8081/rt/quizzes/23 -H 'Authorization: Bearer eyJ...'
+curl https://victoryfairy.com/rt/quizzes/23 -H 'Authorization: Bearer eyJ...'
 # {"success":true,"data":{"id":23,"type":"O/X","question":"...","difficulty":"EASY","point":50.0,"bq":2,
 #   "quizDate":"2026-08-10","options":[{"no":0,"text":"O"},{"no":1,"text":"X"}],
 #   "submitted":false,"expired":false},"message":null}
@@ -210,7 +210,7 @@ curl http://localhost:8081/rt/quizzes/23 -H 'Authorization: Bearer eyJ...'
 **예시 — 시한 초과(2026-08-12 신설 상태)**
 
 ```bash
-curl http://localhost:8081/rt/quizzes/24 -H 'Authorization: Bearer eyJ...'
+curl https://victoryfairy.com/rt/quizzes/24 -H 'Authorization: Bearer eyJ...'
 # {"success":true,"data":{"id":24,"type":"O/X","question":"...","difficulty":"EASY","point":50.0,
 #   "quizDate":"2026-08-12","options":[{"no":0,"text":"O"},{"no":1,"text":"X"}],
 #   "submitted":false,"expired":true},"message":null}
@@ -220,7 +220,7 @@ curl http://localhost:8081/rt/quizzes/24 -H 'Authorization: Bearer eyJ...'
 **예시 — 답함**
 
 ```bash
-curl http://localhost:8081/rt/quizzes/23 -H 'Authorization: Bearer eyJ...'
+curl https://victoryfairy.com/rt/quizzes/23 -H 'Authorization: Bearer eyJ...'
 # {"success":true,"data":{"id":23,"type":"O/X","question":"...","difficulty":"EASY","point":50.0,"bq":2,
 #   "quizDate":"2026-08-10","options":[{"no":0,"text":"O"},{"no":1,"text":"X"}],
 #   "submitted":true,"expired":false,"myOption":0,"correct":true,"answer":0,
@@ -272,17 +272,17 @@ curl http://localhost:8081/rt/quizzes/23 -H 'Authorization: Bearer eyJ...'
 | 409 | QUIZ_ALREADY_SUBMITTED | 이미 답한 문제 재제출(동시 제출 race 포함) — **판정 순서상 가장 마지막**(계정 락·적립 이후, 2026-08-12부터. 종전엔 가장 먼저였다) |
 
 ```bash
-curl -X POST http://localhost:8081/rt/quizzes/23/submit \
+curl -X POST https://victoryfairy.com/rt/quizzes/23/submit \
   -H 'Authorization: Bearer eyJ...' -H 'Content-Type: application/json' -d '{"option":0}'
 # {"success":true,"data":{"correct":true,"answer":0,"myOption":0,"earnedPoint":50,"totalPoint":50,
 #   "earnedBq":2,"totalBq":2},"message":null}
 
-curl -X POST http://localhost:8081/rt/quizzes/23/submit \
+curl -X POST https://victoryfairy.com/rt/quizzes/23/submit \
   -H 'Authorization: Bearer eyJ...' -H 'Content-Type: application/json' -d '{"option":0}'
 # /today 를 거치지 않았거나, 거쳤지만 받은 지 8분이 지난 경우
 # {"success":false,"data":null,"message":"오늘의 퀴즈로 받은 문제만 제한 시간 안에 제출할 수 있습니다."}
 
-curl -X POST http://localhost:8081/rt/quizzes/23/submit \
+curl -X POST https://victoryfairy.com/rt/quizzes/23/submit \
   -H 'Authorization: Bearer eyJ...' -H 'Content-Type: application/json' -d '{"option":99}'
 # 23번을 이미 답했고, 99번은 그 문제에 없는 보기 번호인 경우 (2026-08-12부터: 종전 409 → 이제 400)
 # {"success":false,"data":null,"message":"존재하지 않는 보기 번호입니다."}
@@ -366,7 +366,7 @@ curl -X POST http://localhost:8081/rt/quizzes/23/submit \
 
 ```bash
 # 성공 — 진행 중인 경기, 1회는 결산됐고 2회는 기록이 있는 경기라 0/0으로 남는다
-curl "http://localhost:8081/rt/quizzes/submissions?gameId=20260812SSHT02026" -H 'Authorization: Bearer eyJ...'
+curl "https://victoryfairy.com/rt/quizzes/submissions?gameId=20260812SSHT02026" -H 'Authorization: Bearer eyJ...'
 # {"success":true,"data":{
 #   "summary":{"correctCount":9,"total":14,"accuracy":0.642857,"earnedPoint":450,"earnedBq":18},
 #   "innings":[
@@ -381,20 +381,20 @@ curl "http://localhost:8081/rt/quizzes/submissions?gameId=20260812SSHT02026" -H 
 # (innings[].summary 는 이번 변경으로도 3키 그대로 — earnedBq 는 없다)
 
 # 그 경기에서 문제를 한 번도 받지 않은 경우 — 열거 범위가 계산돼도 통째로 접힌다(빈 이닝 원소가 아니다)
-curl "http://localhost:8081/rt/quizzes/submissions?gameId=20260812LTKT02026" -H 'Authorization: Bearer eyJ...'
+curl "https://victoryfairy.com/rt/quizzes/submissions?gameId=20260812LTKT02026" -H 'Authorization: Bearer eyJ...'
 # {"success":true,"data":{"summary":{"correctCount":0,"total":0,"accuracy":0.0,"earnedPoint":0,"earnedBq":0},
 #   "innings":[]},"message":null}
 
 # gameId 누락 (실측 규약)
-curl http://localhost:8081/rt/quizzes/submissions -H 'Authorization: Bearer eyJ...'
+curl https://victoryfairy.com/rt/quizzes/submissions -H 'Authorization: Bearer eyJ...'
 # 400 {"success":false,"data":null,"message":"필수 요청 파라미터가 누락되었습니다: gameId"}
 
 # 예정 경기
-curl "http://localhost:8081/rt/quizzes/submissions?gameId=20260813LGHH02026" -H 'Authorization: Bearer eyJ...'
+curl "https://victoryfairy.com/rt/quizzes/submissions?gameId=20260813LGHH02026" -H 'Authorization: Bearer eyJ...'
 # 403 {"success":false,"data":null,"message":"아직 시작하지 않은 경기입니다."}
 
 # 존재하지 않는 gameId
-curl "http://localhost:8081/rt/quizzes/submissions?gameId=NOPE" -H 'Authorization: Bearer eyJ...'
+curl "https://victoryfairy.com/rt/quizzes/submissions?gameId=NOPE" -H 'Authorization: Bearer eyJ...'
 # 404 {"success":false,"data":null,"message":"존재하지 않는 경기입니다."}
 ```
 
@@ -440,14 +440,14 @@ curl "http://localhost:8081/rt/quizzes/submissions?gameId=NOPE" -H 'Authorizatio
 메시지: `"좋아요는 직접 푼 문제에만 할 수 있습니다."`
 
 ```bash
-curl -X POST http://localhost:8081/rt/quizzes/23/like -H 'Authorization: Bearer eyJ...'
+curl -X POST https://victoryfairy.com/rt/quizzes/23/like -H 'Authorization: Bearer eyJ...'
 # {"success":true,"data":{"liked":true,"likeCount":5},"message":null}
 
-curl -X POST http://localhost:8081/rt/quizzes/23/like -H 'Authorization: Bearer eyJ...'
+curl -X POST https://victoryfairy.com/rt/quizzes/23/like -H 'Authorization: Bearer eyJ...'
 # {"success":true,"data":{"liked":false,"likeCount":4},"message":null}
 
 # 제출 이력이 없는(또는 존재하지 않는/미편성) quizId
-curl -X POST http://localhost:8081/rt/quizzes/999999/like -H 'Authorization: Bearer eyJ...'
+curl -X POST https://victoryfairy.com/rt/quizzes/999999/like -H 'Authorization: Bearer eyJ...'
 # {"success":false,"data":null,"message":"좋아요는 직접 푼 문제에만 할 수 있습니다."}
 ```
 
@@ -507,11 +507,11 @@ curl -X POST http://localhost:8081/rt/quizzes/999999/like -H 'Authorization: Bea
 
 ```bash
 # 받았고 아직 안 푼 문제
-curl http://localhost:8081/rt/quizzes/23/vote-count -H 'Authorization: Bearer eyJ...'
+curl https://victoryfairy.com/rt/quizzes/23/vote-count -H 'Authorization: Bearer eyJ...'
 # {"success":true,"data":{"quizId":23,"options":[{"no":0,"text":"안타","voteCount":37},{"no":1,"text":"삼진","voteCount":12}]},"message":null}
 
 # 이미 제출했거나 · 받은 적 없거나 · 존재하지 않는 quizId (셋 다 같은 응답)
-curl http://localhost:8081/rt/quizzes/999999/vote-count -H 'Authorization: Bearer eyJ...'
+curl https://victoryfairy.com/rt/quizzes/999999/vote-count -H 'Authorization: Bearer eyJ...'
 # {"success":true,"data":null,"message":null}
 ```
 

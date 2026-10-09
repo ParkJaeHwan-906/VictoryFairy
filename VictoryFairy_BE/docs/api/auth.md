@@ -1,7 +1,7 @@
 # 인증(auth) API 명세
 
 > **도메인** `auth` — 회원가입 전 사전 검사, 이메일 소유 확인, 가입 전 프로필 이미지 업로드, 가입, 로그인/토큰 수명 관리.
-> **모듈** user (포트 8080) · **경로 접두사** `/api/auth` · **엔드포인트** 10개
+> **모듈** user · **경로 접두사** `/api/auth` · **엔드포인트** 10개
 > **컨트롤러** `user/src/main/java/com/skhynix/user/auth/controller/AuthController.java` (`@RequestMapping("/auth")`)
 > **최종 갱신** 2026-09-18 — **계정 열거(account enumeration) 차단 패치.** `POST /api/auth/email/send-code`는 가입 여부·가입 수단과 무관하게 **항상 200**이 되어(`DUPLICATE_EMAIL`·`SOCIAL_ACCOUNT_ONLY` 409 두 종을 이 경로에서 제거) 상태코드로 가입 여부를 읽어내던 경로를 막았고, `POST /api/auth/email/verify`는 가입 이력 있는 이메일에도 인증번호가 저장되어 오답 시 두 갈래 모두 `INVALID_VERIFICATION_CODE`로 응답이 같아졌다(종전엔 가입 이메일이 `EXPIRED_VERIFICATION_CODE`로 갈려 열거 경로였다). `POST /api/auth/login`은 **외부 계약(401 `INVALID_CREDENTIALS`·본문·헤더)이 불변**이며, 계정을 못 찾아도(미가입·탈퇴) 코드 상수 더미 BCrypt 해시로 검증을 1회 수행해 응답시간으로 가입 여부가 새던 부채널을 닫는 내부 동작만 추가됐다. signup의 409 3종(`DUPLICATE_EMAIL`/`DUPLICATE_TEL`/`DUPLICATE_NICKNAME`)과 oauth 관련 엔드포인트는 이번 패치 범위 밖이라 불변이다. auth 엔드포인트 수(10개)·경로·상태코드는 그대로다. 계약 원본 `docs/requirements/user/login-account-enumeration.md`(승인됨 2026-09-18, USER-LAE-1~13) · `docs/requirements/user/email-verification.md` 개정분(승인됨 2026-09-18, USER-EMV-19~38). (직전: 2026-08-20 — **`POST /api/auth/profile-image` 신규 추가**(가입 전 프로필 이미지 업로드, 이 저장소에서 인증 없이 쓰기가 되는 유일한 경로) + **`POST /api/auth/signup` 요청에 선택 필드 `profileImgUrl` 추가**(가입 성공 시 `temp/` → `user-profile-img/` 이동, 이동 실패는 가입 자체를 막지 않고 값만 `null`). 계약 원본 `docs/requirements/user/profile-image.md`(승인됨 2026-08-20, USER-PI-1~121). (직전: 2026-08-17 `POST /api/auth/refresh`가 **비밀번호 변경 이전에 발급된 refresh 토큰도 거절**하게 됨(`main` 84f6f4a 머지 완료, PR #425 — 응답은 기존 401 `EXPIRED_REFRESH_TOKEN`과 동일, 신규 코드 없음).)) 그 이전 이력은 각 엔드포인트 섹션의 `최종 변경` 줄에 남아 있다.
 > 공통 규약(응답 래퍼·JWT payload·401 4종·403 부재·**토큰 무효화**·**시스템 예외 래핑**)은 [README.md](README.md)를 먼저 볼 것.
@@ -67,7 +67,7 @@
 
 **예시**
 ```bash
-curl -i -X POST http://localhost:8080/api/auth/password/validate \
+curl -i -X POST https://victoryfairy.com/api/auth/password/validate \
   -H 'Content-Type: application/json' \
   -d '{"password":"Passw0rd!"}'
 ```
@@ -127,7 +127,7 @@ curl -i -X POST http://localhost:8080/api/auth/password/validate \
 
 **예시**
 ```bash
-curl -i -X POST http://localhost:8080/api/auth/nickname/validate \
+curl -i -X POST https://victoryfairy.com/api/auth/nickname/validate \
   -H 'Content-Type: application/json' \
   -d '{"nickname":"길동이"}'
 ```
@@ -182,7 +182,7 @@ curl -i -X POST http://localhost:8080/api/auth/nickname/validate \
 
 **예시**
 ```bash
-curl -i -X POST http://localhost:8080/api/auth/nickname/duplicate \
+curl -i -X POST https://victoryfairy.com/api/auth/nickname/duplicate \
   -H 'Content-Type: application/json' \
   -d '{"nickname":"길동이"}'
 ```
@@ -238,7 +238,7 @@ curl -i -X POST http://localhost:8080/api/auth/nickname/duplicate \
 
 **예시**
 ```bash
-curl -i -X POST http://localhost:8080/api/auth/email/send-code \
+curl -i -X POST https://victoryfairy.com/api/auth/email/send-code \
   -H 'Content-Type: application/json' \
   -d '{"email":"user@example.com"}'
 ```
@@ -298,7 +298,7 @@ curl -i -X POST http://localhost:8080/api/auth/email/send-code \
 
 **예시**
 ```bash
-curl -i -X POST http://localhost:8080/api/auth/email/verify \
+curl -i -X POST https://victoryfairy.com/api/auth/email/verify \
   -H 'Content-Type: application/json' \
   -d '{"email":"user@example.com","code":"123456"}'
 ```
@@ -364,7 +364,7 @@ curl -i -X POST http://localhost:8080/api/auth/email/verify \
 
 **예시**
 ```bash
-curl -i -X POST http://localhost:8080/api/auth/profile-image \
+curl -i -X POST https://victoryfairy.com/api/auth/profile-image \
   -F 'appId=b3f1c2a0-...' \
   -F 'image=@/path/to/photo.jpg;type=image/jpeg'
 ```
@@ -460,7 +460,7 @@ true
 
 **예시**
 ```bash
-curl -i -X POST http://localhost:8080/api/auth/signup \
+curl -i -X POST https://victoryfairy.com/api/auth/signup \
   -H 'Content-Type: application/json' \
   -d '{
     "name": "홍길동",
@@ -474,7 +474,7 @@ curl -i -X POST http://localhost:8080/api/auth/signup \
 
 프로필 이미지 포함 예시(`temp/` EP는 `POST /api/auth/profile-image`의 응답에서 얻는다):
 ```bash
-curl -i -X POST http://localhost:8080/api/auth/signup \
+curl -i -X POST https://victoryfairy.com/api/auth/signup \
   -H 'Content-Type: application/json' \
   -d '{
     "name": "홍길동",
@@ -552,7 +552,7 @@ curl -i -X POST http://localhost:8080/api/auth/signup \
 
 **예시**
 ```bash
-curl -i -X POST http://localhost:8080/api/auth/login \
+curl -i -X POST https://victoryfairy.com/api/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"email":"user@example.com","password":"password123"}'
 ```
@@ -588,7 +588,7 @@ refresh 토큰으로 access/refresh 토큰 쌍을 재발급한다(refresh 토큰
 
 **예시**
 ```bash
-curl -i -X POST http://localhost:8080/api/auth/refresh \
+curl -i -X POST https://victoryfairy.com/api/auth/refresh \
   -H 'Content-Type: application/json' \
   -d '{"refreshToken":"eyJ..."}'
 ```
@@ -620,7 +620,7 @@ curl -i -X POST http://localhost:8080/api/auth/refresh \
 
 **예시**
 ```bash
-curl -i -X POST http://localhost:8080/api/auth/logout \
+curl -i -X POST https://victoryfairy.com/api/auth/logout \
   -H 'Content-Type: application/json' \
   -d '{"refreshToken":"eyJ..."}'
 ```

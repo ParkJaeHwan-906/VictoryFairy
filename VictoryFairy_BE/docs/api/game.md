@@ -1,7 +1,7 @@
 # 경기(game) API 명세
 
 > **도메인** `game` — 날짜별 KBO 경기 일정·스코어, 경기별 선발 라인업, 내 활성 응원 구단 경기 목록, 그리고 둘의 **SSE 실시간 구독**.
-> **모듈** user (포트 8080) · **경로 접두사** `/api/games` · **엔드포인트** 5개
+> **모듈** user · **경로 접두사** `/api/games` · **엔드포인트** 5개
 > **컨트롤러** `user/src/main/java/com/skhynix/user/game/controller/GameController.java`(`@RequestMapping("/games")`, `GET`+`GET /support`+`GET /subscribe`+`GET /support/subscribe`) · `GameLineupController.java`(`@RequestMapping("/games/lineup")`)
 > **최종 갱신** 2026-10-09 — **SSE 구독 2개 신규**: `GET /api/games/subscribe`(무인증)·`GET /api/games/support/subscribe`(인증 필수). 연결 직후 `snapshot`(해당 GET 과 같은 13필드 목록), 이후 py-collector 가 경기의 이닝·점수·상태 변화를 감지할 때마다(라이브 폴링 1분) `game-update`. 기존 두 GET 의 계약은 불변 — 이번 변경은 "HTTP 를 SSE 로 교체"가 아니라 **SSE 를 나란히 추가**한 것이다(`docs/requirements/user/game-realtime.md`, USER-GRT-1~22). 같은 날 **정정**: 아래 `inning`/`inningHalf` 설명의 "현재는 항상 `null`"은 2026-08-11 시점 서술이며 더 이상 참이 아니다("이 도메인의 특이사항" 참고). (직전: 2026-08-20 — `date` 형식 위반 400의 응답 형태 정정: `GlobalExceptionHandler.handleTypeMismatch`(공유 컴포넌트 신설)가 `MethodArgumentTypeMismatchException`을 잡아 이제 `ApiResponse` 래퍼가 붙는다(종전엔 래퍼 없음). `GET /api/games`·`GET /api/games/support` 둘 다 해당, 엔드포인트·다른 계약은 불변. (직전: 2026-08-13 `GET /api/games/support` 신규 추가: 인증된 계정의 **활성 응원 구단**(홈 또는 원정)이 참여한 경기만 돌려주는 조회. **이 도메인 최초의 인증 필수 엔드포인트**라 아래 "이 도메인의 특이사항"의 "전부 공개 참조 데이터" 서술이 더 이상 도메인 전체에 참이 아니게 됐다(범위를 `/games`·`/games/lineup` 두 경로로 좁혀 정정). 응답 형식·13필드·정렬·날짜 해석 규칙은 `GET /api/games`와 완전히 동일하며, `GET /api/games`·`GET /api/games/lineup`의 기존 계약은 변경 없음(요구사항 USER-GSP-24).) 그 이전 이력은 각 엔드포인트 섹션의 `최종 변경` 줄에 남아 있다.)
 > 공통 규약(응답 래퍼·401 정책)은 [README.md](README.md)를 먼저 볼 것.
@@ -110,7 +110,7 @@ Authorization 헤더가 있어도(만료·무효 토큰이어도) 이 경로는 
 
 **예시**
 ```bash
-curl -i -X GET "http://localhost:8080/api/games?date=2026-08-01"
+curl -i -X GET "https://victoryfairy.com/api/games?date=2026-08-01"
 ```
 ```json
 {"success":true,"data":[{"gameId":"20260801LGSS02026","stadium":"잠실","homeTeam":"LG","homeTeamId":1,"awayTeam":"삼성","awayTeamId":5,"homeTeamScore":null,"awayTeamScore":null,"gameDate":"2026-08-01T18:30:00","gameState":"SCHEDULED","cancelReason":null,"inning":null,"inningHalf":null}],"message":null}
@@ -129,7 +129,7 @@ curl -i -X GET "http://localhost:8080/api/games?date=2026-08-01"
 
 `inning`/`inningHalf` 실측 예시(2026-08-11, devdb, `GET /api/games?date=2026-08-13`, 200 OK, 대상 경기 전부 `SCHEDULED`) — 응답의 각 항목에 다음 두 키가 그대로 확인됐다(다른 필드 값은 이 실측 대상이 아니므로 생략):
 ```bash
-curl -i -X GET "http://localhost:8080/api/games?date=2026-08-13"
+curl -i -X GET "https://victoryfairy.com/api/games?date=2026-08-13"
 ```
 ```json
 {"inning":null,"inningHalf":null}
@@ -138,12 +138,12 @@ curl -i -X GET "http://localhost:8080/api/games?date=2026-08-13"
 
 `date` 생략 예시(200, `Asia/Seoul` 기준 오늘 경기):
 ```bash
-curl -i -X GET "http://localhost:8080/api/games"
+curl -i -X GET "https://victoryfairy.com/api/games"
 ```
 
 형식 오류 예시(400, 2026-08-20부터 `ApiResponse` 래퍼 붙음 — `date=20260801`처럼 구분자가 없거나 `date=2026-13-01`처럼 존재하지 않는 날짜):
 ```bash
-curl -i -X GET "http://localhost:8080/api/games?date=20260801"
+curl -i -X GET "https://victoryfairy.com/api/games?date=20260801"
 ```
 
 경기 없는 날짜 예시:
@@ -199,7 +199,7 @@ curl -i -X GET "http://localhost:8080/api/games?date=20260801"
 
 응원 구단(LG, `homeTeamId`/`awayTeamId` 값 체계는 [`GET /api/teams`](team.md)의 `id`와 동일)이 원정으로 출전한 경기 1건:
 ```bash
-curl -i -X GET "http://localhost:8080/api/games/support?date=2026-08-01" \
+curl -i -X GET "https://victoryfairy.com/api/games/support?date=2026-08-01" \
   -H "Authorization: Bearer <access-token>"
 ```
 ```json
@@ -213,7 +213,7 @@ curl -i -X GET "http://localhost:8080/api/games/support?date=2026-08-01" \
 
 인증 없이 요청(401):
 ```bash
-curl -i -X GET "http://localhost:8080/api/games/support"
+curl -i -X GET "https://victoryfairy.com/api/games/support"
 ```
 ```json
 {"success":false,"data":null,"message":"인증이 필요합니다."}
@@ -316,7 +316,7 @@ curl -i -X GET "http://localhost:8080/api/games/support"
 
 **예시**(홈·원정 두 팀, 각 팀 투수 1명·타자 9명 예시. 나머지는 `...`로 생략):
 ```bash
-curl -i -X GET "http://localhost:8080/api/games/lineup?gameId=20260801LGSS02026"
+curl -i -X GET "https://victoryfairy.com/api/games/lineup?gameId=20260801LGSS02026"
 ```
 ```json
 {
@@ -350,7 +350,7 @@ curl -i -X GET "http://localhost:8080/api/games/lineup?gameId=20260801LGSS02026"
 
 없는 경기 예시(404):
 ```bash
-curl -i -X GET "http://localhost:8080/api/games/lineup?gameId=존재하지않는값"
+curl -i -X GET "https://victoryfairy.com/api/games/lineup?gameId=존재하지않는값"
 ```
 ```json
 {"success":false,"data":null,"message":"존재하지 않는 경기입니다."}
@@ -358,7 +358,7 @@ curl -i -X GET "http://localhost:8080/api/games/lineup?gameId=존재하지않는
 
 `gameId` 파라미터 누락 예시(400, 실측: 러닝 user 앱, 공통 `ApiResponse` 래퍼):
 ```bash
-curl -i -X GET "http://localhost:8080/api/games/lineup"
+curl -i -X GET "https://victoryfairy.com/api/games/lineup"
 ```
 ```json
 {"success":false,"data":null,"message":"필수 요청 파라미터가 누락되었습니다: gameId"}
