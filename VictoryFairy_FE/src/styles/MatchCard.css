@@ -150,13 +150,29 @@
 /*
  * VS 와 그 위 이닝을 묶는 칸. 이닝은 진행 중 경기에만 생기므로 흐름에서 빼(absolute)
  * 카드 높이에 영향을 주지 않게 한다 — 목록에서 진행 중 카드만 키가 달라지면 줄이 어긋난다.
- * 그래서 이 칸의 크기는 이닝 유무와 무관하게 VS 하나로만 정해진다.
+ * 그래서 이 칸의 크기는 이닝 유무와 무관하게 VS(와 점수)로만 정해진다.
  */
 .match-card__center {
   position: relative;
   display: flex;
   flex-shrink: 0;
   align-items: center;
+  gap: 12px;
+}
+
+/*
+ * 시작한 경기의 점수 — VS 양옆. 너비를 두 자리로 고정해 `2`·`10` 처럼 자릿수가 달라도
+ * VS(와 그 위 이닝)가 가운데에서 밀리지 않고, 점수가 바뀌어도 카드가 흔들리지 않는다.
+ */
+.match-card__score {
+  min-width: 2ch;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-title2);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title2);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
 }
 
 /*
@@ -184,4 +200,18 @@
   font-weight: var(--font-weight-semibold);
   line-height: var(--line-height-tight);
   letter-spacing: var(--letter-spacing-title2);
+}
+
+/*
+ * 좁은 화면(320px 대) — 구단 칸 두 개(83px 고정)에 점수까지 붙으면 카드 밖으로 넘친다.
+ * 칸 너비는 로고 상자라 그대로 두고 간격만 줄인다.
+ */
+@media (max-width: 359px) {
+  .match-card__teams {
+    gap: 8px;
+  }
+
+  .match-card__center {
+    gap: 6px;
+  }
 }
