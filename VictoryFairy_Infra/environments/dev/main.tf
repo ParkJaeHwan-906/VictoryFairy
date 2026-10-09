@@ -67,14 +67,15 @@ module "ecr" {
   source = "../../modules/ecr"
 
   name_prefix = "victoryfairy"
-  # user/quiz 는 BE Gradle 모듈과 1:1 (Dockerfile ARG MODULE).
+  # user/quiz/chat 은 BE Gradle 모듈과 1:1 (Dockerfile ARG MODULE).
+  # ⚠ chat → 리포지토리 이름 victoryfairy-chat. k8s 매니페스트(chat-app Deployment image)가 이 이름을 쓴다.
   # pipeline 은 정제 러너 이미지 — 패턴·Bedrock Lambda 가 같은 이미지를 공유한다(ARCHITECTURE §4).
   # fe 리포지토리는 2026-08-07 제거했다. FE 는 S3+CloudFront 가 서비스하므로 이미지를 pull 할
   # 주체(fe-app 파드)가 없어졌다(docs/fe-hosting.md).
   # ⚠ 여기서 이름을 빼면 리포지토리가 destroy 된다. 이 모듈은 force_delete 를 켜지 않으므로
   #   이미지가 남아 있으면 RepositoryNotEmptyException 으로 apply 가 실패한다 —
   #   aws ecr batch-delete-image 로 먼저 비워야 한다(fe 는 그렇게 처리했다).
-  repository_names = ["user", "quiz", "pipeline"]
+  repository_names = ["user", "quiz", "pipeline", "chat"]
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
