@@ -87,7 +87,7 @@ push(main) + `workflow_dispatch` → 변경 모듈 감지 → Docker 빌드 → 
 - `rollout undo`는 **Deployment만** 되돌린다. 같은 커밋에서 Service·HPA·SA를 함께 바꿨다면 그 변경은
   클러스터에 남으므로 직전 커밋 매니페스트를 수동 재apply해야 한다.
 - **변경 감지 그룹(2026-10-09)**: `shared`(common·domain·**web-support**·Gradle 루트 파일 등) 변경 → user quiz chat 전체 / `user`·`quiz`·`chat` 각자 / **`profanity` → quiz+chat**(user 는 의존 안 함이라 별도 그룹). 종전 shared 에 web-support 가 없어 그 모듈만 고친 커밋이 아무것도 재배포하지 않았다.
-- **chat 은 OPTIONAL 모듈**: `Preflight` 스텝이 모듈→매니페스트 매핑을 맡고, chat 은 매니페스트(`24-chat-app.yaml`)나 ECR 저장소(`victoryfairy-chat`)·접근 권한이 없으면 `::warning::` 만 남기고 빌드·렌더·배포를 전부 건너뛴다(`skip=true`) — BE 와 Infra 가 다른 브랜치에서 main 에 들어오는 머지 순서 안전장치. user·quiz 는 종전대로 매니페스트가 없으면 실패. ⚠ **Infra 만 머지하면 `k8s/**` 경로 필터 때문에 워크플로가 안 돌아** 배포되지 않는다 → `gh workflow run deploy-eks.yml -f modules=chat`. Infra 가 main 에 들어와 ECR·IAM 이 apply 되면 OPTIONAL 에서 chat 을 빼서 같은 대우로 올릴 것. `workflow_dispatch` 기본값은 `user quiz chat`.
+- **Preflight 스텝**은 모듈→매니페스트 매핑만 맡는다. user·quiz·chat 모두 매니페스트가 없으면 즉시 실패한다(chat 첫 배포 때 두었던 건너뛰기 장치는 2026-10-09 가동 후 제거). ⚠ **Infra(`k8s/**`)만 바꾼 머지는 경로 필터에 안 걸려 워크플로가 돌지 않는다** → 매니페스트 변경은 `gh workflow run deploy-eks.yml -f modules=<모듈>` 로 배포. ⚠ **Ingress(`22-ingress.yaml`)는 이 워크플로가 적용하지 않는다** — 바꾸면 `kubectl apply` 로 직접 적용해야 한다(chat Ingress 도 2026-10-09 수동 적용). `workflow_dispatch` 기본값은 `user quiz chat`.
 - ⚠ **`VictoryFairy_Infra/k8s/**`만 바꾼 커밋은 이 워크플로를 트리거하지 않는다** — push 경로 필터가
   `VictoryFairy_BE/**`와 워크플로 자신뿐이다. BE 변경이 뒤따를 때까지 매니페스트만 고쳐서는 반영 안 됨.
 - 로컬 수동 배포 `VictoryFairy_Infra/scripts/deploy-app.sh`도 같은 `sed | kubectl apply -f -` 방식.
