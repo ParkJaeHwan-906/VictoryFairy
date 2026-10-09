@@ -64,7 +64,18 @@ inning_events_enabled = true
 #      생기고 user-app 로그에 수신이 찍히는지 본다.
 # 모르는 env 는 이미지가 무시하므로 먼저 켜도 사고는 안 나지만, 켜진 줄 알고 소비자를
 # 기다리는 헛수고를 막기 위해 순서를 지킨다.
-game_state_events_enabled = false
+#
+# 2026-10-09 에 켰다. 선행 조건 확인:
+#   1. 이미지 — main 머지(#606) 후 CI 가 kbo-collector:5a720f6 을 푸시, 두 함수 ImageUri 가
+#      그 태그로 갱신됨(03:31 UTC, aws lambda get-function 으로 확인). 이 이미지가
+#      _sync_games_for_date 의 game-state-events 분기를 안다(dev_ai #602).
+#   2. 메인 인프라 — environments/dev 를 refine_pipeline·user_irsa 로 target apply(12:5x KST):
+#      큐 victoryfairy-dev-refine-game-state-events(+dlq), 큐 정책, S3 알림 prefix
+#      game-state-events/, user-app IAM ConsumeGameStateEvents·GetGameStateEvents 확인.
+#      user-app(dcc89a5) 리스너의 QueueDoesNotExist 오류가 apply 직후 멈춘 것도 확인.
+#   3. 경기 시간대 수동 호출 확인은 아직이다 — 켠 뒤 첫 라이브 윈도에서 S3
+#      game-state-events/{오늘}/ 문서 생성과 user-app 로그 수신을 본다.
+game_state_events_enabled = true
 
 # --- DB 적재 잡 (records/registrations) — 2026-07-29 조회값 ---
 # 서브넷/SG는 infra 스택 소유. db_host 는 데이터 EC2 프라이빗 IP —
