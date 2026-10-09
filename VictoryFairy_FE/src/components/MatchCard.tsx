@@ -1,11 +1,16 @@
 import type { Game } from '../api';
-import { formatInning, getGameStateDisplay } from '../data/gameState';
+import { formatInning, getGameStateDisplay, getScoreDisplay } from '../data/gameState';
 import { getTeamDisplay } from '../data/kboTeams';
 import { formatGameTime } from '../utils/date';
 import '../styles/MatchCard.css';
 
 type MatchCardProps = {
   game: Game;
+  /**
+   * 시작한 경기의 점수를 VS 양옆에 띄운다. 기본 false — 경기 목록(`GamePage`)만 켠다.
+   * 점수는 SSE 로 실시간 갱신되는 `game` 을 그대로 그린다.
+   */
+  showScore?: boolean;
   /** 카드를 누르면 경기 상세 시트를 연다. */
   onSelect: (game: Game) => void;
 };
@@ -33,11 +38,13 @@ function TeamColumn({ name }: { name: string }) {
  *
  * 왼쪽이 원정, 오른쪽이 홈이다(디자인의 `NC VS LG` @잠실 기준).
  */
-export default function MatchCard({ game, onSelect }: MatchCardProps) {
+export default function MatchCard({ game, showScore = false, onSelect }: MatchCardProps) {
   // 취소 경기면 칩 문구가 취소 사유로 바뀐다.
   const state = getGameStateDisplay(game);
-  // 진행 중 경기에만 붙는 이닝 문구. 값이 없으면(지금은 대부분) null 이라 VS 만 남는다.
+  // 진행 중 경기에만 붙는 이닝 문구. 값이 없으면 null 이라 VS 만 남는다.
   const inning = formatInning(game);
+  // 시작 전·취소 경기는 null 이라 VS 만 남는다.
+  const score = showScore ? getScoreDisplay(game) : null;
 
   return (
     <li className="match-card">
@@ -62,7 +69,18 @@ export default function MatchCard({ game, onSelect }: MatchCardProps) {
           */}
           <span className="match-card__center">
             {inning && <span className="match-card__inning">{inning}</span>}
+            {/* 왼쪽 점수가 원정, 오른쪽이 홈이다 — 구단 칸의 좌우와 같다. */}
+            {score && (
+              <span className="match-card__score" aria-label={`원정 ${score.away}점`}>
+                {score.away}
+              </span>
+            )}
             <span className="match-card__vs">VS</span>
+            {score && (
+              <span className="match-card__score" aria-label={`홈 ${score.home}점`}>
+                {score.home}
+              </span>
+            )}
           </span>
           <TeamColumn name={game.homeTeam} />
         </span>

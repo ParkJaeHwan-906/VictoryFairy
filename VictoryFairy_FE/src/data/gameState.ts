@@ -55,9 +55,9 @@ const INNING_HALF_LABEL: Record<string, string> = {
  * 다른 상태에서는 서버도 두 값을 채우지 않지만, 상태를 여기서 한 번 더 막아 두면
  * 호출부가 끝난 경기에 이닝을 얹는 실수를 할 수 없다(`cancelReason` fallback 과 같은 논리다).
  *
- * ⚠️ **지금은 진행 중 경기라도 거의 항상 `null` 이 돌아온다** — 컬럼만 생겼고 값을 채우는
- * py-collector 구현이 아직 없다(docs/game.md). 값이 없는 쪽이 당분간 정상 경로이므로,
- * 호출부는 `null` 을 오류가 아니라 "표시할 것이 없다"로 조용히 다뤄야 한다.
+ * 2026-08-12 부터 수집기가 진행 중 경기의 이닝을 채운다(docs/game.md 2026-10-09 정정).
+ * 그래도 못 채운 구간이 있을 수 있으니, 호출부는 `null` 을 오류가 아니라
+ * "표시할 것이 없다"로 조용히 다뤄야 한다.
  *
  * 한쪽만 온 수집 중간 상태도 다룬다 — 번호만 있으면 `5회` 로 줄이고, 초/말만 있고 번호가
  * 없으면 그것만으로는 뜻이 서지 않으므로 `null` 이다.
@@ -74,6 +74,25 @@ export function formatInning(
 
   const half = inningHalf ? (INNING_HALF_LABEL[inningHalf] ?? '') : '';
   return `${inning}회${half}`;
+}
+
+/** 점수를 보여 줄 상태 — 경기가 시작된 뒤(진행 중·종료·무승부)만. */
+const SCORED_STATES = new Set<string>(['IN_PROGRESS', 'FINISHED', 'DRAW']);
+
+/**
+ * 카드에 띄울 점수. 시작 전·취소·모르는 상태면 `null` 이라 VS 만 남는다.
+ *
+ * `formatInning` 과 같은 이유로 상태를 여기서 한 번 더 막는다 — 시작 전 경기에 `0 : 0` 이
+ * 뜨면 "경기가 시작했다"로 읽힌다. 한쪽 점수만 온 수집 중간 상태도 그리지 않는다.
+ */
+export function getScoreDisplay(
+  game: Pick<Game, 'gameState' | 'homeTeamScore' | 'awayTeamScore'>,
+): { away: number; home: number } | null {
+  if (!SCORED_STATES.has(game.gameState)) return null;
+
+  const { awayTeamScore: away, homeTeamScore: home } = game;
+  if (away === null || home === null) return null;
+  return { away, home };
 }
 
 /**
