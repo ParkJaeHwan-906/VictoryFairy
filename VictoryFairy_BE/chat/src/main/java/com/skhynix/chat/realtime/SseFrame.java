@@ -2,6 +2,7 @@ package com.skhynix.chat.realtime;
 
 import com.skhynix.chat.shared.ChatMessageView;
 import java.io.IOException;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import org.springframework.http.MediaType;
@@ -14,6 +15,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  *   <li>{@code messages}: 배열, {@code id:} = 배열 마지막 msgId(CHAT-GC-37·87)</li>
  *   <li>{@code deleted}: {@code {"msgId":n}}, {@code id:} 없음 — 삭제는 Last-Event-ID 워터마크를 움직이지 않는다(CHAT-GC-91)</li>
  *   <li>{@code reset}: {@code {}}(CHAT-GC-39·40·42)</li>
+ *   <li>{@code likes}: 중복 없는 구단 코드 문자열 배열, {@code id:} 없음 — Last-Event-ID 복구 대상이 아니다(CHAT-LK-27·28)</li>
  *   <li>하트비트: 주석 {@code :ping}, {@code data:} 아님(CHAT-GC-32)</li>
  *   <li>연결 확인: 주석 {@code :connected}. 구독 직후 첫 프레임으로 응답 헤더를 내보낸다</li>
  * </ul>
@@ -25,6 +27,7 @@ public record SseFrame(String name, String id, Object data) {
     public static final String MESSAGES = "messages";
     public static final String DELETED = "deleted";
     public static final String RESET = "reset";
+    public static final String LIKES = "likes";
 
     public static final SseFrame PING = new SseFrame(null, null, "ping");
     public static final SseFrame CONNECTED = new SseFrame(null, null, "connected");
@@ -37,6 +40,11 @@ public record SseFrame(String name, String id, Object data) {
 
     public static SseFrame deleted(long msgId) {
         return new SseFrame(DELETED, null, Map.of("msgId", msgId));
+    }
+
+    /** @param teamCodes 비어 있지 않은 구단 코드. 순서는 계약이 아니다 */
+    public static SseFrame likes(Collection<String> teamCodes) {
+        return new SseFrame(LIKES, null, List.copyOf(teamCodes));
     }
 
     public static SseFrame reset() {
