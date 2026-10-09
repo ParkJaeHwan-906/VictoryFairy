@@ -315,25 +315,36 @@ volume:
                        # 어느 쪽도 이 셋을 쓰지 않으므로(perGame은 2026-10-03부터
                        # 로스터 기반 템플릿 자체를 금지, common은 LEAGUE scope 템플릿만
                        # 씀) 난이도 슬롯과 겹쳐 충돌할 자리가 없다.
-    EASY: 54          # 2026-10-07 — 30 → 54 상향(목표 재조정: 팀당 150 → 200 이상,
-                      # 아래 "2026-10-07 재조정" 절 참고). ×1.8 균등 스케일.
-    MEDIUM: 36        # 2026-10-07 — 20 → 36 상향. ×1.8 균등 스케일 — 과거 10→20
-                      # 변경 때의 "TEAMMATE_STAT_COMPARE가 슬롯 캡(10)에 바로
-                      # 막혔다"는 진단은 여전히 유효하지만, 같은 실측(아래 참고)에서
-                      # **그 캡 자체가 병목이 아니라 서브에이전트가 가능한 조합을
-                      # 다 안 뽑고 멈춘 것**임이 추가로 확인됐다(이론적 최대 대비
-                      # 실제 생성이 팀당 2~10%). 그래서 이번엔 숫자만 올리는 게
-                      # 아니라 ROUTINE.md §3-2에 "전부 다 뽑아라"를 명문화했다(해당
-                      # 절 참고) — 숫자 상향은 그 절차 수정이 효과를 낼 때를 대비한
-                      # 상한 확보일 뿐, 절차 수정 없이 숫자만 올려서는 안 채워진다.
-    HARD: 104         # 2026-10-07 — 44 → 104 상향. ×1.8(79.2→80 반올림) + 나머지
-                      # 24를 HARD에 더함(200 목표 달성을 위한 잔여분을 CAREER_PATH
-                      # 로스터 재료가 가장 풍부한 HARD에 배정 — 아래 "재료 상한"
-                      # 절의 팀당 위키 로스터 63~89명 추정, 2026-08-12 실측 기준,
-                      # 재검증 안 됨). EASY·HARD는 TEAMMATE_STAT_COMPARE 외에도
-                      # 로스터 기반 템플릿(MEME_ORIGIN/CAREER_PATH)이 받치고 있어
-                      # MEDIUM보다 상향 여력이 크다고 판단했다.
-    EXPERT: 6         # 2026-10-07 — **그대로 유지**(억지로 올리지 않음). RELATION_LINK
+    # ── 2026-10-09: EASY/MEDIUM/HARD 균등화(사람 피드백 반영 — "HARD만
+    # 늘리기보다 EASY·MEDIUM도 균일하게") ──
+    # 2026-10-07 배분(EASY54/MEDIUM36/HARD104)은 "CAREER_PATH 로스터 재료가
+    # 가장 풍부하다"는 **검증 안 된 가정**으로 잔여분을 HARD에 전부 몰았다.
+    # 2026-10-09 실측이 그 가정을 반증했다 — 예를 들어 삼성 유닛은 EASY raw
+    # 목표 81건 중 10건, HARD raw 목표 156건 중 2건만 생성(둘 다 똑같이
+    # 저조, HARD가 더 낫지 않았다). 그리고 같은 날 두 가지 실제 원인이
+    # 밝혀졌다: (1) `player_season_stat` export가 2026-10-07 이후 자동
+    # 갱신이 끊겨 있었다(인프라 버그, PR #600에서 EventBridge 룰 추가로
+    # 수정 — TEAMMATE_STAT_COMPARE가 전 난이도에서 2일간 재료 고갈처럼
+    # 보였던 진짜 원인), (2) MEME_ORIGIN·CAREER_PATH·RELATION_LINK·
+    # RECORD_OX·INTERNATIONAL_CALLUP·FRANCHISE_RECORD(위키 서사 로스터
+    # 템플릿 전부)에 TEAMMATE_STAT_COMPARE 같은 "전부 다 뽑아라" 강제가
+    # 없었다(ROUTINE.md §3-3 신설로 수정). 즉 HARD를 특별히 더 받쳐줄
+    # 근거가 사라졌으므로 EASY/MEDIUM/HARD를 거의 동률로 되돌린다 —
+    # EXPERT만 예외(RELATION_LINK 엣지 수 1~12건은 물리적 상한이라
+    # 그대로 유지, 아래 EXPERT 주석 참고). 세 난이도 전부 INTERNATIONAL_CALLUP
+    # (MEDIUM)·FRANCHISE_RECORD(HARD) 신설(#594)로 1차 재료가 하나씩
+    # 늘었으니, §600+§3-3 효과가 실제로 나는지는 다음 실행 실측으로 재확인할 것.
+    EASY: 65          # 54 → 65. MEME_ORIGIN + TEAMMATE_STAT_COMPARE(hits/
+                      # strikeouts) + STREAK_CURRENT(대체).
+    MEDIUM: 65        # 36 → 65(상향 폭이 가장 크다 — 기존에 유독 적었던
+                      # 몫을 균등화 대상으로 우선 채움). RECORD_OX +
+                      # INTERNATIONAL_CALLUP(신설) + TEAMMATE_STAT_COMPARE
+                      # (avg/era) + HOME_AWAY_SPLIT(대체) — 1차 재료가 이제
+                      # 넷으로 EASY·HARD와 대등해졌다.
+    HARD: 64          # 104 → 64(하향 — 위 "균등화" 설명 참고, 특별 대우
+                      # 근거 소멸). CAREER_PATH + FRANCHISE_RECORD(신설) +
+                      # TEAMMATE_STAT_COMPARE(rbi/whip) + RECENT_VS_EARLY(대체).
+    EXPERT: 6         # 그대로 유지(억지로 올리지 않음). RELATION_LINK
                       # 엣지가 팀별 1~12건뿐이라(아래 "재료 상한" 절) 전체 목표를
                       # 올려도 이 난이도의 물리적 재료는 그대로다.
   # 생성 단계에서 만들 후보 배수(검증 폐기율 흡수). 20문항 슬롯이면 30개 생성.
