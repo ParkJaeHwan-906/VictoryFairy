@@ -38,3 +38,8 @@ def test_inning_event_key_uses_date_game_inning_half():
     # half 가 다르면(초/말) 다른 키 — 같은 이닝이라도 공수가 다르면 덮어쓰지 않는다
     assert keys.inning_event_key("2026-09-20", "g1", 5, 0) != \
         keys.inning_event_key("2026-09-20", "g1", 5, 1)
+
+
+def test_game_state_event_key_uses_date_game_and_observed_at():
+    assert (keys.game_state_event_key("2026-07-10", "20260710OBLG02026", "20260710T093000123456Z")
+            == "game-state-events/2026-07-10/20260710OBLG02026/20260710T093000123456Z.json")

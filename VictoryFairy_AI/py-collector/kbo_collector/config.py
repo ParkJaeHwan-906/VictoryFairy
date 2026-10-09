@@ -42,6 +42,13 @@ class Settings(BaseSettings):
     # 준비되기 전에는 off로 둔다.
     inning_events_enabled: bool = Field(
         default=False, validation_alias="COLLECTOR_INNING_EVENTS_ENABLED")
+    # games_sync 라이브 폴링에서 경기의 이닝·점수·상태 중 하나라도 직전 폴링과 다르면
+    # 그 경기의 현재 스냅샷을 S3 game-state-events/ 에 기록할지. 위 inning_events 와
+    # 별개의 스위치·별개의 prefix 다 — 저쪽은 "막 끝난 이닝의 안타"(퀴즈 정산용),
+    # 이쪽은 "지금 상태"(BE user-app 의 경기 SSE 푸시용)라 소비자가 다르다.
+    # 꺼져 있으면(기본) games_sync 는 기존 동작과 100% 동일하다.
+    game_state_events_enabled: bool = Field(
+        default=False, validation_alias="COLLECTOR_GAME_STATE_EVENTS_ENABLED")
 
     # --- community ---
     targets_file: str = Field(default="config/targets.yaml", validation_alias="COLLECTOR_TARGETS_FILE")
