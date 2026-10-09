@@ -1,11 +1,11 @@
 # 경기별 채팅(game-chat) API 명세
 
-> 소속 모듈 `chat` · 경로 접두사 `/chat` (`server.servlet.context-path`) · 엔드포인트 7개
-> 최종 갱신: 2026-10-09 (신규 문서 — chat 모듈 최초 명세)
+> 소속 모듈 `chat` · 경로 접두사 `/chat` (`server.servlet.context-path`) · 엔드포인트 8개
+> 최종 갱신: 2026-10-09 (좋아요 `POST /chat/rooms/{gameId}/likes` 신규 + SSE `likes` 이벤트 추가)
 > 운영 base URL: `https://victoryfairy.com/chat` (2026-10-09 운영 가동)
 > 공통 규약(응답 래퍼·인증·401 정책)은 [README.md](README.md) 참고.
-> 대상 컨트롤러: `chat/src/main/java/com/skhynix/chat/room/controller/ChatRoomController.java`, `message/controller/ChatMessageController.java`, `subscription/controller/ChatSubscriptionController.java` (+ `SubscriptionExceptionHandler`)
-> 계약 원본: `docs/requirements/chat/game-chat.md` (CHAT-GC-*, 승인 2026-10-09)
+> 대상 컨트롤러: `chat/src/main/java/com/skhynix/chat/room/controller/ChatRoomController.java`, `message/controller/ChatMessageController.java`, `subscription/controller/ChatSubscriptionController.java` (+ `SubscriptionExceptionHandler`), `like/controller/ChatLikeController.java`
+> 계약 원본: `docs/requirements/chat/game-chat.md` (CHAT-GC-*, 승인 2026-10-09) · 좋아요는 `docs/requirements/chat/game-chat-likes.md` (CHAT-LK-*, 승인 2026-10-09)
 > 파일명 주의: `chat.md`는 기존 quiz 모듈의 `/rt/chat/**` 문서가 이미 쓰고 있어(병행 운영 중, 수정 금지) 이 문서는 `game-chat.md`로 둔다.
 
 ## 엔드포인트 목록
@@ -19,14 +19,15 @@
 | POST | [/chat/rooms/{gameId}/messages](#post-chatroomsgameidmessages) | **202** | 메시지 전송 |
 | GET | [/chat/rooms/{gameId}/messages](#get-chatroomsgameidmessages) | 200 | 히스토리(커서) |
 | POST | [/chat/rooms/{gameId}/messages/{msgId}/report](#post-chatroomsgameidmessagesmsgidreport) | 200 | 신고 → 즉시 blind |
+| POST | [/chat/rooms/{gameId}/likes](#post-chatroomsgameidlikes) | **202** (본문 없음) | 응원 애니메이션 신호 |
 
 ## 이 도메인의 특이사항
 
-- **7개 전부 인증 필수.** `SecurityConfig` permitAll은 `/`, `/error`, `GET /actuator/health/**`뿐이고 나머지는 `anyRequest().authenticated()`. JWT Bearer, user와 같은 secret·같은 `JwtAuthenticationFilter`(비밀번호 변경 이전 발급 토큰 401 규칙도 동일). 인증 실패는 401 `UNAUTHENTICATED`.
-- **응답은 SSE 구독(GET)을 뺀 6개가 `ApiResponse<T>`** (`{success,data,message}`).
+- **8개 전부 인증 필수.** `SecurityConfig` permitAll은 `/`, `/error`, `GET /actuator/health/**`뿐이고 나머지는 `anyRequest().authenticated()`. JWT Bearer, user와 같은 secret·같은 `JwtAuthenticationFilter`(비밀번호 변경 이전 발급 토큰 401 규칙도 동일). 인증 실패는 401 `UNAUTHENTICATED`.
+- **응답은 SSE 구독(GET)과 좋아요(POST, 202 본문 없음)를 뺀 6개가 `ApiResponse<T>`** (`{success,data,message}`). 좋아요의 성공은 래퍼 없는 raw 202다(실패는 래퍼).
 - `gameId`는 `GET /api/games`의 `gameId`(= `naver_game_id`)와 같은 값이다. **응원 구단 검사는 어디에도 없다**(구단 가드 없음).
-- **방의 존재 = Redis 방 메타.** 메타가 없어도 상세·구독·전송은 "오늘 경기"면 그 자리에서 방을 만든다. 히스토리·신고는 만들지 않아 메타가 없으면 404다. 경기가 오늘이 아니거나 없으면 404.
-- **Redis 장애 시 방 존재 확인 단계에서 503** `CHAT_BROKER_UNAVAILABLE`. (방 목록은 Redis를 보지 않아 200)
+- **방의 존재 = Redis 방 메타.** (좋아요는 예외 — 방 존재를 확인하지 않는다.) 메타가 없어도 상세·구독·전송은 "오늘 경기"면 그 자리에서 방을 만든다. 히스토리·신고는 만들지 않아 메타가 없으면 404다. 경기가 오늘이 아니거나 없으면 404. (지연 생성은 상세·구독·전송에만 해당하고, 좋아요는 방 메타를 만들지도 읽지도 않는다.)
+- **Redis 장애 시 방 존재 확인 단계에서 503** `CHAT_BROKER_UNAVAILABLE`. (방 목록은 Redis를 보지 않아 200, 좋아요는 방 확인 단계가 없어 Redis가 죽어도 항상 202)
 - **`msgId` = Kafka 오프셋(Long)**: 연속이 아니다(띄엄띄엄). 크기 비교로만 쓸 것.
 - 시각 `sentAt`: 오프셋 포함 ISO-8601 밀리초 3자리, 예 `2026-10-09T19:03:21.482+09:00`(Asia/Seoul). 변환 없이 표시.
 - 표준 `EventSource`는 `Authorization` 헤더를 못 실어 401이다 → fetch 기반 SSE 폴리필로 구독.
@@ -229,6 +230,37 @@ curl 'https://victoryfairy.com/chat/rooms/20261009HTLG0/messages?cursor=7100' -H
 curl -X POST https://victoryfairy.com/chat/rooms/20261009HTLG0/messages/7100/report -H 'Authorization: Bearer <accessToken>'
 ```
 
+## POST /chat/rooms/{gameId}/likes
+> 최종 변경: 2026-10-09 — 신규 추가
+
+경기를 보다가 누르는 응원 애니메이션 신호. 개수·기록 없이 Redis pub/sub으로 흘려보내고, 그 경기를 구독 중인 SSE 연결에 `likes` 이벤트로 전달된다. **어디에도 저장·집계하지 않는다.**
+
+**인증** 필요 · **경로 변수** `gameId`(String, `^[A-Za-z0-9]{1,20}$`) · **요청 본문 없음** (본문·`Content-Type`을 읽지 않으므로 무엇을 보내도 415·400이 나지 않는다)
+
+**응답 202** 본문 없음(`ApiResponse` 래퍼 아님). `response.json()`을 하면 파싱 오류가 난다.
+
+**202는 "받았다"일 뿐 "전달됐다"가 아니다 — 클라이언트는 응답으로 성공 여부를 판단하지 말 것.** 다음은 전부 조용히 버리고 202다:
+- 같은 사용자 초당 10회 초과(파드 메모리 계수, 429 없음)
+- 응원 구단 조회 실패·응원 구단 없음(`SUPPORT_TEAM_REQUIRED`를 내지 않음)
+- Redis 장애·발행 실패(재시도 없음), 발행 대기열 포화
+- 존재하지 않거나 오늘이 아닌 gameId (방 존재를 확인하지 않으므로 202, 구독자가 없어 아무에게도 전달되지 않음)
+
+응원 구단과 경기 구단의 일치도 보지 않는다(구단 가드 없음). 응원 구단 변경은 서버 캐시 TTL(최대 5분) 뒤에 반영된다.
+
+**판정 순서**: 401(인증) → 400(gameId 형식) → 응원 구단 조회 → 속도 제한 → 발행 → 202.
+
+**실패** (404·429·503은 오지 않는다)
+| 상태 | ErrorCode | 조건 |
+|---|---|---|
+| 400 | - | gameId가 형식 위반(21자 이상·영숫자 외). 본문 `{"success":false,"data":{"gameId":"gameId는 1~20자의 영문·숫자여야 합니다."},"message":"입력값이 올바르지 않습니다."}` |
+| 401 | UNAUTHENTICATED | 인증 실패 (미인증이면 형식 위반이어도 401이 먼저) |
+
+**예시**
+```bash
+curl -i -X POST https://victoryfairy.com/chat/rooms/20261009HTLG0/likes -H 'Authorization: Bearer <accessToken>'
+# HTTP/1.1 202  (본문 없음)
+```
+
 ---
 
 ## SSE 이벤트 (`GET .../subscribe`)
@@ -239,6 +271,7 @@ curl -X POST https://victoryfairy.com/chat/rooms/20261009HTLG0/messages/7100/rep
 | `event: messages` | `data:` = `ChatMessageView[]`(msgId 오름차순) | **배열 마지막 msgId** | 새 메시지. 실시간은 최대 150ms 배칭 |
 | `event: deleted` | `data: {"msgId":n}` | **없음** | blind된 메시지 → 화면에서 제거. `id:`가 없어 Last-Event-ID로 재생되지 않는다(끊긴 사이의 deleted는 복구 불가, 히스토리 재조회로 수렴) |
 | `event: reset` | `data: {}` | 없음 | 화면을 비우고 히스토리 재조회 |
+| `event: likes` | `data:` = 구단 코드(`teams.code`, 예 `HT`·`LG`) 문자열 배열, 중복 없음 | **없음** | 응원 애니메이션 신호(아래 "`likes` 전달 규칙"). 개수 없음, 본인 좋아요 포함 |
 | 주석 `:ping` | 주석 | - | 15초마다 하트비트 |
 
 ```
@@ -251,8 +284,18 @@ data: [{"msgId":7120,"content":"가자","senderNickname":"곰","teamCode":"OB","
 event: deleted
 data: {"msgId":7120}
 
+event: likes
+data: ["HT","LG"]
+
 :ping
 ```
+
+**`likes` 전달 규칙**
+- 방(gameId)별 leading-edge 스로틀(창 100ms, 서버 설정). **조용한 방의 첫 좋아요는 즉시** 그 구단 하나(`["HT"]`)로 나가고 창이 열린다. 창이 열려 있는 동안 들어온 좋아요는 구단을 **중복 없이 묶어 창 끝에 한 번** 보낸다(그때 새 창이 열림). 창 끝에 모인 게 없으면 아무것도 보내지 않는다(`[]` 프레임 없음). 연타 중에는 구독자당 약 초당 10회가 상한이다.
+- `data`는 구단 코드 배열뿐이다 — 개수·발신자 정보 없음, 배열 순서는 의미 없음. 프론트는 **받을 때마다 배열에 든 구단의 애니메이션을 재생**한다.
+- `id:`가 없어 `Last-Event-ID`를 움직이지 않고, **재접속 복구도 없다**(끊긴 사이·파드 재시작·Redis 장애 중의 좋아요는 유실). 차단 필터 없음.
+- **본인 좋아요도 되돌아온다**(`messages`와 다름). 클릭 시 로컬 애니메이션도 띄우면 두 번 재생될 수 있으니 하나만 고를 것.
+- `likes` 리스너를 등록하지 않은 클라이언트는 무시한다. 다만 폴리필이 `event` 이름을 보지 않고 모든 이벤트를 하나의 핸들러로 받으면 `likes`의 문자열 배열을 메시지 배열로 오해할 수 있다(확인 필요).
 
 **Last-Event-ID 복구**
 - 헤더가 유효하면 그 msgId **초과**분을 Stream에서 읽어 `messages` 이벤트로 보낸다. 한 페이지(최대 500건)가 이벤트 하나이고 `id:`는 그 페이지의 마지막 msgId. 최대 5페이지 = **최대 2,500건**.
