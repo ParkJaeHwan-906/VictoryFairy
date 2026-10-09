@@ -9,6 +9,9 @@ public enum ErrorCode {
     DUPLICATE_EMAIL(409, "이미 사용 중인 이메일입니다."),
     DUPLICATE_TEL(409, "이미 사용 중인 전화번호입니다."),
     DUPLICATE_NICKNAME(409, "이미 사용 중인 닉네임입니다."),
+    // 경기별 채팅 dedup 선점(PENDING) 중 같은 clientMsgId 재요청 — 첫 요청이 아직 Kafka ack 를 기다린다.
+    // 에러가 아니라 "잠시 뒤 같은 clientMsgId 로 재시도"하라는 신호다.
+    CHAT_MESSAGE_IN_FLIGHT(409, "같은 메시지를 처리하고 있습니다. 잠시 후 다시 시도해 주세요."),
 
     // 401 Unauthorized
     UNAUTHENTICATED(401, "인증이 필요합니다."),
@@ -217,6 +220,12 @@ public enum ErrorCode {
     // 창이 30분 고정이라 "잠시 후"가 문자 그대로 사실이다 — 갱신형(sliding)으로 바꾸면 계속 올리는
     // 사용자가 영영 풀리지 않아 이 문구가 거짓이 된다.
     PROFILE_IMAGE_UPLOAD_LIMIT_EXCEEDED(429, "이미지 등록 횟수를 초과했습니다. 잠시 후 다시 시도해 주세요."),
+
+    // 429 Too Many Requests - 경기별 채팅 전송(사용자 단위 1초 고정 창)
+    CHAT_RATE_LIMIT_EXCEEDED(429, "메시지를 너무 빠르게 보내고 있습니다. 잠시 후 다시 시도해 주세요."),
+
+    // 503 Service Unavailable - 경기별 채팅의 Kafka·Redis 장애 공용(재시도 대상)
+    CHAT_BROKER_UNAVAILABLE(503, "채팅 서버가 일시적으로 응답하지 않습니다. 잠시 후 다시 시도해 주세요."),
 
     // 500 Internal Server Error - 처리되지 않은 예외의 최종 방어선
     // (web-support GlobalExceptionHandler.handleUnexpected). 이 코드를 BusinessException 으로 던지지 말 것 —

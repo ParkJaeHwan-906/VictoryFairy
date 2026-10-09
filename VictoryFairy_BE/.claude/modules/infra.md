@@ -1,7 +1,7 @@
 # infra 모듈 (배포 · 인프라)
 
 > 이 파일은 infra/배포 작업 시에만 로드되는 슬림 컨텍스트다.
-> 최종 업데이트: 2026-08-12
+> 최종 업데이트: 2026-10-09
 >
 > **서빙은 EKS다.** EC2+docker-compose 배포 경로는 2026-07-27 폐기됐다 — 대상 인스턴스가 이미
 > 사라져 있었고 워크플로도 실패만 하고 있었다. `deploy.yml`·`docker-compose.prod.yml`·`nginx.conf`를
@@ -12,7 +12,7 @@
 ## 서빙 구조
 
 ```
-victoryfairy.com ──HTTPS──► ALB ──► user-app(8080) / quiz-app(8081) 파드
+victoryfairy.com ──HTTPS──► ALB ──► user-app(8080) / quiz-app(8081) / chat-app(8082, 신설) 파드
                                           │
                                           └──► EC2 자체 호스팅 MySQL (victoryfairy-mysql-dev, 10.0.0.14)
 ```
@@ -33,7 +33,8 @@ victoryfairy.com ──HTTPS──► ALB ──► user-app(8080) / quiz-app(80
   - `victoryfairy-devdb-dev` — private `10.0.0.163` / public `52.78.153.242`. BE 레포 `.env`의 `DB_HOST`가
     가리키는 **로컬 개발용**(매일 새벽 프로덕션 덤프를 복원).
   - 두 DB는 데이터가 다르다.
-- **레지스트리/CI**: ECR(`victoryfairy-user`, `victoryfairy-quiz`) + GitHub Actions keyless(OIDC).
+- **레지스트리/CI**: ECR(`victoryfairy-user`, `victoryfairy-quiz`, `victoryfairy-chat`) + GitHub Actions keyless(OIDC).
+- **chat 앱(2026-10-09)**: 매니페스트 `k8s/24-chat-app.yaml` 은 **Infra 브랜치에 있고 BE 쪽 main 에는 아직 없다**(ECR `victoryfairy-chat`·CI 역할 접근 권한은 terraform apply 가 선행 조건). ALB 는 경로 rewrite 불가라 Ingress path 는 앱 context-path `/chat` 과 일치해야 하고 헬스체크는 `/chat/actuator/health/readiness`. 앱은 `KAFKA_BOOTSTRAP_SERVERS` 가 prod 필수(기본값 없음). **EKS 실배포 미검증.**
 
 ## 앱 설정 주입
 
@@ -68,7 +69,7 @@ AWS Load Balancer Controller + ExternalDNS(`k8s/23-external-dns.yaml`, apex A(AL
 
 ## CI/CD
 
-**`deploy-eks.yml` 하나뿐이다**(저장소 루트 `.github/workflows/`).
+**`deploy-eks.yml` 하나뿐이다**(저장소 루트 `.github/workflows/`). 모듈은 user·quiz·chat.
 push(main) + `workflow_dispatch` → 변경 모듈 감지 → Docker 빌드 → ECR push(**커밋 SHA 7자리**, 태그 IMMUTABLE)
 → 매니페스트(`k8s/20-user-app.yaml`·`21-quiz-app.yaml`) 렌더+치환 검증 → **`kubectl apply -f`**(파일 전체)
 → 블루-그린 롤아웃(`maxSurge 100%/maxUnavailable 0`) → **실패 시 자동 `rollout undo`**.
@@ -85,6 +86,8 @@ push(main) + `workflow_dispatch` → 변경 모듈 감지 → Docker 빌드 → 
   실패(매니페스트 누락·치환 실패)에서도 `rollout undo`가 돌아 멀쩡한 파드를 되돌린다. **합치지 말 것.**
 - `rollout undo`는 **Deployment만** 되돌린다. 같은 커밋에서 Service·HPA·SA를 함께 바꿨다면 그 변경은
   클러스터에 남으므로 직전 커밋 매니페스트를 수동 재apply해야 한다.
+- **변경 감지 그룹(2026-10-09)**: `shared`(common·domain·**web-support**·Gradle 루트 파일 등) 변경 → user quiz chat 전체 / `user`·`quiz`·`chat` 각자 / **`profanity` → quiz+chat**(user 는 의존 안 함이라 별도 그룹). 종전 shared 에 web-support 가 없어 그 모듈만 고친 커밋이 아무것도 재배포하지 않았다.
+- **chat 은 OPTIONAL 모듈**: `Preflight` 스텝이 모듈→매니페스트 매핑을 맡고, chat 은 매니페스트(`24-chat-app.yaml`)나 ECR 저장소(`victoryfairy-chat`)·접근 권한이 없으면 `::warning::` 만 남기고 빌드·렌더·배포를 전부 건너뛴다(`skip=true`) — BE 와 Infra 가 다른 브랜치에서 main 에 들어오는 머지 순서 안전장치. user·quiz 는 종전대로 매니페스트가 없으면 실패. ⚠ **Infra 만 머지하면 `k8s/**` 경로 필터 때문에 워크플로가 안 돌아** 배포되지 않는다 → `gh workflow run deploy-eks.yml -f modules=chat`. Infra 가 main 에 들어와 ECR·IAM 이 apply 되면 OPTIONAL 에서 chat 을 빼서 같은 대우로 올릴 것. `workflow_dispatch` 기본값은 `user quiz chat`.
 - ⚠ **`VictoryFairy_Infra/k8s/**`만 바꾼 커밋은 이 워크플로를 트리거하지 않는다** — push 경로 필터가
   `VictoryFairy_BE/**`와 워크플로 자신뿐이다. BE 변경이 뒤따를 때까지 매니페스트만 고쳐서는 반영 안 됨.
 - 로컬 수동 배포 `VictoryFairy_Infra/scripts/deploy-app.sh`도 같은 `sed | kubectl apply -f -` 방식.
@@ -101,15 +104,16 @@ push(main) + `workflow_dispatch` → 변경 모듈 감지 → Docker 빌드 → 
 
 ## 로컬 개발
 
-- `docker-compose.yml` — `mysql:8.0`(3306, `mysql-data` 볼륨) + `redis:7.2-alpine`(6379). 둘 다 healthcheck 있음.
-  `user`·`quiz`는 `profiles: ["prod"]` 뒤에 숨어 있어 **기본 실행은 DB만 뜬다.** 앱까지 띄우려면 `--profile prod`.
+- `docker-compose.yml` — `mysql:8.0`(3306, `mysql-data` 볼륨) + `redis:7.2-alpine`(6379, **AOF `appendonly yes`/`everysec`** — 채팅 히스토리 보존 전제, 볼륨은 없어 재생성 시 휘발) + **`kafka`(`apache/kafka:3.9.1` KRaft 단일 노드, `kafka-data` 볼륨)**.
+  Kafka 리스너 2개: 호스트 `bootRun` 용 `localhost:29092`(EXTERNAL) / 컨테이너 네트워크용 `kafka:9092`(INTERNAL). 토픽 자동 생성 끔 → **`kafka-init`(일회성)** 이 `chat-messages`·`chat-control` 을 파티션 3 으로 만든다. 모두 healthcheck 있음.
+  `user`·`quiz`는 `profiles: ["prod"]` 뒤에 숨어 있어 **기본 실행은 DB만 뜬다.** 앱까지 띄우려면 `--profile prod`. chat 서비스는 compose 에 없다(`bootRun` 또는 `--build-arg MODULE=chat` 이미지로 검증).
 - `Dockerfile` — **EKS CI도 이 파일로 빌드한다**(`docker build --build-arg MODULE=...`). 로컬 전용이 아니므로
-  함부로 바꾸면 운영 빌드가 깨진다.
+  함부로 바꾸면 운영 빌드가 깨진다. 멀티모듈이라 `:${MODULE}:bootJar` 가 다른 모듈 소스를 요구해 **`COPY profanity`·`COPY chat` 이 모두 있어야** 한다(`EXPOSE 8082` 추가) — 새 Gradle 모듈을 만들면 여기도 추가.
 - ⚠ `docker compose down -v`는 `mysql-data` 볼륨을 지운다. 사용자가 로컬 개발 DB로 쓰고 있다.
 
 ## redis
 
-`user`: 이메일 인증 상태 저장(TTL 휘발성, 영속 볼륨 불필요). `quiz`: 용도가 둘이다 —
+`chat`(2026-10-09): 방 메타·Stream 히스토리·dedup·속도 제한(키 목록은 `.claude/modules/chat.md`) — **히스토리가 Redis 에만 있어 영속(AOF)이 전제**다. `user`: 이메일 인증 상태 저장(TTL 휘발성, 영속 볼륨 불필요). `quiz`: 용도가 둘이다 —
 prod 프로파일 실시간 fan-out(`RedisPubSubPublisher`) + **프로파일 무관**(2026-08-19) 보기별 투표 집계
 (`RedisQuizVoteTally`, dev도 실제 Redis에 쓴다. 상세는 `.claude/modules/quiz.md`).
 `user`·`quiz` 둘 다 `docker-compose.yml`에서 `SPRING_DATA_REDIS_HOST`/`PORT`가 주입되고, 같은

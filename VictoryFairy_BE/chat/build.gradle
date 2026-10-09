@@ -1,0 +1,32 @@
+plugins {
+    id 'org.springframework.boot'
+}
+
+description = 'chat'
+
+dependencies {
+    implementation project(':common')
+    implementation project(':domain')
+    implementation project(':web-support')   // JWT 검증 부품·401 엔트리포인트·예외 핸들러 재사용
+    // 욕설 탐지만 쓴다(같은 길이 * 마스킹). quiz 에 컴파일 의존하지 않는다 — 앱 간 의존 금지(CHAT-GC-104).
+    implementation project(':profanity')
+
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+    implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'   // 방 메타·속도 제한·dedup·히스토리 Stream
+    implementation 'org.springframework.boot:spring-boot-starter-kafka'        // chat-messages·chat-control 프로듀서(2단계: 컨슈머)
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'     // ALB 타깃 헬스체크·메트릭
+
+    runtimeOnly 'me.paulschwarz:spring-dotenv:4.0.0'
+    runtimeOnly 'com.mysql:mysql-connector-j'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-security-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+
+    // 실 Redis·Kafka 검증용(테스트 전용). Docker 가 없으면 @Testcontainers(disabledWithoutDocker = true) 로 건너뛴다.
+    testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+    testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
+    testImplementation 'org.testcontainers:testcontainers-kafka'
+}

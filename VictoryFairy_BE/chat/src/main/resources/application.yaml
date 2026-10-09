@@ -1,0 +1,117 @@
+spring:
+  application:
+    name: chat
+  main:
+    web-application-type: servlet
+  config:
+    import:
+      - optional:file:.env[.properties]
+      - optional:file:../.env[.properties]
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+
+  datasource:
+    # quiz 와 같은 이유로 serverTimezone 을 넣지 않고 preserveInstants=false 로 벽시계 값을 그대로 주고받는다
+    # (games.game_date 는 KST 벽시계). 자세한 사고 경위는 quiz/src/main/resources/application-*.yaml 참고.
+    url: jdbc:mysql://${DB_HOST}:${DB_PORT}/${DB_NAME}?preserveInstants=false&characterEncoding=UTF-8
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    hibernate:
+      # 전 프로파일 none. 공유 스키마는 user 앱이 만든다. 새 앱이 건드리지 않는다.
+      ddl-auto: none
+    show-sql: false
+    # SSE 롱커넥션이 응답이 끝날 때까지 JPA 커넥션을 잡지 않도록 끈다(quiz 와 같은 이유).
+    open-in-view: false
+
+  mvc:
+    async:
+      # SSE 30분(CHAT-GC-33). 톰캣 기본 30초에 조기 종료되지 않게 하는 안전망이다. 30분보다 낮추지 말 것.
+      request-timeout: 30m
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      # 존재 확인이 Redis 장애 시 503 이어야 하는데(CHAT-GC-29), Lettuce 기본 명령 타임아웃(60초)이면
+      # 그동안 요청이 매달려 있다가 503 이 된다.
+      timeout: 2s
+      connect-timeout: 2s
+
+  kafka:
+    # 필수. 기본값이 없다(CHAT-GC-7). 비어 있으면 ChatCoreConfig 가 기동을 거부한다.
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS}
+    admin:
+      # 토픽을 만들지 않는다(CHAT-GC-9). NewTopic 빈도 두지 않는다.
+      auto-create: false
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all                        # CHAT-GC-108. 단일 브로커라 사실상 1
+      properties:
+        enable.idempotence: true       # CHAT-GC-108
+        # 아래 셋을 chat.kafka.send-timeout-ms 와 같은 값으로 묶는다. 앱이 기다리기를 포기한 레코드를
+        # 프로듀서가 뒤에서 계속 재시도하면 503 을 받은 메시지가 나중에 나타난다.
+        # ⚠ delivery.timeout.ms >= linger.ms + request.timeout.ms 가 아니면 프로듀서 생성이 실패한다.
+        #   Kafka 4 의 linger.ms 기본값이 5 라서 0 으로 고정한다(요청마다 동기 전송이라 배칭 이득도 없다).
+        linger.ms: 0
+        max.block.ms: ${chat.kafka.send-timeout-ms}
+        request.timeout.ms: ${chat.kafka.send-timeout-ms}
+        delivery.timeout.ms: ${chat.kafka.send-timeout-ms}
+    # 게이트웨이(그룹 없는 assign)와 history-writer(그룹 chat-history-writer) 공용.
+    # ⚠ group-id 를 여기 두지 말 것 — 게이트웨이 컨슈머가 그 그룹에 들어가 오프셋을 커밋하게 된다(CHAT-GC-86).
+    consumer:
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      enable-auto-commit: false
+      properties:
+        allow.auto.create.topics: false   # 토픽을 만들지 않는다(CHAT-GC-9)
+
+server:
+  port: 8082
+  servlet:
+    # 외부 경로 /chat/rooms/**. 컨테이너가 필터 체인 이전에 이 접두사를 떼므로 컨트롤러·Security matcher 는
+    # /rooms/** 를 쓴다. ALB 가 경로를 rewrite 하지 못하므로 Ingress path 와 문자 그대로 일치해야 한다.
+    context-path: /chat
+
+# ALB 헬스체크는 /chat/actuator/health/readiness 를 본다. readiness 그룹은 readinessState 만 봐서
+# DB·Redis 가 잠깐 흔들려도 살아 있는 파드를 타깃에서 빼지 않는다.
+management:
+  endpoints:
+    web:
+      exposure:
+        # metrics 는 인증이 필요하다(SecurityConfig 는 /actuator/health/** 만 열어 둔다). 공개하지 말 것.
+        # chat.history.xadd.rejected(CHAT-GC-99)·kafka.consumer.fetch.manager.records.lag.max(CHAT-GC-101)
+        include: health,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+jwt:
+  # 검증만 한다. user 와 같은 secret 이어야 한다(.env 의 JWT_SECRET 공유).
+  secret: ${JWT_SECRET:local-dev-secret-please-change-this-to-a-32byte-plus-random-value}
+
+# CHAT-GC-11 설정 키. 환경변수로 덮어쓴다(예 CHAT_ROLE_API, CHAT_RATE_LIMIT_PER_SECOND).
+chat:
+  role:
+    api: true
+    gateway: true                 # api=true 인데 false 면 기동 거부(CHAT-GC-6)
+    history-writer: true
+  history:
+    max-len: 50000
+  recovery:
+    batch-size: 500
+    max-batches: 5
+  gateway:
+    batch-interval-ms: 150
+    write-timeout-ms: 1000
+    sampling-threshold-per-sec: 0 # 자리만 있다. 어떤 값이어도 전달 동작이 바뀌지 않는다(CHAT-GC-93)
+  rate-limit:
+    per-second: 3
+  dedup:
+    ttl-seconds: 120
+  kafka:
+    send-timeout-ms: 3000

@@ -24,7 +24,7 @@ model: inherit
 
 **구조**:
 1. **`detect`** — `dorny/paths-filter`로 변경 경로를 보고 **의존성 그래프를 반영해** 대상을 정한다.
-   `common`·`domain`·Gradle 루트 파일 변경 → **전체**(user·quiz) / `user` → user+quiz(quiz가 `:user` 의존) / `quiz` → quiz.
+   `common`·`domain`·`web-support`·Gradle 루트 파일 변경 → **전체**(user·quiz·chat) / `profanity` → quiz+chat / `user` → user / `quiz` → quiz / `chat` → chat.
 2. **`build-deploy`** — 모듈별 매트릭스로 병렬 실행.
    - 태그는 **커밋 SHA 7자리**(`${GITHUB_SHA::7}`). **`latest` 금지** — ECR 리포지토리가 태그 IMMUTABLE이라 같은 태그 재푸시가 불가하고, 이미 존재하면 빌드를 생략한다.
    - `kubectl set image` → `rollout status` → **실패 시 `rollout undo`로 자동 롤백**.
@@ -45,7 +45,7 @@ model: inherit
 
 ## 원칙
 - **`main` push = 즉시 운영 배포다.** 워크플로 변경은 곧바로 실서비스에 영향을 준다. 바꾸기 전에 **무엇이 언제 트리거되는지** 명확히 설명하고, 위험하면 제안만 한다.
-- **의존성 그래프를 깨뜨리지 말 것.** `quiz`가 `:user`에 의존하는 건 실제 `build.gradle` 사실이다 — `user`만 빌드하고 `quiz`를 빠뜨리면 **낡은 quiz 이미지가 운영에 남는다.** `settings.gradle`·각 `build.gradle`을 확인해 그래프가 여전히 맞는지 검증할 것.
+- **의존성 그래프를 깨뜨리지 말 것.** 공유 라이브러리(`web-support`·`profanity` 등)를 고쳤는데 그걸 품는 앱을 빠뜨리면 **낡은 이미지가 운영에 남는다.** `settings.gradle`·각 `build.gradle`을 확인해 그래프가 여전히 맞는지 검증할 것.
 - **시크릿을 로그에 노출하지 말 것.** `echo "${{ secrets.* }}"` 금지.
 - **워크플로 실행 상태는 실제로 확인할 수 있다.** `gh`·`aws`·`kubectl` 모두 설치돼 동작한다(2026-07-27 실측) — `gh run list`, `gh run view <id>`로 확인하고 **근거 없이 SKIP 하지 마라.** `act`는 없다.
 - **경로 필터를 고치면 실제 트리거 결과를 `gh run list`로 확인**할 것.
