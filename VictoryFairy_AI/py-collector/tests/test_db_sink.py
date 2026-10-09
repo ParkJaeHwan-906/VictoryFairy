@@ -580,3 +580,20 @@ def test_get_live_inning_state_missing_game_returns_none_pair():
     # 경기 행이 아직 없으면(games_sync 가 그 경기를 처음 보는 경우) (None, None).
     conn = FakeConn(fetch_results=[[]])
     assert DbSink(None, connection=conn).get_live_inning_state("new-game") == (None, None)
+
+
+# --------------------------------------------------------------------------- 상태 변화 감지용 (game-state-events)
+def test_get_game_live_state_returns_full_tuple_with_status_name():
+    conn = FakeConn(fetch_results=[[(5, 1, 3, 2, "IN_PROGRESS")]])
+    got = DbSink(None, connection=conn).get_game_live_state("g1")
+    assert got == (5, 1, 3, 2, "IN_PROGRESS")
+    kind, sql, params = conn.log[0]
+    assert kind == "execute" and params == ("g1",)
+    # 상태는 id 가 아니라 이름으로 비교해야 한다(game_statuses.id 는 환경마다 다르다).
+    assert "game_statuses" in sql and "gs.name" in sql
+
+
+def test_get_game_live_state_missing_game_returns_none():
+    # 행이 없는 것(None)과 값이 비어 있는 것(튜플 안 None)을 구분해야 첫 적재를 변화로 오인하지 않는다.
+    conn = FakeConn(fetch_results=[[]])
+    assert DbSink(None, connection=conn).get_game_live_state("new-game") is None
