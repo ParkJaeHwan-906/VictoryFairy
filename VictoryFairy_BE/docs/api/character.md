@@ -1,7 +1,7 @@
 # 캐릭터 꾸미기(character) API 명세
 
 > **도메인** `character` — 아바타 캐릭터에 입히는 아이템의 상점·인벤토리·착용 상태.
-> **모듈** user (포트 8080) · **경로 접두사** `/api/characters/items` · **엔드포인트** 3개
+> **모듈** user · **경로 접두사** `/api/characters/items` · **엔드포인트** 3개
 > **컨트롤러** `user/src/main/java/com/skhynix/user/character/controller/CharacterItemController.java` (`@RequestMapping("/characters/items")`)
 > **최종 갱신** 2026-10-08 — 가입 시 기본 지급이 '기본 의상'(의상) 1종에서 '기본 의상'+'레드 캡'(모자) 2종으로 늘었다(엔드포인트·스키마 불변, 응답 값의 기본 상태만 변경). (직전: 2026-08-28 — 도메인 신설. 상점·인벤토리 통합 목록 1개, 구매 1개, 착용 토글 1개. 같은 날 [account.md](account.md)의 `GET /api/users/me` 응답에 `characterImgUrl`·`characterItems` 두 필드가 함께 추가됐다.)
 > **요구사항** `docs/requirements/user/character-shop.md` (USER-CS-1 ~ 37)

@@ -1,7 +1,7 @@
 # 선수(player) API 명세
 
 > **도메인** `player` — KBO 선수 참조 데이터 및 이름 검색.
-> **모듈** user (포트 8080) · **경로 접두사** `/api/players` · **엔드포인트** 1개
+> **모듈** user · **경로 접두사** `/api/players` · **엔드포인트** 1개
 > **컨트롤러** `user/src/main/java/com/skhynix/user/player/controller/PlayerController.java` (`@RequestMapping("/players")`)
 > **최종 갱신** 2026-08-20 — `teamId` 타입 변환 실패 400의 응답 형태 정정(래퍼 없음 → `ApiResponse` 래퍼, `GlobalExceptionHandler.handleTypeMismatch` 신설). 응답 필드·엔드포인트는 불변. (직전: 2026-08-06 **응답 항목 키가 바뀐 파괴적 변경**: `{id, name}` → `{teamId, teamName, playerId, playerName, playerNumber, playerPosition}`. 소속 구단·등번호·포지션이 추가됐고 기존 `id`·`name` 키는 **사라졌다**(직전 변경: 2026-08-04 적용 구단 오버라이딩))
 > 공통 규약(응답 래퍼·401 정책)은 [README.md](README.md)를 먼저 볼 것.
@@ -115,15 +115,15 @@ KBO 선수 목록 조회 및 이름 검색. `PlayerController` → `PlayerServic
 **예시**
 ```bash
 # 전체(비인증)
-curl -i -X GET http://localhost:8080/api/players
+curl -i -X GET https://victoryfairy.com/api/players
 # 구단 필터(비인증)
-curl -i -X GET "http://localhost:8080/api/players?teamId=6"
+curl -i -X GET "https://victoryfairy.com/api/players?teamId=6"
 # 이름 검색(부분 일치, 비인증)
-curl -i -X GET "http://localhost:8080/api/players?name=%EB%8F%84%EC%98%81"
+curl -i -X GET "https://victoryfairy.com/api/players?name=%EB%8F%84%EC%98%81"
 # 구단 + 이름 (AND, 비인증)
-curl -i -X GET "http://localhost:8080/api/players?teamId=6&name=%EB%8F%84%EC%98%81"
+curl -i -X GET "https://victoryfairy.com/api/players?teamId=6&name=%EB%8F%84%EC%98%81"
 # 응원 구단이 6인 로그인 사용자 — ?teamId=9를 보내도 6번 구단 결과가 나온다
-curl -i -X GET "http://localhost:8080/api/players?teamId=9" \
+curl -i -X GET "https://victoryfairy.com/api/players?teamId=9" \
   -H 'Authorization: Bearer eyJ...'
 ```
 ```json

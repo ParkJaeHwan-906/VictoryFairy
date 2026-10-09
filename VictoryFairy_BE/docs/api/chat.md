@@ -1,7 +1,7 @@
 # 채팅(chat) API 명세
 
 > **도메인** `chat` — 구단별 채팅방, 메시지 전송·히스토리·신고, SSE 실시간 구독.
-> **모듈** quiz (포트 8081) · **경로 접두사** `/rt/chat` · **엔드포인트** 7개
+> **모듈** quiz · **경로 접두사** `/rt/chat` · **엔드포인트** 7개
 > **컨트롤러** `quiz/src/main/java/com/skhynix/quiz/chat/controller/ChatController.java` (`@RequestMapping("/chat")` — `/rt`는 context-path가 붙인다) — 현재 quiz 모듈의 유일한 컨트롤러.
 > **최종 갱신** 2026-09-30 — **히스토리 조회(`GET .../messages`)가 요청자와 차단 관계(양방향)인 계정의 메시지를 조회 시점에 숨긴다**(user 모듈 신설 [block 도메인](block.md), `docs/requirements/user/user-block.md` USER-BLK-14~16). 요청/응답 스키마·상태코드·`ErrorCode`는 불변, `totalElements` 등 페이지 메타데이터는 필터 이전 기준 그대로다(아래 해당 엔드포인트 절 참고). 전송·SSE 경로는 영향받지 않는다. (직전: 2026-09-03 — **메시지 전송 경로에 욕설 마스킹 필터 도입.** 엔드포인트·요청/응답 스키마·상태코드·`ErrorCode`는 **하나도 바뀌지 않았고**, 바뀐 것은 `content` **값의 성질**이다: `POST .../messages`로 보낸 content는 서버에서 마스킹을 거친 뒤 저장되며 **저장값·201 응답 `data.content`·SSE `message` 이벤트의 `content` 세 곳이 모두 같은 문자열**이다. 치환 문자는 `***`가 아니라 **발신자가 응원하는 구단을 연상시키는 단어**(두산 팬 → `두산`·`망곰`·`철웅이`·`곰돌이` 중 하나)이며 같은 구단·같은 욕설이면 항상 같은 단어다(결정적). **금지어가 있다고 전송이 거절되지 않는다 — 400이 아니라 201이다.** ⚠ **원문은 저장되지 않고 마스킹 여부를 알리는 필드도 없다** — 발신자는 SSE 에코를 받지 않으므로 201 응답의 `content`가 자기 메시지의 최종 형태를 확인하는 유일한 지점이다(아래 "욕설 마스킹 필터" 절 — 프론트 필독). 계약 원본 `docs/requirements/quiz/chat-profanity-filter.md`(승인됨 2026-09-03, QUIZ-CPF-1~44). (직전: 2026-08-20 — **`MessageResponse`(전송 응답·히스토리)와 SSE `message` 이벤트 payload(`MessageEvent`)에 `profileImgUrl` 필드 추가**(발신자 `users_account.profile_img_url`, 없으면 `null` — 값의 형태는 [account](account.md#profileimgurl-값의-의미-프론트-필독)와 동일한 BaseURL 없는 EP). 발신자 계정이 이미 로딩돼 있어 SELECT는 늘지 않는다. 탈퇴자 메시지는 `(알수없음)` 더미 계정으로 이관되고 그 계정은 프로필 이미지가 없어 자연히 `null`이다(별도 분기 없음). 엔드포인트 7개·필드 개수 외 나머지 계약은 불변. 계약 원본 `docs/requirements/user/profile-image.md`(승인됨 2026-08-20). (직전: 2026-08-17 **비밀번호 변경 이전에 발급된 토큰이 이 도메인 7개 엔드포인트 전부에서 401로 거절되게 됨**(user 모듈의 `PATCH /api/users/me/password`, `main` 84f6f4a 머지 완료 — 공유 인증 필터라 chat 쪽 코드 변경 없이 적용됨). 응답·요청 계약은 그 외 불변.))) 그 이전 이력은 각 엔드포인트 섹션의 `최종 변경` 줄에 남아 있다.
 > **요구사항** `docs/requirements/quiz/chat.md`(QUIZ-CHAT, 도입 시점 계약) · `docs/requirements/quiz/chat-team-access-control.md`(QUIZ-CTAC-1~29, 구단 접근 제어) · `docs/requirements/user/profile-image.md`(승인됨 2026-08-20 — `profileImgUrl` 필드의 출처) · `docs/requirements/quiz/chat-profanity-filter.md`(승인됨 2026-09-03, QUIZ-CPF-1~44 — 욕설 마스킹)
@@ -136,10 +136,10 @@ blind 해제(unblind), 메시지/방 삭제를 수행하는 엔드포인트는 �
 **예시**
 ```bash
 # 생략 — 내 응원 구단 방
-curl -i http://localhost:8081/rt/chat/rooms \
+curl -i https://victoryfairy.com/rt/chat/rooms \
   -H 'Authorization: Bearer eyJ...'
 # 명시 — 응원 구단과 같아야 통과
-curl -i "http://localhost:8081/rt/chat/rooms?teamId=6" \
+curl -i "https://victoryfairy.com/rt/chat/rooms?teamId=6" \
   -H 'Authorization: Bearer eyJ...'
 ```
 구단 불일치 실패 예시(403):
@@ -174,7 +174,7 @@ curl -i "http://localhost:8081/rt/chat/rooms?teamId=6" \
 
 **예시**
 ```bash
-curl -i http://localhost:8081/rt/chat/rooms/3f9c2e10-... \
+curl -i https://victoryfairy.com/rt/chat/rooms/3f9c2e10-... \
   -H 'Authorization: Bearer eyJ...'
 ```
 
@@ -223,7 +223,7 @@ curl -i http://localhost:8081/rt/chat/rooms/3f9c2e10-... \
 
 **예시(fetch 기반 폴리필 개념 — 실제 라이브러리는 프로젝트마다 다름)**
 ```bash
-curl -i -N http://localhost:8081/rt/chat/rooms/3f9c2e10-.../subscribe \
+curl -i -N https://victoryfairy.com/rt/chat/rooms/3f9c2e10-.../subscribe \
   -H 'Authorization: Bearer eyJ...' \
   -H 'Accept: text/event-stream'
 ```
@@ -268,7 +268,7 @@ curl -i -N http://localhost:8081/rt/chat/rooms/3f9c2e10-.../subscribe \
 
 **예시**
 ```bash
-curl -i -X DELETE http://localhost:8081/rt/chat/rooms/3f9c2e10-.../subscribe \
+curl -i -X DELETE https://victoryfairy.com/rt/chat/rooms/3f9c2e10-.../subscribe \
   -H 'Authorization: Bearer eyJ...'
 ```
 ```json
@@ -328,7 +328,7 @@ curl -i -X DELETE http://localhost:8081/rt/chat/rooms/3f9c2e10-.../subscribe \
 
 **예시**
 ```bash
-curl -i -X POST http://localhost:8081/rt/chat/rooms/3f9c2e10-.../messages \
+curl -i -X POST https://victoryfairy.com/rt/chat/rooms/3f9c2e10-.../messages \
   -H 'Authorization: Bearer eyJ...' \
   -H 'Content-Type: application/json' \
   -d '{"content":"안녕하세요"}'
@@ -406,7 +406,7 @@ curl -i -X POST http://localhost:8081/rt/chat/rooms/3f9c2e10-.../messages \
 
 **예시**
 ```bash
-curl -i "http://localhost:8081/rt/chat/rooms/3f9c2e10-.../messages?page=0" \
+curl -i "https://victoryfairy.com/rt/chat/rooms/3f9c2e10-.../messages?page=0" \
   -H 'Authorization: Bearer eyJ...'
 ```
 
@@ -446,7 +446,7 @@ curl -i "http://localhost:8081/rt/chat/rooms/3f9c2e10-.../messages?page=0" \
 
 **예시**
 ```bash
-curl -i -X POST http://localhost:8081/rt/chat/rooms/3f9c2e10-.../messages/42/report \
+curl -i -X POST https://victoryfairy.com/rt/chat/rooms/3f9c2e10-.../messages/42/report \
   -H 'Authorization: Bearer eyJ...'
 ```
 

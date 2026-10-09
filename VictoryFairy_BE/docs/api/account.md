@@ -1,7 +1,7 @@
 # 계정(account) API 명세
 
 > **도메인** `account` — 로그인 계정 자체의 생명주기(탈퇴) + 내 프로필 요약 조회 + 내 프로필 수정(닉네임·비밀번호·프로필 이미지).
-> **모듈** user (포트 8080) · **경로 접두사** `/api/users` · **엔드포인트** 5개
+> **모듈** user · **경로 접두사** `/api/users` · **엔드포인트** 5개
 > **컨트롤러** `user/src/main/java/com/skhynix/user/account/controller/UserAccountController.java` (`@RequestMapping("/users")`)
 > **최종 갱신** 2026-10-08 — 가입 기본 지급이 2종(기본 의상+레드 캡)으로 늘어 가입 직후 `characterItems`가 2건(의상·모자)이다(스키마 불변). 직전 2026-09-04 — **`GET /api/users/me` 응답에 `bqRank`(응원 구단 안 내 BQ 순위) 추가**(키 9개→10개, SELECT 8회→9회). 값은 신설 [ranking 도메인](ranking.md)의 순위 규칙(`bq_score` 내림차순, 동점 공동 순위 1·1·3, 배치는 `users_account.id` 오름차순)을 그대로 재사용한 JSON 정수 — [`GET /api/rankings/bq/me`](ranking.md#get-apirankingsbqme)의 `data.rank`와 항상 같은 값이다. 활성 응원 구단이 없으면 `null`(다른 안전망 필드들과 같은 기조). 계약 원본 `docs/requirements/user/team-bq-ranking.md`(승인됨 2026-09-04, USER-RK-70~74). 반영 문서: [account.md](account.md) · 신규 [ranking.md](ranking.md). (직전: 2026-09-03 — **`GET /api/users/me` 응답에 `quizAccuracy`(내 퀴즈 누적 정답률) 추가**(키 8개→9개, SELECT 7회→8회). 값은 그 계정의 `quiz_users_submit` 행 중 `is_answer = true` 수 ÷ 그 계정 행 **전부**다. 행은 제출이 아니라 **출제 시점**(`GET /rt/quizzes/today`)에 생기므로 **미답 행도 분모에 들어가 오답으로 집계된다** — 세트를 받은 직후 `/me`를 부르면 정답률이 일시적으로 떨어진다(기존 "안 내면 오답" 제품 결정의 귀결, 버그 아님). 행이 0건이면 `null`이 아니라 `0`이고 200(`bqScore` 안전망과 같은 기조). **0~1 범위의 JSON 숫자 하나**, 소수 넷째 자리에서 **HALF_UP** 반올림한 셋째 자리까지이며 **후행 0을 보존하지 않는다**(`0.5`는 `0.500`이 아니다) — 할·푼·리 표기와 세 자리 패딩은 프론트엔드 책임. 전 기간 누적이며 경기·기간 필터가 없다(경기 단위는 `GET /rt/quizzes/submissions`가 계속 갖는다). ⚠ **그 응답의 `accuracy`(반올림 없는 double, 예: `0.642857`)와 자릿수가 다르다 — 이 비대칭은 버그가 아니라 사용자 결정이며 맞추지 않는다**([quiz.md](quiz.md#get-rtquizzessubmissions)는 이번에 개정하지 않았다). 계약 원본 `docs/requirements/user/me-profile.md`(2026-09-03 개정, USER-ME-37~44). (직전: 2026-08-28 — **`GET /api/users/me` 응답에 `characterImgUrl`·`characterItems` 추가**(키 6개→8개). 아바타 캐릭터와 착용 중인 아이템의 이미지 **EP** 다 — `profileImgUrl`(프로필 사진)과 **별개이며 서로를 대체하지 않는다.** 캐릭터를 아직 못 받은 계정은 `characterImgUrl: null` + `characterItems: []` 로 200 을 유지한다. SELECT 는 5회→7회로 늘었다(캐릭터 1 + 착용 아이템 1). 새 도메인 [character.md](character.md)(상점·구매·착용 토글 3개)가 같은 날 신설됐고, 이 응답의 `characterItems[].imgUrl` 은 그쪽 목록의 `displayImg` 와 **다른 좌표계의 다른 파일**이다. 계약 원본 `docs/requirements/user/character-shop.md`(승인됨 2026-08-28, USER-CS-1~37). (직전: 2026-08-20 — **`POST /api/users/me/profile-image` 신규 추가**(업로드가 곧 프로필 변경 확정, 직전 객체는 커밋 이후 best-effort로 삭제) + **`GET /api/users/me` 응답에 `profileImgUrl` 추가**(키 5개→6개, SELECT 횟수는 그대로 5회 — 이미 조회하는 계정 행의 컬럼이라 추가 조회 없음). 계약 원본 `docs/requirements/user/profile-image.md`(승인됨 2026-08-20, USER-PI-1~121). profileImgUrl 조립 예시(BaseURL+EP, 흔한 실수 포함)와 CloudFront/S3 구분, 가입 전후 EP 완전 교체 서술 보강. (직전: 2026-08-17 `PATCH /api/users/me/password` 성공 시 **그 이전에 발급된 access·refresh 토큰이 즉시 무효화됨**(`main` 84f6f4a 머지 완료, PR #425). 직전 "이전 access 토큰은 최대 3h 그대로 유효하다"는 서술을 정정.) ) ) ) 그 이전 이력은 각 엔드포인트 섹션의 `최종 변경` 줄에 남아 있다.
 > 공통 규약(응답 래퍼·JWT payload·401 4종·**토큰 무효화**·**시스템 예외 래핑**)은 [README.md](README.md)를 먼저 볼 것.
@@ -67,7 +67,7 @@
 
 **예시**
 ```bash
-curl -i -X DELETE http://localhost:8080/api/users/me \
+curl -i -X DELETE https://victoryfairy.com/api/users/me \
   -H 'Authorization: Bearer eyJ...'
 ```
 성공: `204 No Content`, 본문 없음.
@@ -168,7 +168,7 @@ EP        : temp/9f2c4e2a-6b3d-4a1f-8c2e-1a2b3c4d5e6f.png
 
 **예시**
 ```bash
-curl -i http://localhost:8080/api/users/me \
+curl -i https://victoryfairy.com/api/users/me \
   -H 'Authorization: Bearer eyJ...'
 ```
 
@@ -223,7 +223,7 @@ curl -i http://localhost:8080/api/users/me \
 
 **예시**
 ```bash
-curl -i -X PATCH http://localhost:8080/api/users/me/nickname \
+curl -i -X PATCH https://victoryfairy.com/api/users/me/nickname \
   -H 'Authorization: Bearer eyJ...' \
   -H 'Content-Type: application/json' \
   -d '{"nickname":"길동gil9"}'
@@ -288,7 +288,7 @@ S3 저장(①) 자체가 실패하면 500이다 — `GlobalExceptionHandler.hand
 
 **예시**
 ```bash
-curl -i -X POST http://localhost:8080/api/users/me/profile-image \
+curl -i -X POST https://victoryfairy.com/api/users/me/profile-image \
   -H 'Authorization: Bearer eyJ...' \
   -F 'image=@/path/to/photo.png;type=image/png'
 ```
@@ -349,7 +349,7 @@ curl -i -X POST http://localhost:8080/api/users/me/profile-image \
 
 **예시**
 ```bash
-curl -i -X PATCH http://localhost:8080/api/users/me/password \
+curl -i -X PATCH https://victoryfairy.com/api/users/me/password \
   -H 'Authorization: Bearer eyJ...' \
   -H 'Content-Type: application/json' \
   -d '{"currentPassword":"Old1234!","newPassword":"New1234!"}'
