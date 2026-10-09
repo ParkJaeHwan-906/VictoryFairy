@@ -1,5 +1,5 @@
 # ALB Ingress: AWS Load Balancer Controller 가 이 Ingress 들을 보고 실제 ALB 를 만든다.
-#   /api -> user-app, /rt -> quiz-app (pathType: Prefix 라 하위 경로 포함).
+#   /api -> user-app, /rt -> quiz-app, /chat -> chat-app (pathType: Prefix 라 하위 경로 포함).
 #   그 외 경로는 이 ALB 로 오지 않는다 — CloudFront 가 S3 로 보낸다.
 #
 # ⚠ 이 ALB 는 사용자의 첫 관문이 아니다. FE 정적 호스팅(docs/fe-hosting.md) 이후
@@ -12,10 +12,10 @@
 #   server.servlet.context-path(/api, /rt)를 쓰므로 actuator 경로도 접두사를 따라 갈린다.
 #   그래서 Ingress 를 쪼개되 group.name 을 같게 주어 ALB 는 하나로 유지한다.
 #
-# group.order 는 규칙 평가 순서다(10 user → 20 quiz → 40 dns-origin). 지금은 경로가 서로
+# group.order 는 규칙 평가 순서다(10 user → 20 quiz → 30 chat → 40 dns-origin). 지금은 경로가 서로
 # 겹치지 않아 순서가 결과를 바꾸지 않지만, 앞으로 '/' 처럼 모든 경로를 삼키는 규칙을 추가한다면
 # 반드시 API 보다 뒤(=큰 값)에 둬야 한다. 앞에 두면 API 가 전부 그리로 빨려 들어간다.
-# (fe-app 의 '/' 규칙이 order 30 이었고, 전환 정리로 제거됐다.)
+# (fe-app 의 '/' 규칙이 order 30 이었고, 전환 정리로 제거된 뒤 chat 이 그 번호를 쓴다.)
 #
 # ⚠ ALB 는 forward 시 경로를 rewrite 하지 않는다(redirect 만 가능). 여기의 path 는 앱이 실제로
 #   서비스하는 context-path 와 문자 그대로 일치해야 한다 — 다르면 파드까지 도달해도 404 다.
@@ -116,6 +116,43 @@ spec:
             backend:
               service:
                 name: quiz-app
+                port:
+                  number: 80
+---
+# chat-app(경기별 채팅). 경로 /chat = 앱 context-path 그대로(ALB 는 rewrite 불가).
+#   SSE 구독(GET /chat/rooms/{gameId}/subscribe)도 이 규칙으로 들어온다.
+# ⚠ ALB idle timeout 어노테이션을 따로 주지 않는다 — quiz(/rt) SSE 도 기본 60초 그대로이고,
+#   앱이 15초마다 :ping 하트비트를 보내 유휴로 판정되지 않는다. idle_timeout 은 LB 단위 속성이라
+#   넣으려면 같은 group 의 모든 Ingress 에 같은 값을 줘야 한다(파일 상단 '주의').
+# ⚠ CloudFront 가 /chat/* 를 이 ALB 로 넘겨야 외부에서 닿는다(modules/cdn 의 ALB 경로 목록).
+#   거기 없으면 S3 behavior 로 빠져 SPA fallback(index.html) 이 돌아온다.
+# 헬스체크: readiness 그룹(Kafka·Redis 인디케이터 미포함 — quiz 와 같은 규약).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: victoryfairy-chat
+  namespace: victoryfairy
+  annotations:
+    external-dns.alpha.kubernetes.io/controller: none
+    alb.ingress.kubernetes.io/group.name: victoryfairy
+    alb.ingress.kubernetes.io/group.order: "30"
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: '443'
+    alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
+    alb.ingress.kubernetes.io/healthcheck-path: /chat/actuator/health/readiness
+spec:
+  ingressClassName: alb
+  rules:
+    - host: victoryfairy.com
+      http:
+        paths:
+          - path: /chat
+            pathType: Prefix
+            backend:
+              service:
+                name: chat-app
                 port:
                   number: 80
 ---

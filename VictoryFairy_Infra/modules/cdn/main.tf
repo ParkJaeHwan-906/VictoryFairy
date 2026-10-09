@@ -5,7 +5,7 @@
 # SPA fallback·압축은 아래 Response Headers Policy / CloudFront Function / compress 로 옮겨왔다.
 #
 # 오리진이 3개인 이유: 사용자 대면 도메인을 하나로 유지하기 위해서다. CloudFront 가 진입점이 되어
-#   /api/*, /rt/*                → ALB (기존 EKS 앱)
+#   /api/*, /rt/*, /chat/*       → ALB (기존 EKS 앱 — 목록은 var.api_path_patterns)
 #   /user-profile-img/*, /temp/* → S3 asset 버킷 (사용자 업로드 이미지, modules/asset)
 #   /characters/*, /items/*, /stores/*
 #                                → S3 asset 버킷 (캐릭터 꾸미기 에셋, 같은 모듈·다른 접두사)

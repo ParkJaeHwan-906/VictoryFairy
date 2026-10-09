@@ -12,10 +12,12 @@ locals {
   api_origin_host = "origin.${var.domain_name}"
 
   # FE 정적 자산 경로는 ALB 가 아니라 CloudFront→S3 로 간다. 여기 없는 경로는 전부 S3 다.
-  #   /api → user-app(인증·계정), /rt → quiz-app(채팅 SSE, realtime)
+  #   /api → user-app(인증·계정), /rt → quiz-app(채팅 SSE, realtime), /chat → chat-app(경기 채팅 SSE)
+  # 셋 다 같은 behavior(캐시 끔·compress=false·AllViewer)를 받는다 — SSE 는 압축·캐시가 붙으면 스트림이 깨진다.
+  # /chat/* 는 리스트 '끝'에 붙인다. 앞에 끼우면 /api/*·/rt/* 의 precedence 번호까지 밀려 diff 가 커진다.
   # ⚠ BE 의 server.servlet.context-path 와 문자 그대로 일치해야 한다 — ALB 도 CloudFront 도
   #   경로를 rewrite 하지 않는다.
-  api_path_patterns = ["/api/*", "/rt/*"]
+  api_path_patterns = ["/api/*", "/rt/*", "/chat/*"]
 
   # 사용자 업로드 자산(프로필 이미지)의 단일 출처. 세 곳이 같은 값을 써야 한다:
   #   1) modules/asset    — 버킷 이름 + temp/ 만료 규칙 + 버킷 정책이 허용하는 접두사

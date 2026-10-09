@@ -1,0 +1,151 @@
+# chat-app: 경기별 채팅 Spring 모듈(:chat, 컨테이너 포트 8082, 경로 /chat)
+#   Kafka(chat-messages·chat-control)가 쓰기 지점, 서비스 Redis Stream 이 조회 사본, SSE 로 배칭 전달.
+#   요구사항: VictoryFairy_BE docs/requirements/chat/game-chat.md
+#
+# 인프라 커플링: quiz-app 과 같은 app 공용 노드풀(label workload=app, taint 없음) — nodeSelector 만.
+#
+# 배포 방식: 21-quiz-app.yaml 과 같다. CI 가 image 라인의 <ACCOUNT_ID>/<commit-sha> 를 치환한 뒤
+#   이 파일 전체를 apply 한다. ⚠ 치환 없이 손으로 apply 하면 ImagePullBackOff.
+#   ⚠ BE deploy-eks.yml 에 chat 이미지 빌드·치환·apply 단계가 있어야 이 파일이 쓰인다.
+#
+# 외부 의존(파드 밖):
+#   - Kafka: 전용 EC2 KRaft 단일 브로커 9092. 주소는 app-config 의 KAFKA_BOOTSTRAP_SERVERS.
+#     노드(파드) SG → Kafka EC2 SG 9092 인바운드가 열려 있어야 한다(Terraform 소관).
+#   - 토픽 chat-messages·chat-control 은 앱이 만들지 않는다 — 사전 생성 필요.
+#   - DB·서비스 Redis·JWT 는 quiz 와 같은 app-config/app-secret 키를 그대로 쓴다.
+#     JWT_SECRET 이 user 와 다르면 전 요청 401 — 공용 Secret 이라 자동으로 같다.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chat-app
+  namespace: victoryfairy
+  labels:
+    app: chat-app
+spec:
+  # replicas 는 의도적으로 없다 — 소유권은 하단 HPA. 이유는 21-quiz-app.yaml 과 같다
+  #   (매 배포 apply 가 HPA 가 올려둔 레플리카 수를 1로 되돌리는 싸움 방지).
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 100%
+      maxUnavailable: 0
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: chat-app
+  template:
+    metadata:
+      labels:
+        app: chat-app
+    spec:
+      # S3 등 AWS API 를 부르지 않으므로 IRSA(전용 SA) 없음 — default SA.
+      nodeSelector:
+        workload: app
+      containers:
+        - name: chat
+          # ⚠ 불변 태그(커밋 SHA). latest 금지. 저장소명은 user/quiz 관례(victoryfairy-<module>).
+          image: "<ACCOUNT_ID>.dkr.ecr.ap-northeast-2.amazonaws.com/victoryfairy-chat:<commit-sha>"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8082
+          env:
+            # user·quiz 와 같은 값이어야 한다(같은 DB 를 읽고, 방 수명이 00:00 KST 경계다).
+            - name: TZ
+              value: "Asia/Seoul"
+            # 세 역할을 한 파드에서 모두 켠다(기본값도 true 지만 운영 의도를 코드로 고정).
+            # ⚠ API=true + GATEWAY=false 는 앱이 기동을 거부한다(CHAT-GC-6) — SSE 구독을 받은 파드에
+            #   팬아웃 컨슈머가 없으면 그 구독자는 아무것도 못 받는다. 역할을 나눌 때는 Deployment 를
+            #   쪼개고, /chat/rooms/*/subscribe(GET)만 게이트웨이 쪽으로 보내는 Ingress 규칙이 따로 필요하다.
+            # history-writer 는 고정 그룹(chat-history-writer)이라 HPA 로 파드가 늘어도 파티션을 나눠 갖는다.
+            - name: CHAT_ROLE_API
+              value: "true"
+            - name: CHAT_ROLE_GATEWAY
+              value: "true"
+            - name: CHAT_ROLE_HISTORY_WRITER
+              value: "true"
+            # envFrom 에도 들어오지만 여기서 명시적으로 참조한다 — 키가 app-config 에 없으면 envFrom 은
+            #   조용히 건너뛰어 JVM 이 뜬 뒤 기동 실패(CrashLoop)로 보이는데, 이 참조는 컨테이너 생성 전에
+            #   CreateContainerConfigError 로 원인을 바로 드러낸다.
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: KAFKA_BOOTSTRAP_SERVERS
+          envFrom:
+            - configMapRef:
+                name: app-config   # SPRING_PROFILES_ACTIVE=prod, DB_*, REDIS_*, JAVA_TOOL_OPTIONS
+            - secretRef:
+                name: app-secret   # DB_USERNAME, DB_PASSWORD, JWT_SECRET
+          resources:
+            requests:
+              cpu: "300m"       # HPA CPU 기준선
+              memory: "512Mi"
+            limits:
+              cpu: "700m"
+              memory: "768Mi"
+          startupProbe:
+            tcpSocket: { port: 8082 }
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            tcpSocket: { port: 8082 }
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: { port: 8082 }
+            periodSeconds: 15
+      terminationGracePeriodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chat-app
+  namespace: victoryfairy
+  labels:
+    app: chat-app
+spec:
+  type: ClusterIP
+  selector:
+    app: chat-app
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8082
+      protocol: TCP
+---
+# HPA: quiz-app 과 같은 형태(CPU 60%, min1/max4). 파드가 Pending 되면 CA 가 app 노드풀을 늘린다.
+#   ⚠ app 노드풀에 user·quiz·chat 이 동거한다 — 최악 동시 상한은 user 2 + quiz 4 + chat 4 파드.
+#   scaleDown 이 느린 것은 SSE 커넥션 보호용(축소 시 끊긴 구독은 Last-Event-ID 로 복구된다).
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: chat-app
+  namespace: victoryfairy
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: chat-app
+  minReplicas: 1
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 50
+          periodSeconds: 60
