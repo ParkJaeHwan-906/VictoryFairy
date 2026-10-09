@@ -376,6 +376,22 @@ module "mysql_ec2" {
   enable_dlm_snapshot = false
 }
 
+# chat 모듈의 Kafka: 전용 EC2 에 KRaft 단일 브로커(MSK 미사용 — 비용 사유).
+#   프라이빗 서브넷(운영 AZ 2a) + SSM 전용 접근, 9092 인입은 EKS 노드 SG 에서만.
+#   토픽 chat-messages·chat-control 은 부팅 시 if-not-exists 로 만든다(파티션 3·RF 1·보존 48h — 모듈 기본값).
+# ⚠ 커플링: chat-app 의 KAFKA_BOOTSTRAP_SERVERS 는 출력 kafka_bootstrap_servers(<private_ip>:9092)와
+#   일치해야 한다. 인스턴스가 재생성되면 IP 가 바뀌니 k8s 쪽 값도 같이 바꿀 것.
+module "kafka_ec2" {
+  source = "../../modules/kafka-ec2"
+
+  environment = var.environment
+  vpc_id      = module.network.vpc_id
+  subnet_id   = module.network.private_subnet_ids_by_az[var.azs[0]]
+
+  # 노드는 공용 클러스터 SG 하나라 mysql_ec2 와 같은 SG 를 넘긴다.
+  kafka_ingress_sg_ids = { eks_nodes = module.eks.node_security_group_id }
+}
+
 # dev 전용 DB(비 프로덕션): 프로덕션 mysqldump S3 백업을 매일 restore 로 받아 데이터를
 # 갱신하는 퍼블릭 MySQL+Redis(fresh) EC2. 개발자가 로컬에서 직접 붙어 쓰기 위한 용도라
 # 프라이빗이 아닌 '퍼블릭 서브넷 + 퍼블릭 IP', 인입은 dev_db_allowed_cidr 하나에서만 연다.

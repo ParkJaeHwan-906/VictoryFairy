@@ -93,6 +93,21 @@ output "fe_cloudfront_domain_name" {
   value       = module.cdn.distribution_domain_name
 }
 
+output "kafka_bootstrap_servers" {
+  description = "chat-app 의 KAFKA_BOOTSTRAP_SERVERS 값(<Kafka EC2 private_ip>:9092)"
+  value       = module.kafka_ec2.bootstrap_servers
+}
+
+output "kafka_instance_id" {
+  description = "Kafka 호스트 EC2 인스턴스 ID (SSM 세션 대상)"
+  value       = module.kafka_ec2.instance_id
+}
+
+output "kafka_security_group_id" {
+  description = "Kafka 보안그룹 ID (9092 인입은 EKS 노드 SG 로부터만)"
+  value       = module.kafka_ec2.security_group_id
+}
+
 output "mysql_instance_id" {
   description = "MySQL EC2 인스턴스 ID (SSM 포트포워딩 대상)"
   value       = module.mysql_ec2.instance_id
