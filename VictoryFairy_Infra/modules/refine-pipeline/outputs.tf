@@ -23,6 +23,21 @@ output "bedrock_queue_url" {
   value       = aws_sqs_queue.bedrock.url
 }
 
+output "game_state_events_dlq_url" {
+  description = "3회 수신 실패한 경기 상태 변화 이벤트가 쌓이는 DLQ URL. 쌓이면 사람이 봐야 한다"
+  value       = aws_sqs_queue.game_state_events_dlq.url
+}
+
+output "game_state_events_queue_arn" {
+  description = "경기 상태 변화 이벤트 SQS 큐 ARN. BE user-app IRSA 역할(modules/user-irsa)에 소비 권한을 주는 데 쓴다"
+  value       = aws_sqs_queue.game_state_events.arn
+}
+
+output "game_state_events_queue_url" {
+  description = "경기 상태 변화 이벤트 SQS 큐 URL. BE user-app 컨테이너 환경변수(USER_GAME_EVENTS_SQS_QUEUE_URL)로 주입해 폴링 대상으로 쓴다"
+  value       = aws_sqs_queue.game_state_events.url
+}
+
 output "inning_events_dlq_url" {
   description = "3회 수신 실패한 이닝 이벤트가 쌓이는 DLQ URL. 여기에 쌓이면 사람이 봐야 한다"
   value       = aws_sqs_queue.inning_events_dlq.url

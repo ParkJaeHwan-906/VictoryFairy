@@ -9,7 +9,7 @@ ECR 리포 하나의 이미지를 Lambda 함수 두 개가 공유한다:
 | 함수 | 위치 | 잡 (EventBridge) |
 |---|---|---|
 | `kbo-collector` | VPC 밖 | community `rate(10 minutes)` · game 03:00 · kbo_records 07:00 · game_schedule 08:30 → S3 적재 |
-| `kbo-collector-db` | VPC 안(프라이빗 서브넷) | records 03:30 · export game_result 04:00 · games_sync 00:30+08:00+경기시간대 · registrations 11:00 · export player_profile 11:30 → 운영 MySQL / S3 |
+| `kbo-collector-db` | VPC 안(프라이빗 서브넷) | records 03:30 · export game_result 04:00 · games_sync 00:30+08:00+경기시간대 · registrations 11:00 · export player_profile 11:30 → 운영 MySQL / S3(inning-events/ · game-state-events/) |
 
 시각은 전부 KST. 하루 순서:
 
@@ -33,6 +33,10 @@ ECR 리포 하나의 이미지를 Lambda 함수 두 개가 공유한다:
 `days` 없이 당일만 훑는다 — 확정된 과거 경기를 매분 다시 긁지 않기 위해서다.
 경기 시간대 폴링이 1분인 건 상태뿐 아니라 **경기 전 선발 라인업**(네이버 preview)도
 따라가기 때문이다. 공시는 경기 직전 한 번 뜨므로 주기가 곧 화면 반영 지연이 된다.
+같은 폴링이 게이트 두 개로 S3 에 부가 문서를 낸다 — `inning_events_enabled`(이닝 전환 시
+"막 끝난 이닝의 안타", quiz-app 정산용)와 `game_state_events_enabled`(이닝·점수·상태 변화 시
+"지금 상태" 스냅샷, user-app 경기 SSE 용). 둘은 prefix 도 큐도 소비자도 다르다 —
+`modules/refine-pipeline` 의 두 큐 주석 참고.
 윈도 크기는 `games_sync_lookahead_days`(기본 7, 상한 14 = 핸들러 `MAX_SYNC_DAYS`).
 
 00:30 룰이 따로 있는 이유는 순연·편성 변경이 대체로 그날 경기가 끝날 무렵
