@@ -100,6 +100,12 @@ variable "inning_events_enabled" {
   default     = false
 }
 
+variable "game_state_events_enabled" {
+  description = "games_sync 라이브 폴링의 이닝·점수·상태 변화 감지 + S3 game-state-events/ 스냅샷 적재 on/off (BE user-app 경기 SSE 원천). 위 inning_events 와 별개 스위치·별개 prefix 다. py-collector 배포 이미지가 이 분기를 아는 뒤에 true 로 올린다 — 같은 절차."
+  type        = bool
+  default     = false
+}
+
 variable "kbo_records_schedule" {
   description = "KBO 기록실 스냅샷 -> S3. 기본 07:00 KST = 22:00 UTC (전날 경기가 기록실에 반영된 뒤)."
   type        = string

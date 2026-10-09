@@ -251,6 +251,11 @@ module "user_irsa" {
   asset_bucket_name = module.asset.bucket_name
   profile_prefix    = local.asset_profile_prefix
   temp_prefix       = local.asset_temp_prefix
+
+  # 경기 상태 변화 큐 — py-collector → S3 game-state-events/ → SQS(refine_pipeline 소유)
+  #   → user-app 소비(경기 SSE 푸시). quiz_irsa 의 inning_events 와 같은 배선, 다른 큐.
+  crawl_bucket_name           = var.crawl_bucket_name
+  game_state_events_queue_arn = module.refine_pipeline.game_state_events_queue_arn
 }
 
 # 상시 감시 — 배포 스모크(수십 초)가 닫힌 뒤를 맡는다.

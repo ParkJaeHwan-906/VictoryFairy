@@ -94,6 +94,8 @@ resource "aws_lambda_function" "db" {
       COLLECTOR_PII_SALT  = local.pii_salt
       # 기본 false(quiz_source_jobs_enabled 와 같은 절차) — py-collector PR #561 머지 후 켠다.
       COLLECTOR_INNING_EVENTS_ENABLED = tostring(var.inning_events_enabled)
+      # 같은 절차 — 이 분기를 아는 이미지가 배포된 뒤 tfvars 에서 켠다.
+      COLLECTOR_GAME_STATE_EVENTS_ENABLED = tostring(var.game_state_events_enabled)
     }
   }
 
