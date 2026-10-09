@@ -127,17 +127,8 @@ jobs:
         id: ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      # 모듈 → 매니페스트 매핑 + 머지 순서 안전장치. 클러스터를 변경하지 않는다.
-      #
-      # chat 은 BE(코드)와 Infra(매니페스트 24-chat-app.yaml · ECR victoryfairy-chat · IAM 허용)가
-      # 서로 다른 브랜치에서 main 에 들어온다. BE 가 먼저 들어오면 매니페스트나 ECR 저장소가 아직 없다.
-      # 그때 이 잡을 실패시키지 않고 ::warning:: 만 남긴 채 이후 스텝을 전부 건너뛴다(skip=true).
-      # 매트릭스가 fail-fast: false 라 실패해도 user·quiz 는 계속 돌지만, 워크플로가 빨갛게 남아
-      # "운영 배포 실패"로 오인되므로 실패 대신 건너뛴다.
-      #
-      # OPTIONAL 에 없는 모듈(user·quiz)은 종전대로 매니페스트가 없으면 즉시 실패한다.
-      # Infra 가 main 에 들어오고 ECR·IAM 이 apply 되면 OPTIONAL 에서 chat 을 빼서 같은 대우로 올릴 것.
-      - name: Preflight (manifest mapping, merge-order guard)
+      # 모듈 → 매니페스트 매핑. 클러스터를 변경하지 않는다.
+      - name: Preflight (manifest mapping)
         id: pre
         run: |
           MODULE="${{ matrix.module }}"
@@ -151,35 +142,8 @@ jobs:
           esac
           echo "manifest=$MANIFEST" >> "$GITHUB_OUTPUT"
 
-          OPTIONAL=" chat "
-          SKIP=false
-          if [ "${OPTIONAL#* $MODULE }" != "$OPTIONAL" ]; then
-            REPO="victoryfairy-$MODULE"
-            if [ ! -f "VictoryFairy_Infra/k8s/$MANIFEST" ]; then
-              echo "::warning::$MODULE 건너뜀 — VictoryFairy_Infra/k8s/$MANIFEST 가 아직 main 에 없습니다(Infra 브랜치 미머지). 머지 후 workflow_dispatch(modules=$MODULE)로 배포하세요."
-              SKIP=true
-            else
-              # 역할에 DescribeRepositories 권한이 없으므로(terraform modules/security) DescribeImages 로 존재·권한을 함께 본다.
-              if ! ERR=$(aws ecr describe-images --repository-name "$REPO" --max-items 1 2>&1 >/dev/null); then
-                case "$ERR" in
-                  *RepositoryNotFoundException*)
-                    echo "::warning::$MODULE 건너뜀 — ECR 저장소 $REPO 가 없습니다(terraform apply 전). 생성 후 workflow_dispatch(modules=$MODULE)로 배포하세요."
-                    SKIP=true ;;
-                  *AccessDenied*)
-                    echo "::warning::$MODULE 건너뜀 — CI 역할에 $REPO 접근 권한이 없습니다(modules/security ecr_repository_arns 미반영). 반영 후 workflow_dispatch(modules=$MODULE)로 배포하세요."
-                    SKIP=true ;;
-                  *)
-                    echo "$ERR"
-                    echo "::error::ECR 저장소 $REPO 확인 실패(원인 미분류)"; exit 1 ;;
-                esac
-              fi
-            fi
-          fi
-          echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
-
       - name: Build & push image
         id: img
-        if: steps.pre.outputs.skip != 'true'
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
         run: |
@@ -202,7 +166,6 @@ jobs:
       #   그래서 여기에는 **클러스터를 변경하는 명령을 두지 않는다**(kubeconfig 갱신은 로컬 파일 작성일 뿐).
       - name: Render manifest (no cluster mutation)
         id: render
-        if: steps.pre.outputs.skip != 'true'
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
           IMAGE: ${{ steps.img.outputs.image }} # 위 스텝이 실제로 push(또는 재사용)한 이미지
@@ -246,7 +209,6 @@ jobs:
       # (렌더·검증은 위 스텝으로 분리돼 있다 — 합치면 아래 롤백 조건이 무의미해진다)
       - name: Deploy to EKS (manifest apply + blue-green rollout)
         id: deploy
-        if: steps.pre.outputs.skip != 'true'
         env:
           RENDERED: ${{ steps.render.outputs.rendered }}
         run: |
