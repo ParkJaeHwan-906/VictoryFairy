@@ -50,4 +50,10 @@ public interface GameRepository extends JpaRepository<Game, Long> {
     //   그 id 는 games 행의 FK 컬럼이라 프록시 초기화 없이 읽힌다(조인을 더해도 얻는 게 없다).
     @EntityGraph(attributePaths = {"gameStatus"})
     Optional<Game> findWithStatusByNaverGameId(String naverGameId);
+
+    // 같은 해석 조회에 목록 조회와 같은 연관 4개를 실어 오는 변형 — user 앱의 경기 SSE 갱신(GameUpdateService)이
+    // SQS 알림 한 건을 GET /games 항목과 같은 GameResponse 로 만드는 데 쓴다. 리스너 스레드라 OSIV 가 없고
+    // prod 는 open-in-view:false 라, 이 @EntityGraph 를 빼면 GameResponse.from 이 LazyInitializationException 이다.
+    @EntityGraph(attributePaths = {"homeTeam", "awayTeam", "stadium", "gameStatus"})
+    Optional<Game> findWithDetailsByNaverGameId(String naverGameId);
 }
