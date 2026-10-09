@@ -1,4 +1,4 @@
-package com.skhynix.quiz.chat.profanity;
+package com.skhynix.profanity;
 
 import java.util.List;
 import java.util.Map;
@@ -6,7 +6,7 @@ import java.util.Map;
 /**
  * 필터가 쓰는 4종 데이터의 적재 결과.
  *
- * <p>전부 {@code quiz/src/main/resources/profanity/} 의 JSON 이며, 앞 3종은
+ * <p>전부 {@code profanity/src/main/resources/profanity/} 의 JSON 이며, 앞 3종은
  * {@code VictoryFairy_AI/validation/core/data/} 와 같은 내용을 유지해야 한다(두 목록이 갈리면
  * 같은 문장이 채팅에서는 걸리고 AI 검증에서는 통과한다).
  *

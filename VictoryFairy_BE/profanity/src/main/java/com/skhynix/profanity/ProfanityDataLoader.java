@@ -1,4 +1,4 @@
-package com.skhynix.quiz.chat.profanity;
+package com.skhynix.profanity;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -7,7 +7,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.core.io.ClassPathResource;
-import org.springframework.stereotype.Component;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 
@@ -17,7 +16,6 @@ import tools.jackson.databind.ObjectMapper;
  * <p>파이썬 쪽 검증도 함께 옮겼다. 특히 {@code single_char} 키의 한 글자 제약을 빼면
  * {@code "77": "ㄲ"} 같은 항목이 조용히 무시된 채 돌아간다 — 실패는 기동 시점에 드러나야 한다.
  */
-@Component
 public class ProfanityDataLoader {
 
     private static final String BASE_PATH = "profanity/";

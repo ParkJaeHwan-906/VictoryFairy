@@ -1,4 +1,4 @@
-package com.skhynix.quiz.chat.profanity;
+package com.skhynix.profanity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

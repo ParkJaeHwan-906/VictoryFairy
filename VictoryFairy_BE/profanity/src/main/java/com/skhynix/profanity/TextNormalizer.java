@@ -1,4 +1,4 @@
-package com.skhynix.quiz.chat.profanity;
+package com.skhynix.profanity;
 
 import java.text.Normalizer;
 import java.util.Locale;

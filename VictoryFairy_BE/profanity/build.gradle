@@ -1,0 +1,14 @@
+plugins {
+    id 'java-library'
+}
+
+description = 'profanity'
+
+dependencies {
+    // ProfanityConfig(@Configuration/@Bean)와 ClassPathResource 용. 부트 자동설정은 쓰지 않는다.
+    implementation 'org.springframework:spring-context'
+    // ProfanityDataLoader 의 공개 생성자가 ObjectMapper 를 받으므로 소비 모듈에도 노출한다.
+    api 'tools.jackson.core:jackson-databind'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+}

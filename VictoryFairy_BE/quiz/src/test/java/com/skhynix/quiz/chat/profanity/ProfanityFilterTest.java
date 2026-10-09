@@ -2,6 +2,8 @@ package com.skhynix.quiz.chat.profanity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.skhynix.profanity.ProfanityDataLoader;
+import com.skhynix.profanity.ProfanityDetector;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -12,7 +14,7 @@ import tools.jackson.databind.ObjectMapper;
 /**
  * {@link ProfanityFilter} 단위 테스트 — 계약 원본은 {@code docs/requirements/quiz/chat-profanity-filter.md}.
  *
- * <p>실제 {@code quiz/src/main/resources/profanity/*.json} 을 그대로 읽어 돌린다(목 없음). 이 필터는
+ * <p>실제 {@code profanity/src/main/resources/profanity/*.json}(:profanity 모듈) 을 그대로 읽어 돌린다(목 없음). 이 필터는
  * 상태·DB·외부 호출이 없는 순수 함수라 데이터까지 진짜로 물려야 계약이 검증된다.
  *
  * <p><b>치환어 기댓값을 문자열로 박아 둔 것은 의도다</b>(QUIZ-CPF-28/29, 제약 9). 후보 선택이
@@ -28,7 +30,7 @@ class ProfanityFilterTest {
     private static final String LG = "LG";
 
     private final ProfanityFilter filter =
-            new ProfanityFilter(new ProfanityDataLoader(new ObjectMapper()));
+            new ProfanityFilter(new ProfanityDetector(new ProfanityDataLoader(new ObjectMapper())));
 
     private String mask(String content) {
         return filter.mask(content, OB);

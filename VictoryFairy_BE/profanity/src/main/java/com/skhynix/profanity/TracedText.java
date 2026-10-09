@@ -1,4 +1,4 @@
-package com.skhynix.quiz.chat.profanity;
+package com.skhynix.profanity;
 
 /**
  * 변환된 문자열과 "각 문자가 원문 어느 인덱스에서 나왔는가"를 함께 들고 다니는 값 객체.

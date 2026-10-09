@@ -13,6 +13,7 @@ RUN chmod +x ./gradlew
 COPY common common
 COPY domain domain
 COPY web-support web-support
+COPY profanity profanity
 COPY user user
 COPY quiz quiz
 # user/build.gradle 의 processResources 가 infra/sql 의 시드 SQL 을 jar 클래스패스로 복사한다
