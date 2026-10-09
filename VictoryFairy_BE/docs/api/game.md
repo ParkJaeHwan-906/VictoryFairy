@@ -1,9 +1,9 @@
 # 경기(game) API 명세
 
-> **도메인** `game` — 날짜별 KBO 경기 일정·스코어, 경기별 선발 라인업, 내 활성 응원 구단 경기 목록.
-> **모듈** user (포트 8080) · **경로 접두사** `/api/games` · **엔드포인트** 3개
-> **컨트롤러** `user/src/main/java/com/skhynix/user/game/controller/GameController.java`(`@RequestMapping("/games")`, `GET`+`GET /support`) · `GameLineupController.java`(`@RequestMapping("/games/lineup")`)
-> **최종 갱신** 2026-08-20 — `date` 형식 위반 400의 응답 형태 정정: `GlobalExceptionHandler.handleTypeMismatch`(공유 컴포넌트 신설)가 `MethodArgumentTypeMismatchException`을 잡아 이제 `ApiResponse` 래퍼가 붙는다(종전엔 래퍼 없음). `GET /api/games`·`GET /api/games/support` 둘 다 해당, 엔드포인트·다른 계약은 불변. (직전: 2026-08-13 `GET /api/games/support` 신규 추가: 인증된 계정의 **활성 응원 구단**(홈 또는 원정)이 참여한 경기만 돌려주는 조회. **이 도메인 최초의 인증 필수 엔드포인트**라 아래 "이 도메인의 특이사항"의 "전부 공개 참조 데이터" 서술이 더 이상 도메인 전체에 참이 아니게 됐다(범위를 `/games`·`/games/lineup` 두 경로로 좁혀 정정). 응답 형식·13필드·정렬·날짜 해석 규칙은 `GET /api/games`와 완전히 동일하며, `GET /api/games`·`GET /api/games/lineup`의 기존 계약은 변경 없음(요구사항 USER-GSP-24).) 그 이전 이력은 각 엔드포인트 섹션의 `최종 변경` 줄에 남아 있다.
+> **도메인** `game` — 날짜별 KBO 경기 일정·스코어, 경기별 선발 라인업, 내 활성 응원 구단 경기 목록, 그리고 둘의 **SSE 실시간 구독**.
+> **모듈** user (포트 8080) · **경로 접두사** `/api/games` · **엔드포인트** 5개
+> **컨트롤러** `user/src/main/java/com/skhynix/user/game/controller/GameController.java`(`@RequestMapping("/games")`, `GET`+`GET /support`+`GET /subscribe`+`GET /support/subscribe`) · `GameLineupController.java`(`@RequestMapping("/games/lineup")`)
+> **최종 갱신** 2026-10-09 — **SSE 구독 2개 신규**: `GET /api/games/subscribe`(무인증)·`GET /api/games/support/subscribe`(인증 필수). 연결 직후 `snapshot`(해당 GET 과 같은 13필드 목록), 이후 py-collector 가 경기의 이닝·점수·상태 변화를 감지할 때마다(라이브 폴링 1분) `game-update`. 기존 두 GET 의 계약은 불변 — 이번 변경은 "HTTP 를 SSE 로 교체"가 아니라 **SSE 를 나란히 추가**한 것이다(`docs/requirements/user/game-realtime.md`, USER-GRT-1~22). 같은 날 **정정**: 아래 `inning`/`inningHalf` 설명의 "현재는 항상 `null`"은 2026-08-11 시점 서술이며 더 이상 참이 아니다("이 도메인의 특이사항" 참고). (직전: 2026-08-20 — `date` 형식 위반 400의 응답 형태 정정: `GlobalExceptionHandler.handleTypeMismatch`(공유 컴포넌트 신설)가 `MethodArgumentTypeMismatchException`을 잡아 이제 `ApiResponse` 래퍼가 붙는다(종전엔 래퍼 없음). `GET /api/games`·`GET /api/games/support` 둘 다 해당, 엔드포인트·다른 계약은 불변. (직전: 2026-08-13 `GET /api/games/support` 신규 추가: 인증된 계정의 **활성 응원 구단**(홈 또는 원정)이 참여한 경기만 돌려주는 조회. **이 도메인 최초의 인증 필수 엔드포인트**라 아래 "이 도메인의 특이사항"의 "전부 공개 참조 데이터" 서술이 더 이상 도메인 전체에 참이 아니게 됐다(범위를 `/games`·`/games/lineup` 두 경로로 좁혀 정정). 응답 형식·13필드·정렬·날짜 해석 규칙은 `GET /api/games`와 완전히 동일하며, `GET /api/games`·`GET /api/games/lineup`의 기존 계약은 변경 없음(요구사항 USER-GSP-24).) 그 이전 이력은 각 엔드포인트 섹션의 `최종 변경` 줄에 남아 있다.)
 > 공통 규약(응답 래퍼·401 정책)은 [README.md](README.md)를 먼저 볼 것.
 
 ## 엔드포인트 목록
@@ -13,6 +13,8 @@
 | GET | [/api/games](#get-apigames) | 200 | 날짜별 경기 목록 | 불필요 |
 | GET | [/api/games/support](#get-apigamessupport) | 200 | 내 활성 응원 구단 경기 목록 | **필수** |
 | GET | [/api/games/lineup](#get-apigameslineup) | 200 | 경기별 선발 라인업 | 불필요 |
+| GET | [/api/games/subscribe](#get-apigamessubscribe) | 200 (SSE) | 날짜별 경기 목록 **실시간 구독** | 불필요 |
+| GET | [/api/games/support/subscribe](#get-apigamessupportsubscribe) | 200 (SSE) | 내 활성 응원 구단 경기 **실시간 구독** | **필수** |
 
 ## 이 도메인의 특이사항
 
@@ -27,6 +29,10 @@
 **`/games/lineup`은 `/games`의 하위 경로이지만 별도 `permitAll` 매처가 필요하다.** `SecurityConfig`의 `.requestMatchers(HttpMethod.GET, "/games").permitAll()`은 정확 경로 매칭이라 `/games/lineup`을 커버하지 않는다 — `HttpMethod.GET, "/games/lineup"`을 별도로 열어 뒀다(컨트롤러 Javadoc에도 이 함정이 명시돼 있다).
 
 ---
+
+**`inning`/`inningHalf`는 더 이상 "항상 `null`"이 아니다(2026-10-09 정정).** 아래 `GET /api/games` 의 두 필드 설명과 "실측" 문단은 2026-08-11 시점(py-collector 쓰기 미구현)에 적힌 것이다. 수집기는 2026-08-12 부터 라이브 폴링(13:00~23:59 KST, 1분)에서 `statusInfo`("N회초/말")를 파싱해 `games.current_inning`/`inning_half` 에 쓰고 있으며, `IN_PROGRESS` 경기는 실제로 `inning`(1~11)·`inningHalf`(`"TOP"`|`"BOTTOM"`)가 채워져 나간다. 종료되면 수집기가 두 컬럼을 NULL 로 지우므로 "`IN_PROGRESS` 일 때만 값" 규칙 자체는 그대로다. 아래 문장들은 이력 보존을 위해 남겨 두되 이 정정이 우선한다.
+
+**SSE 구독 두 경로는 GET 의 "실시간 판"이다.** `GET /api/games` ↔ `GET /api/games/subscribe`, `GET /api/games/support` ↔ `GET /api/games/support/subscribe` 가 짝이고, 인증 정책·`date` 해석·항목 13필드가 짝과 정확히 같다. 차이는 응답이 `ApiResponse` 래퍼가 아니라 **이벤트 스트림**이라는 것뿐이다. 기존 GET 은 그대로 남는다 — SSE 를 못 쓰는 환경(일부 프록시·배터리 절약 백그라운드)의 폴백이자 최초 진입 화면의 1회 조회다.
 
 ## GET /api/games
 > 최종 변경: 2026-08-20 — `date` 형식 위반 400의 응답 형태 정정(래퍼 없음 → `ApiResponse` 래퍼, `GlobalExceptionHandler.handleTypeMismatch` 신설). 엔드포인트·다른 필드는 불변. (직전: 2026-08-11 응답에 `inning`/`inningHalf` 추가(11→13필드, `games.current_inning`/`games.inning_half` 컬럼 신설). **현재는 항상 `null`**이다 — 이 값을 채우는 주체는 py-collector이고 수집기 쪽 구현이 아직 없다(`cancelReason`이 처음 추가됐을 때와 같은 상태, 아래 참고).)
@@ -360,6 +366,66 @@ curl -i -X GET "http://localhost:8080/api/games/lineup"
 
 ---
 
+## GET /api/games/subscribe
+> 최종 변경: 2026-10-09 — 신규.
+
+`GET /api/games` 의 SSE 판. `GameController.subscribe` → `GameSubscriptionService.subscribe(LocalDate)` → `GameSseRegistry`.
+
+**인증 불필요.** `SecurityConfig` 에 `.requestMatchers(HttpMethod.GET, "/games/subscribe").permitAll()` 이 **별도 줄**로 있다 — `/games` 매처가 정확 경로 매칭이라 하위 경로를 덮지 않는 사정이 `/games/lineup` 과 같다(그 줄을 빼면 401). GET 한정이라 `POST /api/games/subscribe` 는 405 가 아니라 401 이다.
+
+**요청**: 쿼리 파라미터 `date`(선택, ISO `yyyy-MM-dd`). 생략·`?date=` 는 `GET /api/games` 와 같은 규칙으로 `Asia/Seoul` 오늘. 형식 위반은 **스트림을 열지 않고** 400 `ApiResponse` 래퍼(`GET /api/games` 와 동일한 `GlobalExceptionHandler.handleTypeMismatch` 경로).
+
+**응답 200 OK** `Content-Type: text/event-stream`. `ApiResponse` 래퍼가 아니다. 프레임은 세 종류다:
+
+| 이벤트(`event:`) | 언제 | `data:` |
+|---|---|---|
+| `snapshot` | 연결 직후 1회 | `GameResponse` **배열** — 같은 `date` 의 `GET /api/games` 응답 `data` 와 항목·순서·13필드가 동일 |
+| `game-update` | 그 날짜 경기의 이닝·점수·상태 중 하나라도 바뀔 때마다 | 아래 객체 1건 |
+| (주석 `:ping`) | 15초마다 | 없음 — 프록시(CloudFront `origin_read_timeout` 30초)가 유휴 연결을 끊지 않게 하는 하트비트. 클라이언트는 무시한다 |
+
+`game-update` 의 `data`:
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| game | object | 갱신된 경기 1건. **`GET /api/games` 항목과 같은 13필드**(`gameId`…`inningHalf`). 클라이언트는 `gameId` 가 같은 항목을 이 객체로 **통째로 교체**하면 된다 — 부분 머지 규칙을 두지 않는다 |
+| changed | string[] | 수집기가 직전 폴링과 비교해 달라졌다고 본 필드 이름. 값 집합은 `inning`(이닝 또는 초/말 전환, 종료로 인한 null 전환 포함) · `homeScore` · `awayScore` · `status`. 비어 있지 않다. **표시용 힌트**(예: 득점 강조)이지 상태의 근거가 아니다 — 근거는 `game` |
+| observedAt | string | 수집기 관측 시각, UTC ISO-8601(예: `2026-08-01T09:30:00.123456+00:00`). 같은 경기의 이벤트는 이 값이 단조 증가한다 |
+
+```
+event:snapshot
+data:[{"gameId":"20260801LGSS02026","stadium":"잠실","homeTeam":"LG","homeTeamId":1,"awayTeam":"삼성","awayTeamId":5,"homeTeamScore":2,"awayTeamScore":1,"gameDate":"2026-08-01T18:30:00","gameState":"IN_PROGRESS","cancelReason":null,"inning":3,"inningHalf":"BOTTOM"}]
+
+:ping
+
+event:game-update
+data:{"game":{"gameId":"20260801LGSS02026","stadium":"잠실","homeTeam":"LG","homeTeamId":1,"awayTeam":"삼성","awayTeamId":5,"homeTeamScore":3,"awayTeamScore":1,"gameDate":"2026-08-01T18:30:00","gameState":"IN_PROGRESS","cancelReason":null,"inning":3,"inningHalf":"BOTTOM"},"changed":["homeScore"],"observedAt":"2026-08-01T09:41:03.512377+00:00"}
+```
+
+**지연과 빈도.** 원천은 py-collector 의 라이브 폴링(KST 13:00~23:59, **1분 간격**)이다 — "실시간"의 해상도는 1분이고, 경기 시간대 밖에는 `game-update` 가 오지 않는다(그 시간엔 상태가 바뀌지 않으므로 맞는 동작이다). 전달 경로는 수집기 → S3 `game-state-events/` → SQS → user-app 리스너 → Redis pub/sub(파드 간) → SSE 라 폴링 시각에서 수 초가 더 걸린다. 같은 이닝 안에서 득점이 여러 번 나면 그 수만큼 이벤트가 온다.
+
+**멱등·재접속.** 같은 스냅샷이 두 번 올 수 있다(SQS at-least-once). `game` 으로 통째 교체하면 결과가 같으므로 클라이언트가 중복을 걸러낼 필요는 없다. 서버 타임아웃은 30분이며 그 전후로 끊기면 `EventSource` 가 스스로 재접속하고 `snapshot` 을 다시 받는다 — 끊긴 사이의 갱신은 `snapshot` 이 흡수한다(`Last-Event-ID` 재전송은 지원하지 않는다).
+
+**날짜 경계.** 구독은 연결 시점에 해석한 `date` 에 고정된다. `date` 를 생략하고 자정을 넘기면 구독은 여전히 전날 키에 묶여 있으므로, 클라이언트가 날짜가 바뀐 것을 알면 재접속해야 한다(`GET /api/games` 의 "`date` 생략은 편의 기능" 경고와 같은 성격).
+
+## GET /api/games/support/subscribe
+> 최종 변경: 2026-10-09 — 신규.
+
+`GET /api/games/support` 의 SSE 판. `GameController.subscribeSupportTeamGames` → `GameSubscriptionService.subscribeSupportTeam(Long, LocalDate)`.
+
+**인증 필수.** `/games/support` 와 같은 사정으로 `SecurityConfig` 를 손대지 않았다 — `/games/subscribe` 의 permitAll 이 정확 매칭이라 이 경로를 덮지 않고, `anyRequest().authenticated()` 에 걸린다. 미인증·무효 토큰·refresh 토큰·탈퇴 계정은 **스트림을 열지 않고** 401 `ApiResponse` 래퍼(`"인증이 필요합니다."`).
+
+⚠ 브라우저 `EventSource` 는 `Authorization` 헤더를 못 싣는다. 이 경로는 헤더 인증만 받으므로(쿼리 토큰 없음 — `JwtAuthenticationFilter` 가 헤더만 본다) 웹에서는 `fetch` 기반 SSE 클라이언트(예: `@microsoft/fetch-event-source`)로 헤더를 실어 열어야 한다. 앱(네이티브)은 해당 없음.
+
+**요청**: `date`(선택) — `GET /api/games/support` 와 동일.
+
+**응답 200 OK** `text/event-stream`. 프레임 종류·`game-update` 형식은 [`GET /api/games/subscribe`](#get-apigamessubscribe) 와 같다. 다른 점:
+
+- `snapshot` 은 같은 `date` 의 `GET /api/games/support` 응답 `data` 와 동일하다(활성 응원 구단이 홈 또는 원정인 경기만).
+- `game-update` 는 **활성 응원 구단이 홈 또는 원정인 경기만** 온다.
+- 활성 응원 구단이 없으면(한 번도 고르지 않았거나 전부 취소) 400 이 아니라 **200 으로 열린 뒤 빈 배열 `snapshot` 하나를 보내고 서버가 즉시 닫는다** — `GET /api/games/support` 가 200 + 빈 배열인 것과 같은 뜻이다. ⚠ `EventSource` 는 서버가 닫으면 재접속하므로, 클라이언트는 빈 `snapshot` 뒤 종료를 "응원 구단 없음"으로 읽고 재접속을 멈춰야 한다(`GET /api/users/me` 의 `supportTeam` 으로 먼저 거르는 편이 낫다).
+- 응원 구단은 **연결 시점**에 한 번 판정해 구독 키에 고정한다. 구독 중에 응원 구단을 바꿔도(`/api/support`) 이 스트림은 옛 구단 경기를 계속 보낸다 — 바꾼 뒤 재접속해야 한다.
+- 어느 쪽(홈/원정)이 응원 구단인지 알리는 필드는 없다(USER-GSP 와 같은 결정).
+
 ## 확인 필요 / 코드 미확인
 
 - `gameId`(`naverGameId`)가 자연키를 그대로 노출하는 것이 의도적 결정인지, 아니면 향후 별도 PK 기반 식별자로 교체될 잠정값인지 코드만으로는 판단 불가. `(확인 필요)`
@@ -369,6 +435,10 @@ curl -i -X GET "http://localhost:8080/api/games/lineup"
 - **`inning`/`inningHalf`를 채우는 py-collector 쓰기 로직의 소스코드는 이 저장소 범위 밖이라 확인 불가**(`games.current_inning`/`games.inning_half` 컬럼과 `GameResponse` 노출은 코드로 확인됨). 2026-08-11 devdb 실측(`GET /api/games?date=2026-08-13`, 대상 전부 `SCHEDULED`)에서는 두 필드 모두 `null`이었다. `IN_PROGRESS` 상태 경기에서 실제로 값이 채워지는지는 이 저장소만으로는 확인 불가하고, `cancelReason`처럼 이후 py-collector 구현이 배포되면 값이 채워지기 시작할 것으로 예상만 할 뿐이다. `(확인 필요)`
 - **`cancelReason`을 채우는 py-collector 쓰기 로직 자체의 소스코드는 이 저장소 범위 밖이라 확인 불가**(`games.cancel_reason` 컬럼과 `GameResponse.cancelReason` 노출은 코드로 확인됨 — user·domain 양쪽에 이 앱이 이 컬럼에 쓰는 경로는 없음, `Game`은 `@Builder`로만 생성되고 setter가 없다). 다만 **"이미 채우고 있는지" 자체는 코드가 아니라 운영 DB 실측으로 확인했다**: 2026-08-11, EKS `victoryfairy` 네임스페이스에서 user-app이 실제로 읽는 서빙 DB(`mysql.victoryfairy.svc.cluster.local`)에 일회용 `mysql:8.0` 파드로 접속해 `games` 테이블을 전수 조회한 결과 `CANCELED` 30건 전부 `cancel_reason`이 채워져 있었고(전부 `"폭염취소"`, 대상 날짜 2026-08-01~09), `updated_at`이 커밋 f01d08e 머지(2026-08-10 06:16 UTC) 약 40분 뒤인 2026-08-10 06:57 UTC였다. **py-collector 쓰기 로직 자체는 확인 불가지만, 그 로직이 이미 배포·동작 중이라는 사실은 실측으로 확인됐다.** `(확인 필요)`로 남기는 부분은 이 로직이 "정확히 언제부터" 동작했는지(커밋 머지~2026-08-10 06:57 UTC 사이 어느 시점인지는 실측 범위 밖)와, `"폭염취소"` 외 다른 사유 문자열이 실제로 나온 사례가 있는지(2026-08 스냅샷에서는 관측되지 않음, 값 집합이 닫혔다는 뜻은 아님) 두 가지뿐이다.
 
+- SSE 두 경로는 **코드로만 확인**했다(슬라이스·단위 테스트 통과). 실제 CloudFront → ALB → 파드 경로에서 30분 스트림이 유지되는지, SQS → Redis → SSE 종단 지연이 몇 초인지는 운영 실측이 없다. `(확인 필요)`
+- `game-update` 가 실제로 오려면 인프라 큐(`victoryfairy-dev-refine-game-state-events`)·user-app IRSA·수집기 게이트(`game_state_events_enabled`)가 전부 켜져 있어야 한다 — 하나라도 빠지면 `snapshot` 만 오고 갱신이 없다(오류 없이 조용히). `(확인 필요)`
+
 ## 관련 문서
 
+- `docs/requirements/user/game-realtime.md` — SSE 구독 두 경로의 계약 원본(USER-GRT-1~22).
 - [구단(team)](team.md) — `GET /games`의 `homeTeam`/`awayTeam`은 구단 **이름** 문자열, `homeTeamId`/`awayTeamId`·`GET /games/lineup`의 `teamId`는 구단 **PK**다. 값 체계는 `GET /teams`의 `id`와 동일하다.

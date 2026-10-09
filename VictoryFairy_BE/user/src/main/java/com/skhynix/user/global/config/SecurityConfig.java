@@ -40,6 +40,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/games").permitAll()   // teams와 같은 이유
                         // 위 /games 매처는 정확 매칭이라 하위 경로를 커버하지 않는다 — 이 줄이 없으면 401.
                         .requestMatchers(HttpMethod.GET, "/games/lineup").permitAll()
+                        // GET /games 의 SSE 판 — 같은 공개 참조 데이터라 같은 정책. /games/support/subscribe 는
+                        // 여기 없어서 자연히 인증 필수다(/games/support 와 같은 사정) — 넓히지 말 것.
+                        .requestMatchers(HttpMethod.GET, "/games/subscribe").permitAll()
                         .anyRequest().authenticated()
                 )
                 // formLogin/httpBasic을 모두 disable하면 엔트리포인트를 등록하는 주체가 없어
