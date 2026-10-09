@@ -67,14 +67,15 @@ module "ecr" {
   source = "../../modules/ecr"
 
   name_prefix = "victoryfairy"
-  # user/quiz 는 BE Gradle 모듈과 1:1 (Dockerfile ARG MODULE).
+  # user/quiz/chat 은 BE Gradle 모듈과 1:1 (Dockerfile ARG MODULE).
+  # ⚠ chat → 리포지토리 이름 victoryfairy-chat. k8s 매니페스트(chat-app Deployment image)가 이 이름을 쓴다.
   # pipeline 은 정제 러너 이미지 — 패턴·Bedrock Lambda 가 같은 이미지를 공유한다(ARCHITECTURE §4).
   # fe 리포지토리는 2026-08-07 제거했다. FE 는 S3+CloudFront 가 서비스하므로 이미지를 pull 할
   # 주체(fe-app 파드)가 없어졌다(docs/fe-hosting.md).
   # ⚠ 여기서 이름을 빼면 리포지토리가 destroy 된다. 이 모듈은 force_delete 를 켜지 않으므로
   #   이미지가 남아 있으면 RepositoryNotEmptyException 으로 apply 가 실패한다 —
   #   aws ecr batch-delete-image 로 먼저 비워야 한다(fe 는 그렇게 처리했다).
-  repository_names = ["user", "quiz", "pipeline"]
+  repository_names = ["user", "quiz", "pipeline", "chat"]
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -374,6 +375,22 @@ module "mysql_ec2" {
   # DLM 스냅샷 정책 생성이 불가. 백업은 mysqldump→S3 크론으로만 수행한다.
   # SCP 제약이 없는 계정으로 이전 시 이 줄을 제거해 스냅샷 병행을 복원할 것.
   enable_dlm_snapshot = false
+}
+
+# chat 모듈의 Kafka: 전용 EC2 에 KRaft 단일 브로커(MSK 미사용 — 비용 사유).
+#   프라이빗 서브넷(운영 AZ 2a) + SSM 전용 접근, 9092 인입은 EKS 노드 SG 에서만.
+#   토픽 chat-messages·chat-control 은 부팅 시 if-not-exists 로 만든다(파티션 3·RF 1·보존 48h — 모듈 기본값).
+# ⚠ 커플링: chat-app 의 KAFKA_BOOTSTRAP_SERVERS 는 출력 kafka_bootstrap_servers(<private_ip>:9092)와
+#   일치해야 한다. 인스턴스가 재생성되면 IP 가 바뀌니 k8s 쪽 값도 같이 바꿀 것.
+module "kafka_ec2" {
+  source = "../../modules/kafka-ec2"
+
+  environment = var.environment
+  vpc_id      = module.network.vpc_id
+  subnet_id   = module.network.private_subnet_ids_by_az[var.azs[0]]
+
+  # 노드는 공용 클러스터 SG 하나라 mysql_ec2 와 같은 SG 를 넘긴다.
+  kafka_ingress_sg_ids = { eks_nodes = module.eks.node_security_group_id }
 }
 
 # dev 전용 DB(비 프로덕션): 프로덕션 mysqldump S3 백업을 매일 restore 로 받아 데이터를

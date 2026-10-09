@@ -109,14 +109,20 @@ docker run -d --name mysql --restart unless-stopped \
   --innodb-buffer-pool-size="$INNODB_BUFFER_POOL"
 
 # ---------------------------------------------------------------------------
-# 5) 서비스 Redis 컨테이너 — 브로커 전용(영속 불필요, 상한만 건다).
-#    배치 전용 임시 Redis 아님. maxmemory 로 2GB 박스에서 MySQL 과 메모리 분할.
+# 5) 서비스 Redis 컨테이너 — 브로커 + chat 당일 히스토리(Stream).
+#    배치 전용 임시 Redis 아님. maxmemory 로 MySQL 과 메모리 분할.
+#    AOF(everysec): chat 히스토리가 Redis 재시작에 사라지지 않게 한다(2026-10 chat 도입).
+#      실행 중 인스턴스는 scripts/redis-enable-aof.sh 로 같은 상태로 패치한다 — 이 템플릿은
+#      '다음 생성 시의 정답'이다(aws_instance 가 user_data 를 ignore_changes).
+#    --memory 는 maxmemory + AOF 재작성 fork 의 COW 여유(maxmemory 1배) + 오버헤드를 담아야 한다.
+#      작으면 재작성 중 cgroup OOM 으로 redis 가 죽는다(variables.tf redis_container_memory).
 # ---------------------------------------------------------------------------
 docker run -d --name redis --restart unless-stopped \
   -p 6379:6379 \
   --memory "$REDIS_CONTAINER_MEMORY" \
   redis:7 \
-  redis-server --maxmemory "$REDIS_MAXMEMORY" --maxmemory-policy allkeys-lru
+  redis-server --maxmemory "$REDIS_MAXMEMORY" --maxmemory-policy allkeys-lru \
+  --appendonly yes --appendfsync everysec
 
 # ---------------------------------------------------------------------------
 # 6) 백업 크론 (SKILL §5): 매일 1회 mysqldump -> gzip -> S3.
