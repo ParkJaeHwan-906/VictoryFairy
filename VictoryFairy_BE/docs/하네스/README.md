@@ -18,7 +18,7 @@
   └─ SessionStart 훅 실행 → 모듈 선택 + 에이전트 분배 지침 주입
        └─ 사용자 첫 요청
             ├─ 모듈이 명확 → 바로 진행
-            └─ 불명확 → AskUserQuestion(user/quiz/domain/web-support/infra)
+            └─ 불명확 → AskUserQuestion(user/quiz/chat/domain/web-support/profanity/infra)
                  └─ 선택된 .claude/modules/<선택>.md 만 Read → 슬림 컨텍스트 확보
                       └─ 메인 에이전트가 작업 유형별로 서브에이전트에 위임
                            코드   (새 기능이면) requirements-writer ⇄ 사용자 협의 → 승인
@@ -45,7 +45,7 @@ BE 쪽 `infra` 모듈(`.claude/modules/infra.md`)은 **EC2+compose·배포 파�
 
 메인 에이전트는 **직접 작업하지 않고 위임**한다(단순 질문·읽기·한 줄 수정은 예외).
 
-### 코드 (user · quiz · domain · web-support)
+### 코드 (user · quiz · chat · domain · web-support · profanity)
 
 | 에이전트 | 역할 | 수정 범위 | model |
 |---|---|:---:|---|
@@ -213,8 +213,10 @@ BE 쪽 `infra` 모듈(`.claude/modules/infra.md`)은 **EC2+compose·배포 파�
 | `.claude/hooks/session-start.sh` | 모듈 선택 + 에이전트 분배 지침을 `additionalContext`로 주입하는 훅 |
 | `.claude/modules/user.md` | user 모듈(JWT 인증·이메일 인증·계정) 슬림 컨텍스트 |
 | `.claude/modules/quiz.md` | quiz 모듈(구단별 채팅 REST/SSE) 슬림 컨텍스트 |
+| `.claude/modules/chat.md` | chat 모듈(경기별 채팅 REST/SSE, Kafka+Redis Stream, 8082) 슬림 컨텍스트 |
+| `.claude/modules/profanity.md` | profanity 모듈(quiz·chat 공유 욕설 탐지 라이브러리) 슬림 컨텍스트 |
 | `.claude/modules/domain.md` | domain 모듈(공유 JPA 엔티티/리포지토리) 슬림 컨텍스트 |
-| `.claude/modules/web-support.md` | web-support 모듈(user·quiz 공유 JWT 발급/검증·예외 핸들러·401 엔트리포인트 라이브러리) 슬림 컨텍스트 |
+| `.claude/modules/web-support.md` | web-support 모듈(user·quiz·chat 공유 JWT 발급/검증·예외 핸들러·401 엔트리포인트 라이브러리) 슬림 컨텍스트 |
 | `.claude/modules/infra.md` | 배포·인프라 컨텍스트 (EC2+compose 경로 + EKS 현황) |
 | `.claude/agents/*.md` | 역할별 서브에이전트 16개 — 코드 9 · 인프라 4 · 공통 3 (위 표) |
 | `.claude/commands/verify.md` | 검증을 수동 호출하는 `/verify` 슬래시 커맨드 |
@@ -260,7 +262,7 @@ BE 쪽 `infra` 모듈(`.claude/modules/infra.md`)은 **EC2+compose·배포 파�
 - `GRADLE_USER_HOME`이 **한글 경로면 워커가 깨져 테스트가 항상 실패**한다(기본값이 한글 사용자명 경로다). ASCII 경로로 지정할 것.
 - `JAVA_HOME`이 비어 있을 수 있다. JDK 21 경로를 지정해야 `gradlew`가 돈다.
 
-**앱 경로 규약** — `server.servlet.context-path`를 쓴다(user `/api`, quiz `/rt`).
+**앱 경로 규약** — `server.servlet.context-path`를 쓴다(user `/api`, quiz `/rt`, chat `/chat`).
 컨트롤러 `@RequestMapping`과 Security `requestMatchers`는 **둘 다 접두사를 뺀 경로**다(컨테이너가 필터 체인 이전에 접두사를 떼므로). MockMvc도 context-path를 적용하지 않으므로 슬라이스 테스트 경로 역시 접두사가 없다 — **접두사가 실제로 붙는지는 테스트로 증명되지 않으니** 실기동·`curl`로 확인해야 한다.
 
 ## 알려진 갭
