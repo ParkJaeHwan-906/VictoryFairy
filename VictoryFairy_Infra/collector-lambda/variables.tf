@@ -246,6 +246,19 @@ variable "export_player_profile_schedule" {
   default     = "cron(30 2 * * ? *)"
 }
 
+# 2026-10-06 exporter.py에 read_player_season_stats가 추가됐지만(TEAMMATE_STAT_COMPARE
+# 템플릿의 유일한 재료 소스) 이 EventBridge 룰을 만드는 걸 깜빡해 2026-10-07 이후
+# 파티션이 전혀 안 생겼다 — 그날 이후 TEAMMATE_STAT_COMPARE가 매일 "재료 소진"으로
+# 거의 0건만 나온 진짜 원인이었다(최신 S3 파티션 2026-10-09 기준 실측으로 확인,
+# quiz-daily routine이 매일 같은 2026-10-07 스냅샷으로 7일 비반복 윈도를 돌려서
+# 이미 소진된 조합만 남았던 것). records(03:30)·export_game_result(04:00)와 같은
+# 선행조건(그날 batter_records/pitcher_records)이라 바로 뒤에 둔다.
+variable "export_player_season_stat_schedule" {
+  description = "player_season_stat envelope -> S3 question-source/. 기본 04:10 KST = 19:10 UTC (records 03:30 이후, export_game_result 04:00 다음)."
+  type        = string
+  default     = "cron(10 19 * * ? *)"
+}
+
 variable "pii_salt" {
   description = "Comment-author masking salt. If empty, a random one is generated."
   type        = string
