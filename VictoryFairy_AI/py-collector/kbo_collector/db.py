@@ -180,6 +180,15 @@ GET_LIVE_INNING_STATE = (
     "SELECT current_inning, inning_half FROM games WHERE naver_game_id=%s"
 )
 
+# 경기 상태 변화 감지용(game-state-events): 위와 같은 이유로 upsert 직전에 읽는다.
+# 점수·상태까지 함께 본다 — 이닝은 그대로인데 득점만 난 폴링도 "변화"다.
+# 상태는 id 가 아니라 이름으로 비교한다(game_statuses.id 는 환경마다 다르다).
+GET_GAME_LIVE_STATE = (
+    "SELECT g.current_inning, g.inning_half, g.home_score, g.away_score, gs.name "
+    "FROM games g LEFT JOIN game_statuses gs ON gs.id=g.game_status_id "
+    "WHERE g.naver_game_id=%s"
+)
+
 # preview(경기 전 공시)로 적재해 놓고 실제로는 출전하지 않은 선수를 걷어낸다.
 # records 잡이 박스스코어로 확정 적재한 뒤 부르며, 박스스코어에 없는 행이 곧 유령이다.
 LINEUP_DELETE_EXCEPT = (
@@ -459,6 +468,19 @@ class DbSink:
             return set()
         ph = ",".join(["%s"] * len(pks))
         return {row[0] for row in self.fetch_all(LINEUP_DONE_GAMES.format(ph=ph), pks)}
+
+    def get_game_live_state(self, naver_game_id):
+        """DB에 지금 저장돼 있는 (current_inning, inning_half, home_score, away_score,
+        status_name) 를 조회(덮어쓰기 전). 경기 행이 아직 없으면 None.
+
+        get_live_inning_state 와 같은 동기(블라인드 오버라이트 전에 읽기)지만 반환이
+        다르다 — 행 자체가 없는 것(None)과 값이 비어 있는 것(튜플 안의 None)을
+        구분해야 "처음 보는 경기의 첫 적재"를 변화로 오인하지 않는다.
+        """
+        with self._conn.cursor() as cur:
+            cur.execute(GET_GAME_LIVE_STATE, (naver_game_id,))
+            row = cur.fetchone()
+        return (row[0], row[1], row[2], row[3], row[4]) if row else None
 
     def games_with_stadium(self, naver_game_ids) -> set:
         """구장이 이미 채워진 naver_game_id 집합 (GAMES_WITH_STADIUM 판정)."""
