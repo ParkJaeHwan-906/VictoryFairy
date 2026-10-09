@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.skhynix.domain.user.repository.UserAccountRepository;
 import com.skhynix.user.game.dto.GameResponse;
 import com.skhynix.user.game.service.GameService;
+import com.skhynix.user.game.service.GameSubscriptionService;
 import com.skhynix.user.global.config.SecurityConfig;
 import com.skhynix.websupport.error.GlobalExceptionHandler;
 import com.skhynix.websupport.jwt.JwtTokenProvider;
@@ -56,6 +57,10 @@ class GameControllerTest {
 
     @MockitoBean
     private GameService gameService;
+
+    // 컨트롤러가 SSE 구독 서비스도 주입받는다(2026-10-09). 이 슬라이스의 검증 대상은 아니라 목으로만 채운다.
+    @MockitoBean
+    private GameSubscriptionService gameSubscriptionService;
 
     @MockitoBean
     private JwtTokenProvider jwtTokenProvider;
