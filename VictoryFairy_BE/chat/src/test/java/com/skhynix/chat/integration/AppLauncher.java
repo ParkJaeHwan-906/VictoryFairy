@@ -41,6 +41,9 @@ final class AppLauncher implements AutoCloseable {
     private final ChatClock clock = new ChatClock();
     ConfigurableApplicationContext context;
     int port;
+    /** 0 보다 크면 Redis 접속 지점을 컨테이너 대신 이 호스트/포트로 바꾼다(장애 주입용 프록시). */
+    String redisHostOverride;
+    int redisPortOverride;
 
     AppLauncher() {
         JwtProperties properties = new JwtProperties();
@@ -68,8 +71,8 @@ final class AppLauncher implements AutoCloseable {
                         + "org.springframework.boot.hibernate.autoconfigure.metrics.HibernateMetricsAutoConfiguration,"
                         + "org.springframework.boot.data.jpa.autoconfigure.DataJpaRepositoriesAutoConfiguration",
                 "--spring.kafka.bootstrap-servers=" + Containers.kafkaBootstrapServers(),
-                "--spring.data.redis.host=" + Containers.redisHost(),
-                "--spring.data.redis.port=" + Containers.redisPort(),
+                "--spring.data.redis.host=" + (redisPortOverride > 0 ? redisHostOverride : Containers.redisHost()),
+                "--spring.data.redis.port=" + (redisPortOverride > 0 ? redisPortOverride : Containers.redisPort()),
                 "--jwt.secret=" + JWT_SECRET,
                 "--jwt.access-token-validity=3600000",
                 "--jwt.refresh-token-validity=7200000",

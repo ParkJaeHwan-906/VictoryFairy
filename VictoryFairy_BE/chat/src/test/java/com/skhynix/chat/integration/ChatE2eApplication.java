@@ -16,7 +16,8 @@ import org.springframework.context.annotation.ComponentScan;
 @ComponentScan(basePackages = {
         "com.skhynix.chat.room", "com.skhynix.chat.message", "com.skhynix.chat.subscription",
         "com.skhynix.chat.realtime", "com.skhynix.chat.gateway", "com.skhynix.chat.history",
-        "com.skhynix.chat.shared", "com.skhynix.chat.global.config", "com.skhynix.chat.global.validation"
+        "com.skhynix.chat.shared", "com.skhynix.chat.global.config", "com.skhynix.chat.global.validation",
+        "com.skhynix.chat.like"
 }, useDefaultFilters = true)
 public class ChatE2eApplication {
 }
