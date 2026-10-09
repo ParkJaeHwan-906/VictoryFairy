@@ -1,7 +1,7 @@
 # 순위(ranking) API 명세
 
 > **도메인** `ranking` — 응원 구단 안에서의 BQ 점수 순위(신설).
-> **모듈** user (포트 8080) · **경로 접두사** `/api/rankings/bq` · **엔드포인트** 3개
+> **모듈** user · **경로 접두사** `/api/rankings/bq` · **엔드포인트** 3개
 > **컨트롤러** `user/src/main/java/com/skhynix/user/ranking/controller/BqRankingController.java` (`@RequestMapping("/rankings/bq")`)
 > **최종 갱신** 2026-09-30 — **세 엔드포인트 모두 요청자와 차단 관계(양방향)인 계정을 모집단에서 제외한다**(`UserBlockRepository.findRelatedAccountIds` 재사용, [block 도메인](block.md) 참고). 요청/응답 스키마·상태코드·`ErrorCode`는 불변이고 결과 목록·순위 숫자만 영향을 받는다. 계약 원본 `docs/requirements/user/user-block.md`(승인됨 2026-09-30, USER-BLK-17/18). (직전: 2026-09-04 — 도메인 신설(`GET /rankings/bq/top`·`GET /rankings/bq`·`GET /rankings/bq/me`). 계약 원본 `docs/requirements/user/team-bq-ranking.md`(승인됨 2026-09-04, USER-RK-1~84).)
 > 공통 규약(응답 래퍼·JWT payload·401 4종·시스템 예외 래핑)은 [README.md](README.md)를 먼저 볼 것.
@@ -67,7 +67,7 @@
 
 **예시**
 ```bash
-curl -i http://localhost:8080/api/rankings/bq/top \
+curl -i https://victoryfairy.com/api/rankings/bq/top \
   -H 'Authorization: Bearer eyJ...'
 ```
 ```json
@@ -107,7 +107,7 @@ curl -i http://localhost:8080/api/rankings/bq/top \
 
 **예시**
 ```bash
-curl -i http://localhost:8080/api/rankings/bq \
+curl -i https://victoryfairy.com/api/rankings/bq \
   -H 'Authorization: Bearer eyJ...'
 ```
 ```json
@@ -146,7 +146,7 @@ curl -i http://localhost:8080/api/rankings/bq \
 
 **예시**
 ```bash
-curl -i http://localhost:8080/api/rankings/bq/me \
+curl -i https://victoryfairy.com/api/rankings/bq/me \
   -H 'Authorization: Bearer eyJ...'
 ```
 ```json

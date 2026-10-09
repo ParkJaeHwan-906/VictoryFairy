@@ -1,7 +1,7 @@
 # 응원(support) API 명세
 
 > **도메인** `support` — 사용자의 응원 구단·응원 선수 선택 상태.
-> **모듈** user (포트 8080) · **경로 접두사** `/api/support` · **엔드포인트** 3개
+> **모듈** user · **경로 접두사** `/api/support` · **엔드포인트** 3개
 > **컨트롤러** `user/src/main/java/com/skhynix/user/support/controller/SupportController.java` (`@RequestMapping("/support")`)
 > **최종 갱신** 2026-08-06 — `POST /api/support/players`에 **활성 응원 선수 4명 상한** 도입(`SUPPORT_PLAYER_LIMIT_EXCEEDED`, 400). 같은 날 응원 선수 응답이 재사용하는 `PlayerResponse`의 항목 키가 `{id, name}`에서 여섯 필드로도 바뀜([player.md](player.md) 참고). 이 응답 재사용은 `GET /api/users/me`(`supportPlayers`)에도 번진다 — [account.md](account.md) 참고. `PUT /players/oppose`(취소)는 상한과 무관, 계약 불변.
 > **요구사항** `docs/requirements/user/support-selection.md` (USER-SP-4 ~ 36, USER-SP-22는 2026-08-06 폐기·USER-SP-30~36으로 대체)
@@ -75,7 +75,7 @@
 
 **예시**
 ```bash
-curl -i -X POST http://localhost:8080/api/support/team \
+curl -i -X POST https://victoryfairy.com/api/support/team \
   -H "Authorization: Bearer $ACCESS_TOKEN" -H "Content-Type: application/json" \
   -d '{"teamId":6}'
 ```
@@ -127,7 +127,7 @@ curl -i -X POST http://localhost:8080/api/support/team \
 
 **예시**
 ```bash
-curl -i -X POST http://localhost:8080/api/support/players \
+curl -i -X POST https://victoryfairy.com/api/support/players \
   -H "Authorization: Bearer $ACCESS_TOKEN" -H "Content-Type: application/json" \
   -d '{"playerIds":[1,2]}'
 ```
@@ -177,7 +177,7 @@ curl -i -X POST http://localhost:8080/api/support/players \
 
 **예시**
 ```bash
-curl -i -X PUT http://localhost:8080/api/support/players/oppose \
+curl -i -X PUT https://victoryfairy.com/api/support/players/oppose \
   -H "Authorization: Bearer $ACCESS_TOKEN" -H "Content-Type: application/json" \
   -d '{"playerIds":[1]}'
 ```

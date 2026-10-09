@@ -1,8 +1,8 @@
 # 경기별 채팅(game-chat) API 명세
 
-> 소속 모듈 `chat` (포트 8082) · 경로 접두사 `/chat` (`server.servlet.context-path`) · 엔드포인트 7개
+> 소속 모듈 `chat` · 경로 접두사 `/chat` (`server.servlet.context-path`) · 엔드포인트 7개
 > 최종 갱신: 2026-10-09 (신규 문서 — chat 모듈 최초 명세)
-> 운영 base URL: `https://victoryfairy.com/chat` (2026-10-09 운영 가동, 로컬은 `http://localhost:8082`)
+> 운영 base URL: `https://victoryfairy.com/chat` (2026-10-09 운영 가동)
 > 공통 규약(응답 래퍼·인증·401 정책)은 [README.md](README.md) 참고.
 > 대상 컨트롤러: `chat/src/main/java/com/skhynix/chat/room/controller/ChatRoomController.java`, `message/controller/ChatMessageController.java`, `subscription/controller/ChatSubscriptionController.java` (+ `SubscriptionExceptionHandler`)
 > 계약 원본: `docs/requirements/chat/game-chat.md` (CHAT-GC-*, 승인 2026-10-09)
@@ -71,7 +71,7 @@
 
 **예시**
 ```bash
-curl http://localhost:8082/chat/rooms -H 'Authorization: Bearer <accessToken>'
+curl https://victoryfairy.com/chat/rooms -H 'Authorization: Bearer <accessToken>'
 ```
 
 ## GET /chat/rooms/{gameId}
@@ -92,7 +92,7 @@ curl http://localhost:8082/chat/rooms -H 'Authorization: Bearer <accessToken>'
 
 **예시**
 ```bash
-curl http://localhost:8082/chat/rooms/20261009HTLG0 -H 'Authorization: Bearer <accessToken>'
+curl https://victoryfairy.com/chat/rooms/20261009HTLG0 -H 'Authorization: Bearer <accessToken>'
 ```
 
 ## GET /chat/rooms/{gameId}/subscribe (SSE)
@@ -113,7 +113,7 @@ curl http://localhost:8082/chat/rooms/20261009HTLG0 -H 'Authorization: Bearer <a
 
 **예시**
 ```bash
-curl -N http://localhost:8082/chat/rooms/20261009HTLG0/subscribe \
+curl -N https://victoryfairy.com/chat/rooms/20261009HTLG0/subscribe \
   -H 'Authorization: Bearer <accessToken>' -H 'Accept: text/event-stream' -H 'Last-Event-ID: 7100'
 ```
 
@@ -128,7 +128,7 @@ curl -N http://localhost:8082/chat/rooms/20261009HTLG0/subscribe \
 
 **예시**
 ```bash
-curl -X DELETE http://localhost:8082/chat/rooms/20261009HTLG0/subscribe -H 'Authorization: Bearer <accessToken>'
+curl -X DELETE https://victoryfairy.com/chat/rooms/20261009HTLG0/subscribe -H 'Authorization: Bearer <accessToken>'
 ```
 
 ## POST /chat/rooms/{gameId}/messages
@@ -171,7 +171,7 @@ curl -X DELETE http://localhost:8082/chat/rooms/20261009HTLG0/subscribe -H 'Auth
 
 **예시**
 ```bash
-curl -X POST http://localhost:8082/chat/rooms/20261009HTLG0/messages \
+curl -X POST https://victoryfairy.com/chat/rooms/20261009HTLG0/messages \
   -H 'Authorization: Bearer <accessToken>' -H 'Content-Type: application/json' \
   -d '{"content":"오늘 이긴다","clientMsgId":"3f9c2e10-5b7a-4c1d-9e2f-0a1b2c3d4e5f"}'
 # 202 {"success":true,"data":{"gameId":"20261009HTLG0","msgId":7123,"content":"오늘 이긴다"},"message":null}
@@ -201,7 +201,7 @@ curl -X POST http://localhost:8082/chat/rooms/20261009HTLG0/messages \
 
 **예시**
 ```bash
-curl 'http://localhost:8082/chat/rooms/20261009HTLG0/messages?cursor=7100' -H 'Authorization: Bearer <accessToken>'
+curl 'https://victoryfairy.com/chat/rooms/20261009HTLG0/messages?cursor=7100' -H 'Authorization: Bearer <accessToken>'
 ```
 
 ## POST /chat/rooms/{gameId}/messages/{msgId}/report
@@ -226,7 +226,7 @@ curl 'http://localhost:8082/chat/rooms/20261009HTLG0/messages?cursor=7100' -H 'A
 
 **예시**
 ```bash
-curl -X POST http://localhost:8082/chat/rooms/20261009HTLG0/messages/7100/report -H 'Authorization: Bearer <accessToken>'
+curl -X POST https://victoryfairy.com/chat/rooms/20261009HTLG0/messages/7100/report -H 'Authorization: Bearer <accessToken>'
 ```
 
 ---
@@ -267,7 +267,7 @@ data: {"msgId":7120}
 
 ## 기존 quiz `/rt/chat/**`와의 차이 (병행 운영 중)
 
-| 항목 | 기존(quiz, 8081 `/rt/chat/**`) | 신규(chat, 8082 `/chat/**`) |
+| 항목 | 기존(quiz `/rt/chat/**`) | 신규(chat `/chat/**`) |
 |---|---|---|
 | 경로 | `/rt/chat/rooms/{roomUid}` | `/chat/rooms/{gameId}` (`gameId` = `GET /api/games`의 `gameId`) |
 | 방 목록 | 구단 방 `{roomUid, team, name}` | 오늘 경기 `{gameId, homeTeam, homeTeamId, awayTeam, awayTeamId, gameDate, gameState}`, 경기 없는 날 `[]` |
