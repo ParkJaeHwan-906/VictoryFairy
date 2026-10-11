@@ -14,8 +14,9 @@ import type { ApiErrorResponse } from '../types/api';
  * 쿼리·쿠키 토큰을 받지 않는다. 공개 스트림(`/games/subscribe`)도 같은 경로로 열어
  * 재연결·에러 처리를 한 곳에 모은다.
  *
- * 서버는 `id:` 프레임을 보내지 않아 Last-Event-ID 복구가 불가능하다. 끊긴 사이의 공백을
- * 메우는 방법은 스트림마다 다르다(채팅은 히스토리 재조회, 경기는 재접속 시 오는 `snapshot`).
+ * 끊긴 사이의 공백을 메우는 방법은 스트림마다 다르다(구단 채팅은 히스토리 재조회, 경기는
+ * 재접속 시 오는 `snapshot`). `id:` 를 보내는 건 경기 채팅(`/chat`)뿐이라 그쪽만
+ * `getLastEventId` 로 Last-Event-ID 복구를 쓴다.
  */
 
 /** 재연결 백오프: 1s → 2s → 4s … 최대 30s. */
@@ -67,6 +68,11 @@ export interface SseSubscriptionOptions extends SseLifecycleHandlers {
    * 생략하면 정상 종료(30분 타임아웃 등)는 항상 재연결 대상이다.
    */
   shouldStopOnEnd?: (info: { lifetimeMs: number }) => boolean;
+  /**
+   * 연결을 열 때마다(재연결 포함) 불러 `Last-Event-ID` 헤더로 싣는다. null 이면 싣지 않는다.
+   * 마지막으로 처리한 id 는 프레임 의미를 아는 호출자가 들고 있으므로 값이 아니라 함수로 받는다.
+   */
+  getLastEventId?: () => string | null;
 }
 
 /** 중단 가능한 지연. abort되면 남은 대기를 건너뛰고 즉시 resolve한다. */
@@ -119,11 +125,13 @@ export function openSseSubscription(options: SseSubscriptionOptions): SseSubscri
 
   function openRequest(): Promise<Response> {
     const token = requiresAuth ? getTokenStorage().getAccessToken() : null;
+    const lastEventId = options.getLastEventId?.() ?? null;
     return fetch(url, {
       method: 'GET',
       headers: {
         Accept: 'text/event-stream',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(lastEventId !== null ? { 'Last-Event-ID': lastEventId } : {}),
       },
       signal: controller.signal,
       cache: 'no-store',
