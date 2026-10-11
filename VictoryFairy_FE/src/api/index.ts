@@ -4,10 +4,10 @@
  */
 
 // 모듈별 base URL — 엔드포인트 함수는 이 base 기준 상대 경로를 쓴다.
-export { USER_BASE_URL, GAME_BASE_URL, ASSET_BASE_URL, toAssetUrl } from './config';
+export { USER_BASE_URL, GAME_BASE_URL, CHAT_BASE_URL, ASSET_BASE_URL, toAssetUrl } from './config';
 
 // 모듈별 axios 인스턴스(고급 사용/직접 요청용). 일반적으로는 아래 엔드포인트 함수를 쓴다.
-export { userClient, gameClient } from './httpClient';
+export { userClient, gameClient, chatClient } from './httpClient';
 
 // 인증(user 모듈) 엔드포인트 함수
 export {
@@ -112,6 +112,34 @@ export {
   CHAT_MESSAGE_MAX_LENGTH,
 } from './chat';
 export type { ChatSubscription, ChatSubscriptionHandlers } from './chat';
+
+// 경기별 채팅(chat 모듈, `/chat` base) 엔드포인트 함수 — 여덟 개 전부 인증이 필수다
+export {
+  getGameChatRooms,
+  getGameChatRoom,
+  subscribeGameChatRoom,
+  leaveGameChatRoom,
+  sendGameChatMessage,
+  getGameChatMessages,
+  reportGameChatMessage,
+  likeGameChatRoom,
+  createClientMsgId,
+  validateGameChatMessageContent,
+  isGameChatRoomNotFound,
+  isGameChatMessageNotFound,
+  isGameChatSelfReport,
+  isGameChatMessageInFlight,
+  isGameChatRateLimited,
+  isGameChatBrokerUnavailable,
+  GAME_CHAT_ERROR_MESSAGE,
+  GAME_CHAT_MESSAGE_PAGE_SIZE,
+  GAME_CHAT_MESSAGE_MAX_LENGTH,
+} from './gameChat';
+export type {
+  GameChatSubscription,
+  GameChatSubscriptionHandlers,
+  GameChatSubscribeOptions,
+} from './gameChat';
 
 // 데일리 퀴즈(quiz 모듈 — 채팅과 같은 `/rt` base) 엔드포인트 함수 — 여섯 개 전부 인증이 필수다
 export {
@@ -229,6 +257,14 @@ export type {
   ChatMessagePage,
   SendChatMessageRequest,
 } from '../types/chat';
+export type {
+  GameChatRoom,
+  GameChatMessage,
+  GameChatMessagePage,
+  GameChatDeletedEvent,
+  SendGameChatMessageRequest,
+  SendGameChatMessageResult,
+} from '../types/gameChat';
 export { CHARACTER_ITEM_TYPE } from '../types/character';
 export type {
   CharacterItemType,

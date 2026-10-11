@@ -11,7 +11,7 @@ type MatchCardProps = {
    * 점수는 SSE 로 실시간 갱신되는 `game` 을 그대로 그린다.
    */
   showScore?: boolean;
-  /** 카드를 누르면 경기 상세 시트를 연다. */
+  /** 카드를 누르면 경기 상세 페이지로 간다. */
   onSelect: (game: Game) => void;
 };
 

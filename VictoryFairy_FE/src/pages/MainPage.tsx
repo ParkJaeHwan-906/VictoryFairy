@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { getBqTopRanking } from '../api';
-import type { BqRankingEntry } from '../api';
+import type { BqRankingEntry, Game } from '../api';
 import CharacterAvatar from '../components/CharacterAvatar';
-import GameDetailSheet from '../components/GameDetailSheet';
 import MatchCard from '../components/MatchCard';
 import RankingPodium from '../components/RankingPodium';
-import { ROUTES } from '../routes';
+import { ROUTES, gameDetailPath, type GameDetailPageState } from '../routes';
 import { useLiveGames } from '../hooks/useLiveGames';
 import { useMyProfile } from '../stores/useAccountStore';
 import { getTodayInSeoul } from '../utils/date';
@@ -62,9 +61,12 @@ export default function MainPage() {
    */
   const { games, isLoading, loadFailed } = useLiveGames('support', today, true);
 
-  // 시트가 열린 동안에도 실시간 갱신이 반영되도록 id 로 들고 목록에서 다시 찾는다(GamePage 와 같다).
-  const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
-  const selectedGame = games.find((game) => game.gameId === selectedGameId) ?? null;
+  // 카드를 누르면 경기 상세로 간다. 들고 있는 경기를 넘겨 첫 응답 전에도 바로 그린다(GamePage 와 같다).
+  const navigate = useNavigate();
+  const openGame = (game: Game) => {
+    const state: GameDetailPageState = { game };
+    navigate(gameDetailPath(game.gameId), { state });
+  };
 
   // 순위도 경기와 같은 규칙으로 받는다. 대상은 토큰의 응원 구단이라 넘길 값이 없다.
   useEffect(() => {
@@ -178,7 +180,7 @@ export default function MainPage() {
               <MatchCard
                 key={game.gameId}
                 game={game}
-                onSelect={(selected) => setSelectedGameId(selected.gameId)}
+                onSelect={openGame}
               />
             ))}
           </ol>
@@ -214,10 +216,6 @@ export default function MainPage() {
           <RankingPodium entries={ranking} />
         )}
       </section>
-
-      {selectedGame && (
-        <GameDetailSheet game={selectedGame} onClose={() => setSelectedGameId(null)} />
-      )}
     </main>
   );
 }

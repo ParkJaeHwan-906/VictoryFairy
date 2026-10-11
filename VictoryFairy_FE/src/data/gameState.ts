@@ -13,7 +13,7 @@ export type GameStateTone = 'scheduled' | 'live' | 'done' | 'canceled';
 export interface GameStateDisplay {
   label: string;
   tone: GameStateTone;
-  /** 상세 시트 하단 CTA. 진행 전·취소 경기에는 버튼이 없다. */
+  /** 경기 상세의 퀴즈 CTA. 진행 전·취소 경기에는 버튼이 없다. */
   cta: { label: string; tone: 'live' | 'done' } | null;
 }
 

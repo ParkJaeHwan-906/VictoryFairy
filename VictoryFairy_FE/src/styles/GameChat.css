@@ -1,0 +1,569 @@
+/**
+ * GameChat(경기 상세 하단 경기 채팅) 스타일.
+ *
+ * 말풍선 · 입력창 · "..." 메뉴는 라운지 채팅(LoungeChatSheet.css)과 같은 값을 쓴다 —
+ * 두 채팅이 다른 앱처럼 보이지 않게 하려는 것이다. 다른 점은 시트가 아니라 페이지의
+ * 남은 높이를 채운다는 것뿐이다: 머리줄(고정) / 메시지 목록(스크롤) / 입력창(고정).
+ */
+
+.game-chat {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-height: 0;
+  /* 위쪽 경기 요약과 나누는 회색 띠 */
+  border-top: 8px solid var(--color-background-gray);
+  background-color: var(--color-surface);
+}
+
+/* ------------------------------------------------------------------ *
+ * Head — "실시간 채팅" + LIVE 표시
+ * ------------------------------------------------------------------ */
+.game-chat__head {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 14px var(--layout-gutter) 10px;
+  border-bottom: 1px solid var(--color-line-light);
+}
+
+.game-chat__title {
+  margin: 0;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-body1);
+}
+
+/* 연결 중엔 회색, 실시간으로 붙으면 주황 점이 함께 켜진다. */
+.game-chat__live {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-gray-100);
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+}
+
+.game-chat__live::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: currentColor;
+  content: '';
+}
+
+.game-chat__live[data-live] {
+  background-color: var(--color-primary-50);
+  color: var(--color-primary-normal);
+}
+
+.game-chat__live[data-live]::before {
+  animation: game-chat-blink 1.6s ease-in-out infinite;
+}
+
+@keyframes game-chat-blink {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+/* 실시간 연결이 끊겼을 때 목록 위에 붙는 띠(라운지 채팅과 같다). */
+.game-chat__live-notice {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 6px var(--layout-gutter);
+  background-color: var(--color-gray-100);
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+  text-align: center;
+}
+
+/* ------------------------------------------------------------------ *
+ * Messages — 말풍선 목록(스크롤 영역)
+ * ------------------------------------------------------------------ */
+.game-chat__messages {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+  margin: 0;
+  padding: 16px 0;
+  list-style: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* 지난 대화 더보기 — 목록 맨 위의 작은 알약 버튼 */
+.game-chat__more-row {
+  display: flex;
+  justify-content: center;
+}
+
+.game-chat__more {
+  padding: 4px 12px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-background-gray);
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+}
+
+.game-chat__more:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.game-chat__message {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding-inline: var(--layout-gutter);
+}
+
+.game-chat__avatar {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-40);
+  object-fit: cover;
+}
+
+.game-chat__body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* 닉네임 + 응원 구단 로고 */
+.game-chat__sender {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+}
+
+.game-chat__sender-name {
+  min-width: 0;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.game-chat__team-logo {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
+
+/* 말풍선 + 시각. 시각은 말풍선 아래쪽 선에 맞춘다. */
+.game-chat__bubble-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.game-chat__bubble {
+  max-width: 266px;
+  margin: 0;
+  padding: 6px 12px;
+  border-radius: var(--radius-10);
+  background-color: var(--color-background-gray);
+  color: var(--color-label-normal);
+  font-size: var(--font-size-body2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body2);
+  overflow-wrap: anywhere;
+}
+
+.game-chat__time {
+  flex-shrink: 0;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+/* 내가 보낸 말풍선 — 오른쪽 정렬, 주황 바탕에 흰 글씨 */
+.game-chat__message--mine {
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.game-chat__bubble--mine {
+  background-color: var(--color-primary-400);
+  color: var(--color-white);
+  text-align: right;
+}
+
+/* 안내 문구 — 로딩 · 실패 · 빈 목록 · 당일 아님. 목록 가운데에 한 줄로 놓는다. */
+.game-chat__notice {
+  margin: auto 0;
+  padding-inline: var(--layout-gutter);
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-body2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body2);
+  text-align: center;
+}
+
+.game-chat__notice--error {
+  color: var(--color-primary-normal);
+}
+
+/* 전송 실패 안내 — 입력창 바로 위 */
+.game-chat__send-error {
+  flex-shrink: 0;
+  margin: 0 var(--layout-gutter) 8px;
+  color: var(--color-primary-normal);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+/* ------------------------------------------------------------------ *
+ * Composer row — 하트(응원) 버튼 + 입력창. 응원 로고는 이 줄 위로 떠오른다.
+ * ------------------------------------------------------------------ */
+.game-chat__composer-row {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  margin: 0 var(--layout-gutter) calc(16px + env(safe-area-inset-bottom, 0px));
+}
+
+/* 하트 — 입력창과 같은 높이(48)의 원. 연한 주황 바탕에 주황 하트. */
+.game-chat__heart {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border-radius: 50%;
+  background-color: var(--color-primary-50);
+  transition: transform 0.12s ease-out;
+}
+
+/* 누르는 순간 살짝 눌렸다 돌아온다 — 연타해도 눌렸다는 감각이 남게. */
+.game-chat__heart:active:not(:disabled) {
+  transform: scale(0.88);
+}
+
+.game-chat__heart:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.game-chat__heart-icon {
+  width: 24px;
+  height: 24px;
+  fill: var(--color-primary-normal);
+}
+
+/* ------------------------------------------------------------------ *
+ * 떠오르는 응원 로고
+ *
+ * 바깥(.game-chat__like)이 위로 올라가며 서서히 사라지고, 안쪽(.game-chat__like-sway)이
+ * 좌우로 흔들린다. 두 움직임을 한 요소의 transform 에 섞으면 키프레임이 서로를 덮어써서
+ * 나눴다. 출발점은 하트 버튼 바로 위 가운데다.
+ * 흔들림 폭 · 비켜나는 거리 · 시간은 로고마다 컴포넌트가 CSS 변수로 다르게 준다.
+ * ------------------------------------------------------------------ */
+.game-chat__likes {
+  position: absolute;
+  bottom: 100%;
+  /* 하트(48px) 가운데 */
+  left: 24px;
+  z-index: 3;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.game-chat__like {
+  position: absolute;
+  bottom: 0;
+  left: -18px;
+  width: 36px;
+  height: 36px;
+  animation: game-chat-like-rise var(--like-duration, 1400ms) ease-out forwards;
+}
+
+.game-chat__like-sway {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  animation: game-chat-like-sway 0.9s ease-in-out infinite alternate;
+}
+
+.game-chat__like-logo {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  /* 흰 바탕 말풍선 위에서도 로고 윤곽이 묻히지 않게 */
+  filter: drop-shadow(0 2px 4px rgb(18 18 18 / 16%));
+}
+
+.game-chat__like-heart {
+  width: 28px;
+  height: 28px;
+  fill: var(--color-primary-normal);
+}
+
+/* 위로 140px — 처음엔 작게 튀어나왔다가, 60% 지점부터 점점 투명해져 사라진다. */
+@keyframes game-chat-like-rise {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) scale(0.4);
+  }
+
+  12% {
+    opacity: 1;
+    transform: translate(0, -24px) scale(1);
+  }
+
+  60% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate(var(--like-drift, 0px), -140px) scale(0.9);
+  }
+}
+
+@keyframes game-chat-like-sway {
+  from {
+    transform: translateX(calc(var(--like-sway, 14px) * -1));
+  }
+
+  to {
+    transform: translateX(var(--like-sway, 14px));
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Composer — 입력창(라운지 채팅과 같은 모양)
+ * ------------------------------------------------------------------ */
+.game-chat__composer {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px 12px 12px 16px;
+  border-radius: var(--radius-10);
+  background-color: var(--color-gray-100);
+}
+
+/* 입력 중 — 흰 바탕 + 회색 테두리. border 대신 inset 그림자라 높이가 튀지 않는다. */
+.game-chat__composer:has(.game-chat__input:focus) {
+  background-color: var(--color-background-basic);
+  box-shadow: inset 0 0 0 1.5px var(--color-gray-300);
+}
+
+.game-chat__input {
+  flex: 1 0 0;
+  min-width: 0;
+  border: none;
+  background: none;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-body2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body2);
+}
+
+.game-chat__input::placeholder {
+  color: var(--color-label-assistive);
+}
+
+.game-chat__input:focus {
+  outline: none;
+}
+
+.game-chat__input:focus::placeholder {
+  color: transparent;
+}
+
+/* 전송 버튼 — 아이콘은 24px, ::after 로 히트 영역만 44px 로 넓힌다. */
+.game-chat__send {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+}
+
+.game-chat__send::after {
+  position: absolute;
+  inset: -10px;
+  content: '';
+}
+
+.game-chat__send:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.game-chat__send-icon {
+  width: 24px;
+  height: 24px;
+  background-color: var(--color-primary-normal);
+  -webkit-mask: url('../assets/send.svg') no-repeat center / contain;
+  mask: url('../assets/send.svg') no-repeat center / contain;
+}
+
+/* ------------------------------------------------------------------ *
+ * "..." 메뉴 — 신고 · 차단 (라운지 채팅과 같다)
+ * ------------------------------------------------------------------ */
+.game-chat__menu-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.game-chat__menu-trigger {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-40);
+  background-color: transparent;
+  cursor: pointer;
+}
+
+.game-chat__menu-trigger:hover,
+.game-chat__menu-trigger:active {
+  background-color: var(--color-background-gray);
+}
+
+.game-chat__menu-trigger-glyph {
+  width: 16px;
+  height: 16px;
+  background-color: var(--color-label-alternative);
+  -webkit-mask: url('../assets/meatball_v.svg') no-repeat center / contain;
+  mask: url('../assets/meatball_v.svg') no-repeat center / contain;
+}
+
+.game-chat__menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  min-width: 132px;
+  padding: 4px 0;
+  border-radius: var(--radius-10);
+  background-color: var(--color-surface);
+  /* tokens.css 에 그림자 토큰이 없어 라운지 채팅과 같은 리터럴을 쓴다. */
+  box-shadow: 0 4px 16px rgb(18 18 18 / 16%);
+  transform-origin: top right;
+  animation: game-chat-menu-in 160ms cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+@keyframes game-chat-menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+}
+
+.game-chat__menu-item {
+  display: block;
+  width: 100%;
+  padding: 10px 16px;
+  border: 0;
+  background: none;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-body2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body2);
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.game-chat__menu-item:hover,
+.game-chat__menu-item:active {
+  background-color: var(--color-background-gray);
+}
+
+.game-chat__menu-item:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.game-chat__menu-item--danger {
+  color: var(--color-error-strong);
+}
+
+.game-chat__action-error {
+  margin: 6px 0 0;
+  color: var(--color-error-strong);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+/* ------------------------------------------------------------------ *
+ * 반응형 · 접근성
+ * ------------------------------------------------------------------ */
+@media (max-width: 359px) {
+  .game-chat__head,
+  .game-chat__message {
+    padding-inline: 16px;
+  }
+
+  .game-chat__composer-row {
+    margin-inline: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-chat__live[data-live]::before,
+  .game-chat__menu {
+    animation: none;
+  }
+
+  .game-chat__heart {
+    transition: none;
+  }
+
+  /*
+   * 응원 로고는 신호 자체라 없애지 않는다 — 흔들림만 멈추고 곧게 올라가며 사라진다.
+   * (상승 애니메이션이 끝나야 로고가 치워지므로 rise 는 남겨 둔다.)
+   */
+  .game-chat__like-sway {
+    animation: none;
+  }
+}
