@@ -1,0 +1,433 @@
+/**
+ * GameDetailPage(경기 상세) 스타일.
+ *
+ * 예전 경기 상세 시트(GameDetailSheet)의 요약 영역을 그대로 옮기고, 상단 바는 다른 전체 화면
+ * (공지 · 문의)과 같은 60px 바를 쓴다. 화면은 한 화면 높이에 고정된 세로 3단이다:
+ *   상단 바(고정) / 경기 요약 · 라인업 · CTA(고정) / 경기 채팅(남은 높이, 안쪽만 스크롤)
+ * 라인업을 펼쳐도 채팅이 밀려 사라지지 않도록 라인업 패널에 최대 높이를 둔다.
+ */
+
+.game-detail {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--layout-app-width);
+  height: 100dvh;
+  margin-inline: auto;
+  background-color: var(--color-background-basic);
+  overflow: hidden;
+}
+
+/* ------------------------------------------------------------------ *
+ * Bar/Top — 뒤로가기 · 타이틀 (NoticeDetailPage 와 같은 컴포넌트)
+ * ------------------------------------------------------------------ */
+.game-detail__topbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.game-detail__back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 60px;
+  padding: 10px;
+  border-radius: var(--radius-10);
+  overflow: clip;
+}
+
+.game-detail__back-icon {
+  width: 20px;
+  height: 20px;
+  background-color: var(--color-label-assistive);
+  -webkit-mask: url('../assets/arrow_l.svg') center / contain no-repeat;
+  mask: url('../assets/arrow_l.svg') center / contain no-repeat;
+}
+
+.game-detail__topbar-title {
+  min-width: 0;
+  margin: 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  text-align: center;
+}
+
+.game-detail__topbar-spacer {
+  flex-shrink: 0;
+  width: 60px;
+  height: 60px;
+}
+
+/* 경기를 못 찾았을 때 · 불러오는 중 */
+.game-detail__status {
+  margin: auto 0;
+  padding: 0 var(--layout-gutter) 60px;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-body2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body2);
+  text-align: center;
+}
+
+/* ------------------------------------------------------------------ *
+ * Summary — 구장 · 시각 · 상태 칩 / 원정 VS 홈
+ * ------------------------------------------------------------------ */
+.game-detail__summary {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  padding-bottom: 16px;
+}
+
+.game-detail__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+  padding-inline: var(--layout-gutter);
+}
+
+.game-detail__place {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+}
+
+.game-detail__stadium {
+  color: var(--color-label-normal);
+  font-size: var(--font-size-title1);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.game-detail__time {
+  flex-shrink: 0;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-label2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+/* 목록 카드의 칩과 같은 형태·색이다. 긴 취소 사유는 잘라낸다. */
+.game-detail__chip {
+  flex-shrink: 0;
+  max-width: 50%;
+  padding: 4px 12px;
+  border-radius: var(--radius-20);
+  color: var(--color-white);
+  font-size: var(--font-size-label2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.game-detail__chip--scheduled {
+  background-color: var(--color-primary-lighter);
+}
+
+.game-detail__chip--live {
+  background-color: var(--color-primary-normal);
+}
+
+.game-detail__chip--done {
+  background-color: var(--color-secondary-light);
+}
+
+.game-detail__chip--canceled {
+  background-color: var(--color-label-disable);
+}
+
+.game-detail__teams {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  /* 이닝이 VS 위에 겹쳐 뜨는 자리를 위쪽 여백으로 비워 둔다 */
+  margin-top: 24px;
+  padding-inline: 24px;
+}
+
+.game-detail__team {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 96px;
+}
+
+.game-detail__logo-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 56px;
+}
+
+.game-detail__logo {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+/* 색은 경기 목록 카드(MatchCard)의 구단명과 맞춘다. 크기·굵기는 상세라 한 단계 크다. */
+.game-detail__team-name {
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-body1);
+  letter-spacing: -0.16px;
+  text-align: center;
+}
+
+/* VS 와 양옆 점수, 그 위 이닝을 묶는 칸. MatchCard 와 같은 구조다(이닝은 흐름에서 빠진다). */
+.game-detail__center {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 12px;
+}
+
+.game-detail__inning {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 2px;
+  color: var(--color-primary-normal);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  white-space: nowrap;
+}
+
+/* 점수 — 두 자리 폭으로 고정해 점수가 바뀌어도 VS 가 흔들리지 않는다(MatchCard 와 같다). */
+.game-detail__score {
+  min-width: 2ch;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-title1);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title1);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.game-detail__vs {
+  flex-shrink: 0;
+  color: var(--color-primary-normal);
+  font-size: var(--font-size-title1);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title1);
+}
+
+/* ------------------------------------------------------------------ *
+ * Lineup — 접었다 펴는 드롭다운
+ * ------------------------------------------------------------------ */
+.game-detail__lineup {
+  margin: 20px var(--layout-gutter) 0;
+  border-radius: var(--radius-15);
+  background-color: var(--color-background-gray);
+  overflow: hidden;
+}
+
+.game-detail__lineup-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 48px;
+  padding: 12px 16px;
+  text-align: left;
+}
+
+.game-detail__lineup-title {
+  flex: 1 1 auto;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+}
+
+.game-detail__lineup-hint {
+  flex-shrink: 0;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-label2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+/* `arrow_d.svg` 를 mask 로 오려 색만 입힌다. 펼치면 위를 향한다. */
+.game-detail__lineup-arrow {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  background-color: var(--color-label-alternative);
+  -webkit-mask: url('../assets/arrow_d.svg') center / contain no-repeat;
+  mask: url('../assets/arrow_d.svg') center / contain no-repeat;
+  transition: transform 0.2s ease-out;
+}
+
+.game-detail__lineup-toggle[aria-expanded='true'] .game-detail__lineup-arrow {
+  transform: rotate(180deg);
+}
+
+/* 펼친 내용 — 채팅이 밀려 사라지지 않도록 높이를 묶고 안쪽만 스크롤한다. */
+.game-detail__lineup-panel {
+  max-height: 36dvh;
+  padding: 0 16px 8px;
+  border-top: 1px solid var(--color-line-light);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  animation: game-detail-unfold 0.2s ease-out;
+}
+
+@keyframes game-detail-unfold {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.game-detail__lineup-columns {
+  display: flex;
+  gap: 24px;
+  justify-content: space-between;
+}
+
+.game-detail__batters {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.game-detail__batter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--color-line-light);
+}
+
+.game-detail__batter:last-child {
+  border-bottom: none;
+}
+
+.game-detail__batter-name {
+  min-width: 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.game-detail__batter-position {
+  flex-shrink: 0;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-body4);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body4);
+}
+
+/* 라인업 미공시 · 조회 실패 안내문 */
+.game-detail__notice {
+  margin: 20px 0 12px;
+  color: var(--color-label-assistive);
+  font-size: var(--font-size-body2);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body2);
+  text-align: center;
+}
+
+/* ------------------------------------------------------------------ *
+ * CTA — 퀴즈. 진행 전 · 취소 경기와 남의 경기에는 없다.
+ * 시트 시절과 같은 모양이지만, 아래에 채팅이 붙어 높이를 조금 줄였다.
+ * ------------------------------------------------------------------ */
+.game-detail__cta {
+  height: 52px;
+  margin: 12px var(--layout-gutter) 0;
+  border-radius: var(--radius-15);
+  color: var(--color-white);
+  font-size: var(--font-size-button2);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+}
+
+.game-detail__cta--live {
+  background-color: var(--color-primary-normal);
+}
+
+.game-detail__cta--done {
+  background-color: var(--color-secondary-light);
+}
+
+/* ------------------------------------------------------------------ *
+ * 반응형 · 접근성
+ * ------------------------------------------------------------------ */
+@media (max-width: 359px) {
+  .game-detail__header {
+    padding-inline: 16px;
+  }
+
+  .game-detail__teams {
+    gap: 12px;
+    padding-inline: 16px;
+  }
+
+  .game-detail__team {
+    width: 80px;
+  }
+
+  .game-detail__lineup,
+  .game-detail__cta {
+    margin-inline: 16px;
+  }
+}
+
+/* 낮은 화면에서는 로고를 줄여 채팅 자리를 남긴다. */
+@media (max-height: 700px) {
+  .game-detail__logo-box {
+    height: 40px;
+  }
+
+  .game-detail__teams {
+    margin-top: 20px;
+  }
+
+  .game-detail__lineup {
+    margin-top: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-detail__lineup-arrow {
+    transition: none;
+  }
+
+  .game-detail__lineup-panel {
+    animation: none;
+  }
+}

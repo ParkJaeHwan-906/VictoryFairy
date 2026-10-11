@@ -4,7 +4,7 @@ import { getTodayInSeoul } from '../utils/date';
 /**
  * ⚠️ UI 확인용 임시 더미 데이터. 백엔드가 뜨면 이 파일째 지운다.
  *
- * `GamePage` · `GameDetailSheet` 에서 `getGameList`/`getLineUp` 대신 부르고 있으며,
+ * `GamePage` · `GameDetailPage` 에서 `getGameList`/`getLineUp` 대신 부르고 있으며,
  * 되돌릴 지점은 두 파일의 `[DUMMY]` 주석에 표시해 뒀다.
  *
  * 디자인의 모든 상태를 볼 수 있게 값을 골랐다 — 날짜(과거·오늘·미래)로 인사말과

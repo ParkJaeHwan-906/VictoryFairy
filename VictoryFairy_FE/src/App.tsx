@@ -7,6 +7,7 @@ import TeamSelectPage from './pages/TeamSelectPage';
 import MainPage from './pages/MainPage';
 import MyPage from './pages/MyPage';
 import GamePage from './pages/GamePage';
+import GameDetailPage from './pages/GameDetailPage';
 import PlayerSelectPage from './pages/PlayerSelectPage';
 import CompletePage from './pages/CompletePage';
 import InquiryPage from './pages/InquiryPage';
@@ -50,6 +51,8 @@ export default function App() {
         `PublicOnlyRoute` 를 씌우면 가입 직후 흐름이 통째로 끊긴다.
       */}
       <Route element={<ProtectedRoute />}>
+        {/* 경기 상세도 아래에 경기 채팅 입력창이 붙어 NavBar 없는 전체 화면이다 */}
+        <Route path={ROUTES.gameDetail} element={<GameDetailPage />} />
         {/* 퀴즈는 디자인에 NavBar 가 없어 레이아웃 밖 전체 화면이다 */}
         <Route path={ROUTES.quiz} element={<QuizPage />} />
         {/* 퀴즈 결과도 NavBar 없는 전체 화면이라 풀이 화면과 같은 자리에 둔다 */}
