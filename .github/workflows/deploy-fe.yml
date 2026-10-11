@@ -44,7 +44,7 @@ env:
   # 엣지에 잘못된 응답이 붙었을 때 수동으로 떼어내기 위해 남겨 둔 값이다.
   CLOUDFRONT_DISTRIBUTION_ID: E1ZZQDZFGJGL2K
 
-  # ⚠ 절대 URL 이 아니라 상대 경로다. CloudFront 가 단일 진입점이 되어 /api/*·/rt/* 를 ALB 로,
+  # ⚠ 절대 URL 이 아니라 상대 경로다. CloudFront 가 단일 진입점이 되어 /api/*·/rt/*·/chat/* 를 ALB 로,
   #   나머지를 S3 로 갈라 보내므로 FE·API 가 같은 오리진(victoryfairy.com)에 남는다. 그래서
   #   도메인이 필요 없고 CORS 도 필요 없다.
   #   이 값은 Vite 가 번들에 문자열로 굽는다 — 바꾸면 재배포가 아니라 재빌드가 필요하다.
@@ -52,6 +52,7 @@ env:
   #   경로를 rewrite 하지 않는다.
   VITE_API_USER_BASE_URL: /api
   VITE_API_GAME_BASE_URL: /rt
+  VITE_API_CHAT_BASE_URL: /chat
 
 jobs:
   build-deploy:
@@ -102,11 +103,11 @@ jobs:
           #   주입이 정상이어도 항상 실패한다.
           #   값만 찾는 것으로 충분한 이유: 주입이 실패하면 config.ts 폴백이 구워져 위의
           #   localhost:8080 검사가 먼저 잡고, 빈 값이면 이 검사가 잡는다.
-          for base in "$VITE_API_USER_BASE_URL" "$VITE_API_GAME_BASE_URL"; do
+          for base in "$VITE_API_USER_BASE_URL" "$VITE_API_GAME_BASE_URL" "$VITE_API_CHAT_BASE_URL"; do
             grep -rq -- "$base" ./dist/assets \
               || { echo "::error::번들에서 $base 를 찾지 못했습니다 — env 주입 실패"; exit 1; }
           done
-          echo "OK: $VITE_API_USER_BASE_URL · $VITE_API_GAME_BASE_URL"
+          echo "OK: $VITE_API_USER_BASE_URL · $VITE_API_GAME_BASE_URL · $VITE_API_CHAT_BASE_URL"
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4

@@ -2,6 +2,7 @@
  * 앱 라우트 경로.
  * App 과 각 페이지가 함께 참조하므로 별도 모듈로 둔다(순환 import 방지).
  */
+import type { Game } from './types/game';
 import type { ShareStickerId } from './utils/shareStickers';
 
 export const ROUTES = {
@@ -14,10 +15,15 @@ export const ROUTES = {
   community: '/community',
   main: '/main',
   game: '/game',
-  /** 데일리 퀴즈 풀이. 경기 상세 시트의 "퀴즈 풀러 가기"로 들어온다(NavBar 없는 전체 화면). */
+  /**
+   * 경기 상세(정보 · 라인업 · 경기 채팅). 경기 카드를 누르면 들어온다(NavBar 없는 전체 화면).
+   * **라우트 정의에만 쓰는 패턴**이고, 실제 주소는 `gameDetailPath` 로 만든다.
+   */
+  gameDetail: '/game/:gameId',
+  /** 데일리 퀴즈 풀이. 경기 상세의 "퀴즈 풀러 가기"로 들어온다(NavBar 없는 전체 화면). */
   quiz: '/quiz',
   /**
-   * 퀴즈 결과(이닝별). 종료된 경기 상세 시트의 "퀴즈 결과 확인하기"로 들어온다.
+   * 퀴즈 결과(이닝별). 종료된 경기 상세의 "퀴즈 결과 확인하기"로 들어온다.
    *
    * **`QuizResultPageState` 를 반드시 넘겨야 한다** — 결과 조회가 경기 단위라
    * `gameId` 없이는 아무것도 부를 수 없다(2026-08-13 계약 교체).
@@ -71,6 +77,32 @@ export const ROUTES = {
    */
   noticeDetail: '/notice/:noticeId',
 } as const;
+
+/** 경기 상세로 가는 주소. `ROUTES.gameDetail` 의 `:gameId` 를 채운 값이다. */
+export function gameDetailPath(gameId: string): string {
+  return `/game/${encodeURIComponent(gameId)}`;
+}
+
+/**
+ * 경기 카드 → 경기 상세로 넘길 값 — 누른 카드의 경기 그대로.
+ *
+ * 상세 화면은 주소의 `gameId` 만으로도 목록을 다시 받아 경기를 찾지만, 그 응답이 오기
+ * 전까지 빈 화면이 되지 않도록 이미 들고 있는 값을 먼저 그린다. 이후 실시간 갱신은 목록 쪽이 덮는다.
+ * 라우터 state 는 주소를 직접 치고 들어오면 비어 있다 — 받는 쪽은 없는 경우를 견뎌야 한다.
+ */
+export interface GameDetailPageState {
+  game: Game;
+}
+
+/** 라우터 state 에서 경기를 읽는다. 형태가 맞지 않으면 `null`. */
+export function readGameDetailPageState(state: unknown): Game | null {
+  if (typeof state !== 'object' || state === null) return null;
+
+  const game = (state as Partial<GameDetailPageState>).game;
+  return typeof game === 'object' && game !== null && typeof game.gameId === 'string'
+    ? game
+    : null;
+}
 
 /** 공지 한 건으로 가는 주소. `ROUTES.noticeDetail` 의 `:noticeId` 를 채운 값이다. */
 export function noticeDetailPath(noticeId: string): string {

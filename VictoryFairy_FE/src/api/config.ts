@@ -31,6 +31,16 @@ export const GAME_BASE_URL = normalize(
 );
 
 /**
+ * chat 모듈 — 경기별 채팅(`docs/game-chat.md`, 2026-10-09 운영 가동).
+ *
+ * 구단별 채팅(GAME_BASE_URL 의 `/chat/**`)과 **다른 서버**다. base 가 이미 `/chat` 이라
+ * 경로는 `/rooms` 부터 쓴다: CHAT_BASE_URL + '/rooms' → https://victoryfairy.com/chat/rooms
+ */
+export const CHAT_BASE_URL = normalize(
+  import.meta.env.VITE_API_CHAT_BASE_URL ?? `${LOCAL_ORIGIN}/chat`,
+);
+
+/**
  * 이미지 CDN 루트 — 프로필·캐릭터 이미지를 실제로 읽어 오는 곳.
  *
  * **서버는 완성된 URL 을 주지 않는다.** 이미지는 언제나 BaseURL 을 뺀
