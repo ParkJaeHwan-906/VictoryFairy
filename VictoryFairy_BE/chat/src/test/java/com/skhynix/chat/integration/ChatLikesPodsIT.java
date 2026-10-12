@@ -178,7 +178,7 @@ class ChatLikesPodsIT {
     // ---------- LK-40 ----------
 
     @Test
-    @DisplayName("[CHAT-LK-40] 설정 없이 기동하면 키 4개가 표의 기본값(10 / 300 / 100 / 10000)이다")
+    @DisplayName("[CHAT-LK-40] 설정 없이 기동하면 키 4개가 표의 기본값(10 / 60 / 100 / 10000)이다")
     void defaults() throws Exception {
         prepareBroker();
         try (AppLauncher app = new AppLauncher()) {
@@ -186,7 +186,7 @@ class ChatLikesPodsIT {
 
             ChatLikesProperties properties = app.context.getBean(ChatLikesProperties.class);
             assertThat(properties.rateLimit().perSecond()).isEqualTo(10);
-            assertThat(properties.teamCacheTtlSeconds()).isEqualTo(300L);
+            assertThat(properties.teamCacheTtlSeconds()).isEqualTo(60L);
             assertThat(properties.throttleWindowMs()).isEqualTo(100L);
             assertThat(properties.publishQueueCapacity()).isEqualTo(10_000);
         }
@@ -220,13 +220,16 @@ class ChatLikesPodsIT {
     }
 
     @Test
-    @DisplayName("[CHAT-LK-12][CHAT-LK-40] team-cache-ttl-seconds=2 로 기동하면 구단 변경이 2초 안에는 옛 값(HT), 2초 뒤에는 새 값(LG)으로 발행된다")
+    @DisplayName("[CHAT-LK-56][CHAT-LK-40] team-cache-ttl-seconds=2 로 기동하면 변경 신호 없이 바뀐 구단이 2초 안에는 옛 값(HT), 2초 뒤에는 새 값(LG)으로 발행된다")
     void teamCacheTtlBoundary() throws Exception {
         prepareBroker();
         try (AppLauncher app = new AppLauncher()) {
             long id = IDS.incrementAndGet();
             String token = token(app, id, "HT");
+            long subscribers = probe().numsub("support:team-changed");
             app.start("--chat.likes.team-cache-ttl-seconds=2");
+            // 구독이 맺어지는 순간 캐시 전체가 비워지므로(CHAT-LK-59) 그 뒤에 첫 조회를 해야 TTL 만 본다
+            await().atMost(WAIT).until(() -> probe().numsub("support:team-changed") == subscribers + 1);
             String room = "TTL2" + System.nanoTime() % 1_000_000;
             String path = "/chat/rooms/" + room + "/likes";
 

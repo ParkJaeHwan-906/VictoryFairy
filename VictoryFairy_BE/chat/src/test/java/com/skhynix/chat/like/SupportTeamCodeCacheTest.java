@@ -82,7 +82,7 @@ class SupportTeamCodeCacheTest {
     }
 
     @Test
-    @DisplayName("[CHAT-LK-12] 구단을 바꿔도 TTL 이 끝나기 전에는 옛 코드를 돌려주고, TTL(1초) 뒤에는 새 코드를 돌려준다")
+    @DisplayName("[CHAT-LK-56] 변경 신호가 없으면 TTL 이 끝나기 전에는 옛 코드를 돌려주고, TTL(1초) 뒤에는 새 코드를 돌려준다")
     void changeIsInvisibleUntilTtlThenVisible() throws Exception {
         teamIs(1L, "HT");
         SupportTeamCodeCache cache = cache(1);
@@ -96,7 +96,7 @@ class SupportTeamCodeCacheTest {
     }
 
     @Test
-    @DisplayName("[CHAT-LK-12] TTL 은 첫 조회부터 센다 — 계속 조회(접근)해도 만료가 미뤄지지 않는다")
+    @DisplayName("[CHAT-LK-56] TTL 은 첫 조회부터 센다 — 계속 조회(접근)해도 만료가 미뤄지지 않는다")
     void ttlIsNotExtendedByAccess() throws Exception {
         teamIs(1L, "HT");
         SupportTeamCodeCache cache = cache(1);
@@ -114,7 +114,7 @@ class SupportTeamCodeCacheTest {
     }
 
     @Test
-    @DisplayName("[CHAT-LK-14] 응원 행이 없으면 empty 이고 캐시하지 않는다 — 구단을 설정한 직후 5분을 기다리지 않고 그 코드가 나온다")
+    @DisplayName("[CHAT-LK-14] 응원 행이 없으면 empty 이고 캐시하지 않는다 — 구단을 설정한 직후 TTL 을 기다리지 않고 그 코드가 나온다")
     void emptyResultIsNotCached() {
         given(repository.findWithTeamByUserAccount_IdAndOpposeIsNull(1L)).willReturn(Optional.empty());
         SupportTeamCodeCache cache = cache(300);
