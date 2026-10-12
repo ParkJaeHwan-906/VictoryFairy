@@ -120,7 +120,9 @@ chat:
   likes:
     rate-limit:
       per-second: 10              # 파드 메모리 계수, 초과분은 202 로 조용히 버린다(CHAT-LK-16·18)
-    team-cache-ttl-seconds: 300   # 응원 구단 캐시. 구단 변경 반영 지연의 상한(CHAT-LK-11·12)
+    # 응원 구단 캐시. 구단 변경은 support:team-changed 신호로 즉시 지우므로, 이 값은 신호가 유실됐을 때의
+    # 반영 지연 상한이다(요구사항 문서 "설정 키" 절).
+    team-cache-ttl-seconds: 60
     throttle-window-ms: 100       # 게이트웨이 방별 leading-edge 스로틀 창(CHAT-LK-43~47)
     # 미완료 PUBLISH 상한. Redis 장애 동안의 메모리 보호용이다(CHAT-LK-51). 근거는 요구사항 문서 "설정 키" 절.
     publish-queue-capacity: 10000
