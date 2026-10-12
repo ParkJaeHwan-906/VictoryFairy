@@ -203,7 +203,7 @@ trending.md`(있으면), 최근 7일 `.work/quiz-candidates/`의 `templateId`·�
 |---|---|---|
 | 경기 문항 (경기 수만큼) | **그 경기 자체·오늘 매치업에 관한 것만** — 어제 승자·스코어·승리투수·시즌 상대전적·맞대결·예측(`YESTERDAY_WINNER`·`YESTERDAY_SCORE`·`WINNING_PITCHER`·`LAST_MATCHUP`·`H2H_SEASON_RECORD`·`PRED_*`). **`CAREER_PATH`·`MEME_ORIGIN`·`RELATION_LINK`·`INTERNATIONAL_CALLUP`·`FRANCHISE_RECORD`는 절대 쓰지 않는다**(2026-10-03 — 아래 참고. 뒤 두 개는 2026-10-08 신설이지만 같은 로스터 기반이라 처음부터 같은 금지 목록) | `gameId` 채움, `teamCodes`에 양 팀 |
 | 팀 특화 문항 (**구단마다 매일 1묶음**, 경기 유무 무관) | **그 팀 로스터만** — `CAREER_PATH`·`MEME_ORIGIN`·`RELATION_LINK`·`RECORD_OX`·`INTERNATIONAL_CALLUP`·`FRANCHISE_RECORD`(위키 '커리어 이력'·로스터 큐레이션 기반), `STREAK_CURRENT`·`HOME_AWAY_SPLIT`·`RECENT_VS_EARLY`(TEAM scope, 순수 통계 기반) 중심. 위키에 팀당 63~89명이 등재돼 있어 재료는 경기 일정과 무관하게 항상 있다 | `gameId: null`, `teamCodes: [그 팀 하나]` |
-| 공통 문항 (하루 1묶음) | 특정 팀에 치우치지 않는 것만 — 리그 전체 순위·역대 팀 기록·통산 기록·트렌딩 | `gameId: null`, `teamCodes: []` |
+| 공통 문항 (하루 1묶음) | 특정 팀에 치우치지 않는 것만 — 리그 전체 순위·역대 팀 기록·통산 기록·트렌딩·**밈 문제(`MEME_OWNER`, 2026-10-12부터 common의 핵심 재료 — 아래 §3-3 참고, 10개 구단 로스터 전체가 재료 범위)** | `gameId: null`, `teamCodes: []` |
 
 **팀 특화 묶음의 PLAYER→TEAM scope 자동 전환(2026-10-06 신설)** — PLAYER scope
 템플릿(`CAREER_PATH`·`MEME_ORIGIN`·`RELATION_LINK`·`RECORD_OX`)의 소재는 그 팀
@@ -353,14 +353,18 @@ player_season_stat`(`question-source/player_season_stat/` 최신 파티션 — 1
 
 **2026-10-07 — 난이도 다변화.** 신설 당시(2026-10-06)엔 모든 지표를 MEDIUM
 하나로만 분류했는데, 2026-10-07 실측에서 HH(한화)·LT(롯데)의 perTeam
-`TEAMMATE_STAT_COMPARE` 후보가 **정확히 10건**(= `scoring.yaml`
+`TEAMMATE_STAT_COMPARE` 후보가 **정확히 10건**(= 당시 `scoring.yaml`
 `volume.perTeam.MEDIUM`과 같은 값)에서 멈췄다 — 재료 부족이 아니라 지표를
 전부 MEDIUM 하나로만 분류해 슬롯 캡(10)에 바로 막힌 것이었다. 이 템플릿은
 `generation-rules.md` §5의 "카탈로그 difficulty 값을 그대로 쓴다" 일반 규칙의
 **예외**다 — candidate의 `difficulty`는 **고른 지표**로 정한다(카탈로그
 선언값 MEDIUM을 그대로 복사하지 말 것). 이렇게 하면 지금 위키 고갈로 못
 채워지는 perTeam EASY·HARD 슬롯도 로스터 통계(위키 큐레이션 불필요) 재료로
-메울 수 있다.
+메울 수 있다. (2026-10-12 — `volume.perTeam`은 난이도별 dict에서 단일
+총량으로 바뀌어 더 이상 "MEDIUM 캡" 같은 난이도별 하위 캡 자체가 없다.
+그래도 difficulty를 지표에 맞게 정확히 적는 건 여전히 필수다 — `scoring.yaml`
+check 6의 포인트·BQ 매핑이 difficulty 하나로 결정되고, 재미 채점·검증
+단계도 난이도 표기를 신뢰하므로.)
 
 - **전부 다 뽑아라(2026-10-07 신설, 이 템플릿만의 명시적 의무)**: 이 템플릿은
   `CAREER_PATH`·`MEME_ORIGIN` 등 위키 서사 기반 PLAYER scope 템플릿과 **재료
@@ -467,8 +471,9 @@ player_season_stat`(`question-source/player_season_stat/` 최신 파티션 — 1
 **성공 기준은 사용자 1인이 받는 문항 수**이지 그날 발행 총량이 아니다 — 한
 팬이 받는 건 자기 팀 경기 묶음(있는 날만) + 자기 팀 특화 묶음(매일) + 공통
 묶음이므로 1인 체감은 `perGame 합계(경기 있는 날만) + perTeam 합계 + common
-합계`다. 목표치와 근거는 `scoring.yaml`의 "perTeam 신설" 주석에 적혀 있다
-(목표 100~150/일).
+합계`다. 목표치와 근거는 `scoring.yaml`의 `volume.perTeam`·`volume.common`
+주석에 적혀 있다(이 문서에는 숫자를 적지 않는다 — 여러 차례 바뀌어왔고
+바뀔 때마다 여기 숫자가 따라오지 못해 stale해진 전례가 있다).
 
 **경기가 없는 날도 `perTeam`·`common`은 그대로 돈다.** 월요일과 전 경기
 취소일에는 `perGame`이 0이 될 뿐, 팀 특화 묶음은 로스터 기반이라 경기 여부와
@@ -523,6 +528,14 @@ raw 목표 156건 중 2건만 생성했다. 로스터 63~89명 규모를 감안�
      `currentTeam`이 그 팀인 항목 전부.
    - `RELATION_LINK`: `wiki/graph.json`에서 그 팀 로스터 내부(양쪽 다 그
      팀 소속)의 안전한 엣지(`밈공유`·`커리어교차`, `사건연루` 제외) 전부.
+   - `MEME_OWNER`(공통 묶음 전용, 2026-10-12 추가 — `scoring.yaml`
+     `volume.common`이 300으로 올라간 핵심 재료라 이 템플릿도 같은 의무를
+     진다): scope가 LEAGUE라 **그 팀 하나가 아니라 10개 구단 로스터 전체**를
+     스캔 대상으로 삼는다 — `MEME_ORIGIN`과 같은 기준(placeholder 아닌
+     실질 내용, §4-1 통과)으로 전체 로스터를 훑어 "그 별명의 주인공은?"
+     형태로 뒤집는다(정답은 선수, 전제는 별명 자체 — scope LEAGUE,
+     `playerIds`·`teamCodes` 둘 다 빈다). 공통 묶음은 유닛이 하나뿐이라
+     이 스캔은 공통 유닛 서브에이전트가 전담한다.
 3. 최근 7일 미반복(§3 중복 회피창)을 적용해 "자격 있고 신선한" 대상만 남긴다.
 4. 남은 전부를 후보로 만든다 — 상위 몇 명만 고르는 임의 축소는 하지 않는다.
    목표 슬롯보다 많이 나오는 건 정상이고(6단계가 재미 점수로 거른다), 적게

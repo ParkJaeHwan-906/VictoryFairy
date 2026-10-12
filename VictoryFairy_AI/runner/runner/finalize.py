@@ -34,8 +34,16 @@ def load_scoring(path=SCORING_PATH):
         raise ValueError(
             f"scoring.yaml에 points/bq 또는 volume.perGame/common/perTeam이 "
             f"비어 있음: {path}")
-    quota = {k: [(str(d), int(n)) for d, n in volume[k].items()]
-             for k in ("perGame", "common", "perTeam")}
+    # 2026-10-12 — perTeam·common은 난이도별 하위 캡 없이 묶음 전체에 단일
+    # 총량만 거는 정수 형태도 허용한다(아래 _fill 참고, 사용자 피드백: 한
+    # 난이도만 재료가 많아도 다른 난이도 캡에 막혀 버려지는 손실을 없앤다).
+    # perGame은 경기 하나당 재료가 난이도별로 뚜렷이 갈려(§3-2 등) 여전히
+    # 난이도별 dict 형태를 쓴다 — 두 형태를 섞어 써도 되므로 하나씩 판별한다.
+    quota = {}
+    for k in ("perGame", "common", "perTeam"):
+        v = volume[k]
+        quota[k] = ([(str(d), int(n)) for d, n in v.items()]
+                    if isinstance(v, dict) else int(v))
     quota["candidateMultiplier"] = float(volume.get("candidateMultiplier", 1.5))
     points = {str(k): int(v) for k, v in points.items()}
     bq = {str(k): int(v) for k, v in bq.items()}
@@ -131,7 +139,25 @@ def check_evidence(work, repo_root, cand) -> bool:
 
 
 def _fill(bucket, verdicts, quota, label):
-    """난이도별 슬롯을 fun 내림차순으로 채우고 (채택분, 초과 폐기 사유)를 낸다."""
+    """(채택분, 초과 폐기 사유)를 낸다.
+
+    `quota`가 정수면 난이도 구분 없이 묶음 전체에서 fun 내림차순으로 그
+    개수만 채운다(2026-10-12 신설 — perTeam·common 전용, 사용자 피드백: 난이도별
+    하위 캡이 있으면 한 난이도만 재료가 많아도 다른 난이도 캡에 막혀 멀쩍이
+    남은 재료가 그냥 버려졌다). `quota`가 `(난이도, n)` 리스트면 기존처럼
+    난이도별로 따로 슬롯을 적용한다(perGame 전용 — 경기 하나당 재료가 난이도별로
+    뚜렷이 갈려 하위 캡이 여전히 의미 있다)."""
+    if isinstance(quota, int):
+        rows = sorted(bucket, key=lambda c: verdicts[c["quizId"]].get("fun", 0),
+                      reverse=True)
+        picked = rows[:quota]
+        reasons = []
+        for c in rows[quota:]:
+            fun = verdicts[c["quizId"]].get("fun", 0)
+            reasons.append(f"{c['quizId']}: {label} 슬롯 초과(전체 {quota}건, "
+                           f"fun={fun}) — fun 낮아 폐기")
+        return picked, reasons
+
     picked, reasons = [], []
     for diff, n in quota:
         rows = [c for c in bucket if c["difficulty"] == diff]

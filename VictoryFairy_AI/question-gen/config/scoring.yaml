@@ -271,12 +271,20 @@ volume:
                       # 재료가 넉넉한 난이도
     HARD: 2           # PRED_SCORE_GAP 하나뿐
     EXPERT: 0         # RELATION_LINK 제외 후 perGame엔 EXPERT 재료가 없다
-  common:             # 공통 문항 — gameId 없고 teamCodes도 빈 문항, 하루 전체
-    EASY: 8           # 관측 병목(실측 최대 6 = 구 슬롯 6)
-    MEDIUM: 6         # 실측 최대 5로 구 슬롯 8에 못 미쳤다 — 올려도 효과 없음
-    HARD: 6           # 관측 병목(실측 최대 4 = 구 슬롯 4)
-    EXPERT: 2         # 관측 병목(08-09에 2개 채움). 낮추면 그날 문항이 사라진다
-  perTeam:            # 팀 특화 문항 — gameId 없고 teamCodes에 그 팀 하나만 있는
+  # ── 2026-10-12: common을 난이도별 dict → 단일 총량으로 바꾼다(사용자
+  # 피드백 — "난이도별 상한을 제거하고 공통·밈 문제로 300개 정도를 목표로") ──
+  # 예전 dict 형태(EASY8/MEDIUM6/HARD6/EXPERT2=22)는 난이도마다 따로 캡이
+  # 걸려서, 한 난이도(예: MEME_OWNER가 받치는 EASY)에 재료가 훨씬 많아도
+  # 다른 난이도 캡 때문에 묶음 전체가 22건에서 못 벗어났다. `_fill`이
+  # 정수 quota를 받으면 난이도 구분 없이 fun 내림차순으로 그 개수만 채우는
+  # 경로를 새로 지원한다(`runner/runner/finalize.py` 참고) — 그래서 이제
+  # dict 대신 정수 하나만 적는다. 300은 상한일 뿐 보장이 아니다 — 공통
+  # 재료(MEME_OWNER·ALL_TIME_LEADER·TRENDING_WHO·TEAM_RECORD_HISTORY 등
+  # LEAGUE scope 템플릿 전체)가 실제로 300까지 채워지는지는 다음 실행
+  # 실측으로 확인해야 한다.
+  common: 300         # 공통 문항 — gameId 없고 teamCodes도 빈 문항, 하루 전체.
+                      # 22 → 300(난이도 캡 제거 + 목표 대폭 상향).
+  perTeam: 100        # 팀 특화 문항 — gameId 없고 teamCodes에 그 팀 하나만 있는
                        # 문항. 팀마다 매일 이 슬롯 그대로 적용(2026-09-29 신설,
                        # 위 "perTeam 신설" 절 참고). PLAYER/TEAM scope 템플릿이
                        # 재료 — 그 팀 위키 로스터 기준이라 경기 유무와 무관하다.
@@ -334,19 +342,26 @@ volume:
     # 그대로 유지, 아래 EXPERT 주석 참고). 세 난이도 전부 INTERNATIONAL_CALLUP
     # (MEDIUM)·FRANCHISE_RECORD(HARD) 신설(#594)로 1차 재료가 하나씩
     # 늘었으니, §600+§3-3 효과가 실제로 나는지는 다음 실행 실측으로 재확인할 것.
-    EASY: 65          # 54 → 65. MEME_ORIGIN + TEAMMATE_STAT_COMPARE(hits/
-                      # strikeouts) + STREAK_CURRENT(대체).
-    MEDIUM: 65        # 36 → 65(상향 폭이 가장 크다 — 기존에 유독 적었던
-                      # 몫을 균등화 대상으로 우선 채움). RECORD_OX +
-                      # INTERNATIONAL_CALLUP(신설) + TEAMMATE_STAT_COMPARE
-                      # (avg/era) + HOME_AWAY_SPLIT(대체) — 1차 재료가 이제
-                      # 넷으로 EASY·HARD와 대등해졌다.
-    HARD: 64          # 104 → 64(하향 — 위 "균등화" 설명 참고, 특별 대우
-                      # 근거 소멸). CAREER_PATH + FRANCHISE_RECORD(신설) +
-                      # TEAMMATE_STAT_COMPARE(rbi/whip) + RECENT_VS_EARLY(대체).
-    EXPERT: 6         # 그대로 유지(억지로 올리지 않음). RELATION_LINK
-                      # 엣지가 팀별 1~12건뿐이라(아래 "재료 상한" 절) 전체 목표를
-                      # 올려도 이 난이도의 물리적 재료는 그대로다.
+    # ── 2026-10-12: EASY/MEDIUM/HARD/EXPERT dict → 단일 총량으로 바꾼다
+    # (사용자 피드백 — "난이도별 상한을 제거하고 구단별 최소 100개를 목표로") ──
+    # 바로 위 2026-10-09 균등화(65/65/64/6=200)까지도 여전히 dict였다 —
+    # 난이도마다 따로 캡이 걸려 있어서, 2026-10-09 2차 실행에서 한 팀(OB)이
+    # HARD 재료가 유독 많았는데도 HARD 캡에 막혀 나머지가 그냥 버려졌다
+    # (반대로 다른 난이도는 캡에도 못 미쳤다). `_fill`이 정수 quota를 받으면
+    # 난이도 구분 없이 fun 내림차순으로 그 개수만 채우는 경로를 새로
+    # 지원한다(`runner/runner/finalize.py` 참고) — 그래서 dict 대신 정수
+    # 하나만 적는다. 200 → 100으로 **목표 자체도 낮췄다** — 2026-10-07의
+    # 200 목표는 EXPERT(RELATION_LINK 엣지 1~12건/팀)처럼 물리적으로 못 채우는
+    # 난이도가 끼어 있어도 합계로는 못 느껴지는 "장부상 숫자"였는데, 실측
+    # (10/7~10/9 사흘 연속 팀당 실제 발행 20~40건)이 200은커녕 100에도
+    # 한참 못 미쳤음을 보였다. 100은 "장부상 상한"이 아니라 "최소 이 정도는
+    # 채워라"는 바닥으로 다시 설정한 것 — 재료가 100을 넘으면(이제 난이도
+    # 캡이 없으므로 한 템플릿이 몰아서 채워도 된다) 그만큼 더 올라간다.
+    # EASY·MEDIUM·HARD·EXPERT 전부의 1차 재료(MEME_ORIGIN·RECORD_OX+
+    # INTERNATIONAL_CALLUP·CAREER_PATH+FRANCHISE_RECORD·RELATION_LINK)와
+    # TEAMMATE_STAT_COMPARE·TEAM scope 대체재(STREAK_CURRENT·HOME_AWAY_SPLIT·
+    # RECENT_VS_EARLY)는 여전히 전부 유효하다 — 바뀌는 건 "난이도별로 쪼개
+    # 캡을 거는지"이지 "어떤 템플릿을 쓰는지"가 아니다.
   # 생성 단계에서 만들 후보 배수(검증 폐기율 흡수). 20문항 슬롯이면 30개 생성.
   # 관측 생존율: 경기 문항 50~62%, 공통 20~37%. perTeam은 2026-10-07에도 관측
   # 불가 — 오늘 실행에서 검증 **이전** 원시 후보 풀이 S3/로그에 남지 않아 생존율을

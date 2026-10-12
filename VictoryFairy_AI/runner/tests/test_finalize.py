@@ -170,22 +170,48 @@ def test_select_final_explicit_quota_overrides_grouping():
 
 def test_select_final_applies_per_team_quota_independently_of_common():
     """gameId 없고 teamCodes가 있는 문항은 perTeam 슬롯(팀별로 따로), teamCodes가
-    빈 문항은 여전히 common 슬롯을 쓴다 — 둘이 서로의 몫을 갉아먹지 않는다."""
+    빈 문항은 여전히 common 슬롯을 쓴다 — 둘이 서로의 몫을 갉아먹지 않는다.
+    (2026-10-12 — perTeam·common이 난이도별 dict에서 단일 총량으로 바뀐
+    뒤에도 그룹 독립성은 그대로다.)"""
     from runner.finalize import VOLUME
-    per_easy = dict(VOLUME["perTeam"])["EASY"]
+    per_team_n = VOLUME["perTeam"]
     cands, verdicts = [], {}
-    for i in range(per_easy + 2):                  # LT 팀 특화: 슬롯보다 2개 많게
+    for i in range(per_team_n + 2):                 # LT 팀 특화: 슬롯보다 2개 많게
         c = _cand(i, "A"); c["teamCodes"] = ["LT"]; cands.append(c)
         verdicts[c["quizId"]] = _ok(fun=5 - (i % 2))
-    common_easy = dict(VOLUME["common"])["EASY"]
-    for i in range(per_easy + 2, per_easy + 2 + common_easy + 1):  # 공통: 1개 많게
+    common_n = VOLUME["common"]
+    for i in range(per_team_n + 2, per_team_n + 2 + common_n + 1):  # 공통: 1개 많게
         c = _cand(i, "A"); cands.append(c)          # teamCodes 없음 → common
         verdicts[c["quizId"]] = _ok()
 
     final, reasons = select_final(cands, verdicts, {})
     by_team = [c for c in final if c.get("teamCodes") == ["LT"]]
     by_common = [c for c in final if not c.get("teamCodes")]
-    assert len(by_team) == per_easy
-    assert len(by_common) == common_easy
+    assert len(by_team) == per_team_n
+    assert len(by_common) == common_n
     assert sum("팀특화(LT)" in r for r in reasons) == 2
     assert sum("공통" in r for r in reasons) == 1
+
+
+def test_select_final_per_team_quota_has_no_per_difficulty_subcap():
+    """perTeam이 단일 총량이 된 뒤로는(2026-10-12) 난이도 구성과 무관하게
+    fun 점수만으로 전체 슬롯을 채운다 — 한 난이도(HARD)가 재료는 많고 fun도
+    높은데 다른 난이도(EASY) 캡 때문에 못 들어가는 손실이 없어야 한다."""
+    from runner.finalize import VOLUME
+    per_team_n = VOLUME["perTeam"]
+    cands, verdicts = [], {}
+    # HARD 쪽에 슬롯보다 많은 재료 + 더 높은 fun을 둔다 — 전부 선택돼야 한다.
+    for i in range(per_team_n + 20):
+        c = _cand(i, "A", diff="HARD"); c["teamCodes"] = ["LT"]; cands.append(c)
+        verdicts[c["quizId"]] = _ok(fun=5, diff="HARD")
+    # EASY는 fun이 낮다 — 슬롯이 꽉 차 하나도 못 들어가야 한다(과거 dict
+    # 방식이면 EASY 전용 하위 캡 덕에 몇 개는 들어갔을 것).
+    for i in range(per_team_n + 20, per_team_n + 25):
+        c = _cand(i, "A", diff="EASY"); c["teamCodes"] = ["LT"]; cands.append(c)
+        verdicts[c["quizId"]] = _ok(fun=4, diff="EASY")
+
+    final, reasons = select_final(cands, verdicts, {})
+    by_team = [c for c in final if c.get("teamCodes") == ["LT"]]
+    assert len(by_team) == per_team_n
+    assert all(c["difficulty"] == "HARD" for c in by_team)
+    assert sum("팀특화(LT)" in r and "전체 100건" in r for r in reasons) == 25
