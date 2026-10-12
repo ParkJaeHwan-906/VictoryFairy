@@ -58,6 +58,16 @@ final class LikesProbe implements AutoCloseable {
         return counts.getOrDefault("chat:likes", 0L);
     }
 
+    /** {@code PUBSUB NUMSUB <channel>} — 이 프로브는 그 채널을 구독하지 않으므로 앱 구독자 수 그대로다. */
+    long numsub(String channel) {
+        return nativeConnection.sync().pubsubNumsub(channel).getOrDefault(channel, 0L);
+    }
+
+    /** 앱을 거치지 않고 Redis 에 직접 발행한다(user 앱의 변경 신호 흉내). */
+    void publishRaw(String channel, String message) {
+        nativeConnection.sync().publish(channel, message);
+    }
+
     /** 이 프로브를 뺀 NUMSUB — 게이트웨이 파드 수에 해당한다. */
     long gatewaySubscribers() {
         return numsub() - 1;
