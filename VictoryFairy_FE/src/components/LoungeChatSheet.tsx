@@ -195,7 +195,7 @@ export default function LoungeChatSheet({ onClose }: LoungeChatSheetProps) {
    * 새로고침 직후 채팅을 열면 그랬다. 프로필이 `ready` 로 도착한 뒤에만 "구단 없음"
    * 으로 결론 내고, 그 전에는 로딩을 유지한다.
    *
-   * 프로필은 여기서 받지 않는다. 보호 라우트(`ProtectedRoute`)가 채워 두므로 시트를
+   * 프로필은 여기서 받지 않는다. App 의 `useProfileBootstrap` 이 채워 두므로 시트를
    * 열 때마다 `users/me` 를 다시 부를 이유가 없다.
    */
   useEffect(() => {

@@ -230,6 +230,16 @@
   color: var(--color-primary-normal);
 }
 
+/* 비로그인 안내의 로그인 링크. 안내문이 아니라 누를 것임을 색으로 알린다(홈의 status-link 와 같다). */
+.game-chat__login-link {
+  display: inline-block;
+  margin-top: 8px;
+  padding-block: 4px;
+  color: var(--color-primary-normal);
+  font-weight: var(--font-weight-semibold);
+  text-decoration: underline;
+}
+
 /* 전송 실패 안내 — 입력창 바로 위 */
 .game-chat__send-error {
   flex-shrink: 0;

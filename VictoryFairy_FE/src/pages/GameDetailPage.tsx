@@ -2,13 +2,14 @@ import { useEffect, useId, useState } from 'react';
 import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { getLineUp, isGameNotFound } from '../api';
 import type { Game, LineUpBatter, TeamLineUp } from '../api';
-import GameChat from '../components/GameChat';
+import GameChat, { GameChatLoginPrompt } from '../components/GameChat';
 import { formatInning, getGameStateDisplay, getScoreDisplay } from '../data/gameState';
 import { getTeamDisplay } from '../data/kboTeams';
 import { getPositionDisplay } from '../data/positions';
 import { useLiveGames } from '../hooks/useLiveGames';
 import { ROUTES, readGameDetailPageState, type QuizPageState } from '../routes';
 import { useMyProfile } from '../stores/useAccountStore';
+import { useIsLoggedIn } from '../stores/useAuthStore';
 import { formatGameTime, getTodayInSeoul } from '../utils/date';
 import '../styles/GameDetailPage.css';
 
@@ -69,6 +70,10 @@ function BatterColumn({ batters }: { batters: LineUpBatter[] }) {
  *
  * 경기는 주소의 `gameId` 로 그 날짜 목록에서 다시 찾는다 — 오늘 경기면 SSE 로 이닝·점수·상태가
  * 실시간으로 바뀌고(`useLiveGames`), 카드에서 넘겨받은 값은 첫 응답 전까지만 쓴다.
+ *
+ * **로그인 없이 열리는 공개 화면이다**(App Store 심사 5.1.1(v)). 경기 요약 · 라인업은 공개 API 라
+ * 그대로 그리고, 계정 기능인 채팅은 로그인 안내로 바꾼다. 퀴즈 CTA 는 응원 구단 경기에만 서므로
+ * 프로필이 없는 비로그인에서는 애초에 그려지지 않는다.
  */
 export default function GameDetailPage() {
   const navigate = useNavigate();
@@ -86,6 +91,7 @@ export default function GameDetailPage() {
     (passedGame?.gameId === gameId ? passedGame : null);
 
   const profile = useMyProfile();
+  const isLoggedIn = useIsLoggedIn();
 
   const [lineUps, setLineUps] = useState<TeamLineUp[] | null>(null);
   const [lineUpError, setLineUpError] = useState<string | null>(null);
@@ -271,8 +277,15 @@ export default function GameDetailPage() {
         )}
       </section>
 
-      {/* 경기 채팅방은 경기 당일에만 열린다(서버의 방 = 오늘 경기). */}
-      <GameChat gameId={game.gameId} isOpenDay={date === today} />
+      {/*
+        경기 채팅방은 경기 당일에만 열린다(서버의 방 = 오늘 경기).
+        채팅은 계정 기능이라 비로그인이면 API 를 부르지 않고 로그인 안내를 세운다.
+      */}
+      {isLoggedIn ? (
+        <GameChat gameId={game.gameId} isOpenDay={date === today} />
+      ) : (
+        <GameChatLoginPrompt />
+      )}
     </div>
   );
 }

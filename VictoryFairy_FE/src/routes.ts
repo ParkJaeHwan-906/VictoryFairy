@@ -78,6 +78,37 @@ export const ROUTES = {
   noticeDetail: '/notice/:noticeId',
 } as const;
 
+/**
+ * 보호 화면 → 로그인으로 넘길 값 — **로그인한 뒤 돌아갈 주소**.
+ *
+ * 홈·경기는 로그인 없이 둘러볼 수 있어(App Store 심사 5.1.1(v)), 로그인은 계정 기능
+ * (라운지·마이·퀴즈·꾸미기 등)에 처음 들어가려 할 때 일어난다. 로그인을 마치면 메인이 아니라
+ * 들어가려던 그 화면으로 이어 보내야 흐름이 끊기지 않는다.
+ *
+ * 라우터 state 는 주소를 직접 치고 들어오면 비어 있다 — 그때는 메인으로 간다.
+ */
+export interface LoginPageState {
+  from: string;
+}
+
+/**
+ * 라우터 state 에서 로그인 후 돌아갈 주소를 읽는다. 없거나 이상하면 메인.
+ *
+ * 앱 안의 경로(`/` 로 시작, `//` 는 아님)만 받는다 — 바깥 주소로 튕겨 나가는 길을 막는다.
+ * 로그인·회원가입 자신으로 돌아가면 제자리걸음이라 그것도 메인으로 본다.
+ */
+export function readLoginRedirect(state: unknown): string {
+  if (typeof state !== 'object' || state === null) return ROUTES.main;
+
+  const from = (state as Partial<LoginPageState>).from;
+  if (typeof from !== 'string' || !from.startsWith('/') || from.startsWith('//')) {
+    return ROUTES.main;
+  }
+
+  const pathname = from.split(/[?#]/)[0];
+  return pathname === ROUTES.login || pathname === ROUTES.signup ? ROUTES.main : from;
+}
+
 /** 경기 상세로 가는 주소. `ROUTES.gameDetail` 의 `:gameId` 를 채운 값이다. */
 export function gameDetailPath(gameId: string): string {
   return `/game/${encodeURIComponent(gameId)}`;

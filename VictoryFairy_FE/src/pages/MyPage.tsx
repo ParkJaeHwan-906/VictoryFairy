@@ -234,7 +234,8 @@ export default function MyPage() {
     } finally {
       clear();
       clearAccount();
-      navigate(ROUTES.login, { replace: true });
+      // 홈은 로그인 없이도 열리므로 그리로 보낸다 — 로그인 화면에 가둘 이유가 없다.
+      navigate(ROUTES.main, { replace: true });
     }
   };
 
@@ -255,7 +256,8 @@ export default function MyPage() {
       await withdraw();
       useAuthStore.getState().clear();
       clearAccount();
-      navigate(ROUTES.login, { replace: true });
+      // 홈은 로그인 없이도 열리므로 그리로 보낸다 — 로그인 화면에 가둘 이유가 없다.
+      navigate(ROUTES.main, { replace: true });
     } catch {
       setActionError('탈퇴하지 못했어요. 잠시 후 다시 시도해주세요.');
       setPending(null);

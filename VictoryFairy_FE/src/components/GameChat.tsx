@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import {
   ApiError,
   GAME_CHAT_MESSAGE_MAX_LENGTH,
@@ -23,6 +24,7 @@ import {
 } from '../api';
 import type { GameChatMessage, GameChatSubscription, SendGameChatMessageResult } from '../api';
 import { getTeamDisplayByCode } from '../data/kboTeams';
+import { ROUTES, type LoginPageState } from '../routes';
 import { useMyNickname, useMyProfile } from '../stores/useAccountStore';
 import profilePlaceholder from '../assets/profile_img.svg';
 import ConfirmSheet from './ConfirmSheet';
@@ -97,6 +99,36 @@ type GameChatProps = {
   /** 오늘(KST) 경기인지. 서버의 채팅방은 오늘 경기에만 있어 아니면 API 를 부르지 않는다. */
   isOpenDay: boolean;
 };
+
+/**
+ * 비로그인일 때 채팅 자리에 대신 서는 로그인 안내.
+ *
+ * 경기 상세는 로그인 없이 열리지만(App Store 심사 5.1.1(v)) 채팅은 계정 기능이다 — 읽기·구독부터
+ * 인증 필수이고, 신고·차단도 계정 단위다. 그래서 API 를 부르지 않고 같은 틀 안에 안내만 둔다.
+ * 로그인을 마치면 지금 보던 경기 상세로 돌아온다(`LoginPageState.from`).
+ */
+export function GameChatLoginPrompt() {
+  const location = useLocation();
+  const state: LoginPageState = { from: `${location.pathname}${location.search}` };
+
+  return (
+    <section className="game-chat" aria-label="경기 채팅">
+      <div className="game-chat__head">
+        <h2 className="game-chat__title">실시간 채팅</h2>
+      </div>
+
+      <div className="game-chat__messages">
+        <p className="game-chat__notice">
+          로그인하면 다른 팬들과 함께 응원할 수 있어요
+          <br />
+          <Link className="game-chat__login-link" to={ROUTES.login} state={state}>
+            로그인하고 채팅 참여하기
+          </Link>
+        </p>
+      </div>
+    </section>
+  );
+}
 
 /**
  * GameChat — 경기 상세 하단의 경기별 실시간 채팅(`docs/game-chat.md`).
