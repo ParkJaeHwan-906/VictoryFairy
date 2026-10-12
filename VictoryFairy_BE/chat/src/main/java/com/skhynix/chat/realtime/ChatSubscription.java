@@ -20,6 +20,11 @@ public final class ChatSubscription {
 
     enum Offer { CLAIMED, QUEUED, DROPPED, OVERFLOW }
 
+    /** 인원 등록 전. 주기 전달이 이 구독을 건너뛴다 — {@code :connected} 보다 {@code presence} 가 먼저 나가지 않게. */
+    public static final long PRESENCE_NOT_JOINED = -2L;
+    /** 등록은 됐지만 보낸 값이 없다(초기 값 조회 실패 등). 다음 주기가 값을 보낸다. */
+    public static final long PRESENCE_UNKNOWN = -1L;
+
     private final String gameId;
     private final Long userAccountId;
     private final ChatSseEmitter emitter;
@@ -34,6 +39,9 @@ public final class ChatSubscription {
     private final AtomicBoolean dead = new AtomicBoolean();
     private volatile Runnable onDead = () -> { };
     private volatile long writeStartedNanos;
+    private final AtomicBoolean departed = new AtomicBoolean();
+    // 이 구독자에게 마지막으로 보낸 presence 값. 등록 뒤에는 presence 스레드만 쓴다.
+    private volatile long presenceSent = PRESENCE_NOT_JOINED;
 
     ChatSubscription(String gameId, Long userAccountId, ChatSseEmitter emitter, boolean recovering) {
         this.gameId = gameId;
@@ -140,6 +148,19 @@ public final class ChatSubscription {
         if (dead.compareAndSet(false, true)) {
             onDead.run();
         }
+    }
+
+    /** 레지스트리에서 떨어졌음을 한 번만 알리기 위한 표시. @return 처음 표시했으면 true */
+    boolean markDeparted() {
+        return departed.compareAndSet(false, true);
+    }
+
+    public long presenceSent() {
+        return presenceSent;
+    }
+
+    public void presenceSent(long value) {
+        this.presenceSent = value;
     }
 
     void writeStarted(long nanos) {

@@ -9,7 +9,8 @@ import java.time.LocalDate;
  *
  * <p>⚠ 자정 정리는 {@link #rooms} 집합을 읽어 방별 키를 이름으로 지운다 — {@code KEYS}/{@code SCAN} 으로 찾지 않는다
  * (CHAT-GC-16). 그래서 방 단위 키를 새로 만들면 {@code RoomLifecycleJob} 의 정리 목록에도 추가해야 한다.
- * dedup·rate 키는 TTL 로만 사라지므로 정리 대상이 아니다.
+ * dedup·rate 키는 TTL 로만 사라지므로 정리 대상이 아니다. presence 키 2종도 의도된 예외다(CHAT-PR-21) — 자정에 지우면
+ * 아직 열린 어제 방 스트림(CHAT-GC-44)의 인원이 다음 생존 갱신까지 0 이나 1 적은 값으로 흔들린다.
  */
 public final class ChatRedisKeys {
 
@@ -54,6 +55,16 @@ public final class ChatRedisKeys {
     /** String(정수) — 사용자 단위 1초 고정 창 속도 제한. 방과 무관하게 한 창을 공유한다. */
     public static String rate(Long userAccountId) {
         return PREFIX + "rate:" + userAccountId;
+    }
+
+    /** ZSET(member=계정 id, score=마지막 생존 시각, Redis 서버 시각 epoch ms) — 방 인원(CHAT-PR-1·30). */
+    public static String presence(String gameId) {
+        return PREFIX + "presence:" + gameId;
+    }
+
+    /** HASH(field=계정 id, value=그 계정을 마지막으로 등록한 파드의 instanceId) — 종료 시 제거 판정(CHAT-PR-8·9). */
+    public static String presenceOwner(String gameId) {
+        return PREFIX + "presence-owner:" + gameId;
     }
 
     /**

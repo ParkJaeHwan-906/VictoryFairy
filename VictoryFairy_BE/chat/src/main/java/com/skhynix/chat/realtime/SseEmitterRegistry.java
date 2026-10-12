@@ -3,6 +3,7 @@ package com.skhynix.chat.realtime;
 import com.skhynix.chat.shared.ChatRoles;
 import com.skhynix.chat.shared.kafka.SubscriptionCloseCommand;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -38,6 +39,8 @@ public class SseEmitterRegistry implements SmartLifecycle {
     private final SseFrameWriter writer;
 
     private volatile boolean running;
+
+    private volatile SubscriptionPresenceListener presenceListener = SubscriptionPresenceListener.NONE;
 
     public SseEmitterRegistry(SseFrameWriter writer) {
         this.writer = writer;
@@ -100,6 +103,20 @@ public class SseEmitterRegistry implements SmartLifecycle {
         return instanceId;
     }
 
+    public void setPresenceListener(SubscriptionPresenceListener listener) {
+        this.presenceListener = (listener == null) ? SubscriptionPresenceListener.NONE : listener;
+    }
+
+    /** 구독이 {@code :connected} 를 낸 뒤 부른다. 인원 등록이 반영될 때까지 제한된 시간 기다린다(CHAT-PR-5·11). */
+    public void joined(ChatSubscription subscription) {
+        presenceListener.joined(subscription);
+    }
+
+    /** 로컬 구독이 있는 방. 읽기 전용 뷰이고 동시 수정 중에도 순회할 수 있다. */
+    public Set<String> roomIds() {
+        return Collections.unmodifiableSet(rooms.keySet());
+    }
+
     /** 팬아웃 대상. 반환된 Set 은 동시 수정 중에도 안전하게 순회할 수 있다. */
     public Set<ChatSubscription> subscriptions(String gameId) {
         Set<ChatSubscription> subscriptions = rooms.get(gameId);
@@ -122,6 +139,12 @@ public class SseEmitterRegistry implements SmartLifecycle {
                 writer.enqueue(subscription, SseFrame.PING);
             }
         }
+        // 생존 갱신(CHAT-PR-6)은 넘기기만 한다. 이 스레드에서 Redis 를 왕복하면 :ping 과 방 수명 작업이 함께 밀린다.
+        try {
+            presenceListener.heartbeat();
+        } catch (RuntimeException e) {
+            log.error("접속 인원 생존 갱신 예약 실패", e);
+        }
     }
 
     /** 쓰기 실패·쓰기 타임아웃·대기열 초과·SSE 타임아웃 — 맵에서 떼고 닫는다. */
@@ -136,6 +159,18 @@ public class SseEmitterRegistry implements SmartLifecycle {
             subscriptions.remove(subscription);
             return subscriptions.isEmpty() ? null : subscriptions;
         });
+        departed(subscription);
+    }
+
+    // 맵에서 뗀 뒤에 알린다 — 인원 제거 판정이 "이 파드에 그 계정의 그 방 구독이 더 없는가"를 이 맵으로 본다(CHAT-PR-8).
+    private void departed(ChatSubscription subscription) {
+        if (subscription.markDeparted()) {
+            try {
+                presenceListener.left(subscription);
+            } catch (RuntimeException e) {
+                log.error("접속 인원 퇴장 반영 예약 실패 gameId={}", subscription.gameId(), e);
+            }
+        }
     }
 
     private void closeByUser(Long userAccountId, ChatSubscription keep) {
@@ -163,6 +198,7 @@ public class SseEmitterRegistry implements SmartLifecycle {
     private void complete(List<ChatSubscription> subscriptions) {
         for (ChatSubscription subscription : subscriptions) {
             subscription.markClosed();
+            departed(subscription);
             writer.complete(subscription.emitter());
         }
     }
@@ -170,6 +206,7 @@ public class SseEmitterRegistry implements SmartLifecycle {
     @Override
     public void start() {
         running = true;
+        presenceListener.registryStarted();
     }
 
     /** 종료 시 전 구독을 닫는다. 열린 SSE 가 웹 서버 graceful shutdown 을 타임아웃까지 붙잡지 않게 한다. */
@@ -185,6 +222,12 @@ public class SseEmitterRegistry implements SmartLifecycle {
         }
         complete(all);
         log.info("컨텍스트 종료로 SSE 구독 {}건을 닫았다", all.size());
+        // 방금 닫은 구독들의 퇴장을 Redis 에 반영하고 집계를 내린다(CHAT-PR-8 "파드 정상 종료").
+        try {
+            presenceListener.registryStopped();
+        } catch (RuntimeException e) {
+            log.error("접속 인원 집계 종료 실패", e);
+        }
     }
 
     @Override

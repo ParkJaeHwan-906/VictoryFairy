@@ -28,7 +28,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  * 구독·복구(CHAT-GC-30~44)와 퇴장(CHAT-GC-45~49).
  *
  * <p>구독 순서: 방 확인(404면 등록 없음) → 레지스트리 등록(로컬 last-one-wins 축출) → {@code :connected} 주석
- * (응답 헤더를 바로 내보낸다) → Last-Event-ID 복구 →
+ * (응답 헤더를 바로 내보낸다) → 접속 인원 등록(CHAT-PR-5) → Last-Event-ID 복구 →
  * 실시간 합류 → 다른 파드 축출 명령 발행. 복구 중 도착한 실시간 프레임은 구독 대기열이 붙잡아 두었다가 복구 뒤에
  * 흘린다 — 등록을 복구보다 먼저 해야 복구를 읽는 사이의 메시지를 놓치지 않고, 붙잡아 두어야 실시간 프레임이 복구
  * 프레임을 앞지르지 않는다. 겹치는 구간의 중복 전달은 계약상 허용이다(CHAT-GC-43).
@@ -57,6 +57,9 @@ public class ChatSubscriptionService {
         Long lastMsgId = parseLastEventId(lastEventId);
         ChatSubscription subscription = registry.register(gameId, userAccountId, lastMsgId != null);
         writer.open(subscription);
+        // 인원 등록(CHAT-PR-5·11). 아래 축출 명령 발행보다 먼저 끝나야 다른 파드의 옛 구독 종료가 새 소유자 기록을
+        // 보고 인원을 지우지 않는다(CHAT-PR-9). Redis 실패여도 구독은 200 으로 이어 간다(CHAT-PR-25).
+        registry.joined(subscription);
         if (lastMsgId != null) {
             try {
                 recover(subscription, gameId, userAccountId, lastMsgId);
