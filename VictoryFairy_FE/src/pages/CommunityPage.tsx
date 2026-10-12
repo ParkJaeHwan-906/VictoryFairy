@@ -58,7 +58,7 @@ function RankingRow({ entry, isMine = false }: { entry: BqRankingEntry; isMine?:
 export default function CommunityPage() {
   const [isChatOpen, setIsChatOpen] = useState(false);
 
-  // 프로필은 보호 라우트(`ProtectedRoute`)가 채운다 — 빈 결과의 문구를 고를 때만 쓴다.
+  // 프로필은 App 의 `useProfileBootstrap` 이 채운다 — 빈 결과의 문구를 고를 때만 쓴다.
   const profile = useMyProfile();
 
   const [ranking, setRanking] = useState<BqRankingEntry[]>([]);
