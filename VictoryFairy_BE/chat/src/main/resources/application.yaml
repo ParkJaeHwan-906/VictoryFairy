@@ -126,3 +126,8 @@ chat:
     throttle-window-ms: 100       # 게이트웨이 방별 leading-edge 스로틀 창(CHAT-LK-43~47)
     # 미완료 PUBLISH 상한. Redis 장애 동안의 메모리 보호용이다(CHAT-LK-51). 근거는 요구사항 문서 "설정 키" 절.
     publish-queue-capacity: 10000
+  # 접속 인원(CHAT-PR-29). 생존 갱신 주기는 키가 없다 — 하트비트 15초(CHAT-GC-32)를 공유한다.
+  presence:
+    expire-seconds: 45            # 하트비트 15초 x 3 — 갱신 2번을 놓쳐도 빠지지 않는다(CHAT-PR-7)
+    broadcast-interval-ms: 2000   # 방별 집계·전달 주기(CHAT-PR-12·13)
+    key-ttl-seconds: 90           # 쓸 때마다 연장하는 키 TTL, 만료 창 x 2(CHAT-PR-20). 자정 UNLINK 대상이 아니다(CHAT-PR-21)

@@ -1,11 +1,11 @@
 # 경기별 채팅(game-chat) API 명세
 
 > 소속 모듈 `chat` · 경로 접두사 `/chat` (`server.servlet.context-path`) · 엔드포인트 8개
-> 최종 갱신: 2026-10-09 (좋아요 `POST /chat/rooms/{gameId}/likes` 신규 + SSE `likes` 이벤트 추가)
+> 최종 갱신: 2026-10-12 (SSE 구독에 `presence` 이벤트 추가 — 방 접속 인원. REST 응답은 변경 없음. 좋아요 응원 구단 캐시 TTL 표기 최대 5분→60초 정정)
 > 운영 base URL: `https://victoryfairy.com/chat` (2026-10-09 운영 가동)
 > 공통 규약(응답 래퍼·인증·401 정책)은 [README.md](README.md) 참고.
 > 대상 컨트롤러: `chat/src/main/java/com/skhynix/chat/room/controller/ChatRoomController.java`, `message/controller/ChatMessageController.java`, `subscription/controller/ChatSubscriptionController.java` (+ `SubscriptionExceptionHandler`), `like/controller/ChatLikeController.java`
-> 계약 원본: `docs/requirements/chat/game-chat.md` (CHAT-GC-*, 승인 2026-10-09) · 좋아요는 `docs/requirements/chat/game-chat-likes.md` (CHAT-LK-*, 승인 2026-10-09)
+> 계약 원본: `docs/requirements/chat/game-chat.md` (CHAT-GC-*, 승인 2026-10-09) · 좋아요는 `docs/requirements/chat/game-chat-likes.md` (CHAT-LK-*, 승인 2026-10-09) · 접속 인원은 `docs/requirements/chat/game-chat-presence.md` (CHAT-PR-*)
 > 파일명 주의: `chat.md`는 기존 quiz 모듈의 `/rt/chat/**` 문서가 이미 쓰고 있어(병행 운영 중, 수정 금지) 이 문서는 `game-chat.md`로 둔다.
 
 ## 엔드포인트 목록
@@ -97,7 +97,7 @@ curl https://victoryfairy.com/chat/rooms/20261009HTLG0 -H 'Authorization: Bearer
 ```
 
 ## GET /chat/rooms/{gameId}/subscribe (SSE)
-> 최종 변경: 2026-10-09 — 신규 추가
+> 최종 변경: 2026-10-12 — SSE `presence`(접속 인원) 이벤트 추가
 
 방 실시간 구독. `text/event-stream`. 프레임 규약은 아래 "SSE 이벤트" 절.
 
@@ -231,7 +231,7 @@ curl -X POST https://victoryfairy.com/chat/rooms/20261009HTLG0/messages/7100/rep
 ```
 
 ## POST /chat/rooms/{gameId}/likes
-> 최종 변경: 2026-10-09 — 신규 추가
+> 최종 변경: 2026-10-12 — 응원 구단 캐시 TTL 표기 정정(최대 5분→60초, 코드 `team-cache-ttl-seconds: 60`)
 
 경기를 보다가 누르는 응원 애니메이션 신호. 개수·기록 없이 Redis pub/sub으로 흘려보내고, 그 경기를 구독 중인 SSE 연결에 `likes` 이벤트로 전달된다. **어디에도 저장·집계하지 않는다.**
 
@@ -245,7 +245,7 @@ curl -X POST https://victoryfairy.com/chat/rooms/20261009HTLG0/messages/7100/rep
 - Redis 장애·발행 실패(재시도 없음), 발행 대기열 포화
 - 존재하지 않거나 오늘이 아닌 gameId (방 존재를 확인하지 않으므로 202, 구독자가 없어 아무에게도 전달되지 않음)
 
-응원 구단과 경기 구단의 일치도 보지 않는다(구단 가드 없음). 응원 구단 변경은 서버 캐시 TTL(최대 5분) 뒤에 반영된다.
+응원 구단과 경기 구단의 일치도 보지 않는다(구단 가드 없음). 응원 구단 변경은 서버 캐시 TTL(최대 60초, 파드별로 다를 수 있음) 뒤에 반영된다.
 
 **판정 순서**: 401(인증) → 400(gameId 형식) → 응원 구단 조회 → 속도 제한 → 발행 → 202.
 
@@ -272,6 +272,7 @@ curl -i -X POST https://victoryfairy.com/chat/rooms/20261009HTLG0/likes -H 'Auth
 | `event: deleted` | `data: {"msgId":n}` | **없음** | blind된 메시지 → 화면에서 제거. `id:`가 없어 Last-Event-ID로 재생되지 않는다(끊긴 사이의 deleted는 복구 불가, 히스토리 재조회로 수렴) |
 | `event: reset` | `data: {}` | 없음 | 화면을 비우고 히스토리 재조회 |
 | `event: likes` | `data:` = 구단 코드(`teams.code`, 예 `HT`·`LG`) 문자열 배열, 중복 없음 | **없음** | 응원 애니메이션 신호(아래 "`likes` 전달 규칙"). 개수 없음, 본인 좋아요 포함 |
+| `event: presence` | `data: {"count":N}` (N = 접속 인원, 정수) | **없음** | 방 접속 인원(아래 "`presence` 전달 규칙"). Last-Event-ID 복구 대상 아님 |
 | 주석 `:ping` | 주석 | - | 15초마다 하트비트 |
 
 ```
@@ -287,6 +288,9 @@ data: {"msgId":7120}
 event: likes
 data: ["HT","LG"]
 
+event: presence
+data: {"count":128}
+
 :ping
 ```
 
@@ -296,6 +300,14 @@ data: ["HT","LG"]
 - `id:`가 없어 `Last-Event-ID`를 움직이지 않고, **재접속 복구도 없다**(끊긴 사이·파드 재시작·Redis 장애 중의 좋아요는 유실). 차단 필터 없음.
 - **본인 좋아요도 되돌아온다**(`messages`와 다름). 클릭 시 로컬 애니메이션도 띄우면 두 번 재생될 수 있으니 하나만 고를 것.
 - `likes` 리스너를 등록하지 않은 클라이언트는 무시한다. 다만 폴리필이 `event` 이름을 보지 않고 모든 이벤트를 하나의 핸들러로 받으면 `likes`의 문자열 배열을 메시지 배열로 오해할 수 있다(확인 필요).
+
+**`presence` 전달 규칙**
+- `count` = 그 방의 **고유 계정 수**(같은 계정의 중복 구독은 1명), **본인 포함**, **모든 파드 합산**.
+- **구독 직후 1회**(`:connected` 뒤) 현재 값이 오고, 이후 **값이 바뀌었을 때만** 최대 2초 주기로 온다. 값이 같으면 보내지 않는다(주기적 재전송 없음).
+- `id:`가 없어 `Last-Event-ID`를 움직이지 않고 재접속 복구도 없다. 재접속하면 첫 프레임으로 현재 값을 다시 받는다.
+- Redis 장애 시 해당 주기의 전송을 생략한다(대체 값·에러 이벤트·연결 종료 없음). **FE는 마지막으로 받은 값을 계속 표시**할 것. 구독 직후 첫 값이 늦거나 오지 않을 수 있으니 그동안의 표시(빈 값/숨김)를 정해 둘 것(등록이 Redis 타임아웃 안에 끝나지 않으면 첫 값은 다음 주기에 온다).
+- 반영 지연: 정상 퇴장(`DELETE`·연결 종료)은 곧 반영되지만, 비정상 끊김(네트워크 단절·파드 장애 등)은 생존 만료(45초) 때문에 **최대 약 47초 늦게** 줄어든다. 정확한 실시간 값이 아니라 근사치로 표시한다.
+- `presence` 리스너가 없는 클라이언트는 무시한다. 모든 이벤트를 하나의 핸들러로 받는 폴리필이면 `{count}` 객체를 메시지로 오해하지 않도록 `event` 이름으로 분기할 것.
 
 **Last-Event-ID 복구**
 - 헤더가 유효하면 그 msgId **초과**분을 Stream에서 읽어 `messages` 이벤트로 보낸다. 한 페이지(최대 500건)가 이벤트 하나이고 `id:`는 그 페이지의 마지막 msgId. 최대 5페이지 = **최대 2,500건**.

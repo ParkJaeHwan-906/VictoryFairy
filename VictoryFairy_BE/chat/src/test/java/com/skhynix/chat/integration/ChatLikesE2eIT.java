@@ -55,10 +55,9 @@ class ChatLikesE2eIT extends E2eSupport {
     private static final Duration WAIT = Duration.ofSeconds(20);
     private static final HttpClient RAW = HttpClient.newHttpClient();
 
-    /** 좋아요 경로가 일으켜도 되는 Redis 명령(프로브 자신의 조회·연결 핸드셰이크 포함). 이 밖의 명령이 늘면 위반이다. */
-    private static final Set<String> ALLOWED_COMMANDS = Set.of("publish", "info", "dbsize", "ping", "hello", "auth",
-            "select", "subscribe", "unsubscribe", "client|setinfo", "client|setname", "client|id", "pubsub|numsub",
-            "command|docs", "config|get");
+    /** MONITOR 가 보여 주는 최상위 명령 이름(하위 명령은 인자라 이름만 본다). */
+    private static final Set<String> ALLOWED_COMMAND_NAMES = Set.of("publish", "info", "dbsize", "ping", "hello", "auth",
+            "select", "subscribe", "unsubscribe", "client", "pubsub", "command", "config");
 
     private static LikesProbe probe;
 
@@ -522,7 +521,10 @@ class ChatLikesE2eIT extends E2eSupport {
         TestUser u = user("HT", "p/u.jpg");
         String room = room();
         awaitLikesSubscribed();
-        Map<String, Long> commandsBefore = probe().commandCalls();
+        // 접속 인원 주기 집계(CHAT-PR-*)가 같은 Redis 에 EVALSHA·TIME·ZCARD 등을 내므로 INFO commandstats(이름별 호출 수)로는
+        // "좋아요 경로의 명령"을 가를 수 없다. MONITOR 로 키까지 보고 presence 키 명령만 뺀다.
+        RedisMonitor monitor = new RedisMonitor();
+        int monitorMark = monitor.mark();
         long keysBefore = probe().dbSize();
         Map<TopicPartition, Long> kafkaBefore = kafkaEnds();
         double rateLimitedBefore = dropped("rate-limit");
@@ -543,7 +545,10 @@ class ChatLikesE2eIT extends E2eSupport {
             assertThat(publishedFor(room).size()).as("느려서 창이 넘어갔으면 창마다 10건").isBetween(10, 10 * (int) (elapsedMs / 1000 + 1));
         }
         verify(userSupportTeamRepository, times(1)).findWithTeamByUserAccount_IdAndOpposeIsNull(u.id());
-        assertThat(probe().callsSince(commandsBefore).keySet()).as("좋아요 경로가 일으킨 Redis 명령").isSubsetOf(ALLOWED_COMMANDS);
+        List<RedisMonitor.Entry> likePathCommands = RedisMonitor.withoutPresence(monitor.since(monitorMark));
+        monitor.close();
+        assertThat(likePathCommands).as("좋아요 경로가 일으킨 Redis 명령(presence 키 제외)").extracting(RedisMonitor.Entry::command)
+                .isSubsetOf(ALLOWED_COMMAND_NAMES);
         assertThat(probe().dbSize()).as("Redis 키 증가 없음(캐시 키·속도 키·방 키 없음)").isEqualTo(keysBefore);
         assertThat(kafkaEnds()).as("chat-messages / chat-control 레코드 증가 없음").isEqualTo(kafkaBefore);
         assertThat(publishedFor(room)).allMatch(m -> m.equals("{\"gameId\":\"" + room + "\",\"teamCode\":\"HT\"}"));
@@ -766,8 +771,9 @@ class ChatLikesE2eIT extends E2eSupport {
                     });
             assertThat(likesOf(stream)).isNotEmpty().allMatch(e -> e.id() == null);
             assertThat(likesOf(stream).size()).isLessThanOrEqualTo((int) (1 + (elapsedMs + 400) / 100));
-            assertThat(events).filteredOn(e -> e.name() != null).extracting(E2eHttp.SseEvent::name)
-                    .containsOnly("messages", "likes");
+            // presence 는 접속 인원 계약(CHAT-PR-*)의 이벤트라 이 목록 검사에서 뺀다 — 기존 이벤트 종류가 늘지 않았는지가 목적이다
+            assertThat(events).filteredOn(e -> e.name() != null && !"presence".equals(e.name()))
+                    .extracting(E2eHttp.SseEvent::name).containsOnly("messages", "likes");
         }
     }
 }

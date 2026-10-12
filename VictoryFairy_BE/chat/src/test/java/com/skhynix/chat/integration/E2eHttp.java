@@ -162,9 +162,22 @@ final class E2eHttp {
             }
         }
 
-        /** 주석(:ping)을 뺀 이벤트. */
+        /**
+         * 주석(:ping)과 {@code presence} 를 뺀 이벤트. 접속 인원은 구독 직후·값이 바뀔 때 끼어드는 별도 계약(CHAT-PR-*)이라,
+         * 메시지·복구·좋아요 이벤트의 형식·순서를 보는 기존 테스트가 이 목록을 그대로 쓰도록 걸러 둔다.
+         * presence 를 보려면 {@link #presenceEvents()} 나 {@link #allDataEvents()} 를 쓴다.
+         */
         List<SseEvent> dataEvents() {
+            return events().stream().filter(e -> e.comment() == null && !"presence".equals(e.name())).toList();
+        }
+
+        /** 주석만 뺀 이벤트(presence 포함). */
+        List<SseEvent> allDataEvents() {
             return events().stream().filter(e -> e.comment() == null).toList();
+        }
+
+        List<SseEvent> presenceEvents() {
+            return events().stream().filter(e -> "presence".equals(e.name())).toList();
         }
 
         @Override

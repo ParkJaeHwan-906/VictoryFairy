@@ -1,5 +1,7 @@
 # 경기별 채팅(Kafka + Redis Stream) 요구사항
-> 상태: 승인됨(2026-10-09) · 모듈: chat (신규 Gradle 모듈) · 최종 수정: 2026-10-09
+> 상태: 승인됨(2026-10-09) · 모듈: chat (신규 Gradle 모듈) · 최종 수정: 2026-10-12
+
+> **개정 2026-10-12 — 범위 "제외"의 참여 인원 노출을 경기 채팅에 한해 철회.** 사용자 결정으로 방별 접속 인원(고유 계정 수)을 SSE `presence` 이벤트로 낸다. 계약은 [`game-chat-presence.md`](game-chat-presence.md)(CHAT-PR-*)에 있다. 이 문서의 요구사항 문장은 바뀌지 않았다. quiz 쪽 QUIZ-CHAT-52는 quiz 앱 계약으로 그대로 유지된다(CHAT-GC-103).
 
 > **개정 2026-10-09 — 초안의 미해결 질문 11건·충돌 지점 3건 전부 사용자 결정으로 닫힘.** 가장 큰 변경은 **msgId의 정의**다: 초안의 `INCR chat:seq:{gameId}` 발급 번호를 폐기하고 **그 메시지의 Kafka 파티션 오프셋**을 msgId로 쓴다(한 방 = key `gameId` = 한 파티션이라 오프셋이 도착 순서대로 단조 증가하고, 프로듀서가 ack와 함께 `RecordMetadata.offset()`을 받는다). 이로써 `chat:seq:` 키, seq fail-closed 503(구 CHAT-GC-66), msgId 순서 역전으로 인한 XADD 거부(구 CHAT-GC-99의 영구 누락), Redis 재시작 시 seq 소실 위험이 전부 사라졌다. 멱등 키는 **PENDING → 확정** 두 단계가 되었고(CHAT-GC-60·105·106), 202 본문에 마스킹된 `content`가 실린다(CHAT-GC-50). 방 메타는 자정 생성에 더해 **첫 요청 시 지연 생성**된다(CHAT-GC-107). 욕설 탐지 장치는 새 라이브러리 모듈 `:profanity`로 추출한다("선행 리팩터" 절). 구 CHAT-GC-59·66은 결번(삭제됨)이다. 남은 `(가정)`은 dedup 키 값의 직렬화 형식 하나(CHAT-GC-106)뿐이다.
 
@@ -23,7 +25,7 @@
   - 신고 기록 테이블·관리자 모드·unblind — 신고는 툼스톤 발행뿐이다
   - 경기 종료 신호 연동(종료 시 쓰기 차단·TTL 재설정) — 방은 자정까지 열려 있다
   - 창(MAXLEN) 밖 과거 메시지의 콜드 스토어, Kafka 보존 기간 정책
-  - 참여 인원 노출(기존 결정 QUIZ-CHAT-52 유지)
+  - ~~참여 인원 노출(기존 결정 QUIZ-CHAT-52 유지)~~ — 2026-10-12 경기 채팅에 한해 철회. 접속 인원은 [`game-chat-presence.md`](game-chat-presence.md)(CHAT-PR-*)가 정한다(SSE 전용, REST 응답에는 싣지 않는다). quiz의 QUIZ-CHAT-52는 유지
   - 부하 검증(k6) 계획과 파드당 접속 상한 튜닝
   - `:profanity` 추출 후 quiz 쪽 동작의 요구사항(quiz 동작 불변이 조건이며, 그 검증은 quiz 기존 테스트가 담당)
 
