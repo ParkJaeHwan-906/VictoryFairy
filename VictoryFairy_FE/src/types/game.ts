@@ -86,6 +86,15 @@ export interface Game {
    * 화면 계층에서 만들되, **한쪽만 있는 경우**(수집 중간 상태)도 다뤄야 한다.
    */
   inningHalf: InningHalf | null;
+  /**
+   * 홈·원정 승리확률(%, 소수 1자리, 예 `35.8`). 둘은 항상 같이 있거나 같이 `null` 이다.
+   *
+   * 서버가 `IN_PROGRESS` 일 때만 값을 내고, 진행 중이어도 첫 타석 전이거나 원천(네이버)이
+   * 값을 안 주면 `null` 이다. 선택 필드인 이유는 이 필드가 생기기 전 서버(2026-10-13 이전)가
+   * 키를 아예 보내지 않기 때문이다 — `null` 과 같이 "표시 안 함"으로 다룬다.
+   */
+  homeTeamWinRate?: number | null;
+  awayTeamWinRate?: number | null;
 }
 
 /**
@@ -95,12 +104,18 @@ export interface Game {
  * `inning` 은 `inning`·`inningHalf` 둘 다(초/말 전환·종료로 인한 null 전환 포함)를 가리킨다.
  * 수집기 쪽 이름이라 늘어날 수 있으므로 `GameState` 처럼 열어 둔다.
  */
-export type GameUpdateField = 'inning' | 'homeScore' | 'awayScore' | 'status' | (string & {});
+export type GameUpdateField =
+  | 'inning'
+  | 'homeScore'
+  | 'awayScore'
+  | 'status'
+  | 'winRate'
+  | (string & {});
 
 /**
  * SSE `game-update` 이벤트의 `data` (`GET /games/subscribe` · `GET /games/support/subscribe`).
  *
- * `game` 은 `GET /games` 항목과 같은 13필드다. 같은 `gameId` 항목을 **통째로 교체**하면 되고
+ * `game` 은 `GET /games` 항목과 같은 15필드다. 같은 `gameId` 항목을 **통째로 교체**하면 되고
  * 부분 머지 규칙은 없다(`applyGameUpdate`). 같은 이벤트가 두 번 올 수 있지만(SQS at-least-once)
  * 통째 교체라 결과가 같아 중복 제거는 필요 없다.
  */
