@@ -1,3 +1,4 @@
+from decimal import Decimal
 from types import SimpleNamespace
 
 from kbo_collector.db import (
@@ -597,3 +598,69 @@ def test_get_game_live_state_missing_game_returns_none():
     # 행이 없는 것(None)과 값이 비어 있는 것(튜플 안 None)을 구분해야 첫 적재를 변화로 오인하지 않는다.
     conn = FakeConn(fetch_results=[[]])
     assert DbSink(None, connection=conn).get_game_live_state("new-game") is None
+
+
+# --------------------------------------------------------------------------- 승률 (COLLECTOR_WIN_RATE_ENABLED)
+def test_sync_game_without_win_rate_flag_sends_the_old_statement_verbatim():
+    # 게이트가 꺼진 호출(승률 인자 없음)은 승률 컬럼을 언급하지 않는 기존 문장을 그대로 보낸다 —
+    # 컬럼이 아직 없는 DB 에서도 upsert 가 깨지지 않아야 한다.
+    from kbo_collector.db import GAME_SYNC_UPSERT
+    conn = FakeConn()
+    DbSink(None, connection=conn).sync_game(
+        naver_game_id="g1", game_dt="2026-07-08 18:30:00",
+        home_team_id=3, away_team_id=2, home_score=5, away_score=3, status_id=7,
+        win_rate=(Decimal("35.8"), Decimal("64.2")), in_progress=True)
+    _, sql, params = conn.log[0]
+    assert sql == GAME_SYNC_UPSERT and "win_rate" not in sql
+    assert len(params) == 11
+
+
+def test_game_sync_upsert_with_win_rate_keeps_old_value_while_live_and_clears_otherwise():
+    from kbo_collector.db import GAME_SYNC_UPSERT_WITH_WIN_RATE as sql
+    assert ("last_inning, home_win_rate, away_win_rate, created_at, updated_at) ") in sql
+    assert sql.count("%s") == 15
+    update_clause = sql.split("ON DUPLICATE KEY UPDATE", 1)[1]
+    assert "home_win_rate=IF(%s, COALESCE(VALUES(home_win_rate), home_win_rate), NULL)" in update_clause
+    assert "away_win_rate=IF(%s, COALESCE(VALUES(away_win_rate), away_win_rate), NULL)" in update_clause
+
+
+def test_sync_game_with_win_rate_binds_values_and_live_flag():
+    from kbo_collector.db import GAME_SYNC_UPSERT_WITH_WIN_RATE
+    conn = FakeConn()
+    DbSink(None, connection=conn).sync_game(
+        naver_game_id="g1", game_dt="2026-07-08 18:30:00",
+        home_team_id=3, away_team_id=2, home_score=5, away_score=3, status_id=7,
+        current_inning=5, inning_half=1, last_inning=5,
+        with_win_rate=True, in_progress=True, win_rate=(Decimal("35.8"), Decimal("64.2")))
+    _, sql, params = conn.log[0]
+    assert sql == GAME_SYNC_UPSERT_WITH_WIN_RATE
+    assert params[-4:] == (Decimal("35.8"), Decimal("64.2"), 1, 1)
+    assert conn.commits == 1
+
+
+def test_sync_game_with_win_rate_not_live_sends_null_and_clear_flag():
+    conn = FakeConn()
+    DbSink(None, connection=conn).sync_game(
+        naver_game_id="g1", game_dt="2026-07-08 18:30:00",
+        home_team_id=3, away_team_id=2, home_score=5, away_score=3, status_id=7,
+        with_win_rate=True, in_progress=False, win_rate=(Decimal("98.7"), Decimal("1.3")))
+    _, _, params = conn.log[0]
+    assert params[-4:] == (None, None, 0, 0)
+
+
+def test_sync_game_with_win_rate_live_but_unknown_sends_null_and_keep_flag():
+    conn = FakeConn()
+    DbSink(None, connection=conn).sync_game(
+        naver_game_id="g1", game_dt="2026-07-08 18:30:00",
+        home_team_id=3, away_team_id=2, home_score=5, away_score=3, status_id=7,
+        with_win_rate=True, in_progress=True, win_rate=None)
+    _, _, params = conn.log[0]
+    assert params[-4:] == (None, None, 1, 1)  # 1 → COALESCE 가 직전 값을 지킨다
+
+
+def test_get_game_win_rate_returns_pair_or_none():
+    conn = FakeConn(fetch_results=[[(Decimal("35.8"), None)], []])
+    sink = DbSink(None, connection=conn)
+    assert sink.get_game_win_rate("g1") == (Decimal("35.8"), None)
+    assert sink.get_game_win_rate("new-game") is None
+    assert "home_win_rate" in conn.log[0][1] and conn.log[0][2] == ("g1",)

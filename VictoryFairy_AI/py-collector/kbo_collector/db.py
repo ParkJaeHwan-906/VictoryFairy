@@ -155,6 +155,31 @@ GAME_SYNC_UPSERT = (
     "  updated_at=NOW(6)"
 )
 
+# GAME_SYNC_UPSERT + 승률 두 컬럼. 별도 문장으로 둔 이유: 컬럼이 없는 DB(수동 ALTER 전)에
+# 이 문장을 보내면 upsert 전체가 실패한다 — COLLECTOR_WIN_RATE_ENABLED 가 꺼져 있으면
+# 위 문장을 글자 그대로 쓰게 해 배포 순서 사고의 반경을 설정 하나로 막는다.
+#
+# 승률은 세 경우를 한 문장에서 가른다(마지막 %s = 진행 중 여부):
+#   진행 중 + 값 있음 → 새 값 / 진행 중 + 값 없음(relay 실패·유효 줄 없음) → 기존 값 유지
+#   진행 중 아님 → NULL. 상태로 거르는 건 current_inning 과 같은 이유(종료 경기에 남으면 안 됨)지만,
+#   진행 중일 때 None 을 "모름"으로 봐야 해서 current_inning 처럼 블라인드 덮어쓰기는 못 한다.
+GAME_SYNC_UPSERT_WITH_WIN_RATE = (
+    "INSERT INTO games (naver_game_id, game_date, home_team_id, away_team_id, "
+    " stadium_id, home_score, away_score, game_status_id, current_inning, inning_half, "
+    " last_inning, home_win_rate, away_win_rate, created_at, updated_at) "
+    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(6), NOW(6)) "
+    "ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id), game_date=VALUES(game_date), "
+    "  stadium_id=COALESCE(VALUES(stadium_id), stadium_id), "
+    "  home_score=COALESCE(VALUES(home_score), home_score), "
+    "  away_score=COALESCE(VALUES(away_score), away_score), "
+    "  game_status_id=VALUES(game_status_id), "
+    "  current_inning=VALUES(current_inning), inning_half=VALUES(inning_half), "
+    "  last_inning=COALESCE(VALUES(last_inning), last_inning), "
+    "  home_win_rate=IF(%s, COALESCE(VALUES(home_win_rate), home_win_rate), NULL), "
+    "  away_win_rate=IF(%s, COALESCE(VALUES(away_win_rate), away_win_rate), NULL), "
+    "  updated_at=NOW(6)"
+)
+
 # 선발 라인업이 '완성'된 경기 판정. 완성 = 선발 타순 1~9 가 두 팀에 걸쳐 18행.
 # game 단위 COUNT>0 으로 보면 한 팀만 먼저 공시된 경기에서 나머지 한 팀이 영영
 # 안 들어온다(공시는 팀별로 따로 뜬다).
@@ -187,6 +212,12 @@ GET_GAME_LIVE_STATE = (
     "SELECT g.current_inning, g.inning_half, g.home_score, g.away_score, gs.name "
     "FROM games g LEFT JOIN game_statuses gs ON gs.id=g.game_status_id "
     "WHERE g.naver_game_id=%s"
+)
+
+# 승률 변화 감지용. GET_GAME_LIVE_STATE 에 합치지 않은 이유는 GAME_SYNC_UPSERT_WITH_WIN_RATE 와
+# 같다 — 컬럼이 없는 DB 에서 게이트가 꺼져 있으면 이 문장은 아예 나가지 않아야 한다.
+GET_GAME_WIN_RATE = (
+    "SELECT home_win_rate, away_win_rate FROM games WHERE naver_game_id=%s"
 )
 
 # preview(경기 전 공시)로 적재해 놓고 실제로는 출전하지 않은 선수를 걷어낸다.
@@ -408,7 +439,8 @@ class DbSink:
 
     def sync_game(self, *, naver_game_id, game_dt, home_team_id, away_team_id,
                  home_score, away_score, status_id, stadium_id=None,
-                 current_inning=None, inning_half=None, last_inning=None) -> int:
+                 current_inning=None, inning_half=None, last_inning=None,
+                 with_win_rate=False, in_progress=False, win_rate=None) -> int:
         """games_sync 잡 전용 upsert. GAME_SYNC_UPSERT 를 써서 점수·구장은
         COALESCE로 기존 값을 지킨다(구장의 최종 진실은 records 잡).
 
@@ -416,13 +448,24 @@ class DbSink:
         아닌 경기는 None 을 받아 NULL 로 지워져야 한다. `last_inning` 은 다시
         반대로 COALESCE 다 — 경기가 끝난 뒤에도 남아야 하는 값이라 None 이 와도
         기존 값을 덮지 않는다 (GAME_SYNC_UPSERT 주석 참고).
+
+        `with_win_rate` 가 False 면 승률 인자는 무시되고 GAME_SYNC_UPSERT 를 그대로 쓴다.
+        True 면 `win_rate`((홈, 원정) 또는 None) 를 `in_progress` 에 따라 쓰거나 지운다
+        (GAME_SYNC_UPSERT_WITH_WIN_RATE 주석 참고).
         """
+        params = (
+            naver_game_id, game_dt, home_team_id, away_team_id,
+            stadium_id, home_score, away_score, status_id,
+            current_inning, inning_half, last_inning,
+        )
         with self._conn.cursor() as cur:
-            cur.execute(GAME_SYNC_UPSERT, (
-                naver_game_id, game_dt, home_team_id, away_team_id,
-                stadium_id, home_score, away_score, status_id,
-                current_inning, inning_half, last_inning,
-            ))
+            if with_win_rate:
+                home_rate, away_rate = win_rate if (in_progress and win_rate) else (None, None)
+                live = 1 if in_progress else 0
+                cur.execute(GAME_SYNC_UPSERT_WITH_WIN_RATE,
+                            params + (home_rate, away_rate, live, live))
+            else:
+                cur.execute(GAME_SYNC_UPSERT, params)
             pk = cur.lastrowid
         self._conn.commit()
         return pk
@@ -481,6 +524,16 @@ class DbSink:
             cur.execute(GET_GAME_LIVE_STATE, (naver_game_id,))
             row = cur.fetchone()
         return (row[0], row[1], row[2], row[3], row[4]) if row else None
+
+    def get_game_win_rate(self, naver_game_id):
+        """DB에 지금 저장된 (home_win_rate, away_win_rate). 행이 없으면 None.
+
+        COLLECTOR_WIN_RATE_ENABLED 일 때만 불러야 한다 — 컬럼이 없는 DB 에선 실패한다.
+        """
+        with self._conn.cursor() as cur:
+            cur.execute(GET_GAME_WIN_RATE, (naver_game_id,))
+            row = cur.fetchone()
+        return (row[0], row[1]) if row else None
 
     def games_with_stadium(self, naver_game_ids) -> set:
         """구장이 이미 채워진 naver_game_id 집합 (GAMES_WITH_STADIUM 판정)."""

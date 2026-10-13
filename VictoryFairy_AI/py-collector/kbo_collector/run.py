@@ -7,6 +7,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date as date_cls
 from datetime import datetime, timedelta, timezone
+from decimal import ROUND_HALF_UP, Decimal
 
 from . import (community, dimensions, fetch, game_records, kbo_register, kbo_schedule,
                kbo_trade, keys, naver)
@@ -642,6 +643,32 @@ def _changed_game_state_fields(old_state, new_state) -> list[str]:
     return changed
 
 
+def _fetch_live_win_rate(settings, client, game_id, inning, log):
+    """진행 중 경기의 현재 이닝 relay 에서 최신 유효 승률 (홈, 원정). 못 구하면 None.
+
+    None 은 "모름"이다 — 호출자는 이걸 받으면 DB 의 직전 값을 그대로 둔다. 실패를 여기서
+    삼키는 이유는 `_land_finished_inning_events` 와 같다: 부가 호출이 점수·상태 동기화를
+    막으면 안 된다.
+    """
+    try:
+        relay = fetch_single_inning_relay(game_id, inning, settings=settings, client=client)
+        if relay is None:
+            return None
+        return naver.extract_latest_win_rate(relay)
+    except Exception as exc:  # 부가 기능 실패가 DB 동기화를 막으면 안 된다
+        log.warning("승률 조회 실패 %s %d회: %s", game_id, inning, exc)
+        return None
+
+
+def _normalize_win_rate(pair):
+    # DB(DECIMAL) 값과 relay 에서 반올림한 값을 같은 자릿수의 Decimal 로 맞춰 비교한다.
+    # 한쪽만 NULL 인 행은 BE 가 둘 다 null 로 보듯 "승률 없음"으로 접는다.
+    if not pair or pair[0] is None or pair[1] is None:
+        return None
+    step = Decimal("0.1")
+    return tuple(Decimal(str(v)).quantize(step, rounding=ROUND_HALF_UP) for v in pair)
+
+
 def _land_game_state_event(sink, date, g, state, last_inning, changed, log,
                            now=None) -> bool:
     """경기 하나의 "지금 상태" 스냅샷을 S3 game-state-events/ 에 적재한다.
@@ -700,6 +727,11 @@ def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=
     (`_land_game_state_event`). 선적재(morning/nightly)는 미래 경기라 변화가 없고 첫
     INSERT 를 변화로 오인할 수 있어 켜지 않는다. 행이 아직 없는 경기(None)도 같은 이유로
     건너뛴다 — 00:30/08:00 선적재가 그날 경기 행을 미리 만들어 두는 것이 전제다.
+
+    `settings.win_rate_enabled` 가 켜져 있으면(기본 꺼짐) 진행 중 경기마다 현재 이닝 relay 를
+    한 번 더 받아 승률을 함께 upsert 하고, 진행 중이 아닌 경기의 승률은 지운다. 승률이 바뀌면
+    (NULL↔값 포함, NULL→NULL 제외) 위 상태 변화 문서의 changed 에 "winRate" 가 붙는다.
+    문서 본문에 승률 값은 싣지 않는다 — 소비자(BE)는 알림을 받으면 DB 를 다시 읽는다.
     """
     resp = fetch.fetch(client, game_records.schedule_url(settings, date),
                        settings=settings, referer=settings.naver_referer)
@@ -757,11 +789,19 @@ def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=
             new_inning_half = inning_half if live else None
             new_home_score = g.get("homeTeamScore") if live_or_done else None
             new_away_score = g.get("awayTeamScore") if live_or_done else None
+            win_rate_on = settings.win_rate_enabled
+            new_win_rate = None
+            if win_rate_on and live and new_current_inning is not None:
+                new_win_rate = _fetch_live_win_rate(
+                    settings, client, g["gameId"], new_current_inning, log)
             old_state = None
+            old_win_rate = None
             if settings.game_state_events_enabled and sink is not None and live_window:
                 # 이닝 이벤트와 같은 이유로 upsert 전에 읽는다. 행이 없으면 None 이고,
                 # 그 경기는 이번 폴링엔 이벤트를 내지 않는다(첫 적재는 변화가 아니다).
                 old_state = db.get_game_live_state(g["gameId"])
+                if old_state is not None and win_rate_on:
+                    old_win_rate = _normalize_win_rate(db.get_game_win_rate(g["gameId"]))
             if settings.inning_events_enabled and sink is not None:
                 # upsert 가 VALUES() 로 블라인드 오버라이트하기 전에 "지금까지"
                 # 값을 읽어둔다 — sync_game 이후에는 이미 덮여서 못 읽는다.
@@ -772,6 +812,9 @@ def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=
                     _land_finished_inning_events(
                         settings, sink, client, g["gameId"], date,
                         old_inning, old_half, log)
+            # 게이트가 꺼져 있으면 승률 인자를 아예 넘기지 않는다 — 기존 호출과 글자 그대로 같다.
+            win_rate_kwargs = (dict(with_win_rate=True, in_progress=live, win_rate=new_win_rate)
+                               if win_rate_on else {})
             game_pk = db.sync_game(
                 naver_game_id=g["gameId"], game_dt=dt,
                 home_team_id=team_ids[g["homeTeamCode"]],
@@ -782,7 +825,8 @@ def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=
                 stadium_id=db.stadium_id(stadium),
                 current_inning=new_current_inning,
                 inning_half=new_inning_half,
-                last_inning=last_inning)
+                last_inning=last_inning,
+                **win_rate_kwargs)
             synced += 1
             if old_state is not None:
                 # 점수는 upsert 가 COALESCE 라 None 을 보내도 DB 값이 남는다 — 비교도
@@ -792,6 +836,17 @@ def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=
                              new_away_score if new_away_score is not None else old_state[3],
                              status)
                 changed = _changed_game_state_fields(old_state, new_state)
+                if win_rate_on:
+                    # 진행 중에 값을 못 구했으면 upsert 가 직전 값을 지키므로 비교도 그 값으로
+                    # 한다. 그래서 NULL→NULL(아직 승률 없음)은 변화가 아니다.
+                    if not live:
+                        stored_win_rate = None
+                    elif new_win_rate is not None:
+                        stored_win_rate = _normalize_win_rate(new_win_rate)
+                    else:
+                        stored_win_rate = old_win_rate
+                    if stored_win_rate != old_win_rate:
+                        changed.append("winRate")
                 if changed:
                     _land_game_state_event(sink, date, g, new_state, last_inning, changed, log)
             if not live_window:

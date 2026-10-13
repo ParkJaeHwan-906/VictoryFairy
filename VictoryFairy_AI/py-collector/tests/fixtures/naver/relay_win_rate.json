@@ -1,0 +1,132 @@
+{
+  "code": 200,
+  "success": true,
+  "result": {
+    "textRelayData": {
+      "gameId": "20261004HTLG02026",
+      "inn": 5,
+      "textRelays": [
+        {
+          "title": "7번타자 이재원",
+          "no": 54,
+          "inn": 5,
+          "homeOrAway": "1",
+          "statusCode": 0,
+          "metricOption": {
+            "homeTeamWinRate": 64.2,
+            "awayTeamWinRate": 35.800003,
+            "wpaByPlate": -13.4
+          }
+        },
+        {
+          "title": "6번타자 오지환",
+          "no": 53,
+          "inn": 5,
+          "homeOrAway": "1",
+          "statusCode": 0,
+          "metricOption": {
+            "homeTeamWinRate": 77.6,
+            "awayTeamWinRate": 22.400002,
+            "wpaByPlate": 5.1
+          }
+        },
+        {
+          "title": "5번타자 문보경",
+          "no": 52,
+          "inn": 5,
+          "homeOrAway": "1",
+          "statusCode": 0,
+          "metricOption": {
+            "homeTeamWinRate": 72.5,
+            "awayTeamWinRate": 27.5,
+            "wpaByPlate": 1.5
+          }
+        },
+        {
+          "title": "4번타자 문정빈",
+          "no": 51,
+          "inn": 5,
+          "homeOrAway": "1",
+          "statusCode": 0,
+          "metricOption": {
+            "homeTeamWinRate": 71.0,
+            "awayTeamWinRate": 29.0,
+            "wpaByPlate": -4.2
+          }
+        },
+        {
+          "title": "3번타자 오스틴",
+          "no": 50,
+          "inn": 5,
+          "homeOrAway": "1",
+          "statusCode": 0,
+          "metricOption": {
+            "homeTeamWinRate": 72.6,
+            "awayTeamWinRate": 27.400002,
+            "wpaByPlate": 2.9
+          }
+        },
+        {
+          "title": "5회말 LG 공격",
+          "no": 49,
+          "inn": 5,
+          "homeOrAway": "1",
+          "statusCode": 0,
+          "metricOption": {
+            "homeTeamWinRate": 0.0,
+            "awayTeamWinRate": 0.0,
+            "wpaByPlate": 0.0
+          }
+        },
+        {
+          "title": "1번타자 박재현",
+          "no": 48,
+          "inn": 5,
+          "homeOrAway": "0",
+          "statusCode": 0,
+          "metricOption": {
+            "homeTeamWinRate": 69.7,
+            "awayTeamWinRate": 30.300003,
+            "wpaByPlate": -1.6
+          }
+        },
+        {
+          "title": "9번타자 박민",
+          "no": 47,
+          "inn": 5,
+          "homeOrAway": "0",
+          "statusCode": 0,
+          "metricOption": {
+            "homeTeamWinRate": 68.1,
+            "awayTeamWinRate": 31.900002,
+            "wpaByPlate": -2.4
+          }
+        },
+        {
+          "title": "8번타자 김태군",
+          "no": 46,
+          "inn": 5,
+          "homeOrAway": "0",
+          "statusCode": 0,
+          "metricOption": {
+            "homeTeamWinRate": 65.7,
+            "awayTeamWinRate": 34.300003,
+            "wpaByPlate": -3.5
+          }
+        },
+        {
+          "title": "5회초 KIA 공격",
+          "no": 45,
+          "inn": 5,
+          "homeOrAway": "0",
+          "statusCode": 0,
+          "metricOption": {
+            "homeTeamWinRate": 0.0,
+            "awayTeamWinRate": 0.0,
+            "wpaByPlate": 0.0
+          }
+        }
+      ]
+    }
+  }
+}
