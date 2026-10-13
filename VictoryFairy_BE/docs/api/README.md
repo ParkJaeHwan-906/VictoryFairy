@@ -20,7 +20,7 @@
 | 응원 | [support.md](support.md) | user | `/api/support` | 3 | 필수 | 2026-08-06 | [🔗](https://app.notion.com/p/3b278fa9b0f981f5ae03ff5df8489a63) |
 | 채팅 | [chat.md](chat.md) | quiz | `/rt/chat` | 7 | 필수 | 2026-09-30 | [🔗](https://app.notion.com/p/3b278fa9b0f98165a655fd5cced543d5) |
 | 퀴즈 | [quiz.md](quiz.md) | quiz | `/rt/quizzes` | 6 | 필수 | 2026-10-04 | [🔗](https://app.notion.com/p/3b578fa9b0f981c4b09bd8752fb22711) |
-| 커뮤니티 | [community.md](community.md) | user | `/api/community` | 17 | 필수 | 2026-10-08 | [🔗](https://app.notion.com/p/3f378fa9b0f98103b193e82380629136) |
+| 커뮤니티 | [community.md](community.md) | user | `/api/community` | 17 | 필수 | 2026-10-13 | [🔗](https://app.notion.com/p/3f378fa9b0f98103b193e82380629136) |
 | 경기 채팅 | [game-chat.md](game-chat.md) | chat | `/chat/rooms` | 8 | 필수 · SSE 1개 | 2026-10-12 | [🔗](https://app.notion.com/p/3f478fa9b0f981729f96c9049198e827) |
 
 `최종 업데이트`는 **계약이 마지막으로 바뀐 날**이지 문서를 손댄 날이 아니다. `(추정)`은 도메인 분리 이전에 엔드포인트별 이력이 없어 해당 컨트롤러의 마지막 커밋 날짜로 역산했다는 뜻이다. game·player·quiz의 2026-08-20 갱신은 엔드포인트 추가가 아니라 **공통 시스템 예외 래핑 확장**(아래 "공통 규약 1" 참고)이다. chat의 2026-09-03 갱신도 엔드포인트 추가가 아니라 **전송 content 값의 성질 변경**(욕설 마스킹)이다 — 스키마·상태코드는 불변이다. quiz의 2026-09-03 갱신은 그 둘과 달리 **응답 스키마 변경**이다(`bq`·`earnedBq`·`totalBq` 필드 추가) — 엔드포인트 수(6개)·경로·상태코드는 그대로다. ranking·chat의 2026-09-30 갱신도 엔드포인트 추가가 아니라 **신설 `block` 도메인의 상호 비노출 필터 적용**이다(스키마·상태코드 불변, 결과 목록만 영향).
