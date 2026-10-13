@@ -1,0 +1,308 @@
+/**
+ * CommunityPostDetailPage(게시글 상세 + 댓글) 스타일.
+ *
+ * 시안이 없는 화면이라 공지사항 게시물(`NoticeDetailPage.css`)의 뼈대를 그대로 따른다:
+ *   상단 바 60px → 머리말(제목 Title2 · 아래 실선) → 본문 Body2.
+ * 그 아래에 댓글 묶음과, 화면 맨 아래에 붙는 댓글 입력창(`CommunityCommentComposer.css`)이 온다.
+ */
+
+.community-post-page {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--layout-app-width);
+  min-height: 100dvh;
+  margin-inline: auto;
+  background-color: var(--color-background-basic);
+}
+
+/* ------------------------------------------------------------------ *
+ * Bar/Top — 뒤로가기 · 타이틀 · ⋯ 메뉴
+ * 공지 상세와 같은 바이고, 오른쪽 빈 자리(60px)에 메뉴가 들어간다.
+ * ------------------------------------------------------------------ */
+.community-post-page__topbar {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  background-color: var(--color-background-basic);
+}
+
+.community-post-page__back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 60px;
+  padding: 10px;
+  border-radius: var(--radius-10);
+  overflow: clip;
+}
+
+.community-post-page__back-icon {
+  width: 20px;
+  height: 20px;
+  background-color: var(--color-label-assistive);
+  -webkit-mask: url('../assets/arrow_l.svg') center / contain no-repeat;
+  mask: url('../assets/arrow_l.svg') center / contain no-repeat;
+}
+
+.community-post-page__topbar-title {
+  min-width: 0;
+  margin: 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  text-align: center;
+}
+
+.community-post-page__topbar-side {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 60px;
+}
+
+/* ------------------------------------------------------------------ *
+ * 머리말 — 카테고리 · 제목 · 작성자(아바타 · 닉네임 · 시각 · 조회수)
+ * ------------------------------------------------------------------ */
+.community-post-page__head {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px var(--layout-gutter) 20px;
+  border-bottom: 1px solid var(--color-line-light);
+}
+
+.community-post-page__category {
+  margin: 0;
+  color: var(--color-primary-normal);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+}
+
+.community-post-page__title {
+  margin: 0;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-title2);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title2);
+  overflow-wrap: anywhere;
+}
+
+.community-post-page__author {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.community-post-page__avatar {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.community-post-page__author-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.community-post-page__nickname {
+  margin: 0;
+  overflow: hidden;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.community-post-page__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+/* ------------------------------------------------------------------ *
+ * 본문 — 글 · 사진(세로로 쌓음) · 반응 버튼
+ * ------------------------------------------------------------------ */
+.community-post-page__body {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 20px var(--layout-gutter) 28px;
+}
+
+/* 사용자가 넣은 줄바꿈을 그대로 살린다 */
+.community-post-page__content {
+  margin: 0;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-body2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.community-post-page__images {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.community-post-page__image {
+  display: block;
+  width: 100%;
+  border-radius: var(--radius-10);
+  background-color: var(--color-background-gray);
+}
+
+/* ------------------------------------------------------------------ *
+ * 댓글 묶음 — 굵은 회색 띠로 글과 나눈다(마이페이지 묶음 사이 간격과 같은 뜻)
+ * ------------------------------------------------------------------ */
+.community-post-page__comments {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+  border-top: 8px solid var(--color-background-gray);
+  padding-bottom: 16px;
+}
+
+.community-post-page__comments-title {
+  margin: 0;
+  padding: 16px var(--layout-gutter) 4px;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+}
+
+.community-post-page__comments-count {
+  color: var(--color-primary-normal);
+}
+
+/* 라운지의 상태 문구(`.community-page__status`)보다 한 단계 작다 — 댓글 자리라서 */
+.community-post-page__status {
+  margin: 20px var(--layout-gutter);
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-body4);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body4);
+  text-align: center;
+}
+
+.community-post-page__status--error {
+  color: var(--color-error-strong);
+}
+
+.community-post-page__retry {
+  padding: 0;
+  color: var(--color-primary-normal);
+  font: inherit;
+  text-decoration: underline;
+}
+
+.community-post-page__more {
+  align-self: center;
+  margin-top: 12px;
+  padding: 10px 20px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-background-gray);
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+}
+
+.community-post-page__more:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* ------------------------------------------------------------------ *
+ * 글을 그릴 수 없을 때 — 불러오는 중 · 신고로 숨김(410) · 없음(404) · 실패
+ * ------------------------------------------------------------------ */
+.community-post-page__state {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 0 var(--layout-gutter) 120px;
+  text-align: center;
+}
+
+.community-post-page__state-icon {
+  width: 48px;
+  height: 48px;
+  background-color: var(--color-label-assistive);
+  -webkit-mask: url('../assets/report.svg') center / contain no-repeat;
+  mask: url('../assets/report.svg') center / contain no-repeat;
+}
+
+.community-post-page__state-title {
+  margin: 0;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-title3);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title3);
+}
+
+.community-post-page__state-text {
+  margin: 0;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-body4);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body4);
+}
+
+.community-post-page__state-text--error {
+  color: var(--color-error-strong);
+}
+
+/* 프로필 수정의 CTA 와 같은 주황 버튼을 작게 */
+.community-post-page__state-link {
+  margin-top: 12px;
+  padding: 12px 24px;
+  border-radius: var(--radius-15);
+  background-color: var(--color-primary-400);
+  color: var(--color-white);
+  font-size: var(--font-size-button2);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  text-decoration: none;
+}
+
+@media (max-width: 359px) {
+  .community-post-page__head,
+  .community-post-page__body,
+  .community-post-page__comments-title {
+    padding-inline: 16px;
+  }
+}

@@ -1,0 +1,214 @@
+/**
+ * CommunityPostEditorPage(게시글 작성 · 수정) 스타일.
+ *
+ * 시안이 없는 화면이라 프로필 수정(`ProfileEditPage.css`)의 값을 그대로 따른다:
+ *   상단 바 60px · 라벨 Label2 · 회색 입력칸(radius 12, 16/12 여백) · 하단 60px CTA.
+ */
+
+.community-editor-page {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--layout-app-width);
+  min-height: 100dvh;
+  margin-inline: auto;
+  padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  background-color: var(--color-background-basic);
+}
+
+/* ------------------------------------------------------------------ *
+ * Bar/Top — 뒤로가기 · 타이틀 (다른 화면들과 같은 컴포넌트)
+ * ------------------------------------------------------------------ */
+.community-editor-page__topbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.community-editor-page__back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 60px;
+  padding: 10px;
+  border-radius: var(--radius-10);
+  overflow: clip;
+}
+
+.community-editor-page__back-icon {
+  width: 20px;
+  height: 20px;
+  background-color: var(--color-label-assistive);
+  -webkit-mask: url('../assets/arrow_l.svg') center / contain no-repeat;
+  mask: url('../assets/arrow_l.svg') center / contain no-repeat;
+}
+
+.community-editor-page__topbar-title {
+  min-width: 0;
+  margin: 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  text-align: center;
+}
+
+.community-editor-page__topbar-spacer {
+  flex-shrink: 0;
+  width: 60px;
+  height: 60px;
+}
+
+/* ------------------------------------------------------------------ *
+ * Form
+ * ------------------------------------------------------------------ */
+.community-editor-page__form {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+  gap: 24px;
+  margin-top: 12px;
+  padding-inline: var(--layout-gutter);
+}
+
+.community-editor-page__group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.community-editor-page__label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Label/Label2 — Regular 14 / 1.4 */
+.community-editor-page__label {
+  padding: 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-label2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+.community-editor-page__counter {
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+.community-editor-page__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* 게시판 탭의 카테고리 칩(`.community-board__chip`)과 같은 모양 */
+.community-editor-page__chip {
+  padding: 8px 14px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-background-gray);
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+}
+
+.community-editor-page__chip--active {
+  background-color: var(--color-primary-400);
+  color: var(--color-white);
+}
+
+.community-editor-page__input,
+.community-editor-page__textarea {
+  width: 100%;
+  padding: 16px 12px;
+  border: none;
+  border-radius: var(--radius-12);
+  background-color: var(--color-gray-50);
+  color: var(--color-label-normal);
+  font-size: var(--font-size-body2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body2);
+}
+
+.community-editor-page__textarea {
+  min-height: 220px;
+  resize: vertical;
+}
+
+.community-editor-page__input::placeholder,
+.community-editor-page__textarea::placeholder {
+  color: var(--color-label-disable);
+}
+
+/* ------------------------------------------------------------------ *
+ * 안내문 — 프로필 수정의 hint 와 같은 모양(정보 아이콘 + Label2)
+ * ------------------------------------------------------------------ */
+.community-editor-page__hint {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0;
+  font-size: var(--font-size-label2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+.community-editor-page__hint--error {
+  color: var(--color-error-strong);
+}
+
+.community-editor-page__hint-icon {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  background-color: currentcolor;
+  -webkit-mask: url('../assets/info.svg') center / contain no-repeat;
+  mask: url('../assets/info.svg') center / contain no-repeat;
+}
+
+/* ------------------------------------------------------------------ *
+ * CTA — 화면 하단에 붙인다(프로필 수정과 같은 값)
+ * ------------------------------------------------------------------ */
+.community-editor-page__submit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 60px;
+  margin-top: auto;
+  padding-inline: 16px;
+  border-radius: var(--radius-15);
+  background-color: var(--color-primary-400);
+  color: var(--color-white);
+  font-size: var(--font-size-button2);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  transition: background-color 0.15s ease-in-out;
+}
+
+.community-editor-page__submit:disabled {
+  background-color: var(--color-action-disabled);
+  color: var(--color-label-disable);
+  cursor: not-allowed;
+}
+
+@media (max-width: 359px) {
+  .community-editor-page__form {
+    padding-inline: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .community-editor-page__submit {
+    transition: none;
+  }
+}
