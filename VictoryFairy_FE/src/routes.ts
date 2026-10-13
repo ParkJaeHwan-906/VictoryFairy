@@ -2,6 +2,7 @@
  * 앱 라우트 경로.
  * App 과 각 페이지가 함께 참조하므로 별도 모듈로 둔다(순환 import 방지).
  */
+import type { CommunityPostDetail } from './types/community';
 import type { Game } from './types/game';
 import type { ShareStickerId } from './utils/shareStickers';
 
@@ -12,7 +13,22 @@ export const ROUTES = {
   playerSelect: '/player-select',
   /** 온보딩 마지막 단계(완료 안내). 저장은 앞 단계에서 이미 끝난다. */
   complete: '/complete',
+  /**
+   * 라운지. 랭킹 · 게시판 두 탭이고, 어느 탭인지는 `?tab=` 으로 남긴다(`communityBoardPath`).
+   * 주소의 경로는 그대로라 NavBar 의 라운지 탭 표시와 앱의 "탭 뿌리" 판정이 바뀌지 않는다.
+   */
   community: '/community',
+  /**
+   * 게시글 상세. **라우트 정의에만 쓰는 패턴**이고 실제 주소는 `communityPostPath` 로 만든다.
+   * NavBar 없는 전체 화면이다(아래에 댓글 입력창이 붙는다).
+   */
+  communityPost: '/community/posts/:postId',
+  /** 게시글 작성. NavBar 없는 전체 화면이다. */
+  communityWrite: '/community/write',
+  /** 게시글 수정. 실제 주소는 `communityEditPath` 로 만든다. */
+  communityEdit: '/community/posts/:postId/edit',
+  /** 내 게시글(블라인드 포함). 마이페이지 "활동 > 내 게시글"로 들어온다. */
+  myCommunityPosts: '/my/posts',
   main: '/main',
   game: '/game',
   /**
@@ -133,6 +149,58 @@ export function readGameDetailPageState(state: unknown): Game | null {
   return typeof game === 'object' && game !== null && typeof game.gameId === 'string'
     ? game
     : null;
+}
+
+/** 라운지 게시판 탭 주소. 글 상세에서 뒤로 돌아올 때 랭킹이 아니라 게시판으로 온다. */
+export const communityBoardPath = '/community?tab=board';
+
+/** 게시글 상세로 가는 주소. `ROUTES.communityPost` 의 `:postId` 를 채운 값이다. */
+export function communityPostPath(postId: number): string {
+  return `/community/posts/${postId}`;
+}
+
+/** 게시글 수정으로 가는 주소. `ROUTES.communityEdit` 의 `:postId` 를 채운 값이다. */
+export function communityEditPath(postId: number): string {
+  return `/community/posts/${postId}/edit`;
+}
+
+/**
+ * 글 상세 → 수정 화면으로 넘길 값 — 지금 보고 있는 글 그대로.
+ *
+ * ⚠️ 상세 조회(`GET /community/posts/{id}`)는 **조회수를 올리는 GET** 이라 수정 화면이 같은
+ * 호출로 내용을 다시 받으면 안 된다(작성자 본인은 세지 않지만, 굳이 부를 이유가 없다).
+ * 그래서 상세가 들고 있던 값을 그대로 넘긴다. 주소를 직접 쳐서 state 가 비면 수정 화면은
+ * 상세로 돌려보낸다.
+ */
+export interface CommunityEditState {
+  post: CommunityPostDetail;
+}
+
+/** 라우터 state 에서 수정할 글을 읽는다. 형태가 맞지 않으면 `null`. */
+export function readCommunityEditState(
+  state: unknown,
+  postId: number,
+): CommunityPostDetail | null {
+  if (typeof state !== 'object' || state === null) return null;
+
+  const post = (state as Partial<CommunityEditState>).post;
+  return typeof post === 'object' && post !== null && post.postId === postId ? post : null;
+}
+
+/**
+ * 글쓰기 · 수정 · 신고 · 삭제 뒤 이동하면서 실어 보내는 한 줄 안내.
+ * 도착한 화면이 `NoticeSheet` 로 한 번 띄우고 history state 를 비운다(새로고침 때 다시 뜨지 않게).
+ */
+export interface CommunityNoticeState {
+  notice: string;
+}
+
+/** 라우터 state 에서 안내 문구를 읽는다. 없으면 `null`. */
+export function readCommunityNotice(state: unknown): string | null {
+  if (typeof state !== 'object' || state === null) return null;
+
+  const notice = (state as Partial<CommunityNoticeState>).notice;
+  return typeof notice === 'string' && notice.length > 0 ? notice : null;
 }
 
 /** 공지 한 건으로 가는 주소. `ROUTES.noticeDetail` 의 `:noticeId` 를 채운 값이다. */

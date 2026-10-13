@@ -283,6 +283,11 @@
   mask: var(--row-icon) center / contain no-repeat;
 }
 
+/* 내 게시글 — 글을 쓰는 연필. 게시판의 글쓰기 버튼과 같은 그림이다 */
+.my-page__row-icon--posts {
+  --row-icon: url('../assets/pen.svg');
+}
+
 .my-page__row-icon--account {
   --row-icon: url('../assets/setting.svg');
 }

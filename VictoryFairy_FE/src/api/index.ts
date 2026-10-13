@@ -176,6 +176,41 @@ export {
   BLOCK_ERROR_MESSAGE,
 } from './block';
 
+// 커뮤니티(user 모듈) 엔드포인트 함수 — 열일곱 개 전부 인증이 필수다
+export {
+  getCommunityCategories,
+  uploadCommunityImage,
+  createCommunityPost,
+  getCommunityPosts,
+  getPopularCommunityPosts,
+  getMyCommunityPosts,
+  getCommunityPost,
+  updateCommunityPost,
+  deleteCommunityPost,
+  setCommunityPostReaction,
+  reportCommunityPost,
+  createCommunityComment,
+  getCommunityComments,
+  updateCommunityComment,
+  deleteCommunityComment,
+  setCommunityCommentReaction,
+  reportCommunityComment,
+  isCommunityBlinded,
+  isCommunityNotFound,
+  isCommunityForbidden,
+  isCommunityImageTooLarge,
+  COMMUNITY_IMAGE_MAX_BYTES,
+  COMMUNITY_IMAGE_MIME_TYPES,
+  COMMUNITY_IMAGE_ACCEPT,
+  COMMUNITY_POST_IMAGE_MAX,
+  COMMUNITY_COMMENT_IMAGE_MAX,
+  COMMUNITY_POST_TITLE_MAX_LENGTH,
+  COMMUNITY_POST_CONTENT_MAX_LENGTH,
+  COMMUNITY_COMMENT_CONTENT_MAX_LENGTH,
+  COMMUNITY_PAGE_SIZE,
+  COMMUNITY_PAGE_SIZE_MAX,
+} from './community';
+
 // 캐릭터 꾸미기(user 모듈) 엔드포인트 함수 — 세 개 전부 인증이 필수다
 export {
   getCharacterItems,
@@ -277,6 +312,32 @@ export type {
 } from '../types/character';
 export type { BqRankingEntry } from '../types/ranking';
 export type { BlockUserRequest, BlockedUser } from '../types/block';
+export type {
+  CommunityAuthor,
+  CommunityPage,
+  CommunityPageParams,
+  CommunityReaction,
+  CommunityReactionInput,
+  CommunityReactionRequest,
+  CommunityReactionResult,
+  CommunityCategory,
+  CommunityImageUploadResponse,
+  CommunityPostSort,
+  CommunityPostListParams,
+  CommunityPopularPostParams,
+  CommunityPostRequest,
+  CommunityPostCreateResult,
+  CommunityPostSummary,
+  MyCommunityPostSummary,
+  CommunityPostDetail,
+  CommunityCommentCreateRequest,
+  CommunityCommentUpdateRequest,
+  CommunityCommentCreateResult,
+  CommunityCommentStatus,
+  CommunityReply,
+  CommunityComment,
+  CommunityCommentUpdateResult,
+} from '../types/community';
 export type {
   QuizType,
   QuizDifficulty,
