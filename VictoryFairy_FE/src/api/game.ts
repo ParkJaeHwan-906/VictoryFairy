@@ -26,7 +26,7 @@ import type { Game, GameUpdateEvent, TeamLineUp } from '../types/game';
  * 세 엔드포인트 모두 페이징이 없고, 빈 배열(`[]`)은 오류가 아니라 정상 200 이다.
  *
  * `/games/subscribe` · `/games/support/subscribe`(2026-10-09 신규)는 각각 `/games` ·
- * `/games/support` 의 **SSE 판**이다. 인증 정책·`date` 해석·항목 13필드가 짝과 같고,
+ * `/games/support` 의 **SSE 판**이다. 인증 정책·`date` 해석·항목 15필드가 짝과 같고,
  * 응답만 래퍼가 아니라 이벤트 스트림이다. 기존 GET 은 폴백·최초 1회 조회용으로 그대로 남는다.
  *
  * `/games/lineup` 은 `/games` 의 하위 경로지만 백엔드에서 공개 규칙이 따로 걸려 있다

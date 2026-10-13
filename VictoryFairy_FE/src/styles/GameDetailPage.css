@@ -245,6 +245,16 @@
   text-align: center;
 }
 
+/* 구단명보다 한 단계 작은 보조 정보. 1분 주기로 바뀌니 자릿수가 달라도 폭이 흔들리지 않게 고정폭 숫자. */
+.game-detail__win-rate {
+  color: var(--color-black-900);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
 /* VS 와 양옆 점수, 그 위 이닝을 묶는 칸. MatchCard 와 같은 구조다(이닝은 흐름에서 빠진다). */
 .game-detail__center {
   position: relative;

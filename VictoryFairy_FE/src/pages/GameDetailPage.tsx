@@ -65,10 +65,12 @@ type TeamColumnProps = {
   /** 받은 좋아요 신호 수. 늘 때마다 로고가 한 번 두근거린다(0 이면 가만히). */
   beat: number;
   onHeartDone: (id: number) => void;
+  /** 실시간 승리확률(%). 숫자가 아니면(값 없음·구버전 서버) 줄 자체를 그리지 않는다. */
+  winRate?: number | null;
 };
 
-/** 로고 + 구단명 한 칸. */
-function TeamColumn({ name, hearts, beat, onHeartDone }: TeamColumnProps) {
+/** 로고 + 구단명(+ 진행 중이면 승률) 한 칸. */
+function TeamColumn({ name, hearts, beat, onHeartDone, winRate }: TeamColumnProps) {
   const display = getTeamDisplay(name);
 
   return (
@@ -86,6 +88,9 @@ function TeamColumn({ name, hearts, beat, onHeartDone }: TeamColumnProps) {
         <FloatingHearts hearts={hearts} onDone={onHeartDone} />
       </span>
       <span className="game-detail__team-name">{display?.label ?? name}</span>
+      {typeof winRate === 'number' && (
+        <span className="game-detail__win-rate">승률 {winRate.toFixed(1)}%</span>
+      )}
     </div>
   );
 }
@@ -306,6 +311,7 @@ export default function GameDetailPage() {
             hearts={hearts.filter((heart) => heart.origin === 'away')}
             beat={beats.away}
             onHeartDone={removeHeart}
+            winRate={game.awayTeamWinRate}
           />
           {/* 이닝은 VS 위에 겹쳐 띄운다(MatchCard 와 같은 이유 — 높이를 흔들지 않는다) */}
           <span className="game-detail__center">
@@ -327,6 +333,7 @@ export default function GameDetailPage() {
             hearts={hearts.filter((heart) => heart.origin === 'home')}
             beat={beats.home}
             onHeartDone={removeHeart}
+            winRate={game.homeTeamWinRate}
           />
         </div>
 
