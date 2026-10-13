@@ -1,0 +1,96 @@
+/**
+ * CommunityMoreMenu("⋯" 메뉴) 스타일.
+ * 라운지 채팅의 `.lounge-chat__menu-*`(LoungeChatSheet.css)와 같은 값이다.
+ */
+
+.community-more-menu {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.community-more-menu__trigger {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: var(--radius-40);
+}
+
+/* 28px 는 손가락에 작다 — 보이지 않는 덧댐으로 누르는 범위만 넓힌다 */
+.community-more-menu__trigger::after {
+  position: absolute;
+  inset: -8px;
+  content: '';
+}
+
+.community-more-menu__trigger:hover,
+.community-more-menu__trigger:active {
+  background-color: var(--color-background-gray);
+}
+
+.community-more-menu__trigger:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.community-more-menu__glyph {
+  width: 16px;
+  height: 16px;
+  background-color: var(--color-label-alternative);
+  -webkit-mask: url('../assets/meatball_v.svg') no-repeat center / contain;
+  mask: url('../assets/meatball_v.svg') no-repeat center / contain;
+}
+
+.community-more-menu__list {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  min-width: 120px;
+  padding: 4px 0;
+  border-radius: var(--radius-10);
+  background-color: var(--color-surface);
+  /* tokens.css 에 그림자 토큰이 없어 라운지 채팅 메뉴와 같은 리터럴을 쓴다 */
+  box-shadow: 0 4px 16px rgb(18 18 18 / 16%);
+  transform-origin: top right;
+  animation: community-more-menu-in 0.12s ease-out;
+}
+
+@keyframes community-more-menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+}
+
+.community-more-menu__item {
+  display: block;
+  width: 100%;
+  padding: 10px 16px;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-body2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body2);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.community-more-menu__item:hover,
+.community-more-menu__item:active {
+  background-color: var(--color-background-gray);
+}
+
+.community-more-menu__item--danger {
+  color: var(--color-error-strong);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .community-more-menu__list {
+    animation: none;
+  }
+}
