@@ -1565,3 +1565,208 @@ def test_sync_games_for_date_state_event_failure_does_not_block_db_sync(monkeypa
 
     assert synced == 6  # unknown 상태 1건만 스킵, 나머지 6경기는 그대로 적재
     assert any(c["naver_game_id"] == "live" for c in db.calls)
+
+
+# --------------------------------------------------------------------------- 승률 (COLLECTOR_WIN_RATE_ENABLED)
+from decimal import Decimal  # noqa: E402
+
+_WIN_RELAY = json.loads((FIX / "naver" / "relay_win_rate.json").read_text(encoding="utf-8"))
+
+
+class _WinRateSyncDb(_RecordingSyncDb):
+    """승률 인자·이전 승률 조회까지 받는 DbSink 흉내."""
+    def __init__(self, *a, game_win_rate=None, **kw):
+        super().__init__(*a, **kw)
+        self.game_win_rate = dict(game_win_rate or {})
+        self.get_game_win_rate_calls = []
+        self.win_rate_kwargs = {}
+
+    def get_game_win_rate(self, naver_game_id):
+        self.get_game_win_rate_calls.append(naver_game_id)
+        return self.game_win_rate.get(naver_game_id, (None, None))
+
+    def sync_game(self, *, with_win_rate=False, in_progress=False, win_rate=None, **kw):
+        pk = super().sync_game(**kw)
+        self.win_rate_kwargs[kw["naver_game_id"]] = dict(
+            with_win_rate=with_win_rate, in_progress=in_progress, win_rate=win_rate)
+        return pk
+
+
+def _stub_relay(monkeypatch, by_game=None, fail=False):
+    fetched = []
+
+    def fake(game_id, inning, *, settings, client):
+        fetched.append((game_id, inning))
+        if fail:
+            raise fetch.FetchError("relay timeout")
+        return (by_game or {}).get(game_id)
+
+    monkeypatch.setattr(run, "fetch_single_inning_relay", fake)
+    return fetched
+
+
+def _enable_win_rate(monkeypatch, settings, state_events=True):
+    import contextlib
+    monkeypatch.setattr(run.fetch, "build_client", lambda settings: contextlib.nullcontext(object()))
+    monkeypatch.setattr(run.fetch, "fetch", lambda *a, **k: _FakeScheduleResp())
+    monkeypatch.setattr(settings, "win_rate_enabled", True)
+    monkeypatch.setattr(settings, "game_state_events_enabled", state_events)
+
+
+def test_win_rate_off_by_default_keeps_sync_and_events_identical(monkeypatch, settings):
+    """게이트가 꺼져 있으면 relay 추가 호출도, 승률 인자도, 승률 조회도 없다.
+
+    _RecordingSyncDb.sync_game 은 승률 키워드를 받지 않고 get_game_win_rate 도 없다 —
+    하나라도 새면 그 경기가 실패로 빠져 synced 가 줄어든다.
+    """
+    _enable_state_events(monkeypatch, settings)
+    assert settings.win_rate_enabled is False
+    fetched = _stub_relay(monkeypatch, {"live": _WIN_RELAY})
+    db = _RecordingSyncDb(team_ids={"OB": 1, "LG": 2},
+                          game_live_state={"live": (3, 1, 1, 1, "IN_PROGRESS")})
+    sink = _FakeInningEventSink()
+
+    synced = run.job_games_sync(settings, db, "2026-07-10", sink=sink)
+
+    assert synced == 6 and fetched == []
+    assert [p["changed"] for _, p in sink.put_json_calls] == [["homeScore"]]
+
+
+def test_win_rate_written_for_live_games_and_cleared_for_the_rest(monkeypatch, settings):
+    _enable_win_rate(monkeypatch, settings, state_events=False)
+    fetched = _stub_relay(monkeypatch, {"live": _WIN_RELAY})
+    db = _WinRateSyncDb(team_ids={"OB": 1, "LG": 2})
+
+    synced = run.job_games_sync(settings, db, "2026-07-10", sink=_FakeInningEventSink())
+
+    assert synced == 6
+    # 진행 중 경기 둘(live 3회, no_dt 1회)만, 현재 이닝으로 relay 를 부른다
+    assert sorted(fetched) == [("live", 3), ("no_dt", 1)]
+    w = db.win_rate_kwargs
+    assert w["live"] == dict(with_win_rate=True, in_progress=True,
+                             win_rate=(Decimal("64.2"), Decimal("35.8")))
+    # 유효 줄 없음(relay None) → None 을 넘겨 upsert 가 직전 값을 지킨다
+    assert w["no_dt"] == dict(with_win_rate=True, in_progress=True, win_rate=None)
+    for gid in ("finished", "draw", "scheduled", "cancelled"):
+        assert w[gid]["with_win_rate"] is True and w[gid]["in_progress"] is False
+    # 상태 이벤트가 꺼져 있으면 이전 승률도 읽지 않는다
+    assert db.get_game_win_rate_calls == []
+
+
+def test_win_rate_change_alone_lands_state_event(monkeypatch, settings):
+    _enable_win_rate(monkeypatch, settings)
+    _stub_relay(monkeypatch, {"live": _WIN_RELAY})
+    db = _WinRateSyncDb(team_ids={"OB": 1, "LG": 2},
+                        game_live_state={"live": (3, 1, 2, 1, "IN_PROGRESS")},
+                        game_win_rate={"live": (Decimal("41.2"), Decimal("58.8"))})
+    sink = _FakeInningEventSink()
+
+    run.job_games_sync(settings, db, "2026-07-10", sink=sink)
+
+    assert len(sink.put_json_calls) == 1
+    _, payload = sink.put_json_calls[0]
+    assert payload["gameId"] == "live" and payload["changed"] == ["winRate"]
+    # 문서 스키마는 그대로다 — BE 는 DB 를 다시 읽는다
+    assert not any("WinRate" in k or "win_rate" in k for k in payload)
+
+
+def test_win_rate_first_value_from_null_is_a_change(monkeypatch, settings):
+    _enable_win_rate(monkeypatch, settings)
+    _stub_relay(monkeypatch, {"live": _WIN_RELAY})
+    db = _WinRateSyncDb(team_ids={"OB": 1, "LG": 2},
+                        game_live_state={"live": (3, 1, 2, 1, "IN_PROGRESS")})
+    sink = _FakeInningEventSink()
+
+    run.job_games_sync(settings, db, "2026-07-10", sink=sink)
+
+    assert [p["changed"] for _, p in sink.put_json_calls] == [["winRate"]]
+
+
+def test_win_rate_null_to_null_is_not_a_change(monkeypatch, settings):
+    _enable_win_rate(monkeypatch, settings)
+    _stub_relay(monkeypatch, {})  # 유효 줄 없음
+    db = _WinRateSyncDb(team_ids={"OB": 1, "LG": 2},
+                        game_live_state={"live": (3, 1, 2, 1, "IN_PROGRESS")})
+    sink = _FakeInningEventSink()
+
+    run.job_games_sync(settings, db, "2026-07-10", sink=sink)
+
+    assert sink.put_json_calls == []
+    assert "live" in db.get_game_win_rate_calls
+
+
+def test_win_rate_same_after_rounding_is_not_a_change(monkeypatch, settings):
+    _enable_win_rate(monkeypatch, settings)
+    # DB 에는 반올림된 64.2/35.8 이 있고 relay 는 64.2/35.800003 — 반올림하면 같다
+    _stub_relay(monkeypatch, {"live": _WIN_RELAY})
+    db = _WinRateSyncDb(team_ids={"OB": 1, "LG": 2},
+                        game_live_state={"live": (3, 1, 2, 1, "IN_PROGRESS")},
+                        game_win_rate={"live": (Decimal("64.2"), Decimal("35.8"))})
+    sink = _FakeInningEventSink()
+
+    run.job_games_sync(settings, db, "2026-07-10", sink=sink)
+
+    assert sink.put_json_calls == []
+
+
+def test_win_rate_missing_this_poll_keeps_previous_value_without_change(monkeypatch, settings):
+    _enable_win_rate(monkeypatch, settings)
+    _stub_relay(monkeypatch, {})  # 이닝 시작 직후 헤더만 있는 경우와 같다
+    db = _WinRateSyncDb(team_ids={"OB": 1, "LG": 2},
+                        game_live_state={"live": (3, 1, 2, 1, "IN_PROGRESS")},
+                        game_win_rate={"live": (Decimal("64.2"), Decimal("35.8"))})
+    sink = _FakeInningEventSink()
+
+    run.job_games_sync(settings, db, "2026-07-10", sink=sink)
+
+    assert sink.put_json_calls == []
+    assert db.win_rate_kwargs["live"]["win_rate"] is None  # → COALESCE 로 직전 값 유지
+
+
+def test_win_rate_relay_failure_does_not_block_score_sync_or_event(monkeypatch, settings, caplog):
+    _enable_win_rate(monkeypatch, settings)
+    _stub_relay(monkeypatch, fail=True)
+    db = _WinRateSyncDb(team_ids={"OB": 1, "LG": 2},
+                        game_live_state={"live": (3, 1, 1, 1, "IN_PROGRESS")},
+                        game_win_rate={"live": (Decimal("64.2"), Decimal("35.8"))})
+    sink = _FakeInningEventSink()
+
+    with caplog.at_level("WARNING", logger="games_sync"):
+        synced = run.job_games_sync(settings, db, "2026-07-10", sink=sink)
+
+    assert synced == 6
+    by_id = {c["naver_game_id"]: c for c in db.calls}
+    assert (by_id["live"]["home_score"], by_id["live"]["away_score"]) == (2, 1)
+    assert db.win_rate_kwargs["live"]["win_rate"] is None
+    assert [p["changed"] for _, p in sink.put_json_calls] == [["homeScore"]]
+    assert "승률 조회 실패" in caplog.text
+
+
+def test_win_rate_cleared_on_finish_and_reported_as_change(monkeypatch, settings):
+    _enable_win_rate(monkeypatch, settings)
+    fetched = _stub_relay(monkeypatch, {"live": _WIN_RELAY})
+    db = _WinRateSyncDb(team_ids={"OB": 1, "LG": 2},
+                        game_live_state={"finished": (9, 1, 7, 3, "IN_PROGRESS")},
+                        game_win_rate={"finished": (Decimal("98.7"), Decimal("1.3"))})
+    sink = _FakeInningEventSink()
+
+    run.job_games_sync(settings, db, "2026-07-10", sink=sink)
+
+    assert all(gid != "finished" for gid, _ in fetched)  # 종료 경기는 relay 를 부르지 않는다
+    assert db.win_rate_kwargs["finished"] == dict(
+        with_win_rate=True, in_progress=False, win_rate=None)
+    events = [p for _, p in sink.put_json_calls if p["gameId"] == "finished"]
+    assert len(events) == 1
+    assert events[0]["changed"] == ["inning", "status", "winRate"]
+
+
+def test_win_rate_already_null_after_finish_is_not_a_change(monkeypatch, settings):
+    _enable_win_rate(monkeypatch, settings)
+    _stub_relay(monkeypatch, {})
+    db = _WinRateSyncDb(team_ids={"OB": 1, "LG": 2},
+                        game_live_state={"finished": (None, None, 7, 3, "FINISHED")})
+    sink = _FakeInningEventSink()
+
+    run.job_games_sync(settings, db, "2026-07-10", sink=sink)
+
+    assert sink.put_json_calls == []

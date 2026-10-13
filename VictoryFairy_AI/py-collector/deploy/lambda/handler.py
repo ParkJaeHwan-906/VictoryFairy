@@ -34,6 +34,9 @@ additionally gets COLLECTOR_DB_HOST/PORT/NAME/USER/PASSWORD. It still gets
 COLLECTOR_S3_BUCKET too (lambda_db.tf) — games_sync's optional S3 landings need it
 there: inning events (COLLECTOR_INNING_EVENTS_ENABLED, off by default) and
 game-state snapshots (COLLECTOR_GAME_STATE_EVENTS_ENABLED, off by default).
+COLLECTOR_WIN_RATE_ENABLED (off by default) makes games_sync write
+games.home_win_rate/away_win_rate — turn it on only after those columns exist in
+the target DB, or every games upsert fails.
 """
 import datetime
 import uuid
