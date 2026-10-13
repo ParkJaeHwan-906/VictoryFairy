@@ -218,7 +218,7 @@ class CommunityCommentWriterTest {
             return c;
         });
 
-        Long id = writer.create(AUTHOR_ID, POST_ID, null, " ㅊㅋ ", List.of("community/a.jpg", "community/b.jpg"));
+        Long id = writer.create(AUTHOR_ID, POST_ID, null, " ㅊㅋ ", List.of("community-img/a.jpg", "community-img/b.jpg"));
 
         assertThat(id).isEqualTo(70L);
         ArgumentCaptor<CommunityComment> saved = ArgumentCaptor.forClass(CommunityComment.class);
@@ -341,9 +341,9 @@ class CommunityCommentWriterTest {
     void prepareUpdate_returnsCurrentEndpoints() {
         commentFound(parent);
         given(commentImageRepository.findAllByComment_IdOrderBySortOrderAsc(5L))
-                .willReturn(List.of(image(parent, "community/a.jpg", 0)));
+                .willReturn(List.of(image(parent, "community-img/a.jpg", 0)));
 
-        assertThat(writer.prepareUpdate(AUTHOR_ID, 5L)).containsExactly("community/a.jpg");
+        assertThat(writer.prepareUpdate(AUTHOR_ID, 5L)).containsExactly("community-img/a.jpg");
     }
 
     // ---------- update ----------
@@ -353,14 +353,14 @@ class CommunityCommentWriterTest {
     void update_topLevel_replacesAndAssemblesWithReplies() {
         commentFound(parent);
         given(commentImageRepository.findAllByComment_IdOrderBySortOrderAsc(5L))
-                .willReturn(List.of(image(parent, "community/a.jpg", 0), image(parent, "community/b.jpg", 1)));
+                .willReturn(List.of(image(parent, "community-img/a.jpg", 0), image(parent, "community-img/b.jpg", 1)));
         CommentResponse assembled = org.mockito.Mockito.mock(CommentResponse.class);
         given(assembler.assemble(List.of(parent), AUTHOR_ID)).willReturn(List.of(assembled));
 
-        UpdateResult result = writer.update(AUTHOR_ID, 5L, "수정", List.of("community/b.jpg"));
+        UpdateResult result = writer.update(AUTHOR_ID, 5L, "수정", List.of("community-img/b.jpg"));
 
         assertThat(parent.getContent()).isEqualTo("수정");
-        assertThat(result.removedEndpoints()).containsExactly("community/a.jpg");
+        assertThat(result.removedEndpoints()).containsExactly("community-img/a.jpg");
         assertThat(result.item()).isSameAs(assembled);
         verify(commentImageRepository).deleteAllByCommentId(5L);
         verify(commentRepository).flush();
@@ -404,13 +404,13 @@ class CommunityCommentWriterTest {
     void delete_visibleComment_softDeletesDecrementsAndReturnsEndpoints() {
         commentLocked(parent);
         given(commentImageRepository.findAllByComment_IdOrderBySortOrderAsc(5L))
-                .willReturn(List.of(image(parent, "community/a.jpg", 0)));
+                .willReturn(List.of(image(parent, "community-img/a.jpg", 0)));
 
         List<String> endpoints = writer.delete(AUTHOR_ID, 5L);
 
         assertThat(parent.getDeletedAt()).isEqualTo(LocalDateTime.of(2026, 10, 8, 12, 0, 0));
         verify(postRepository).adjustCommentCount(POST_ID, -1);
-        assertThat(endpoints).containsExactly("community/a.jpg");
+        assertThat(endpoints).containsExactly("community-img/a.jpg");
     }
 
     @Test

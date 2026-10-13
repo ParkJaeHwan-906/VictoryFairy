@@ -92,7 +92,7 @@ class CommunityPostControllerTest extends CommunitySliceSupport {
     }
 
     private static PostDetailResponse detail(ReactionType myReaction) {
-        return new PostDetailResponse(1L, 3L, "자유게시판", "제목", "본문", List.of("community/a.jpg"),
+        return new PostDetailResponse(1L, 3L, "자유게시판", "제목", "본문", List.of("community-img/a.jpg"),
                 new AuthorResponse("닉", null), 1, 0, 0, 0, myReaction, true, AT, AT);
     }
 
@@ -255,14 +255,14 @@ class CommunityPostControllerTest extends CommunitySliceSupport {
     @DisplayName("[AC-CM-7-1, AC-CM-6-1, AC-CM-41-1, AC-CM-42-1] 파라미터 없이 요청하면 (null, latest, 0, 20)으로 위임하고 페이지 키 6개·항목 키 11개(content 없음)로 응답한다")
     void getPosts_defaults() throws Exception {
         given(postQueryService.getPosts(null, PostSort.latest, 0, 20))
-                .willReturn(page(List.of(summary(2, "community/a.jpg"), summary(1, null))));
+                .willReturn(page(List.of(summary(2, "community-img/a.jpg"), summary(1, null))));
 
         mockMvc.perform(get("/community/posts").header("Authorization", bearer()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(keySet("$.data", PAGE_KEYS))
                 .andExpect(keySet("$.data.content[0]", SUMMARY_KEYS))
-                .andExpect(jsonPath("$.data.content[0].thumbnailUrl").value("community/a.jpg"))
+                .andExpect(jsonPath("$.data.content[0].thumbnailUrl").value("community-img/a.jpg"))
                 .andExpect(jsonPath("$.data.content[1].thumbnailUrl").value(nullValue()))
                 .andExpect(jsonPath("$.data.content[0].author.nickname").value("닉"))
                 .andExpect(keySet("$.data.content[0].author", "nickname", "profileImgUrl"))
@@ -413,7 +413,7 @@ class CommunityPostControllerTest extends CommunitySliceSupport {
                 .andExpect(keySet("$.data", DETAIL_KEYS))
                 .andExpect(jsonPath("$.data.myReaction").value(nullValue()))
                 .andExpect(jsonPath("$.data.isAuthor").value(true))
-                .andExpect(jsonPath("$.data.imageUrls[0]").value("community/a.jpg"));
+                .andExpect(jsonPath("$.data.imageUrls[0]").value("community-img/a.jpg"));
     }
 
     @Test
@@ -696,7 +696,7 @@ class CommunityPostControllerTest extends CommunitySliceSupport {
     void getComments_keySetsAndPlaceholderShape() throws Exception {
         ReplyResponse reply = new ReplyResponse(6L, 5L, CommentStatus.VISIBLE, "답글", List.of(),
                 new AuthorResponse("남", null), 0, 0, null, false, AT, AT);
-        CommentResponse visible = new CommentResponse(4L, null, CommentStatus.VISIBLE, "댓글", List.of("community/a.jpg"),
+        CommentResponse visible = new CommentResponse(4L, null, CommentStatus.VISIBLE, "댓글", List.of("community-img/a.jpg"),
                 new AuthorResponse("닉", null), 2, 1, ReactionType.DISLIKE, true, AT, AT, List.of());
         CommentResponse placeholder = new CommentResponse(5L, null, CommentStatus.DELETED, null, List.of(), null,
                 0, 0, null, false, AT, null, List.of(reply));

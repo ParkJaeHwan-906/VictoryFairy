@@ -9,8 +9,12 @@ import com.skhynix.user.profileimage.policy.ProfileImagePolicy;
  */
 public final class CommunityImagePolicy {
 
-    /** 글·댓글에 확정된 이미지. 세그먼트 2개({@code community/{uuid}.{ext}}) — CloudFront 패턴과 1:1 이다. */
-    public static final String PERMANENT_PREFIX = "community/";
+    /**
+     * 글·댓글에 확정된 이미지. 세그먼트 2개({@code community-img/{uuid}.{ext}}) — CloudFront 패턴과 1:1 이다.
+     * {@code community/} 가 아닌 것은 FE 라우트({@code /community/posts/:postId} 등)와 겹치면 새로고침·딥링크가
+     * S3 로 가서 403 이 되기 때문이다.
+     */
+    public static final String PERMANENT_PREFIX = "community-img/";
 
     // ⚠ ErrorCode.COMMUNITY_IMAGE_LIMIT_EXCEEDED 문구의 5/3 과 같은 값이어야 한다(:common 은 이 상수를 못 본다).
     public static final int MAX_POST_IMAGES = 5;

@@ -9,7 +9,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /**
- * 더 이상 참조되지 않는 {@code community/} 객체를 지우는 <b>best-effort</b> 경로 — 글·댓글 삭제와 수정에서
+ * 더 이상 참조되지 않는 {@code community-img/} 객체를 지우는 <b>best-effort</b> 경로 — 글·댓글 삭제와 수정에서
  * 빠진 EP 가 여기로 온다. 실패를 예외로 올리지 않는다(본 작업은 이미 커밋됐고 남은 것은 뒷정리다 —
  * {@code ProfileImageEraser} 와 같은 성격). ⚠ 반드시 <b>커밋 뒤에</b> 불러야 한다 — 트랜잭션 안에서 지우면
  * 롤백됐을 때 글은 여전히 그 EP 를 가리키는데 객체만 사라진다.
