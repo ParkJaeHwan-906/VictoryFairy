@@ -262,6 +262,7 @@ export type {
   GameChatMessage,
   GameChatMessagePage,
   GameChatDeletedEvent,
+  GameChatPresenceEvent,
   SendGameChatMessageRequest,
   SendGameChatMessageResult,
 } from '../types/gameChat';

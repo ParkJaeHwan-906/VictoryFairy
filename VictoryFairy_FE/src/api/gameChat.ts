@@ -7,6 +7,7 @@ import { validateChatMessageContent } from './chat';
 import type { ApiResponse } from '../types/api';
 import type {
   GameChatDeletedEvent,
+  GameChatPresenceEvent,
   GameChatMessage,
   GameChatMessagePage,
   GameChatRoom,
@@ -275,6 +276,11 @@ export interface GameChatSubscriptionHandlers extends SseLifecycleHandlers {
    * 애니메이션을 재생한다. 본인 좋아요도 돌아온다. 재접속 복구는 없다.
    */
   onLikes?: (teamCodes: string[]) => void;
+  /**
+   * 방 접속 인원. 구독 직후 1회, 이후엔 값이 바뀔 때만 온다. Redis 장애 중엔 오지 않으므로
+   * 마지막 값을 계속 보여 줄 것. 비정상 끊김은 최대 ~47초 늦게 빠지는 근사치다.
+   */
+  onPresence?: (count: number) => void;
 }
 
 export interface GameChatSubscribeOptions {
@@ -322,7 +328,7 @@ export function subscribeGameChatRoom(
   handlers: GameChatSubscriptionHandlers,
   options: GameChatSubscribeOptions = {},
 ): GameChatSubscription {
-  const { onMessages, onDeleted, onReset, onLikes, ...lifecycle } = handlers;
+  const { onMessages, onDeleted, onReset, onLikes, onPresence, ...lifecycle } = handlers;
   let lastMsgId: number | null = options.lastMsgId ?? null;
 
   return openSseSubscription({
@@ -364,6 +370,12 @@ export function subscribeGameChatRoom(
           if (!Array.isArray(parsed)) return;
           const teamCodes = parsed.filter((code): code is string => typeof code === 'string');
           if (teamCodes.length > 0) onLikes?.(teamCodes);
+          return;
+        }
+        case 'presence': {
+          const parsed = parseJson(frame.data) as Partial<GameChatPresenceEvent> | undefined;
+          const count = parsed?.count;
+          if (typeof count === 'number' && Number.isSafeInteger(count) && count >= 0) onPresence?.(count);
           return;
         }
         default:
