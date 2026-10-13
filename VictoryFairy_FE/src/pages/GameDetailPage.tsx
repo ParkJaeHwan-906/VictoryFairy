@@ -1,10 +1,11 @@
-import { useEffect, useId, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { getLineUp, isGameNotFound } from '../api';
 import type { Game, LineUpBatter, TeamLineUp } from '../api';
+import FloatingHearts, { type FloatingHeart } from '../components/FloatingHearts';
 import GameChat, { GameChatLoginPrompt } from '../components/GameChat';
 import { formatInning, getGameStateDisplay, getScoreDisplay } from '../data/gameState';
-import { getTeamDisplay } from '../data/kboTeams';
+import { getTeamDisplay, getTeamDisplayByCode } from '../data/kboTeams';
 import { getPositionDisplay } from '../data/positions';
 import { useLiveGames } from '../hooks/useLiveGames';
 import { ROUTES, readGameDetailPageState, type QuizPageState } from '../routes';
@@ -26,14 +27,63 @@ function resolveGameDate(gameId: string, passed: Game | null): string | null {
   return match ? `${match[1]}-${match[2]}-${match[3]}` : null;
 }
 
+/**
+ * 동시에 떠 있을 수 있는 응원 하트 수. 연타·여러 구단이 겹쳐도 DOM 이 한없이 늘지 않게
+ * 넘치면 가장 오래된 것부터 지운다(서버도 구독자당 초당 10회 남짓으로 묶어 보낸다).
+ */
+const MAX_FLOATING_HEARTS = 24;
+
+/**
+ * 하트가 떠오르는 로고. 누른 사람의 응원 구단 쪽이다 — 이 경기에 뛰지 않는 구단의 팬이 누른
+ * 좋아요는 띄우지 않는다.
+ */
+type HeartOrigin = 'away' | 'home';
+
+type OriginHeart = FloatingHeart & { origin: HeartOrigin };
+
+/** min ~ max 사이 난수. */
+const randomBetween = (min: number, max: number) => min + Math.random() * (max - min);
+
+/** 새 하트 하나. 출발점(로고 안 어딘가)·흔들림·경로는 하나씩 다르게 뽑는다. */
+function createHeart(id: number, origin: HeartOrigin): OriginHeart {
+  return {
+    id,
+    origin,
+    // 로고 칸(96 x 56)의 가운데 언저리 — 로고 그림 위에서 나오도록 가장자리는 비운다.
+    x: randomBetween(-22, 22),
+    y: randomBetween(10, 42),
+    sway: randomBetween(10, 18) * (Math.random() < 0.5 ? -1 : 1),
+    drift: randomBetween(-24, 24),
+    duration: Math.round(randomBetween(1200, 1600)),
+  };
+}
+
+type TeamColumnProps = {
+  name: string;
+  /** 이 로고에서 떠오르는 하트들. */
+  hearts: OriginHeart[];
+  /** 받은 좋아요 신호 수. 늘 때마다 로고가 한 번 두근거린다(0 이면 가만히). */
+  beat: number;
+  onHeartDone: (id: number) => void;
+};
+
 /** 로고 + 구단명 한 칸. */
-function TeamColumn({ name }: { name: string }) {
+function TeamColumn({ name, hearts, beat, onHeartDone }: TeamColumnProps) {
   const display = getTeamDisplay(name);
 
   return (
     <div className="game-detail__team">
       <span className="game-detail__logo-box">
-        {display && <img className="game-detail__logo" src={display.logo} alt="" />}
+        {display && (
+          <img
+            className="game-detail__logo"
+            src={display.logo}
+            alt=""
+            // 홀짝으로 키프레임 이름을 바꿔 걸어야 연타 중에도 처음부터 다시 뛴다(CSS 참고).
+            data-beat={beat === 0 ? undefined : beat % 2 === 1 ? 'odd' : 'even'}
+          />
+        )}
+        <FloatingHearts hearts={hearts} onDone={onHeartDone} />
       </span>
       <span className="game-detail__team-name">{display?.label ?? name}</span>
     </div>
@@ -122,6 +172,51 @@ export default function GameDetailPage() {
     };
   }, [gameId]);
 
+  /*
+   * 좋아요 — 채팅(`GameChat`)이 받은 SSE `likes` 신호마다 누른 사람의 응원 구단 로고에서
+   * 하트가 하나씩 떠오르고, 그 로고가 두근거린다.
+   */
+  const [hearts, setHearts] = useState<OriginHeart[]>([]);
+  const [beats, setBeats] = useState({ away: 0, home: 0 });
+  const heartIdRef = useRef(0);
+
+  const awayTeam = game?.awayTeam;
+  const homeTeam = game?.homeTeam;
+
+  const handleLikes = useCallback(
+    (teamCodes: string[]) => {
+      // 이름(경기)과 코드(채팅)는 표기가 달라 같은 표시 정보로 모이는지로 맞춘다.
+      const away = awayTeam === undefined ? undefined : getTeamDisplay(awayTeam);
+      const home = homeTeam === undefined ? undefined : getTeamDisplay(homeTeam);
+
+      const spawned = teamCodes.flatMap((code): OriginHeart[] => {
+        const display = getTeamDisplayByCode(code);
+        const origin = display && display === away ? 'away' : display && display === home ? 'home' : null;
+        if (origin === null) return [];
+        heartIdRef.current += 1;
+        return [createHeart(heartIdRef.current, origin)];
+      });
+      if (spawned.length === 0) return;
+
+      setHearts((prev) => [...prev, ...spawned].slice(-MAX_FLOATING_HEARTS));
+
+      const awayCount = spawned.some((heart) => heart.origin === 'away') ? 1 : 0;
+      const homeCount = spawned.some((heart) => heart.origin === 'home') ? 1 : 0;
+      setBeats((prev) => ({ away: prev.away + awayCount, home: prev.home + homeCount }));
+    },
+    [awayTeam, homeTeam],
+  );
+
+  const removeHeart = useCallback((id: number) => {
+    setHearts((prev) => prev.filter((heart) => heart.id !== id));
+  }, []);
+
+  /* 경기가 바뀌면 이전 경기의 하트가 남지 않게 비운다. */
+  useEffect(() => {
+    setHearts([]);
+    setBeats({ away: 0, home: 0 });
+  }, [gameId]);
+
   if (!gameId || date === null) return <Navigate to={ROUTES.game} replace />;
 
   const goBack = () => navigate(-1);
@@ -206,7 +301,12 @@ export default function GameDetailPage() {
         </div>
 
         <div className="game-detail__teams">
-          <TeamColumn name={game.awayTeam} />
+          <TeamColumn
+            name={game.awayTeam}
+            hearts={hearts.filter((heart) => heart.origin === 'away')}
+            beat={beats.away}
+            onHeartDone={removeHeart}
+          />
           {/* 이닝은 VS 위에 겹쳐 띄운다(MatchCard 와 같은 이유 — 높이를 흔들지 않는다) */}
           <span className="game-detail__center">
             {inning && <span className="game-detail__inning">{inning}</span>}
@@ -222,7 +322,12 @@ export default function GameDetailPage() {
               </span>
             )}
           </span>
-          <TeamColumn name={game.homeTeam} />
+          <TeamColumn
+            name={game.homeTeam}
+            hearts={hearts.filter((heart) => heart.origin === 'home')}
+            beat={beats.home}
+            onHeartDone={removeHeart}
+          />
         </div>
 
         <div className="game-detail__lineup">
@@ -282,7 +387,7 @@ export default function GameDetailPage() {
         채팅은 계정 기능이라 비로그인이면 API 를 부르지 않고 로그인 안내를 세운다.
       */}
       {isLoggedIn ? (
-        <GameChat gameId={game.gameId} isOpenDay={date === today} />
+        <GameChat gameId={game.gameId} isOpenDay={date === today} onLikes={handleLikes} />
       ) : (
         <GameChatLoginPrompt />
       )}

@@ -169,7 +169,9 @@
   width: 96px;
 }
 
+/* 응원 하트(FloatingHearts)가 이 칸의 위쪽 가운데에서 떠오른다. */
 .game-detail__logo-box {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -181,6 +183,56 @@
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
+}
+
+/*
+ * 좋아요가 올 때마다 로고가 두근거린다. 같은 키프레임을 두 이름으로 두고 신호마다 번갈아
+ * 걸어서, 요소를 다시 그리지 않고도 연타 중에 처음부터 다시 뛴다.
+ */
+.game-detail__logo[data-beat='odd'] {
+  animation: game-detail-logo-beat-odd 0.6s ease-out;
+}
+
+.game-detail__logo[data-beat='even'] {
+  animation: game-detail-logo-beat-even 0.6s ease-out;
+}
+
+@keyframes game-detail-logo-beat-odd {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  20% {
+    transform: scale(1.18);
+  }
+
+  40% {
+    transform: scale(0.96);
+  }
+
+  60% {
+    transform: scale(1.1);
+  }
+}
+
+@keyframes game-detail-logo-beat-even {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  20% {
+    transform: scale(1.18);
+  }
+
+  40% {
+    transform: scale(0.96);
+  }
+
+  60% {
+    transform: scale(1.1);
+  }
 }
 
 /* 색은 경기 목록 카드(MatchCard)의 구단명과 맞춘다. 크기·굵기는 상세라 한 단계 크다. */
@@ -427,7 +479,8 @@
     transition: none;
   }
 
-  .game-detail__lineup-panel {
+  .game-detail__lineup-panel,
+  .game-detail__logo[data-beat] {
     animation: none;
   }
 }
