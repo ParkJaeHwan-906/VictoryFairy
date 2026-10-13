@@ -96,6 +96,9 @@ resource "aws_lambda_function" "db" {
       COLLECTOR_INNING_EVENTS_ENABLED = tostring(var.inning_events_enabled)
       # 같은 절차 — 이 분기를 아는 이미지가 배포된 뒤 tfvars 에서 켠다.
       COLLECTOR_GAME_STATE_EVENTS_ENABLED = tostring(var.game_state_events_enabled)
+      # ⚠ 위 둘과 달리 "먼저 켜도 무해"하지 않다 — games 에 승률 컬럼이 없는 DB 에서 켜면
+      # games upsert 전체가 실패해 점수 동기화까지 멈춘다. 컬럼 확인 뒤에 tfvars 에서 켠다.
+      COLLECTOR_WIN_RATE_ENABLED = tostring(var.win_rate_enabled)
     }
   }
 

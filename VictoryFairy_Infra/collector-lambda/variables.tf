@@ -106,6 +106,12 @@ variable "game_state_events_enabled" {
   default     = false
 }
 
+variable "win_rate_enabled" {
+  description = "games_sync 가 진행 중 경기의 현재 이닝 relay 를 추가 조회해 games.home_win_rate/away_win_rate 에 쓰고, 승률 변화를 game-state-events changed(winRate)에 싣는 기능 on/off. 운영 DB 에 두 컬럼(DECIMAL(4,1) NULL, 수동 ALTER)이 생긴 뒤에만 true — 컬럼 없이 켜면 games upsert 가 통째로 실패한다."
+  type        = bool
+  default     = false
+}
+
 variable "kbo_records_schedule" {
   description = "KBO 기록실 스냅샷 -> S3. 기본 07:00 KST = 22:00 UTC (전날 경기가 기록실에 반영된 뒤)."
   type        = string
