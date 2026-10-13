@@ -71,9 +71,11 @@ data "aws_iam_policy_document" "user_app" {
     }
   }
 
-  # 두 접두사에 한해 읽기·쓰기·삭제.
+  # 세 접두사에 한해 읽기·쓰기·삭제.
   #   temp/            업로드(Put) → 미리보기·확정 이동을 위한 읽기(Get) → 정리·이동 후 삭제(Delete)
   #   user-profile-img/ 확정 저장(Put) → 이동을 위한 읽기(Get) → 교체·탈퇴 시 삭제(Delete)
+  #   community-img/   게시글·댓글 이미지 확정 저장. 프로필과 같은 동작(CopyObject = 대상 Put + 원본 Get)
+  # (sid 는 접두사가 늘어도 그대로 둔다 — 이름만 바꾸는 diff 를 만들지 않으려고.)
   # ⚠ 이 밖의 접두사·액션은 주지 않는다. 특히 버킷 정책/BPA 를 만질 수 있는 s3:Put*Policy 류와
   #   접두사 없는 ListBucket 은 의도적으로 빠져 있다.
   statement {
@@ -87,6 +89,7 @@ data "aws_iam_policy_document" "user_app" {
 
     resources = [
       "${local.bucket_arn}/${var.profile_prefix}*",
+      "${local.bucket_arn}/${var.community_prefix}*",
       "${local.bucket_arn}/${var.temp_prefix}*",
     ]
   }

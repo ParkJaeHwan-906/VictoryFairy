@@ -213,6 +213,7 @@ module "cdn" {
   asset_bucket_name                 = module.asset.bucket_name
   asset_bucket_regional_domain_name = module.asset.bucket_regional_domain_name
   asset_profile_prefix              = local.asset_profile_prefix
+  asset_community_prefix            = local.asset_community_prefix
   asset_temp_prefix                 = local.asset_temp_prefix
   asset_static_prefixes             = local.asset_static_prefixes
 
@@ -227,9 +228,10 @@ module "cdn" {
 module "asset" {
   source = "../../modules/asset"
 
-  bucket_name    = local.asset_bucket_name
-  profile_prefix = local.asset_profile_prefix
-  temp_prefix    = local.asset_temp_prefix
+  bucket_name      = local.asset_bucket_name
+  profile_prefix   = local.asset_profile_prefix
+  community_prefix = local.asset_community_prefix
+  temp_prefix      = local.asset_temp_prefix
 
   # 캐릭터 꾸미기 에셋 — 버킷 정책의 읽기 허용 접두사에만 더한다(만료 규칙도 IRSA 쓰기 권한도 없다).
   static_prefixes = local.asset_static_prefixes
@@ -238,7 +240,7 @@ module "asset" {
   cloudfront_distribution_arn = module.cdn.distribution_arn
 }
 
-# user-app 파드용 IRSA — asset 버킷의 temp/·user-profile-img/ 읽기·쓰기·삭제 + temp/ 나열.
+# user-app 파드용 IRSA — asset 버킷의 temp/·user-profile-img/·community-img/ 읽기·쓰기·삭제 + temp/ 나열.
 # 역할 ARN 을 k8s/20-user-app.yaml 의 SA 어노테이션에 지정한다(출력 user_app_role_arn).
 # ⚠ 현재 user-app 에는 ServiceAccount 자체가 없다 — 매니페스트에 SA 를 새로 만들고
 #   Deployment 에 serviceAccountName 을 걸어야 이 권한이 파드에 닿는다(k8s-manifest 소관).
@@ -251,6 +253,7 @@ module "user_irsa" {
 
   asset_bucket_name = module.asset.bucket_name
   profile_prefix    = local.asset_profile_prefix
+  community_prefix  = local.asset_community_prefix
   temp_prefix       = local.asset_temp_prefix
 
   # 경기 상태 변화 큐 — py-collector → S3 game-state-events/ → SQS(refine_pipeline 소유)

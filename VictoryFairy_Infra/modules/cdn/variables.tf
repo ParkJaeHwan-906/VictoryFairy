@@ -19,6 +19,17 @@ variable "asset_bucket_regional_domain_name" {
   type        = string
 }
 
+variable "asset_community_prefix" {
+  description = "확정 커뮤니티(게시글·댓글) 이미지 키 접두사(슬래시로 끝난다). 여기서 경로 패턴 /<접두사>* 로 바뀐다 — modules/asset·BE 업로드 키와 같은 값이어야 한다. ⚠ FE 라우트(/community/*)와 겹치는 값을 쓰지 말 것."
+  type        = string
+  default     = "community-img/"
+
+  validation {
+    condition     = endswith(var.asset_community_prefix, "/") && !startswith(var.asset_community_prefix, "/")
+    error_message = "asset_community_prefix 는 슬래시로 끝나고 슬래시로 시작하지 않아야 합니다(예: community-img/)."
+  }
+}
+
 variable "asset_profile_prefix" {
   description = "확정 프로필 이미지 키 접두사(슬래시로 끝난다). 여기서 경로 패턴 /<접두사>* 로 바뀐다 — modules/asset·BE 업로드 키와 같은 값이어야 한다."
   type        = string
