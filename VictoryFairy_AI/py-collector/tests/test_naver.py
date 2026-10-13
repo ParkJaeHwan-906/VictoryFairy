@@ -114,3 +114,68 @@ def test_extract_inning_events_handles_empty_or_missing_relay():
     assert naver.extract_inning_events({}, inning=5, half=0) == {}
     assert naver.extract_inning_events(None, inning=5, half=0) == {}
     assert naver.extract_inning_events({"result": None}, inning=5, half=0) == {}
+
+
+# --------------------------------------------------------------------------- 승률 (metricOption)
+# 실측: s3://victoryfairy-crawl-dev/raw-json/relay/20261004HTLG02026/5.json 에서 타석 줄의
+# 필요한 필드만 남겼다(textOptions 등 제거). 최신(no=54)이 배열 맨 앞이고 헤더 줄 2개가 0.0/0.0.
+WIN_FIX = json.loads((FIX / "relay_win_rate.json").read_text(encoding="utf-8"))
+
+
+def _relay(*rows):
+    return {"result": {"textRelayData": {"textRelays": list(rows)}}}
+
+
+def _row(no, home, away, **extra):
+    return {"no": no, "metricOption": {"homeTeamWinRate": home, "awayTeamWinRate": away,
+                                       "wpaByPlate": 1.0}, **extra}
+
+
+def test_extract_latest_win_rate_real_relay_picks_newest_and_rounds():
+    from decimal import Decimal
+    # no=54 줄: homeTeamWinRate 64.2, awayTeamWinRate 35.800003
+    assert naver.extract_latest_win_rate(WIN_FIX) == (Decimal("64.2"), Decimal("35.8"))
+
+
+def test_extract_latest_win_rate_picks_by_no_not_by_array_order():
+    from decimal import Decimal
+    relay = _relay(_row(3, 10.0, 90.0), _row(7, 41.2, 58.8), _row(5, 20.0, 80.0))
+    assert naver.extract_latest_win_rate(relay) == (Decimal("41.2"), Decimal("58.8"))
+
+
+def test_extract_latest_win_rate_skips_inning_header_rows():
+    from decimal import Decimal
+    # 최신 줄이 이닝 헤더(0.0/0.0)면 그 앞 타석 값이 최신 유효값이다
+    relay = _relay(_row(10, 0.0, 0.0), _row(9, 69.7, 30.300003))
+    assert naver.extract_latest_win_rate(relay) == (Decimal("69.7"), Decimal("30.3"))
+    # 이닝 시작 직후: 헤더만 있으면 None (직전 값 유지 신호)
+    assert naver.extract_latest_win_rate(_relay(_row(1, 0.0, 0.0))) is None
+
+
+def test_extract_latest_win_rate_rounds_half_up_to_one_decimal():
+    from decimal import Decimal
+    assert naver.extract_latest_win_rate(_relay(_row(1, 64.25, 35.75))) == (
+        Decimal("64.3"), Decimal("35.8"))
+    assert naver.extract_latest_win_rate(_relay(_row(1, 50, 50))) == (
+        Decimal("50.0"), Decimal("50.0"))
+
+
+def test_extract_latest_win_rate_ignores_rows_without_fields_or_out_of_range():
+    from decimal import Decimal
+    relay = _relay(
+        {"no": 20},                                                  # metricOption 없음
+        {"no": 19, "metricOption": {"homeTeamWinRate": 40.0}},       # 원정 누락
+        {"no": 18, "metricOption": {"homeTeamWinRate": "40", "awayTeamWinRate": 60.0}},
+        _row(17, 101.0, -1.0),                                       # 범위 밖
+        _row(16, None, 50.0),
+        {"metricOption": {"homeTeamWinRate": 40.0, "awayTeamWinRate": 60.0}},  # no 없음
+        _row(15, 55.5, 44.5),
+    )
+    assert naver.extract_latest_win_rate(relay) == (Decimal("55.5"), Decimal("44.5"))
+
+
+def test_extract_latest_win_rate_none_when_no_valid_row_or_empty():
+    assert naver.extract_latest_win_rate(_relay({"no": 1}, {"no": 2, "metricOption": None})) is None
+    assert naver.extract_latest_win_rate({}) is None
+    assert naver.extract_latest_win_rate(None) is None
+    assert naver.extract_latest_win_rate({"result": None}) is None

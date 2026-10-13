@@ -1,3 +1,6 @@
+from decimal import ROUND_HALF_UP, Decimal
+
+
 def schedule_url(settings, date: str) -> str:
     return settings.schedule_url_template.format(base=settings.naver_base_url, date=date)
 
@@ -129,3 +132,48 @@ def extract_inning_events(relay_json: dict, inning: int, half: int) -> dict:
             events[pcode] = {"hit": True}
             break  # 이 타석은 끝 — 같은 play 의 다른 textOption으로 중복 집계 방지
     return events
+
+
+_WIN_RATE_STEP = Decimal("0.1")
+
+
+def _win_rate_value(raw):
+    # bool 은 int 의 하위형이라 따로 막는다. str(float) 로 Decimal 을 만들어야
+    # 35.800003 같은 float 꼬리가 이진 표현 오차까지 끌고 오지 않는다.
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return None
+    value = Decimal(str(raw))
+    if not value.is_finite() or value < 0 or value > 100:
+        return None
+    return value
+
+
+def extract_latest_win_rate(relay_json: dict) -> tuple[Decimal, Decimal] | None:
+    """relay 한 이닝 문서에서 가장 최근 유효 타석의 (홈, 원정) 승률. 없으면 None.
+
+    최신 판단은 배열 순서가 아니라 `no` 로 한다 — 실측상 최신이 앞에 오지만 순서는
+    계약이 아니다. `no` 가 정수가 아닌 줄은 순서를 알 수 없어 버린다(틀린 값보다
+    직전 값 유지가 낫다). 이닝 헤더 줄("5회말 LG 공격")은 두 값이 0.0/0.0 이라 걸러진다.
+    """
+    result = (relay_json or {}).get("result") or {}
+    data = result.get("textRelayData") or {}
+    relays = data.get("textRelays") if isinstance(data, dict) else None
+    best_no, best = None, None
+    for item in relays or []:
+        if not isinstance(item, dict):
+            continue
+        no = item.get("no")
+        if isinstance(no, bool) or not isinstance(no, int):
+            continue
+        metric = item.get("metricOption")
+        if not isinstance(metric, dict):
+            continue
+        home = _win_rate_value(metric.get("homeTeamWinRate"))
+        away = _win_rate_value(metric.get("awayTeamWinRate"))
+        if home is None or away is None or (home == 0 and away == 0):
+            continue
+        if best_no is None or no > best_no:
+            best_no = no
+            best = (home.quantize(_WIN_RATE_STEP, rounding=ROUND_HALF_UP),
+                    away.quantize(_WIN_RATE_STEP, rounding=ROUND_HALF_UP))
+    return best
