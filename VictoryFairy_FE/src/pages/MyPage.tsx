@@ -72,6 +72,7 @@ const SUPPORT_EDIT_STATE: TeamSelectState = { mode: 'edit' };
  * 나중에 그림이 바뀌어도 이쪽은 손대지 않는다.
  */
 type RowIcon =
+  | 'posts'
   | 'account'
   | 'notification'
   | 'share'
@@ -83,6 +84,14 @@ type RowIcon =
 
 /** 목록 한 줄의 재료. `to`(앱 안 이동)와 `href`(바깥 문서)는 둘 중 하나만 쓰거나 둘 다 없다. */
 type MenuItem = { label: string; icon: RowIcon; to?: string; href?: string };
+
+/**
+ * 활동 묶음. 라운지 게시판에 쓴 내 글을 모아 본다(`MyCommunityPostsPage`) —
+ * 신고로 숨겨진 내 글을 지울 수 있는 곳이 여기뿐이라 마이페이지에 문을 둔다.
+ */
+const ACTIVITY_ITEMS: readonly MenuItem[] = [
+  { label: '내 게시글', icon: 'posts', to: ROUTES.myCommunityPosts },
+];
 
 /**
  * 설정 묶음. 셋 다 갈 곳이 있다 — 계정 설정(비밀번호 변경 — `AccountSettingPage`),
@@ -358,6 +367,17 @@ export default function MyPage() {
       </header>
 
       <nav className="my-page__menu" aria-label="마이페이지 메뉴">
+        <section className="my-page__section">
+          <h2 className="my-page__section-title">활동</h2>
+          <ul className="my-page__rows">
+            {ACTIVITY_ITEMS.map((item) => (
+              <MenuRow key={item.label} {...item} />
+            ))}
+          </ul>
+        </section>
+
+        <span className="my-page__section-gap" aria-hidden="true" />
+
         <section className="my-page__section">
           <h2 className="my-page__section-title">설정</h2>
           <ul className="my-page__rows">

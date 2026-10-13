@@ -1,0 +1,96 @@
+/**
+ * CommunityReactionButtons(추천 · 비추천) 스타일.
+ *
+ * 큰 버튼은 칩 모양(회색 테두리 → 눌리면 주황), 작은 버튼은 테두리 없이 아이콘 + 숫자만.
+ * 색은 게시판 칩과 같은 주황 계열이다.
+ */
+
+.community-reaction {
+  display: flex;
+  align-items: center;
+}
+
+.community-reaction--large {
+  justify-content: center;
+  gap: 12px;
+}
+
+.community-reaction--small {
+  gap: 12px;
+}
+
+.community-reaction__button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-label-neutral);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  font-variant-numeric: tabular-nums;
+}
+
+.community-reaction--large .community-reaction__button {
+  min-width: 88px;
+  justify-content: center;
+  padding: 10px 16px;
+  border-radius: var(--radius-full);
+  box-shadow: inset 0 0 0 1px var(--color-gray-200);
+  font-size: var(--font-size-label1);
+}
+
+.community-reaction--small .community-reaction__button {
+  position: relative;
+  gap: 4px;
+  padding: 0;
+  font-size: var(--font-size-caption1);
+}
+
+/* 작은 버튼은 손가락에 작다 — 보이지 않는 덧댐으로 누르는 범위만 넓힌다 */
+.community-reaction--small .community-reaction__button::after {
+  position: absolute;
+  inset: -8px -6px;
+  content: '';
+}
+
+.community-reaction__button--active {
+  color: var(--color-primary-normal);
+}
+
+.community-reaction--large .community-reaction__button--active {
+  background-color: var(--color-primary-50);
+  box-shadow: inset 0 0 0 1px var(--color-primary-300);
+}
+
+.community-reaction__button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.community-reaction__icon {
+  width: 18px;
+  height: 18px;
+  background-color: currentcolor;
+  -webkit-mask: url('../assets/thumbs_up.svg') center / contain no-repeat;
+  mask: url('../assets/thumbs_up.svg') center / contain no-repeat;
+}
+
+.community-reaction--small .community-reaction__icon {
+  width: 14px;
+  height: 14px;
+}
+
+.community-reaction__icon--down {
+  transform: rotate(180deg);
+}
+
+.community-reaction__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
