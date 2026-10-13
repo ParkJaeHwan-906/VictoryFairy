@@ -15,7 +15,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /**
- * 요청의 {@code imageUrls} 를 최종 EP 배열로 바꾼다 — 기존 확정 EP 는 유지, 임시 EP 는 {@code community/}
+ * 요청의 {@code imageUrls} 를 최종 EP 배열로 바꾼다 — 기존 확정 EP 는 유지, 임시 EP 는 {@code community-img/}
  * 로 이동. 작성·수정, 게시글·댓글이 전부 이 한 곳을 쓴다.
  *
  * <p><b>검증을 전부 끝낸 뒤에 이동을 시작한다.</b> 원소 하나가 400 이면 앞 원소의 객체가 이미 옮겨진
@@ -24,7 +24,7 @@ import org.springframework.stereotype.Component;
  *
  * <p>{@code @Transactional} 이 없는 것은 의도다 — 외부 호출(S3)을 DB 트랜잭션 밖에 둔다. 호출자는 이
  * 결과를 받아 <b>그 다음에</b> 트랜잭션을 연다(S3 복사가 DB 쓰기보다 먼저라 DB 쓰기가 실패하면
- * {@code community/} 고아 객체가 남을 수 있다 — 알려진 한계).
+ * {@code community-img/} 고아 객체가 남을 수 있다 — 알려진 한계).
  */
 @Component
 @RequiredArgsConstructor
@@ -55,7 +55,7 @@ public class CommunityImageAttacher {
             if (existing.contains(endpoint)) {
                 continue;
             }
-            // 남의 글의 community/ EP·프로필 EP·전체 URL·경로 조작은 전부 여기서 걸린다 — 이 글의 기존 EP 가
+            // 남의 글의 community-img/ EP·프로필 EP·전체 URL·경로 조작은 전부 여기서 걸린다 — 이 글의 기존 EP 가
             // 아니면 서버가 발급한 temp 모양만 통과한다.
             if (!ProfileImagePolicy.isTempEndpoint(endpoint)) {
                 throw new BusinessException(ErrorCode.INVALID_COMMUNITY_IMAGE_ENDPOINT);

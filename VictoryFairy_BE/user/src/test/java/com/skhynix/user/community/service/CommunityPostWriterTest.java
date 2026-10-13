@@ -110,7 +110,7 @@ class CommunityPostWriterTest {
             return p;
         });
 
-        Long id = writer.create(AUTHOR_ID, 1L, " 제목 ", "\n 본문 \n", List.of("community/a.jpg", "community/b.jpg"));
+        Long id = writer.create(AUTHOR_ID, 1L, " 제목 ", "\n 본문 \n", List.of("community-img/a.jpg", "community-img/b.jpg"));
 
         assertThat(id).isEqualTo(77L);
         ArgumentCaptor<CommunityPost> saved = ArgumentCaptor.forClass(CommunityPost.class);
@@ -127,7 +127,7 @@ class CommunityPostWriterTest {
         ArgumentCaptor<List<CommunityPostImage>> images = ArgumentCaptor.forClass(List.class);
         verify(postImageRepository).saveAll(images.capture());
         assertThat(images.getValue()).extracting(CommunityPostImage::getEndpoint)
-                .containsExactly("community/a.jpg", "community/b.jpg");
+                .containsExactly("community-img/a.jpg", "community-img/b.jpg");
         assertThat(images.getValue()).extracting(CommunityPostImage::getSortOrder).containsExactly(0, 1);
     }
 
@@ -202,9 +202,9 @@ class CommunityPostWriterTest {
         given(postRepository.findByIdAndDeletedAtIsNull(1L)).willReturn(Optional.of(post));
         given(categoryRepository.findById(2L)).willReturn(Optional.of(newCategory));
         given(postImageRepository.findAllByPost_IdOrderBySortOrderAsc(1L))
-                .willReturn(List.of(image("community/a.jpg", 0), image("community/b.jpg", 1)));
+                .willReturn(List.of(image("community-img/a.jpg", 0), image("community-img/b.jpg", 1)));
 
-        assertThat(writer.prepareUpdate(AUTHOR_ID, 1L, 2L)).containsExactly("community/a.jpg", "community/b.jpg");
+        assertThat(writer.prepareUpdate(AUTHOR_ID, 1L, 2L)).containsExactly("community-img/a.jpg", "community-img/b.jpg");
     }
 
     // ---------- 수정 ----------
@@ -218,22 +218,22 @@ class CommunityPostWriterTest {
         given(postRepository.findByIdAndDeletedAtIsNull(1L)).willReturn(Optional.of(post));
         given(categoryRepository.findById(2L)).willReturn(Optional.of(newCategory));
         given(postImageRepository.findAllByPost_IdOrderBySortOrderAsc(1L))
-                .willReturn(List.of(image("community/a.jpg", 0), image("community/b.jpg", 1)));
+                .willReturn(List.of(image("community-img/a.jpg", 0), image("community-img/b.jpg", 1)));
         given(postReactionRepository.findByUserAccount_IdAndPost_Id(AUTHOR_ID, 1L)).willReturn(Optional.empty());
 
         UpdateResult result = writer.update(AUTHOR_ID, 1L, 2L, "수정", "본문",
-                List.of("community/b.jpg", "community/c.jpg"));
+                List.of("community-img/b.jpg", "community-img/c.jpg"));
 
         assertThat(post.getTitle()).isEqualTo("수정");
         assertThat(post.getContent()).isEqualTo("본문");
         assertThat(post.getCategory()).isSameAs(newCategory);
         assertThat(post.getUserAccount()).isSameAs(author);
         assertThat(post.getCreatedAt()).isEqualTo(CommunityFixtures.CREATED_AT);
-        assertThat(result.removedEndpoints()).containsExactly("community/a.jpg");
+        assertThat(result.removedEndpoints()).containsExactly("community-img/a.jpg");
         assertThat(result.detail().viewCount()).isEqualTo(10L);
         assertThat(result.detail().likeCount()).isEqualTo(2L);
         assertThat(result.detail().commentCount()).isEqualTo(4L);
-        assertThat(result.detail().imageUrls()).containsExactly("community/b.jpg", "community/c.jpg");
+        assertThat(result.detail().imageUrls()).containsExactly("community-img/b.jpg", "community-img/c.jpg");
         assertThat(result.detail().isAuthor()).isTrue();
         assertThat(result.detail().categoryId()).isEqualTo(2L);
     }
@@ -246,7 +246,7 @@ class CommunityPostWriterTest {
         given(postImageRepository.findAllByPost_IdOrderBySortOrderAsc(1L)).willReturn(List.of());
         given(postReactionRepository.findByUserAccount_IdAndPost_Id(AUTHOR_ID, 1L)).willReturn(Optional.empty());
 
-        writer.update(AUTHOR_ID, 1L, 2L, "t", "c", List.of("community/c.jpg"));
+        writer.update(AUTHOR_ID, 1L, 2L, "t", "c", List.of("community-img/c.jpg"));
 
         InOrder order = inOrder(postImageRepository, postRepository);
         order.verify(postImageRepository).deleteAllByPostId(1L);
@@ -261,7 +261,7 @@ class CommunityPostWriterTest {
         given(postRepository.findByIdAndDeletedAtIsNull(1L)).willReturn(Optional.of(post));
         given(categoryRepository.findById(1L)).willReturn(Optional.of(oldCategory));
         given(postImageRepository.findAllByPost_IdOrderBySortOrderAsc(1L))
-                .willReturn(List.of(image("community/a.jpg", 0)));
+                .willReturn(List.of(image("community-img/a.jpg", 0)));
         given(postReactionRepository.findByUserAccount_IdAndPost_Id(AUTHOR_ID, 1L)).willReturn(Optional.empty());
 
         UpdateResult result = writer.update(AUTHOR_ID, 1L, 1L, post.getTitle(), post.getContent(), List.of());
@@ -269,7 +269,7 @@ class CommunityPostWriterTest {
         assertThat(post.getUpdatedAt()).isEqualTo(LocalDateTime.of(2026, 10, 8, 12, 0, 0));
         assertThat(post.getCreatedAt()).isEqualTo(CommunityFixtures.CREATED_AT);
         assertThat(result.detail().updatedAt()).isEqualTo(LocalDateTime.of(2026, 10, 8, 12, 0, 0));
-        assertThat(result.removedEndpoints()).containsExactly("community/a.jpg");
+        assertThat(result.removedEndpoints()).containsExactly("community-img/a.jpg");
     }
 
     @Test
@@ -278,12 +278,12 @@ class CommunityPostWriterTest {
         given(postRepository.findByIdAndDeletedAtIsNull(1L)).willReturn(Optional.of(post));
         given(categoryRepository.findById(1L)).willReturn(Optional.of(oldCategory));
         given(postImageRepository.findAllByPost_IdOrderBySortOrderAsc(1L))
-                .willReturn(List.of(image("community/a.jpg", 0), image("community/b.jpg", 1)));
+                .willReturn(List.of(image("community-img/a.jpg", 0), image("community-img/b.jpg", 1)));
         given(postReactionRepository.findByUserAccount_IdAndPost_Id(AUTHOR_ID, 1L)).willReturn(Optional.empty());
 
         UpdateResult result = writer.update(AUTHOR_ID, 1L, 1L, "t", "c", List.of());
 
-        assertThat(result.removedEndpoints()).containsExactly("community/a.jpg", "community/b.jpg");
+        assertThat(result.removedEndpoints()).containsExactly("community-img/a.jpg", "community-img/b.jpg");
         assertThat(result.detail().imageUrls()).isEmpty();
     }
 
@@ -293,14 +293,14 @@ class CommunityPostWriterTest {
         given(postRepository.findByIdAndDeletedAtIsNull(1L)).willReturn(Optional.of(post));
         given(categoryRepository.findById(1L)).willReturn(Optional.of(oldCategory));
         given(postImageRepository.findAllByPost_IdOrderBySortOrderAsc(1L))
-                .willReturn(List.of(image("community/a.jpg", 0), image("community/c.jpg", 1)));
+                .willReturn(List.of(image("community-img/a.jpg", 0), image("community-img/c.jpg", 1)));
         given(postReactionRepository.findByUserAccount_IdAndPost_Id(AUTHOR_ID, 1L)).willReturn(Optional.empty());
 
         UpdateResult result = writer.update(AUTHOR_ID, 1L, 1L, "t", "c",
-                List.of("community/c.jpg", "community/a.jpg"));
+                List.of("community-img/c.jpg", "community-img/a.jpg"));
 
         assertThat(result.removedEndpoints()).isEmpty();
-        assertThat(result.detail().imageUrls()).containsExactly("community/c.jpg", "community/a.jpg");
+        assertThat(result.detail().imageUrls()).containsExactly("community-img/c.jpg", "community-img/a.jpg");
     }
 
     @Test
@@ -363,10 +363,10 @@ class CommunityPostWriterTest {
     void delete_returnsPostAndCommentImageEndpoints() {
         given(postRepository.findByIdAndDeletedAtIsNull(1L)).willReturn(Optional.of(post));
         given(postImageRepository.findAllByPost_IdOrderBySortOrderAsc(1L))
-                .willReturn(List.of(image("community/p1.jpg", 0)));
-        given(commentImageRepository.findEndpointsByPostId(1L)).willReturn(List.of("community/c1.jpg"));
+                .willReturn(List.of(image("community-img/p1.jpg", 0)));
+        given(commentImageRepository.findEndpointsByPostId(1L)).willReturn(List.of("community-img/c1.jpg"));
 
-        assertThat(writer.delete(AUTHOR_ID, 1L)).containsExactly("community/p1.jpg", "community/c1.jpg");
+        assertThat(writer.delete(AUTHOR_ID, 1L)).containsExactly("community-img/p1.jpg", "community-img/c1.jpg");
     }
 
     @Test

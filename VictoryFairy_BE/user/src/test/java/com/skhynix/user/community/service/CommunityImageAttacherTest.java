@@ -36,9 +36,9 @@ class CommunityImageAttacherTest {
     private static final String TEMP_A = "temp/9f1c3a52-7d1e-4b8a-9c3e-1a2b3c4d5e6f.jpg";
     private static final String TEMP_B = "temp/0a1b2c3d-4e5f-4a6b-8c7d-8e9f0a1b2c3d.png";
     private static final String TEMP_C = "temp/11111111-2222-4333-8444-555555555555.webp";
-    private static final String PERM_A = "community/9f1c3a52-7d1e-4b8a-9c3e-1a2b3c4d5e6f.jpg";
-    private static final String PERM_B = "community/0a1b2c3d-4e5f-4a6b-8c7d-8e9f0a1b2c3d.png";
-    private static final String OLD = "community/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.jpg";
+    private static final String PERM_A = "community-img/9f1c3a52-7d1e-4b8a-9c3e-1a2b3c4d5e6f.jpg";
+    private static final String PERM_B = "community-img/0a1b2c3d-4e5f-4a6b-8c7d-8e9f0a1b2c3d.png";
+    private static final String OLD = "community-img/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.jpg";
 
     @Mock
     private ProfileImageStorage storage;
@@ -58,7 +58,7 @@ class CommunityImageAttacherTest {
     }
 
     @Test
-    @DisplayName("[AC-CM-147-1, AC-CM-147-2, AC-CM-61-1] 임시 EP는 community/ 접두 + 같은 파일명으로 복사되고 원본은 삭제되며, 결과는 요청 순서다")
+    @DisplayName("[AC-CM-147-1, AC-CM-147-2, AC-CM-61-1] 임시 EP는 community-img/ 접두 + 같은 파일명으로 복사되고 원본은 삭제되며, 결과는 요청 순서다")
     void attach_tempEndpoints_movedToCommunityPrefixKeepingOrder() {
         given(storage.exists(TEMP_A)).willReturn(true);
         given(storage.exists(TEMP_B)).willReturn(true);
@@ -106,7 +106,7 @@ class CommunityImageAttacherTest {
         }
         five.forEach(e -> given(storage.exists(e)).willReturn(true));
 
-        assertThat(attacher.attach(five, Set.of(), 5)).hasSize(5).allMatch(e -> e.startsWith("community/"));
+        assertThat(attacher.attach(five, Set.of(), 5)).hasSize(5).allMatch(e -> e.startsWith("community-img/"));
     }
 
     @Test
@@ -161,7 +161,7 @@ class CommunityImageAttacherTest {
     }
 
     @Test
-    @DisplayName("[AC-CM-149-2] 작성 시(기존 EP 없음)에는 community/ 값 자체가 400이다")
+    @DisplayName("[AC-CM-149-2] 작성 시(기존 EP 없음)에는 community-img/ 값 자체가 400이다")
     void attach_communityEndpointOnCreate_throwsInvalidEndpoint() {
         assertThatThrownBy(() -> attacher.attach(List.of(PERM_A), Set.of(), 5))
                 .satisfies(t -> assertThat(codeOf(t)).isEqualTo(ErrorCode.INVALID_COMMUNITY_IMAGE_ENDPOINT));

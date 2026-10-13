@@ -3,7 +3,7 @@
 > **도메인** `community` — 구단별/자유 게시판의 게시글·댓글·답글·반응·신고·이미지.
 > **모듈** user · **경로 접두사** `/api/community` · **엔드포인트** 17개
 > **컨트롤러** `user/src/main/java/com/skhynix/user/community/controller/` — `CommunityCategoryController`(`/community/categories`) · `CommunityPostController`(`/community/posts`) · `CommunityCommentController`(`/community/comments`) · `CommunityImageController`(`/community/images`)
-> **최종 갱신** 2026-10-08 — 도메인 신설(17개 전부 신규)
+> **최종 갱신** 2026-10-13 — 확정 이미지 EP 접두사 `community/` → `community-img/`
 > **요구사항** `docs/requirements/user/community.md` (USER-CM-1 ~ 218, 승인됨 2026-10-08)
 > 공통 규약(응답 래퍼·JWT·401 정책)은 [README.md](README.md)를 먼저 볼 것.
 
@@ -41,7 +41,7 @@
 
 **날짜 형식** `createdAt`·`updatedAt`은 `LocalDateTime`(존 없는 ISO 문자열). 서버는 Asia/Seoul `Clock` 기준이다.
 
-**이미지 EP 규칙** 모든 이미지 값은 BaseURL을 뺀 오브젝트 키(선행 슬래시·버킷명·`https://` 없음)이며 `profileImgUrl`과 같은 규칙이다. 클라이언트가 `https://victoryfairy.com/` + 값을 이어 붙인다. 업로드 직후는 `temp/<uuid>.<ext>`, 글·댓글에 붙으면 서버가 `community/<uuid>.<ext>`로 확정한다(파일명은 그대로, 접두만 바뀜). ⚠ **이미지가 실제로 서빙되려면 CloudFront `/community/*` behavior가 함께 배포돼야 한다**(VictoryFairy_Infra 쪽 작업). 없으면 API는 정상이어도 이미지가 열리지 않는다.
+**이미지 EP 규칙** 모든 이미지 값은 BaseURL을 뺀 오브젝트 키(선행 슬래시·버킷명·`https://` 없음)이며 `profileImgUrl`과 같은 규칙이다. 클라이언트가 `https://victoryfairy.com/` + 값을 이어 붙인다. 업로드 직후는 `temp/<uuid>.<ext>`, 글·댓글에 붙으면 서버가 `community-img/<uuid>.<ext>`로 확정한다(파일명은 그대로, 접두만 바뀜). 접두가 `community/`가 아닌 이유는 FE 라우트 `/community/posts/:id`와 경로가 충돌하기 때문이며, CloudFront `/community-img/*` behavior는 2026-10-13 운영에 배포됐다.
 
 **공통 타입**
 
@@ -160,7 +160,7 @@ curl -X POST https://victoryfairy.com/api/community/images \
 ---
 
 ## POST /api/community/posts
-> 최종 변경: 2026-10-08 — 신규 추가
+> 최종 변경: 2026-10-13 — 확정 이미지 EP 접두사 `community-img/`로 변경
 
 게시글 작성.
 
@@ -170,7 +170,7 @@ curl -X POST https://victoryfairy.com/api/community/images \
 | categoryId | Long | @NotNull | **`GET /categories`의 id** |
 | title | String | @NotBlank @Size(max=100) | 제목 |
 | content | String | @NotBlank @Size(max=5000) | 본문 |
-| imageUrls | List&lt;String&gt; | 생략·null = 빈 배열, 최대 5 | 업로드 응답의 `temp/…` EP. 작성에는 기존 EP가 없어 `community/…` 값은 400 |
+| imageUrls | List&lt;String&gt; | 생략·null = 빈 배열, 최대 5 | 업로드 응답의 `temp/…` EP. 작성에는 기존 EP가 없어 `community-img/…` 값은 400 |
 
 **응답 201 Created** `ApiResponse<PostIdResponse>`
 ```json
@@ -195,7 +195,7 @@ curl -X POST https://victoryfairy.com/api/community/posts \
 ---
 
 ## GET /api/community/posts
-> 최종 변경: 2026-10-08 — 신규 추가
+> 최종 변경: 2026-10-13 — 확정 이미지 EP 접두사 `community-img/`로 변경
 
 게시글 목록. 삭제·블라인드 글은 제외된다. 본문은 싣지 않는다.
 
@@ -209,7 +209,7 @@ curl -X POST https://victoryfairy.com/api/community/posts \
 
 **응답 200 OK** `ApiResponse<PageResponse<PostSummaryResponse>>`
 ```json
-{"success":true,"data":{"content":[{"postId":42,"categoryId":16,"categoryName":"자유게시판","title":"오늘 경기","thumbnailUrl":"community/4f1c….jpg","author":{"nickname":"승리요정","profileImgUrl":null},"viewCount":10,"likeCount":3,"dislikeCount":0,"commentCount":2,"createdAt":"2026-10-08T14:03:21"}],"page":0,"size":20,"totalElements":1,"totalPages":1,"hasNext":false},"message":null}
+{"success":true,"data":{"content":[{"postId":42,"categoryId":16,"categoryName":"자유게시판","title":"오늘 경기","thumbnailUrl":"community-img/4f1c….jpg","author":{"nickname":"승리요정","profileImgUrl":null},"viewCount":10,"likeCount":3,"dislikeCount":0,"commentCount":2,"createdAt":"2026-10-08T14:03:21"}],"page":0,"size":20,"totalElements":1,"totalPages":1,"hasNext":false},"message":null}
 ```
 `PostSummaryResponse` (11키)
 | 필드 | 타입 | 설명 |
@@ -269,7 +269,7 @@ curl 'https://victoryfairy.com/api/community/posts/me' -H 'Authorization: Bearer
 ---
 
 ## GET /api/community/posts/{postId}
-> 최종 변경: 2026-10-08 — 신규 추가
+> 최종 변경: 2026-10-13 — 확정 이미지 EP 접두사 `community-img/`로 변경
 
 게시글 상세. **조회수 증가 부수효과가 있는 GET이다.**
 
@@ -279,7 +279,7 @@ curl 'https://victoryfairy.com/api/community/posts/me' -H 'Authorization: Bearer
 
 **응답 200 OK** `ApiResponse<PostDetailResponse>`
 ```json
-{"success":true,"data":{"postId":42,"categoryId":16,"categoryName":"자유게시판","title":"오늘 경기","content":"역전승!","imageUrls":["community/4f1c0e3a-8b0e-4c47-9a35-2d2f0f1d9c11.jpg"],"author":{"nickname":"승리요정","profileImgUrl":null},"viewCount":11,"likeCount":3,"dislikeCount":0,"commentCount":2,"myReaction":"LIKE","isAuthor":false,"createdAt":"2026-10-08T14:03:21","updatedAt":null},"message":null}
+{"success":true,"data":{"postId":42,"categoryId":16,"categoryName":"자유게시판","title":"오늘 경기","content":"역전승!","imageUrls":["community-img/4f1c0e3a-8b0e-4c47-9a35-2d2f0f1d9c11.jpg"],"author":{"nickname":"승리요정","profileImgUrl":null},"viewCount":11,"likeCount":3,"dislikeCount":0,"commentCount":2,"myReaction":"LIKE","isAuthor":false,"createdAt":"2026-10-08T14:03:21","updatedAt":null},"message":null}
 ```
 | 필드 | 타입 | 설명 |
 |---|---|---|
@@ -307,11 +307,11 @@ curl https://victoryfairy.com/api/community/posts/42 -H 'Authorization: Bearer <
 ---
 
 ## PUT /api/community/posts/{postId}
-> 최종 변경: 2026-10-08 — 신규 추가
+> 최종 변경: 2026-10-13 — 확정 이미지 EP 접두사 `community-img/`로 변경
 
 게시글 **전체 교체** 수정(작성과 같은 본문, 부분 생략 불가 — `title` 키가 없으면 400). 작성자만 가능.
 
-**이미지는 전체 교체다.** `imageUrls[]`가 수정 후의 최종 목록이다. 기존 `community/…` EP를 그대로 넣으면 유지, `temp/…`는 새로 확정, 목록에서 뺀 기존 이미지는 커밋 후 삭제된다. 최대 5장.
+**이미지는 전체 교체다.** `imageUrls[]`가 수정 후의 최종 목록이다. 기존 `community-img/…` EP를 그대로 넣으면 유지, `temp/…`는 새로 확정, 목록에서 뺀 기존 이미지는 커밋 후 삭제된다. 최대 5장.
 
 **경로 변수** `postId` · **요청 본문** `PostRequest`(작성과 동일).
 
