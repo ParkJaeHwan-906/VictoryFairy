@@ -28,6 +28,7 @@ import { ROUTES, type LoginPageState } from '../routes';
 import { useMyNickname, useMyProfile } from '../stores/useAccountStore';
 import profilePlaceholder from '../assets/profile_img.svg';
 import ConfirmSheet from './ConfirmSheet';
+import HeartIcon from './HeartIcon';
 import NoticeSheet from './NoticeSheet';
 import '../styles/GameChat.css';
 
@@ -57,37 +58,6 @@ const IN_FLIGHT_MAX_RETRIES = 3;
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-/**
- * 동시에 떠 있을 수 있는 응원 로고 수. 연타·여러 구단이 겹쳐도 DOM 이 한없이 늘지 않게
- * 넘치면 가장 오래된 것부터 지운다(서버도 구독자당 초당 10회 남짓으로 묶어 보낸다).
- */
-const MAX_FLOATING_LIKES = 24;
-
-/** 하트를 누르면 떠오르는 구단 로고 하나. 흔들림·경로는 하나씩 다르게 뽑는다. */
-interface FloatingLike {
-  id: number;
-  /** 구단 로고. 모르는 코드면 null — 하트로 대신 띄운다. */
-  logo: string | null;
-  /** 좌우로 흔들리는 폭(px). 부호가 첫 방향이다. */
-  sway: number;
-  /** 다 올라갔을 때 출발점에서 비켜난 거리(px). */
-  drift: number;
-  /** 떠오르는 시간(ms). */
-  duration: number;
-}
-
-/** min ~ max 사이 난수. */
-const randomBetween = (min: number, max: number) => min + Math.random() * (max - min);
-
-/** 하트 모양(24 x 24). 아이콘 에셋에 하트가 없어 직접 그린다. */
-function HeartIcon({ className }: { className: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M12 21s-7.5-4.6-9.6-9.3C1 8.6 2.9 5 6.4 5c2.1 0 3.6 1.1 4.6 2.6l1 1.4 1-1.4C14 6.1 15.5 5 17.6 5 21.1 5 23 8.6 21.6 11.7 19.5 16.4 12 21 12 21z" />
-    </svg>
-  );
-}
-
 /** 화면 상태. `closed` 는 경기 당일이 아니거나 방이 없는 경우다. */
 type ChatStatus = 'loading' | 'ready' | 'closed' | 'error';
 
@@ -98,6 +68,11 @@ type GameChatProps = {
   gameId: string;
   /** 오늘(KST) 경기인지. 서버의 채팅방은 오늘 경기에만 있어 아니면 API 를 부르지 않는다. */
   isOpenDay: boolean;
+  /**
+   * 좋아요 신호(SSE `likes`) 한 번 — 누른 사람들의 응원 구단 코드. 하트 연출은 부르는 쪽이 그린다
+   * (경기 상세 상단의 구단 로고에서 올라온다).
+   */
+  onLikes?: (teamCodes: string[]) => void;
 };
 
 /**
@@ -141,7 +116,7 @@ export function GameChatLoginPrompt() {
  *
  * 화면을 떠나면 스트림을 닫고 명시적 퇴장(DELETE)으로 서버 구독도 즉시 정리한다.
  */
-export default function GameChat({ gameId, isOpenDay }: GameChatProps) {
+export default function GameChat({ gameId, isOpenDay, onLikes }: GameChatProps) {
   const myNickname = useMyNickname();
   const profile = useMyProfile();
 
@@ -181,38 +156,21 @@ export default function GameChat({ gameId, isOpenDay }: GameChatProps) {
   const stickToBottomRef = useRef(true);
 
   /**
-   * 좋아요 — 떠오르는 구단 로고들.
+   * 좋아요 신호는 그리지 않고 부르는 쪽에 넘긴다.
    *
-   * 하트를 눌러도 **여기서 바로 띄우지 않는다.** 서버가 본인 좋아요도 SSE `likes` 로 되돌려
-   * 주므로(docs/game-chat.md) 로컬에서도 띄우면 두 번 재생된다. 받은 신호만 그린다 —
+   * 하트를 눌러도 **바로 띄우지 않는다.** 서버가 본인 좋아요도 SSE `likes` 로 되돌려
+   * 주므로(docs/game-chat.md) 로컬에서도 띄우면 두 번 재생된다. 받은 신호만 넘긴다 —
    * 그래서 남이 누른 좋아요와 내 좋아요가 같은 모양으로 함께 올라온다.
+   * 콜백이 바뀌어도 다시 구독하지 않도록 ref 로 들고 있는다.
    */
-  const [floatingLikes, setFloatingLikes] = useState<FloatingLike[]>([]);
-  const floatingIdRef = useRef(0);
-
-  /** `likes` 이벤트 한 번 — 배열에 든 구단마다 로고를 하나씩 띄운다. */
-  const spawnLikes = useCallback((teamCodes: string[]) => {
-    const spawned = teamCodes.map((code): FloatingLike => {
-      floatingIdRef.current += 1;
-      return {
-        id: floatingIdRef.current,
-        logo: getTeamDisplayByCode(code)?.logo ?? null,
-        sway: randomBetween(10, 18) * (Math.random() < 0.5 ? -1 : 1),
-        drift: randomBetween(-24, 24),
-        duration: Math.round(randomBetween(1200, 1600)),
-      };
-    });
-    setFloatingLikes((prev) => [...prev, ...spawned].slice(-MAX_FLOATING_LIKES));
-  }, []);
-
-  /** 다 올라가 사라진 로고를 치운다(애니메이션 끝). */
-  const removeFloatingLike = (id: number) => {
-    setFloatingLikes((prev) => prev.filter((like) => like.id !== id));
-  };
+  const onLikesRef = useRef(onLikes);
+  useEffect(() => {
+    onLikesRef.current = onLikes;
+  }, [onLikes]);
 
   /**
    * 하트 버튼. 202 는 "받았다"일 뿐이라 결과를 기다리지도, 실패를 알리지도 않는다 —
-   * 초당 10회 초과·응원 구단 없음 등은 서버가 조용히 버린다(그 경우 로고도 안 올라온다).
+   * 초당 10회 초과·응원 구단 없음 등은 서버가 조용히 버린다(그 경우 하트도 안 올라온다).
    */
   const handleLike = () => {
     void likeGameChatRoom(gameId).catch(() => {});
@@ -270,7 +228,7 @@ export default function GameChat({ gameId, isOpenDay }: GameChatProps) {
             if (alive) setMessages((prev) => mergeMessages(prev, incoming));
           },
           onLikes: (teamCodes) => {
-            if (alive) spawnLikes(teamCodes);
+            if (alive) onLikesRef.current?.(teamCodes);
           },
           onPresence: (count) => {
             if (alive) setParticipantCount(count);
@@ -314,12 +272,7 @@ export default function GameChat({ gameId, isOpenDay }: GameChatProps) {
         void leaveGameChatRoom(gameId).catch(() => {});
       }
     };
-  }, [gameId, isOpenDay, spawnLikes]);
-
-  /* 경기가 바뀌면 이전 경기의 로고가 남지 않게 비운다. */
-  useEffect(() => {
-    setFloatingLikes([]);
-  }, [gameId]);
+  }, [gameId, isOpenDay]);
 
   /* 새 메시지가 붙으면 목록 끝으로 따라 내려간다(맨 아래를 보고 있을 때만). */
   useEffect(() => {
@@ -701,38 +654,6 @@ export default function GameChat({ gameId, isOpenDay }: GameChatProps) {
       )}
 
       <div className="game-chat__composer-row">
-        {/*
-          떠오르는 응원 로고. 하트 버튼 위에서 출발해 좌우로 흔들리며 140px 쯤 올라가다 사라진다.
-          장식이라 보조기기에는 숨기고, 손가락도 가로채지 않는다(아래 메시지를 눌러야 한다).
-        */}
-        <div className="game-chat__likes" aria-hidden="true">
-          {floatingLikes.map((like) => (
-            <span
-              className="game-chat__like"
-              key={like.id}
-              style={
-                {
-                  '--like-drift': `${like.drift}px`,
-                  '--like-sway': `${like.sway}px`,
-                  '--like-duration': `${like.duration}ms`,
-                } as React.CSSProperties
-              }
-              onAnimationEnd={(event) => {
-                // 안쪽 흔들림(무한 반복)이 아니라 바깥 상승이 끝났을 때만 치운다.
-                if (event.target === event.currentTarget) removeFloatingLike(like.id);
-              }}
-            >
-              <span className="game-chat__like-sway">
-                {like.logo ? (
-                  <img className="game-chat__like-logo" src={like.logo} alt="" />
-                ) : (
-                  <HeartIcon className="game-chat__like-heart" />
-                )}
-              </span>
-            </span>
-          ))}
-        </div>
-
         <button
           className="game-chat__heart"
           type="button"

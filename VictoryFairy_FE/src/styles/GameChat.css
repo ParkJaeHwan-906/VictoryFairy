@@ -273,7 +273,7 @@
 }
 
 /* ------------------------------------------------------------------ *
- * Composer row — 하트(응원) 버튼 + 입력창. 응원 로고는 이 줄 위로 떠오른다.
+ * Composer row — 하트(응원) 버튼 + 입력창. 응원 하트는 경기 상세 상단 구단 로고에서 떠오른다.
  * ------------------------------------------------------------------ */
 .game-chat__composer-row {
   position: relative;
@@ -312,89 +312,6 @@
   width: 24px;
   height: 24px;
   fill: var(--color-primary-normal);
-}
-
-/* ------------------------------------------------------------------ *
- * 떠오르는 응원 로고
- *
- * 바깥(.game-chat__like)이 위로 올라가며 서서히 사라지고, 안쪽(.game-chat__like-sway)이
- * 좌우로 흔들린다. 두 움직임을 한 요소의 transform 에 섞으면 키프레임이 서로를 덮어써서
- * 나눴다. 출발점은 하트 버튼 바로 위 가운데다.
- * 흔들림 폭 · 비켜나는 거리 · 시간은 로고마다 컴포넌트가 CSS 변수로 다르게 준다.
- * ------------------------------------------------------------------ */
-.game-chat__likes {
-  position: absolute;
-  bottom: 100%;
-  /* 하트(48px) 가운데 */
-  left: 24px;
-  z-index: 3;
-  width: 0;
-  height: 0;
-  pointer-events: none;
-}
-
-.game-chat__like {
-  position: absolute;
-  bottom: 0;
-  left: -18px;
-  width: 36px;
-  height: 36px;
-  animation: game-chat-like-rise var(--like-duration, 1400ms) ease-out forwards;
-}
-
-.game-chat__like-sway {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-  animation: game-chat-like-sway 0.9s ease-in-out infinite alternate;
-}
-
-.game-chat__like-logo {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
-  /* 흰 바탕 말풍선 위에서도 로고 윤곽이 묻히지 않게 */
-  filter: drop-shadow(0 2px 4px rgb(18 18 18 / 16%));
-}
-
-.game-chat__like-heart {
-  width: 28px;
-  height: 28px;
-  fill: var(--color-primary-normal);
-}
-
-/* 위로 140px — 처음엔 작게 튀어나왔다가, 60% 지점부터 점점 투명해져 사라진다. */
-@keyframes game-chat-like-rise {
-  0% {
-    opacity: 0;
-    transform: translate(0, 0) scale(0.4);
-  }
-
-  12% {
-    opacity: 1;
-    transform: translate(0, -24px) scale(1);
-  }
-
-  60% {
-    opacity: 1;
-  }
-
-  100% {
-    opacity: 0;
-    transform: translate(var(--like-drift, 0px), -140px) scale(0.9);
-  }
-}
-
-@keyframes game-chat-like-sway {
-  from {
-    transform: translateX(calc(var(--like-sway, 14px) * -1));
-  }
-
-  to {
-    transform: translateX(var(--like-sway, 14px));
-  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -589,13 +506,5 @@
 
   .game-chat__heart {
     transition: none;
-  }
-
-  /*
-   * 응원 로고는 신호 자체라 없애지 않는다 — 흔들림만 멈추고 곧게 올라가며 사라진다.
-   * (상승 애니메이션이 끝나야 로고가 치워지므로 rise 는 남겨 둔다.)
-   */
-  .game-chat__like-sway {
-    animation: none;
   }
 }
