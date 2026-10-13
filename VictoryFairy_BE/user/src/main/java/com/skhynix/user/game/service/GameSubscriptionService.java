@@ -15,7 +15,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 /**
  * 경기 SSE 구독({@code GET /games/subscribe}·{@code GET /games/support/subscribe}).
  *
- * <p>연결 직후 {@code snapshot}(현재 목록, {@code GET /games}와 같은 13필드)을 보내고 레지스트리에 등록한다.
+ * <p>연결 직후 {@code snapshot}(현재 목록, {@code GET /games}와 같은 15필드)을 보내고 레지스트리에 등록한다.
  * 이후 갱신은 {@code GameStateEventListener} → {@code GameEventPublisher} → {@code GameSseRegistry}가
  * {@code game-update}로 밀어 넣는다. 날짜 해석(생략 시 {@code Asia/Seoul} 오늘, 반개구간)은
  * {@link GameService}와 같은 규칙이다.

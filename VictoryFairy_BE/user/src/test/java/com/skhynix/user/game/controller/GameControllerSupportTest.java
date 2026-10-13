@@ -61,7 +61,7 @@ class GameControllerSupportTest {
     private static final Set<String> EXPECTED_KEYS = Set.of(
             "gameId", "stadium", "homeTeam", "homeTeamId", "awayTeam", "awayTeamId",
             "homeTeamScore", "awayTeamScore", "gameDate", "gameState", "cancelReason",
-            "inning", "inningHalf");
+            "inning", "inningHalf", "homeTeamWinRate", "awayTeamWinRate");
 
     @Autowired
     private MockMvc mockMvc;
@@ -95,7 +95,7 @@ class GameControllerSupportTest {
             "FINISHED",
             null,
             null,
-            null);
+            null, null, null);
 
     /** 유효한 access 토큰을 스텁하고, 그 uid가 활성 계정 {@link #ACCOUNT_ID}로 해석되게 만든다. */
     private String stubAuthenticatedToken() {
@@ -135,8 +135,8 @@ class GameControllerSupportTest {
     }
 
     @Test
-    @DisplayName("[USER-GSP-2] 응답 항목의 키 집합은 GET /api/games 항목과 동일한 13개다"
-            + "(추가·누락 키 없음)")
+    @DisplayName("[USER-GSP-2][USER-GWR-1] 응답 항목의 키 집합은 GET /api/games 항목과 동일한 15개다"
+            + "(기존 13 + homeTeamWinRate/awayTeamWinRate, 값이 null 이어도 키 존재, 추가·누락 키 없음)")
     void getSupportTeamGames_responseItemKeySet_matchesGetGamesExactly() throws Exception {
         // given
         String token = stubAuthenticatedToken();
@@ -154,6 +154,48 @@ class GameControllerSupportTest {
         JsonNode item0 = objectMapper.readTree(json).get("data").get(0);
         Set<String> actualKeys = new HashSet<>(item0.propertyNames());
         assertThat(actualKeys).containsExactlyInAnyOrderElementsOf(EXPECTED_KEYS);
+    }
+
+    @Test
+    @DisplayName("[USER-GWR-3/4] 응원 구단 경기 목록도 진행 중 경기의 승률을 JSON 숫자 35.8 / 64.2 로 싣는다")
+    void getSupportTeamGames_inProgressWithWinRate_returnsNumericWinRates() throws Exception {
+        // given
+        String token = stubAuthenticatedToken();
+        GameResponse inProgress = new GameResponse("20260801HTLG02026", "광주기아챔피언스필드", "KIA", 6L, "LG", 3L, 4, 2,
+                LocalDateTime.of(2026, 8, 1, 18, 30, 0), "IN_PROGRESS", null, 5, "TOP", 35.8, 64.2);
+        given(gameService.getSupportTeamGames(ACCOUNT_ID, LocalDate.of(2026, 8, 1)))
+                .willReturn(List.of(inProgress));
+
+        // when
+        String body = mockMvc.perform(get("/games/support")
+                        .header("Authorization", "Bearer " + token)
+                        .queryParam("date", "2026-08-01"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].homeTeamWinRate").value(35.8))
+                .andExpect(jsonPath("$.data[0].awayTeamWinRate").value(64.2))
+                .andReturn().getResponse().getContentAsString();
+
+        // then
+        assertThat(body).contains("\"homeTeamWinRate\":35.8").contains("\"awayTeamWinRate\":64.2");
+    }
+
+    @Test
+    @DisplayName("[USER-GWR-1/5] 응원 구단 경기 목록에서 승률이 없으면 두 키가 null 로 존재한다")
+    void getSupportTeamGames_withoutWinRate_returnsBothKeysAsJsonNull() throws Exception {
+        // given
+        String token = stubAuthenticatedToken();
+        given(gameService.getSupportTeamGames(ACCOUNT_ID, LocalDate.of(2026, 8, 1)))
+                .willReturn(List.of(SAMPLE_GAME));
+
+        // when & then
+        mockMvc.perform(get("/games/support")
+                        .header("Authorization", "Bearer " + token)
+                        .queryParam("date", "2026-08-01"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].homeTeamWinRate").hasJsonPath())
+                .andExpect(jsonPath("$.data[0].homeTeamWinRate").isEmpty())
+                .andExpect(jsonPath("$.data[0].awayTeamWinRate").hasJsonPath())
+                .andExpect(jsonPath("$.data[0].awayTeamWinRate").isEmpty());
     }
 
     @Test

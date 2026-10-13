@@ -81,7 +81,7 @@ class GameControllerTest {
             "FINISHED",
             null,
             null,
-            null);
+            null, null, null);
 
     @Test
     @DisplayName("date를 주면 200과 ApiResponse 래퍼(success:true, message:null)에 담긴 경기 배열을 "
@@ -129,7 +129,7 @@ class GameControllerTest {
                 "CANCELED",
                 "폭염취소",
                 null,
-                null);
+                null, null, null);
         given(gameService.getGames(LocalDate.of(2026, 8, 9))).willReturn(List.of(canceled));
 
         // when & then
@@ -160,7 +160,7 @@ class GameControllerTest {
                 "IN_PROGRESS",
                 null,
                 7,
-                "BOTTOM");
+                "BOTTOM", null, null);
         given(gameService.getGames(LocalDate.of(2026, 8, 11))).willReturn(List.of(inProgress));
 
         // when & then
@@ -185,6 +185,42 @@ class GameControllerTest {
                 .andExpect(jsonPath("$.data[0].inning").isEmpty())
                 .andExpect(jsonPath("$.data[0].inningHalf").hasJsonPath())
                 .andExpect(jsonPath("$.data[0].inningHalf").isEmpty());
+    }
+
+    @Test
+    @DisplayName("[USER-GWR-3/4] 진행 중 경기의 승률은 따옴표 없는 JSON 숫자 35.8 / 64.2 로 나간다")
+    void getGames_inProgressWithWinRate_returnsNumericWinRates() throws Exception {
+        // given
+        GameResponse inProgress = new GameResponse("20260811SSNC02026", "인천SSG랜더스필드", "SSG", 1L, "NC", 2L, 3, 2,
+                LocalDateTime.of(2026, 8, 11, 18, 30, 0), "IN_PROGRESS", null, 7, "BOTTOM", 35.8, 64.2);
+        given(gameService.getGames(LocalDate.of(2026, 8, 11))).willReturn(List.of(inProgress));
+
+        // when
+        String body = mockMvc.perform(get("/games").queryParam("date", "2026-08-11"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].homeTeamWinRate").value(35.8))
+                .andExpect(jsonPath("$.data[0].awayTeamWinRate").value(64.2))
+                .andReturn().getResponse().getContentAsString();
+
+        // then: 문자열("35.8")이 아니라 숫자 리터럴
+        org.assertj.core.api.Assertions.assertThat(body)
+                .contains("\"homeTeamWinRate\":35.8")
+                .contains("\"awayTeamWinRate\":64.2");
+    }
+
+    @Test
+    @DisplayName("[USER-GWR-1/5] 승률이 없는 경기도 homeTeamWinRate/awayTeamWinRate 키는 null 로 존재한다(200)")
+    void getGames_withoutWinRate_returnsBothKeysAsJsonNull() throws Exception {
+        // given: SAMPLE_GAME 은 승률 null/null
+        given(gameService.getGames(LocalDate.of(2026, 8, 1))).willReturn(List.of(SAMPLE_GAME));
+
+        // when & then
+        mockMvc.perform(get("/games").queryParam("date", "2026-08-01"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].homeTeamWinRate").hasJsonPath())
+                .andExpect(jsonPath("$.data[0].homeTeamWinRate").isEmpty())
+                .andExpect(jsonPath("$.data[0].awayTeamWinRate").hasJsonPath())
+                .andExpect(jsonPath("$.data[0].awayTeamWinRate").isEmpty());
     }
 
     @Test
@@ -221,7 +257,7 @@ class GameControllerTest {
                 "FINISHED",
                 null,
                 null,
-                null);
+                null, null, null);
         given(gameService.getGames(LocalDate.of(2026, 8, 1))).willReturn(List.of(gameWithoutStadium));
 
         // when & then
@@ -237,9 +273,9 @@ class GameControllerTest {
     void getGames_returnsServiceOrderUnchanged() throws Exception {
         // given
         GameResponse earlyGame = new GameResponse("20260801OBSK02026", "잠실야구장", "두산", 1L, "SSG", 2L, 1, 0,
-                LocalDateTime.of(2026, 8, 1, 14, 0, 0), "FINISHED", null, null, null);
+                LocalDateTime.of(2026, 8, 1, 14, 0, 0), "FINISHED", null, null, null, null, null);
         GameResponse lateGame = new GameResponse("20260801LGHT02026", "잠실야구장", "LG", 3L, "KIA", 7L, 3, 5,
-                LocalDateTime.of(2026, 8, 1, 18, 30, 0), "IN_PROGRESS", null, 7, "BOTTOM");
+                LocalDateTime.of(2026, 8, 1, 18, 30, 0), "IN_PROGRESS", null, 7, "BOTTOM", null, null);
         given(gameService.getGames(LocalDate.of(2026, 8, 1))).willReturn(List.of(earlyGame, lateGame));
 
         // when & then
