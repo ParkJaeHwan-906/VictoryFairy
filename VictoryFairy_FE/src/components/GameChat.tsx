@@ -148,6 +148,11 @@ export default function GameChat({ gameId, isOpenDay }: GameChatProps) {
   const [messages, setMessages] = useState<GameChatMessage[]>([]);
   const [status, setStatus] = useState<ChatStatus>(isOpenDay ? 'loading' : 'closed');
   const [liveStatus, setLiveStatus] = useState<LiveStatus>('connecting');
+  /**
+   * 방 접속 인원(SSE `presence`). 첫 값이 오기 전엔 null 이라 숨긴다. 재연결·끊김에도
+   * 비우지 않는다 — Redis 장애 중엔 프레임이 안 오니 마지막 값을 들고 있어야 한다.
+   */
+  const [participantCount, setParticipantCount] = useState<number | null>(null);
 
   /** 지난 대화를 더 받을 커서(직전 페이지의 `nextCursor`). */
   const [cursor, setCursor] = useState<number | null>(null);
@@ -222,6 +227,7 @@ export default function GameChat({ gameId, isOpenDay }: GameChatProps) {
     setHasOlder(false);
     setSendError(null);
     setLiveStatus('connecting');
+    setParticipantCount(null);
     pendingRef.current = null;
     stickToBottomRef.current = true;
 
@@ -265,6 +271,9 @@ export default function GameChat({ gameId, isOpenDay }: GameChatProps) {
           },
           onLikes: (teamCodes) => {
             if (alive) spawnLikes(teamCodes);
+          },
+          onPresence: (count) => {
+            if (alive) setParticipantCount(count);
           },
           onDeleted: (msgId) => {
             if (alive) setMessages((prev) => prev.filter((message) => message.msgId !== msgId));
@@ -561,6 +570,11 @@ export default function GameChat({ gameId, isOpenDay }: GameChatProps) {
             aria-label={liveStatus === 'live' ? '실시간 연결됨' : '실시간 연결 중'}
           >
             LIVE
+          </span>
+        )}
+        {isReady && participantCount !== null && (
+          <span className="game-chat__presence" title="채팅방 접속 인원(근사치)">
+            {participantCount.toLocaleString('ko-KR')}명
           </span>
         )}
       </div>

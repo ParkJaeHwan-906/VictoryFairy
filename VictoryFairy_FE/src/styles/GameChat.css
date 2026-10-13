@@ -73,6 +73,28 @@
   }
 }
 
+/* 접속 인원 — 헤더 오른쪽 끝으로 민다. 아이콘은 마스크라 글자색을 따른다. */
+.game-chat__presence {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-caption1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  font-variant-numeric: tabular-nums;
+}
+
+.game-chat__presence::before {
+  width: 14px;
+  height: 14px;
+  background-color: currentColor;
+  content: '';
+  -webkit-mask: url('../assets/profile.svg') center / contain no-repeat;
+  mask: url('../assets/profile.svg') center / contain no-repeat;
+}
+
 /* 실시간 연결이 끊겼을 때 목록 위에 붙는 띠(라운지 채팅과 같다). */
 .game-chat__live-notice {
   flex-shrink: 0;
