@@ -79,7 +79,7 @@ class GameStateEventListenerTest {
     void handle_readsDocument_publishesUpdate_andDeletesMessage() {
         stubDocument();
         GameUpdateEvent event = new GameUpdateEvent(new GameResponse("20260801LGHT02026", "잠실야구장", "LG", 3L,
-                "KIA", 7L, 3, 5, LocalDateTime.of(2026, 8, 1, 18, 30), "IN_PROGRESS", null, 7, "TOP"),
+                "KIA", 7L, 3, 5, LocalDateTime.of(2026, 8, 1, 18, 30), "IN_PROGRESS", null, 7, "TOP", null, null),
                 List.of("homeScore"), "2026-08-01T09:30:00+00:00");
         ArgumentCaptor<GameStateEventDocument> document = ArgumentCaptor.forClass(GameStateEventDocument.class);
         given(updateService.load(document.capture())).willReturn(Optional.of(event));

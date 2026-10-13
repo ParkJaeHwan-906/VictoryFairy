@@ -41,7 +41,7 @@ class GameSubscriptionServiceTest {
             Clock.fixed(Instant.parse("2026-08-01T15:30:00Z"), ZoneId.of("Asia/Seoul"));
 
     private static final GameResponse SAMPLE = new GameResponse("20260801LGHT02026", "잠실야구장", "LG", 3L,
-            "KIA", 7L, null, null, LocalDateTime.of(2026, 8, 1, 18, 30), "SCHEDULED", null, null, null);
+            "KIA", 7L, null, null, LocalDateTime.of(2026, 8, 1, 18, 30), "SCHEDULED", null, null, null, null, null);
 
     @Mock
     private GameService gameService;
