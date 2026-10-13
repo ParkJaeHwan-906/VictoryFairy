@@ -49,6 +49,12 @@ class Settings(BaseSettings):
     # 꺼져 있으면(기본) games_sync 는 기존 동작과 100% 동일하다.
     game_state_events_enabled: bool = Field(
         default=False, validation_alias="COLLECTOR_GAME_STATE_EVENTS_ENABLED")
+    # games_sync 가 진행 중 경기의 현재 이닝 relay 를 한 번 더 받아 승률을
+    # games.home_win_rate/away_win_rate 에 쓸지. 두 컬럼은 수동 ALTER 로 생기는데,
+    # 컬럼이 없는 DB 에 켜면 games upsert 전체가 실패해 점수·상태 동기화까지 멈춘다 —
+    # 대상 DB 에 컬럼이 생긴 걸 확인한 뒤에만 켤 것. 꺼져 있으면(기본) SQL·호출 모두 기존과 동일.
+    win_rate_enabled: bool = Field(
+        default=False, validation_alias="COLLECTOR_WIN_RATE_ENABLED")
 
     # --- community ---
     targets_file: str = Field(default="config/targets.yaml", validation_alias="COLLECTOR_TARGETS_FILE")
