@@ -29,7 +29,7 @@ class GameSseRegistryTest {
 
     private static GameResponse game(Long homeTeamId, Long awayTeamId) {
         return new GameResponse("20260801LGHT02026", "잠실야구장", "LG", homeTeamId, "KIA", awayTeamId,
-                3, 5, LocalDateTime.of(2026, 8, 1, 18, 30), "IN_PROGRESS", null, 7, "TOP");
+                3, 5, LocalDateTime.of(2026, 8, 1, 18, 30), "IN_PROGRESS", null, 7, "TOP", null, null);
     }
 
     @Test
