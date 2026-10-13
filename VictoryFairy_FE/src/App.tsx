@@ -20,6 +20,9 @@ import CharacterCustomPage from './pages/CharacterCustomPage';
 import StorySharePage from './pages/StorySharePage';
 import QuizPage from './pages/QuizPage';
 import QuizResultPage from './pages/QuizResultPage';
+import CommunityPostDetailPage from './pages/CommunityPostDetailPage';
+import CommunityPostEditorPage from './pages/CommunityPostEditorPage';
+import MyCommunityPostsPage from './pages/MyCommunityPostsPage';
 import ProtectedRoute from './components/ProtectedRoute';
 import PublicOnlyRoute from './components/PublicOnlyRoute';
 import { useProfileBootstrap } from './hooks/useProfileBootstrap';
@@ -97,6 +100,16 @@ export default function App() {
           것까지가 웹이고, 인스타로 건네는 것은 앱이 한다(utils/instagramShare.ts).
         */}
         <Route path={ROUTES.storyShare} element={<StorySharePage />} />
+        {/*
+          라운지 게시판의 글 상세 · 작성 · 수정. 셋 다 NavBar 없는 전체 화면이다 —
+          상세는 아래에 댓글 입력창이 붙고, 작성 · 수정은 하단 CTA 가 붙는다.
+          커뮤니티 API 는 17개 전부 인증 필수라 모두 이 보호 구역 안에 둔다.
+        */}
+        <Route path={ROUTES.communityPost} element={<CommunityPostDetailPage />} />
+        <Route path={ROUTES.communityWrite} element={<CommunityPostEditorPage />} />
+        <Route path={ROUTES.communityEdit} element={<CommunityPostEditorPage />} />
+        {/* 내 게시글(신고로 숨겨진 글 포함) — 마이페이지 "활동"에서 들어온다 */}
+        <Route path={ROUTES.myCommunityPosts} element={<MyCommunityPostsPage />} />
       </Route>
       {/* 알 수 없는 경로는 홈으로 되돌린다 — 보호 화면이면 거기서 다시 로그인으로 보낸다 */}
       <Route path="*" element={<Navigate to={ROUTES.main} replace />} />
