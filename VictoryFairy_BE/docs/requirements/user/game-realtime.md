@@ -1,5 +1,6 @@
 # 경기 실시간 구독(SSE) 요구사항
-> 상태: **초안 (2026-10-09, 구현과 함께 작성 — 사용자 승인 전)** · 모듈: user · 최종 수정: 2026-10-09
+> 상태: **초안 (2026-10-09, 구현과 함께 작성 — 사용자 승인 전)** · 모듈: user · 최종 수정: 2026-10-13
+> **2026-10-13 개정(초안)**: 승률 2필드 추가(`game-win-rate.md`, USER-GWR-1)로 항목 필드가 13 → 15개가 된다. USER-GRT-4 의 키 집합을 개정했고, GRT-2·GRT-15 의 "13필드"는 "짝 GET 과 같은 필드"로 읽는다. `changed` 값 집합에 `winRate` 가 더해진다(USER-GWR-11).
 > 신규 엔드포인트 2개(`GET /api/games/subscribe`·`GET /api/games/support/subscribe`). 기존 `GET /api/games`·`GET /api/games/support`·`GET /api/games/lineup` 의 계약은 건드리지 않는다(USER-GRT-22).
 > 사용자 결정(2026-10-09, 구현 전 확인): ① 점수 변동도 밀어야 하므로 수집기(dev_ai)에 상태 변화 스냅샷 적재를 추가하고 전용 SQS 큐(dev_infra)를 둔다 ② 기존 GET 은 유지하고 SSE 를 나란히 추가한다 ③ 파드 간 팬아웃은 Redis pub/sub.
 
@@ -30,7 +31,7 @@
 | USER-GRT-1 | 이벤트 | WHEN `GET /api/games/subscribe` 요청이 들어오면, THE 시스템 SHALL 200 과 `Content-Type: text/event-stream` 으로 스트림을 연다 | 헤더 없이 `GET /api/games/subscribe?date=2026-08-01` → 200, `text/event-stream`(`ApiResponse` 래퍼 없음) |
 | USER-GRT-2 | 유비쿼터스 | THE 시스템 SHALL 연결 직후 `snapshot` 이벤트 1개를 보내고, 그 `data` 는 같은 `date` 의 `GET /api/games` 응답 `data` 와 항목·순서·13필드가 동일하다 | 같은 시각에 둘을 받아 비교하면 JSON 배열이 동일 |
 | USER-GRT-3 | 이벤트 | WHEN 구독한 날짜의 경기에 대해 수집기가 이닝·점수·상태 변화를 적재하면, THE 시스템 SHALL 그 경기를 DB 에서 다시 읽어 `game-update` 이벤트로 보낸다 | 라이브 경기 득점 → 1분 폴링 뒤 수 초 안에 `game-update` 수신, `data.game.homeTeamScore` 가 DB 값과 일치 |
-| USER-GRT-4 | 유비쿼터스 | THE 시스템 SHALL `game-update` 의 `data.game` 을 `GET /api/games` 항목과 같은 13필드로 보낸다 | 키 집합이 `{gameId, stadium, homeTeam, homeTeamId, awayTeam, awayTeamId, homeTeamScore, awayTeamScore, gameDate, gameState, cancelReason, inning, inningHalf}` 와 정확히 일치 |
+| USER-GRT-4 | 유비쿼터스 | THE 시스템 SHALL `game-update` 의 `data.game` 을 `GET /api/games` 항목과 같은 필드 집합으로 보낸다 (2026-10-13 개정: 13 → 15필드, USER-GWR-1) | 키 집합이 `{gameId, stadium, homeTeam, homeTeamId, awayTeam, awayTeamId, homeTeamScore, awayTeamScore, gameDate, gameState, cancelReason, inning, inningHalf, homeTeamWinRate, awayTeamWinRate}` 와 정확히 일치 |
 | USER-GRT-5 | 유비쿼터스 | THE 시스템 SHALL `game-update` 에 `changed`(달라진 필드 이름 배열, 비어 있지 않음)와 `observedAt`(수집기 관측 시각 UTC ISO-8601)을 함께 보낸다 | 득점 이벤트의 `changed` 가 `["homeScore"]` 또는 `["awayScore"]`, 이닝 전환이 `["inning"]`, 종료가 `["inning","status"]` 를 포함 |
 | USER-GRT-6 | 유비쿼터스 | THE 시스템 SHALL `game-update` 를 그 경기의 **날짜** 구독자 전원에게 보낸다 | 같은 날짜로 구독한 연결 N개가 모두 같은 이벤트를 받는다 |
 | USER-GRT-7 | 유비쿼터스 | THE 시스템 SHALL 다른 날짜 구독자에게는 그 이벤트를 보내지 않는다 | `date=2026-08-02` 구독은 2026-08-01 경기 갱신을 받지 않는다 |
