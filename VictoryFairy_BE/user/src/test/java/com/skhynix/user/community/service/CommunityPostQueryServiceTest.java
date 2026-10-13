@@ -193,14 +193,14 @@ class CommunityPostQueryServiceTest {
         given(postRepository.findByIdAndDeletedAtIsNull(1L)).willReturn(Optional.of(p));
         given(viewWindowStore.tryOpen(1L, VIEWER_ID)).willReturn(false);
         given(postImageRepository.findAllByPost_IdOrderBySortOrderAsc(1L)).willReturn(List.of(
-                image(p, "community/a.jpg", 0), image(p, "community/b.png", 1)));
+                image(p, "community-img/a.jpg", 0), image(p, "community-img/b.png", 1)));
         CommunityPostReaction like = CommunityPostReaction.builder().post(p).type(ReactionType.LIKE).build();
         given(postReactionRepository.findByUserAccount_IdAndPost_Id(VIEWER_ID, 1L)).willReturn(Optional.of(like));
 
         PostDetailResponse response = service.getPost(VIEWER_ID, 1L);
 
         assertThat(response.content()).isEqualTo("  앞뒤 공백\n줄바꿈 <b>태그</b>  ");
-        assertThat(response.imageUrls()).containsExactly("community/a.jpg", "community/b.png");
+        assertThat(response.imageUrls()).containsExactly("community-img/a.jpg", "community-img/b.png");
         assertThat(response.myReaction()).isEqualTo(ReactionType.LIKE);
         assertThat(response.categoryId()).isEqualTo(3L);
         assertThat(response.categoryName()).isEqualTo("자유게시판");
@@ -267,7 +267,7 @@ class CommunityPostQueryServiceTest {
         given(postRepository.findAllByDeletedAtIsNullAndBlindedFalse(any(Pageable.class)))
                 .willReturn(new PageImpl<>(List.of(withImages, noImage), PageRequest.of(0, 2), 22));
         given(postImageRepository.findAllByPost_IdInOrderBySortOrderAsc(List.of(2L, 1L))).willReturn(List.of(
-                image(withImages, "community/first.jpg", 0), image(withImages, "community/second.jpg", 1)));
+                image(withImages, "community-img/first.jpg", 0), image(withImages, "community-img/second.jpg", 1)));
 
         PageResponse<PostSummaryResponse> response = service.getPosts(null, PostSort.latest, 0, 2);
 
@@ -277,7 +277,7 @@ class CommunityPostQueryServiceTest {
         assertThat(response.totalPages()).isEqualTo(11);
         assertThat(response.hasNext()).isTrue();
         assertThat(response.content()).extracting(PostSummaryResponse::postId).containsExactly(2L, 1L);
-        assertThat(response.content().get(0).thumbnailUrl()).isEqualTo("community/first.jpg");
+        assertThat(response.content().get(0).thumbnailUrl()).isEqualTo("community-img/first.jpg");
         assertThat(response.content().get(1).thumbnailUrl()).isNull();
     }
 
@@ -344,13 +344,13 @@ class CommunityPostQueryServiceTest {
         CommunityPost second = post(3L);
         given(postRepository.findPopular(any(), any(Limit.class))).willReturn(List.of(first, second));
         given(postImageRepository.findAllByPost_IdInOrderBySortOrderAsc(List.of(5L, 3L)))
-                .willReturn(List.of(image(second, "community/t.jpg", 0)));
+                .willReturn(List.of(image(second, "community-img/t.jpg", 0)));
 
         List<PostSummaryResponse> result = service.getPopularPosts(null);
 
         assertThat(result).extracting(PostSummaryResponse::postId).containsExactly(5L, 3L);
         assertThat(result.get(0).thumbnailUrl()).isNull();
-        assertThat(result.get(1).thumbnailUrl()).isEqualTo("community/t.jpg");
+        assertThat(result.get(1).thumbnailUrl()).isEqualTo("community-img/t.jpg");
         verifyNoInteractions(viewWindowStore);
         verify(postRepository, never()).increaseViewCount(anyLong());
     }

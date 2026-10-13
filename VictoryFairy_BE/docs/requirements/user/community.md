@@ -9,8 +9,8 @@
 커뮤니티를 quiz(8081, `/rt`)가 아니라 **user 모듈(8080, `/api`)에 둔다**(결정 Q16 — 실시간 요소가 없고 S3·Redis·`Clock`·정리 배치가 전부 user에 있다).
 
 ## 선행 조건 / 인프라 의존 (이 문서의 범위 밖 — `VictoryFairy_Infra` 소관)
-1. **CloudFront 경로 패턴 `/community/*` 추가** — 기존 배포(`https://victoryfairy.com`)에 `victoryfairy-asset` 오리진으로 라우팅되는 behavior가 지금은 `/temp/*`·`/user-profile-img/*`·캐릭터 3종뿐이다. 이게 없으면 확정된 게시글 이미지가 **저장은 되는데 읽히지 않는다**(캐릭터 에셋 때와 같은 구도 — `hwannee/infra/feat-character-asset-cdn` 선례).
-2. **user 앱 IRSA 정책이 `community/` 접두 객체에 `PutObject`·`CopyObject`·`DeleteObject`·`HeadObject`를 허용하는지 확인** — 프로필 이미지용 정책이 버킷 전체인지 접두 한정인지는 이 저장소에서 확인되지 않는다. 접두 한정이면 추가가 필요하다.
+1. **CloudFront 경로 패턴 `/community-img/*` 추가** — 접두가 `community/` 가 아닌 것은 FE 라우트 `/community/posts/:postId` 등과 겹치면 새로고침·딥링크가 S3 로 가서 403 이 되기 때문이다. 기존 배포(`https://victoryfairy.com`)에 `victoryfairy-asset` 오리진으로 라우팅되는 behavior가 지금은 `/temp/*`·`/user-profile-img/*`·캐릭터 3종뿐이다. 이게 없으면 확정된 게시글 이미지가 **저장은 되는데 읽히지 않는다**(캐릭터 에셋 때와 같은 구도 — `hwannee/infra/feat-character-asset-cdn` 선례).
+2. **user 앱 IRSA 정책이 `community-img/` 접두 객체에 `PutObject`·`CopyObject`·`DeleteObject`·`HeadObject`를 허용하는지 확인** — 프로필 이미지용 정책이 버킷 전체인지 접두 한정인지는 이 저장소에서 확인되지 않는다. 접두 한정이면 추가가 필요하다.
 3. **`temp/` 라이프사이클(1일 만료)과 04:00 정리 스케줄러는 그대로 재사용**한다 — 커뮤니티 임시 이미지도 같은 접두에 올리므로 새 규칙이 필요 없다(USER-CM-157).
 
 ## 범위
@@ -42,8 +42,8 @@
 | **답글** | 댓글에 달린 글(`parent_comment_id`가 어떤 최상위 댓글을 가리킴). 답글에는 답글을 달 수 없다 |
 | **부모** | 답글이 가리키는 최상위 댓글 |
 | **자리 표식(placeholder)** | 삭제 또는 블라인드됐지만 보이는 답글이 남아 있어 목록에 `status: DELETED`·`BLINDED`로 남는 부모. 본문·이미지·작성자는 비어 있다 |
-| **EP** | 버킷 안 오브젝트 키. BaseURL·스킴·버킷명 없음, 선행 슬래시 없음(`profile-image.md`와 동일). 예 `community/9f1c….webp` |
-| **임시 EP** | `temp/{uuid}.{ext}` — 업로드 직후 상태. 게시글·댓글에 붙으며 `community/{uuid}.{ext}`(**확정 EP**)로 이동된다 |
+| **EP** | 버킷 안 오브젝트 키. BaseURL·스킴·버킷명 없음, 선행 슬래시 없음(`profile-image.md`와 동일). 예 `community-img/9f1c….webp` |
+| **임시 EP** | `temp/{uuid}.{ext}` — 업로드 직후 상태. 게시글·댓글에 붙으며 `community-img/{uuid}.{ext}`(**확정 EP**)로 이동된다 |
 | **반응(reaction)** | 한 계정이 한 게시글(또는 댓글·답글)에 남긴 `LIKE`·`DISLIKE` 중 하나. 없음(`NONE`)은 행 부재로 표현한다 |
 | **블라인드** | 신고로 `blinded=true`가 된 상태. 행·본문·이미지는 보존되고 조회만 막힌다 |
 | **삭제** | `deleted_at`이 채워진 소프트 삭제(결정 Q10). 어떤 응답에도 본문이 나오지 않는다 |
@@ -218,7 +218,7 @@
 | USER-CM-84 | 예외 | IF 게시글이 블라인드 상태면, THEN THE 시스템 SHALL 410 `COMMUNITY_POST_BLINDED`를 반환하고 수정하지 않는다 (결정 Q7 — 수정으로 블라인드를 우회할 수 없다) | `AC-CM-84-1` 작성자가 블라인드 글 `PUT` → 410, 행 불변 |
 | USER-CM-85 | 유비쿼터스 | THE 시스템 SHALL 수정으로 `viewCount`·`likeCount`·`dislikeCount`·`commentCount`·`createdAt`·작성자를 바꾸지 않는다 | `AC-CM-85-1` 조회 10·좋아요 2인 글 수정 후 상세 → 같은 값, `createdAt` 동일, `author` 동일 |
 | USER-CM-86 | 이벤트 | WHEN 수정이 성공하면, THE 시스템 SHALL `updatedAt`을 갱신한다 | `AC-CM-86-1` 수정 후 `updatedAt > createdAt`. 목록 정렬(`latest`)은 `createdAt` 기준이라 **수정해도 목록 순서가 안 바뀐다** |
-| USER-CM-87 | 이벤트 | WHEN 수정 요청의 `imageUrls`가 기존과 다르면, THE 시스템 SHALL 요청 배열을 최종 상태로 삼아 — 기존 확정 EP는 유지, 새 임시 EP는 이동, 빠진 기존 EP는 제거 — 처리한다 (결정 Q12 — 선언적 전체 교체) | `AC-CM-87-1` 기존 `[a',b']` + 요청 `[b', temp/c]` → 결과 `[b', c']`, `a'` 객체는 커밋 후 삭제(USER-CM-155), `c'`는 `community/`에 생성. `AC-CM-87-2` 요청 `[]` → 이미지 전부 제거 |
+| USER-CM-87 | 이벤트 | WHEN 수정 요청의 `imageUrls`가 기존과 다르면, THE 시스템 SHALL 요청 배열을 최종 상태로 삼아 — 기존 확정 EP는 유지, 새 임시 EP는 이동, 빠진 기존 EP는 제거 — 처리한다 (결정 Q12 — 선언적 전체 교체) | `AC-CM-87-1` 기존 `[a',b']` + 요청 `[b', temp/c]` → 결과 `[b', c']`, `a'` 객체는 커밋 후 삭제(USER-CM-155), `c'`는 `community-img/`에 생성. `AC-CM-87-2` 요청 `[]` → 이미지 전부 제거 |
 
 #### F-2. 삭제 `DELETE /api/community/posts/{postId}`
 
@@ -310,16 +310,16 @@
 | USER-CM-144 | 예외 | IF `image` 파트가 없거나 빈 파일이면, THEN THE 시스템 SHALL 400 `COMMUNITY_IMAGE_REQUIRED`를 반환한다 | `AC-CM-144-1` 파트 없음·0바이트 → 400 `"이미지를 첨부해 주세요."` |
 | USER-CM-145 | 유비쿼터스 | THE 시스템 SHALL 모든 이미지 EP를 BaseURL 없는 오브젝트 키로 반환·저장한다 | `AC-CM-145-1` 업로드 응답·상세 `imageUrls`·목록 `thumbnailUrl` 전부 `https://`·버킷명·선행 `/` 없음, `https://victoryfairy.com/` + 값으로 바로 읽힌다(USER-PI-4·9와 동일 규칙) |
 | USER-CM-146 | 유비쿼터스 | THE 시스템 SHALL 이 업로드 경로에 횟수 한도를 두지 않는다 (`POST /users/me/profile-image`와 동일) | `AC-CM-146-1` 같은 계정 100회 연속 업로드 → 전부 200(알려진 한계 2). `appId`도 받지 않는다 |
-| USER-CM-147 | 이벤트 | WHEN 게시글·댓글·답글이 임시 EP를 싣고 생성·수정되면, THE 시스템 SHALL 그 객체를 `community/{uuid}.{ext}`로 이동하고 이동 후 EP를 저장한다 | `AC-CM-147-1` `imageUrls:["temp/x.jpg"]`로 작성 → 상세 `imageUrls:["community/x.jpg"]`(파일명 동일, 접두만 교체). `AC-CM-147-2` 이동 직후 `temp/x.jpg` `HeadObject` → 404(원본 즉시 삭제, USER-PI-54와 동일). `AC-CM-147-3` 이미지 테이블에 `temp/`로 시작하는 값이 저장되는 일이 없다 |
-| USER-CM-148 | 유비쿼터스 | THE 시스템 SHALL 확정 EP를 `community/{uuid}.{ext}` 세그먼트 2개 형태로 만든다 | `AC-CM-148-1` 하위 디렉터리 없음, `/community/*` CloudFront 패턴과 1:1(선행 조건 1). 게시글·댓글·답글 이미지가 같은 접두를 쓴다(셋을 가를 이유가 없다) |
-| USER-CM-149 | 예외 | IF `imageUrls` 원소가 `temp/{uuid}.{ext}` 모양도 아니고 **그 글의** 기존 확정 EP도 아니면, THEN THE 시스템 SHALL 400 `INVALID_COMMUNITY_IMAGE_ENDPOINT`를 반환한다 | `AC-CM-149-1` `user-profile-img/a.jpg`·`../x`·`https://victoryfairy.com/temp/x.jpg`·`""`·`null` 원소 → 각각 400 `"유효하지 않은 이미지입니다."`, 행·객체 변화 0. `AC-CM-149-2` 작성 시엔 `community/…` 값 자체가 400(새 글에는 기존 EP가 없다) |
+| USER-CM-147 | 이벤트 | WHEN 게시글·댓글·답글이 임시 EP를 싣고 생성·수정되면, THE 시스템 SHALL 그 객체를 `community-img/{uuid}.{ext}`로 이동하고 이동 후 EP를 저장한다 | `AC-CM-147-1` `imageUrls:["temp/x.jpg"]`로 작성 → 상세 `imageUrls:["community-img/x.jpg"]`(파일명 동일, 접두만 교체). `AC-CM-147-2` 이동 직후 `temp/x.jpg` `HeadObject` → 404(원본 즉시 삭제, USER-PI-54와 동일). `AC-CM-147-3` 이미지 테이블에 `temp/`로 시작하는 값이 저장되는 일이 없다 |
+| USER-CM-148 | 유비쿼터스 | THE 시스템 SHALL 확정 EP를 `community-img/{uuid}.{ext}` 세그먼트 2개 형태로 만든다 | `AC-CM-148-1` 하위 디렉터리 없음, `/community-img/*` CloudFront 패턴과 1:1(선행 조건 1). 게시글·댓글·답글 이미지가 같은 접두를 쓴다(셋을 가를 이유가 없다) |
+| USER-CM-149 | 예외 | IF `imageUrls` 원소가 `temp/{uuid}.{ext}` 모양도 아니고 **그 글의** 기존 확정 EP도 아니면, THEN THE 시스템 SHALL 400 `INVALID_COMMUNITY_IMAGE_ENDPOINT`를 반환한다 | `AC-CM-149-1` `user-profile-img/a.jpg`·`../x`·`https://victoryfairy.com/temp/x.jpg`·`""`·`null` 원소 → 각각 400 `"유효하지 않은 이미지입니다."`, 행·객체 변화 0. `AC-CM-149-2` 작성 시엔 `community-img/…` 값 자체가 400(새 글에는 기존 EP가 없다) |
 | USER-CM-150 | 예외 | IF 임시 EP가 가리키는 객체가 버킷에 없으면, THEN THE 시스템 SHALL 같은 400 `INVALID_COMMUNITY_IMAGE_ENDPOINT`를 반환한다 | `AC-CM-150-1` 존재하지 않는 `temp/{uuid}.png` → 400, **모양 오류와 같은 문구**(사유를 나누면 남의 EP 존재 여부를 탐색할 수 있다 — `INVALID_PROFILE_IMAGE_ENDPOINT`와 같은 계열의 은닉). `AC-CM-150-2` 24시간 지나 정리된 임시 EP도 여기 걸린다(USER-CM-157) |
-| USER-CM-151 | 예외 | IF 수정 요청이 **다른 글·댓글에 붙어 있는** 확정 EP를 싣고 오면, THEN THE 시스템 SHALL 같은 400을 반환한다 | `AC-CM-151-1` 글 B의 `community/y.jpg`를 글 A 수정에 넣음 → 400, 글 A·B 불변. **남의 이미지 가로채기 방지** — 통과시키면 B 삭제 시 A의 이미지도 함께 사라진다 |
+| USER-CM-151 | 예외 | IF 수정 요청이 **다른 글·댓글에 붙어 있는** 확정 EP를 싣고 오면, THEN THE 시스템 SHALL 같은 400을 반환한다 | `AC-CM-151-1` 글 B의 `community-img/y.jpg`를 글 A 수정에 넣음 → 400, 글 A·B 불변. **남의 이미지 가로채기 방지** — 통과시키면 B 삭제 시 A의 이미지도 함께 사라진다 |
 | USER-CM-152 | 예외 | IF 게시글 `imageUrls`가 5개, 댓글·답글 `imageUrls`가 3개를 넘으면, THEN THE 시스템 SHALL 400 `COMMUNITY_IMAGE_LIMIT_EXCEEDED`를 반환한다 (결정 Q13 — 상한 5/3) | `AC-CM-152-1` 게시글 6개 → 400 `"이미지는 게시글 5장, 댓글 3장까지 첨부할 수 있습니다."`. `AC-CM-152-2` 5개 → 201. `AC-CM-152-3` 댓글 4개 → 400. 모양 검증(USER-CM-149)보다 **앞**이라 6개짜리 요청은 S3를 조회하지 않는다 |
 | USER-CM-153 | 예외 | IF `imageUrls`에 같은 EP가 두 번 있으면, THEN THE 시스템 SHALL 400 `INVALID_COMMUNITY_IMAGE_ENDPOINT`를 반환한다 | `AC-CM-153-1` `["temp/x.jpg","temp/x.jpg"]` → 400(한 객체를 두 번 이동할 수 없다 — 첫 이동이 원본을 지운다) |
-| USER-CM-154 | 예외 | IF 이미지 이동(S3 복사)이 실패하면, THEN THE 시스템 SHALL 게시글·댓글을 생성·수정하지 않고 500을 반환한다 (가입과 달리 "이미지만 포기"하지 않는다) | `AC-CM-154-1` S3 복사 실패 상태에서 작성 → 500 `ApiResponse` 래퍼 `"서버 오류가 발생했습니다…"`, 행 미생성. 가입(USER-PI-57)이 이미지를 포기하고 성공시킨 근거는 "이메일 인증 소비가 Redis라 롤백이 안 된다"였고, 여기엔 그런 비가역 선행 효과가 없다. **S3 복사가 DB 쓰기보다 먼저**이므로 DB 쓰기가 실패하면 `community/` 고아 객체가 남을 수 있다(알려진 한계 1) |
+| USER-CM-154 | 예외 | IF 이미지 이동(S3 복사)이 실패하면, THEN THE 시스템 SHALL 게시글·댓글을 생성·수정하지 않고 500을 반환한다 (가입과 달리 "이미지만 포기"하지 않는다) | `AC-CM-154-1` S3 복사 실패 상태에서 작성 → 500 `ApiResponse` 래퍼 `"서버 오류가 발생했습니다…"`, 행 미생성. 가입(USER-PI-57)이 이미지를 포기하고 성공시킨 근거는 "이메일 인증 소비가 Redis라 롤백이 안 된다"였고, 여기엔 그런 비가역 선행 효과가 없다. **S3 복사가 DB 쓰기보다 먼저**이므로 DB 쓰기가 실패하면 `community-img/` 고아 객체가 남을 수 있다(알려진 한계 1) |
 | USER-CM-155 | 이벤트 | WHEN 수정으로 확정 EP가 목록에서 빠지면, THE 시스템 SHALL 커밋 후 그 객체를 best-effort로 삭제한다 | `AC-CM-155-1` `[a',b']`→`[b']` 수정 후 `a'` `HeadObject` → 404. `AC-CM-155-2` 삭제 실패 시 200은 그대로, ERROR 로그. **커밋 전에 지우지 않는다** — 트랜잭션이 롤백되면 글은 아직 `a'`를 가리키는데 객체만 사라진다 |
-| USER-CM-156 | 유비쿼터스 | THE 시스템 SHALL 확정 EP가 가리키는 객체를 그 글·댓글의 삭제 또는 수정 제외 외의 경로로 지우지 않는다 | `AC-CM-156-1` `community/` 접두에는 어떤 스케줄러·라이프사이클 규칙도 없다(`user-profile-img/`와 같은 처지, USER-PI-84·94). 04:00 정리 회차 100번 뒤에도 잔존 |
+| USER-CM-156 | 유비쿼터스 | THE 시스템 SHALL 확정 EP가 가리키는 객체를 그 글·댓글의 삭제 또는 수정 제외 외의 경로로 지우지 않는다 | `AC-CM-156-1` `community-img/` 접두에는 어떤 스케줄러·라이프사이클 규칙도 없다(`user-profile-img/`와 같은 처지, USER-PI-84·94). 04:00 정리 회차 100번 뒤에도 잔존 |
 | USER-CM-157 | 유비쿼터스 | THE 시스템 SHALL 커뮤니티 임시 이미지를 기존 `temp/` 정리(스케줄러 24h + 라이프사이클 1일)에 그대로 맡긴다 | `AC-CM-157-1` 업로드 후 글에 붙이지 않은 임시 객체가 04:00 회차에 24시간 기준으로 지워진다(프로필 임시 객체와 구분하지 않는다 — 같은 접두, 같은 규칙). **업로드 뒤 24시간 넘겨 작성하면 USER-CM-150의 400이다**(프론트는 작성 화면을 장시간 열어 둔 사용자에게 재업로드를 안내해야 한다) |
 | USER-CM-158 | 유비쿼터스 | THE 시스템 SHALL 저장 객체의 `Content-Type`을 판정된 형식으로 설정하고 이동 시 그대로 유지한다 | `AC-CM-158-1` 확정 EP `HeadObject`의 `ContentType`이 `image/jpeg`·`image/png`·`image/webp` 중 판정값(CopyObject 기본 지시자가 메타데이터를 복사한다 — USER-PI-46과 같은 보장) |
 | USER-CM-159 | 유비쿼터스 | THE 시스템 SHALL 파일명을 서버가 UUID v4로 생성하고 원본 파일명을 어디에도 쓰지 않는다 | `AC-CM-159-1` `../../etc/passwd`·`내 사진 (1).png`로 올려도 EP가 `temp/{uuid}.{ext}`(USER-PI-41·42 재사용) |
@@ -362,7 +362,7 @@
 | USER-CM-201 | 유비쿼터스 | THE 시스템 SHALL 신규 테이블 전부를 domain 엔티티 선언으로 정의하고 user `ddl-auto=update`로 생성한다 | `AC-CM-201-1` 빈 DB에서 user 기동 → 카테고리·게시글·댓글(답글 포함)·반응 2·이미지 2·신고 = 8테이블 생성, UNIQUE·FK 정책(CASCADE/SET_NULL/없음)이 선언대로 걸림(신규 테이블이라 `quizzes_like` 선례대로 자동 반영된다). `AC-CM-201-2` 공유 엔티티(`UserAccount` 등)에는 **컬럼을 추가하지 않는다** — quiz(`ddl-auto=none`) 배포 선행 조건이 생기지 않게 하기 위해서다 |
 | USER-CM-202 | 유비쿼터스 | THE 시스템 SHALL 1회성 DDL `infra/sql/migrate-community.sql`을 함께 둔다 | `AC-CM-202-1` 파일 존재, 어떤 이유로든 테이블이 제약 없이 먼저 생긴 환경을 위한 UNIQUE·FK 확인·추가 절차(적용 전 실제 상태 조회 포함 — `migrate-quiz-like.sql` 선례) |
 | USER-CM-203 | 유비쿼터스 | THE 시스템 SHALL 카테고리 시드를 `infra/sql/community-categories-init.sql`로 두고 user `data-locations`에 등록한다 | `AC-CM-203-1` USER-CM-12·13. 구단 매핑은 `teams.code`(`LG`, `OB` …)로 해석 |
-| USER-CM-204 | 유비쿼터스 | THE 시스템 SHALL 이미지 서빙을 CloudFront `/community/*` behavior에 의존한다 | `AC-CM-204-1` 선행 조건 1이 배포된 환경에서 `https://victoryfairy.com/community/{uuid}.jpg` → 200 + 이미지. **앱 배포만으로는 이미지가 안 보인다** |
+| USER-CM-204 | 유비쿼터스 | THE 시스템 SHALL 이미지 서빙을 CloudFront `/community-img/*` behavior에 의존한다 | `AC-CM-204-1` 선행 조건 1이 배포된 환경에서 `https://victoryfairy.com/community/{uuid}.jpg` → 200 + 이미지. **앱 배포만으로는 이미지가 안 보인다** |
 | USER-CM-205 | 유비쿼터스 | THE 시스템 SHALL 만료 데이터 정리 계약(`expired-data-cleanup.md`)을 이관 단계 확장으로 개정한 뒤 배포한다 | `AC-CM-205-1` 그 문서에 게시글·댓글 이관 요구사항이 추가되고 `ExpiredAccountEraser` ② 단계가 `reassignOwner`·`reassignSender`에 이어 게시글·댓글 이관을 포함한다. **이 개정 없이 커뮤니티를 먼저 배포하면 첫 하드 삭제 회차가 글을 가진 계정에서 FK 위반으로 계정 단위 실패한다**(USER-CM-194가 의도한 fail-closed — 데이터는 안전하지만 회차 로그에 ERROR가 쌓인다) |
 | USER-CM-206 | 유비쿼터스 | THE 시스템 SHALL 새 스케줄러·새 Redis 키 접두를 추가하지 않는다 | `AC-CM-206-1` `AnyCleanupJobEnabled`에 추가할 스위치 없음(새 `@Scheduled` 빈이 없다). Redis 키는 `community:post:view:*` 하나의 계열뿐이고 TTL로 소멸 |
 
@@ -402,7 +402,7 @@
 **답글(개정 1차): 부모 삭제·블라인드를 자식에 연쇄하지 않는다.** 사용자 원문 "부모 삭제 시 CASCADE가 아닌, 삭제 처리는 개별로 처리"가 출발점이다. 연쇄하면 남의 답글이 부모 작성자의 결정 하나로 사라지고(답글 작성자 입장에선 자기 글이 증발), 신고 1건으로 블라인드되는 정책과 겹치면 **댓글 하나를 신고해 그 아래 답글 전부를 지우는 공격**이 된다. 비연쇄의 대가는 "부모 없는 답글"의 표현이다 — 선택지는 셋이었다. (A) **자리 표식**: 부모를 `status: DELETED|BLINDED`로 목록에 남기고 본문·작성자를 비운다. 답글의 문맥(어떤 댓글에 대한 답인지)이 자리로 유지되고 프론트가 "삭제된 댓글입니다" 한 줄을 그리면 된다. 비용은 `status` 필드와 조회 시 "보이는 답글이 있는가" 판정. (B) **답글을 최상위로 승격**: 부모가 사라지면 답글이 댓글 자리로 올라간다. 문맥이 끊기고 "답글이었다"는 사실이 지워진다. (C) **답글은 남기되 목록에서 숨김**: `commentCount`는 세는데 보이지 않는 글이 생겨 숫자가 거짓이 된다. A로 확정. 자리 표식은 **저장 상태가 아니라 조회 시점 판정**이다(USER-CM-214) — 플래그를 두면 마지막 답글이 사라질 때 부모를 다시 갱신해야 하는 쓰기 경로가 생긴다. 새 답글은 자리 표식에 달 수 없다(USER-CM-117) — 허용하면 삭제된 댓글이 영원히 자리를 지키고, 블라인드된 댓글이 토론의 거점으로 계속 산다. 깊이는 1로 고정한다 — 2단 이상은 응답이 재귀 구조가 되고 "부모의 부모가 삭제되면"의 조합이 깊이마다 늘어난다. `commentCount`에 답글을 **포함**한다 — 게시판의 "댓글 N"은 통상 대화 전체 크기이고, 빼면 목록의 숫자와 열어 본 글의 분량이 어긋난다.
 
 ## 알려진 한계
-1. **`community/` 고아 객체** — 이동(S3 복사) 뒤 DB 쓰기가 실패하면 확정 객체가 참조 없이 남는다(USER-CM-154). 회수 배치 없음(프로필 `user-profile-img/` 고아와 같은 처지).
+1. **`community-img/` 고아 객체** — 이동(S3 복사) 뒤 DB 쓰기가 실패하면 확정 객체가 참조 없이 남는다(USER-CM-154). 회수 배치 없음(프로필 `user-profile-img/` 고아와 같은 처지).
 2. **인증 업로드 무제한** — 계정당 업로드 횟수 한도가 없어 S3 쓰기를 소모시킬 수 있다(USER-CM-146). 임시 객체는 24시간 뒤 사라져 저장 비용은 유한하다.
 3. **인기 목록 매 요청 집계** — 7일 범위 전체 스캔 + 정렬. 게시글 수천 건 규모에서는 인덱스(`created_at`)로 충분하지만 캐시는 없다.
 4. **413의 코드 분기** — 멀티파트 크기 초과는 컨트롤러 전 단계에서 나가므로 경로별로 다른 `ErrorCode`를 내려면 web-support 핸들러가 경로를 봐야 한다. 못 가르면 `PROFILE_IMAGE_TOO_LARGE` 문구("프로필 이미지")가 커뮤니티에서도 나간다 — 구현 시 확인.

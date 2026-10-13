@@ -67,8 +67,8 @@ class CommunityCommandServiceTest {
         @Test
         @DisplayName("[AC-CM-30-2] create: 카테고리 선행 검사 -> 이미지 attach(기존 EP 없음, 상한 5) -> 저장 순이다")
         void create_runsStagesInContractOrder() {
-            given(attacher.attach(List.of("temp/x"), Set.of(), 5)).willReturn(List.of("community/x"));
-            given(postWriter.create(ME, 2L, "제목", "본문", List.of("community/x"))).willReturn(9L);
+            given(attacher.attach(List.of("temp/x"), Set.of(), 5)).willReturn(List.of("community-img/x"));
+            given(postWriter.create(ME, 2L, "제목", "본문", List.of("community-img/x"))).willReturn(9L);
 
             Long id = service().create(ME, postRequest(List.of("temp/x")));
 
@@ -76,7 +76,7 @@ class CommunityCommandServiceTest {
             InOrder order = inOrder(postWriter, attacher);
             order.verify(postWriter).prepareCreate(2L);
             order.verify(attacher).attach(List.of("temp/x"), Set.of(), 5);
-            order.verify(postWriter).create(ME, 2L, "제목", "본문", List.of("community/x"));
+            order.verify(postWriter).create(ME, 2L, "제목", "본문", List.of("community-img/x"));
         }
 
         @Test
@@ -116,20 +116,20 @@ class CommunityCommandServiceTest {
         @DisplayName("[AC-CM-87-1, AC-CM-155-1] update: 선행 검사 결과(기존 EP)를 attach에 넘기고, 저장 뒤에 빠진 EP를 지운다")
         void update_passesExistingToAttach_andErasesRemovedAfterWrite() {
             PostDetailResponse detail = mock(PostDetailResponse.class);
-            given(postWriter.prepareUpdate(ME, 1L, 2L)).willReturn(List.of("community/a", "community/b"));
-            given(attacher.attach(List.of("community/b", "temp/c"), Set.of("community/a", "community/b"), 5))
-                    .willReturn(List.of("community/b", "community/c"));
-            given(postWriter.update(ME, 1L, 2L, "제목", "본문", List.of("community/b", "community/c")))
-                    .willReturn(new CommunityPostWriter.UpdateResult(detail, List.of("community/a")));
+            given(postWriter.prepareUpdate(ME, 1L, 2L)).willReturn(List.of("community-img/a", "community-img/b"));
+            given(attacher.attach(List.of("community-img/b", "temp/c"), Set.of("community-img/a", "community-img/b"), 5))
+                    .willReturn(List.of("community-img/b", "community-img/c"));
+            given(postWriter.update(ME, 1L, 2L, "제목", "본문", List.of("community-img/b", "community-img/c")))
+                    .willReturn(new CommunityPostWriter.UpdateResult(detail, List.of("community-img/a")));
 
-            PostDetailResponse result = service().update(ME, 1L, postRequest(List.of("community/b", "temp/c")));
+            PostDetailResponse result = service().update(ME, 1L, postRequest(List.of("community-img/b", "temp/c")));
 
             assertThat(result).isSameAs(detail);
             InOrder order = inOrder(postWriter, attacher, eraser);
             order.verify(postWriter).prepareUpdate(ME, 1L, 2L);
             order.verify(attacher).attach(any(), any(), eq(5));
             order.verify(postWriter).update(eq(ME), eq(1L), eq(2L), any(), any(), anyList());
-            order.verify(eraser).eraseQuietly(List.of("community/a"));
+            order.verify(eraser).eraseQuietly(List.of("community-img/a"));
         }
 
         @Test
@@ -147,7 +147,7 @@ class CommunityCommandServiceTest {
         @Test
         @DisplayName("[AC-CM-155-2] update: 저장(트랜잭션)이 실패하면 빠진 EP 삭제는 호출되지 않는다 - 커밋 전에 지우지 않는다")
         void update_writeFails_neverErases() {
-            given(postWriter.prepareUpdate(ME, 1L, 2L)).willReturn(List.of("community/a"));
+            given(postWriter.prepareUpdate(ME, 1L, 2L)).willReturn(List.of("community-img/a"));
             given(attacher.attach(anyList(), anySet(), anyInt())).willReturn(List.of());
             given(postWriter.update(any(), any(), any(), any(), any(), anyList()))
                     .willThrow(new IllegalStateException("db down"));
@@ -160,13 +160,13 @@ class CommunityCommandServiceTest {
         @Test
         @DisplayName("[AC-CM-96-1] delete: 삭제 트랜잭션이 돌려준 EP들을 그 뒤에 best-effort로 지운다")
         void delete_erasesReturnedEndpointsAfterWrite() {
-            given(postWriter.delete(ME, 1L)).willReturn(List.of("community/p", "community/c"));
+            given(postWriter.delete(ME, 1L)).willReturn(List.of("community-img/p", "community-img/c"));
 
             service().delete(ME, 1L);
 
             InOrder order = inOrder(postWriter, eraser);
             order.verify(postWriter).delete(ME, 1L);
-            order.verify(eraser).eraseQuietly(List.of("community/p", "community/c"));
+            order.verify(eraser).eraseQuietly(List.of("community-img/p", "community-img/c"));
         }
 
         @Test
@@ -192,8 +192,8 @@ class CommunityCommandServiceTest {
         @DisplayName("[AC-CM-152-3, AC-CM-114-3] create: 댓글·답글 상한은 3이고 단계 순서는 선행 검사(글·부모) -> attach -> 저장이다")
         void create_usesCommentLimitAndStageOrder() {
             CommentRequest request = new CommentRequest("ㅊㅋ", List.of("temp/x"), 5L);
-            given(attacher.attach(List.of("temp/x"), Set.of(), 3)).willReturn(List.of("community/x"));
-            given(commentWriter.create(ME, 1L, 5L, "ㅊㅋ", List.of("community/x"))).willReturn(70L);
+            given(attacher.attach(List.of("temp/x"), Set.of(), 3)).willReturn(List.of("community-img/x"));
+            given(commentWriter.create(ME, 1L, 5L, "ㅊㅋ", List.of("community-img/x"))).willReturn(70L);
 
             Long id = service().create(ME, 1L, request);
 
@@ -220,10 +220,10 @@ class CommunityCommandServiceTest {
         @DisplayName("update: 선행 검사 -> attach(기존 EP, 상한 3) -> 저장 -> 빠진 EP 삭제 순이다")
         void update_stageOrder() {
             CommentItemResponse item = mock(com.skhynix.user.community.dto.CommentResponse.class);
-            given(commentWriter.prepareUpdate(ME, 5L)).willReturn(List.of("community/a"));
-            given(attacher.attach(List.of(), Set.of("community/a"), 3)).willReturn(List.of());
+            given(commentWriter.prepareUpdate(ME, 5L)).willReturn(List.of("community-img/a"));
+            given(attacher.attach(List.of(), Set.of("community-img/a"), 3)).willReturn(List.of());
             given(commentWriter.update(ME, 5L, "수정", List.of()))
-                    .willReturn(new CommunityCommentWriter.UpdateResult(item, List.of("community/a")));
+                    .willReturn(new CommunityCommentWriter.UpdateResult(item, List.of("community-img/a")));
 
             CommentItemResponse result = service().update(ME, 5L, new CommentUpdateRequest("수정", null));
 
@@ -232,7 +232,7 @@ class CommunityCommandServiceTest {
             order.verify(commentWriter).prepareUpdate(ME, 5L);
             order.verify(attacher).attach(any(), any(), eq(3));
             order.verify(commentWriter).update(ME, 5L, "수정", List.of());
-            order.verify(eraser).eraseQuietly(List.of("community/a"));
+            order.verify(eraser).eraseQuietly(List.of("community-img/a"));
         }
 
         @Test
@@ -251,13 +251,13 @@ class CommunityCommandServiceTest {
         @Test
         @DisplayName("[AC-CM-112-4] delete: 삭제 트랜잭션이 돌려준 이미지 EP를 그 뒤에 지운다")
         void delete_erasesAfterWrite() {
-            given(commentWriter.delete(ME, 5L)).willReturn(List.of("community/a"));
+            given(commentWriter.delete(ME, 5L)).willReturn(List.of("community-img/a"));
 
             service().delete(ME, 5L);
 
             InOrder order = inOrder(commentWriter, eraser);
             order.verify(commentWriter).delete(ME, 5L);
-            order.verify(eraser).eraseQuietly(List.of("community/a"));
+            order.verify(eraser).eraseQuietly(List.of("community-img/a"));
         }
 
         @Test

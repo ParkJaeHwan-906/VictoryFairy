@@ -15,7 +15,7 @@ import org.springframework.stereotype.Service;
  * 순서가 곧 계약이다: ①선행 검사(DB) → ②이미지 검증·이동(S3) → ③쓰기(트랜잭션) → ④빠진 객체 삭제(커밋 뒤).
  *
  * <ul>
- *   <li>②가 ③보다 앞이라 ③이 실패하면 {@code community/} 고아 객체가 남을 수 있다(알려진 한계) — 반대로
+ *   <li>②가 ③보다 앞이라 ③이 실패하면 {@code community-img/} 고아 객체가 남을 수 있다(알려진 한계) — 반대로
  *       두면 트랜잭션이 S3 대기에 묶이고, 이동 실패가 이미 커밋된 글을 되돌릴 수 없다</li>
  *   <li>④는 반드시 ③의 커밋 뒤다. 롤백된 수정에서 글이 여전히 가리키는 객체를 지우면 안 된다</li>
  * </ul>
@@ -30,7 +30,7 @@ public class CommunityPostCommandService {
 
     public Long create(Long userAccountId, PostRequest request) {
         writer.prepareCreate(request.categoryId());
-        // 새 글에는 기존 EP 가 없다 — community/ 값 자체가 400 이다
+        // 새 글에는 기존 EP 가 없다 — community-img/ 값 자체가 400 이다
         List<String> endpoints = imageAttacher.attach(request.imageUrlsOrEmpty(), Set.of(),
                 CommunityImagePolicy.MAX_POST_IMAGES);
         return writer.create(userAccountId, request.categoryId(), request.title(), request.content(),

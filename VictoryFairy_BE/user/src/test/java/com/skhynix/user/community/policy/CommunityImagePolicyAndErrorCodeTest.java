@@ -10,18 +10,18 @@ import org.junit.jupiter.api.Test;
 class CommunityImagePolicyAndErrorCodeTest {
 
     @Test
-    @DisplayName("[AC-CM-147-1, AC-CM-148-1] toPermanent는 temp/ 접두만 community/ 로 바꾸고 파일명은 그대로 둔다(세그먼트 2개)")
+    @DisplayName("[AC-CM-147-1, AC-CM-148-1] toPermanent는 temp/ 접두만 community-img/ 로 바꾸고 파일명은 그대로 둔다(세그먼트 2개)")
     void toPermanent_swapsPrefixKeepingFileName() {
         String permanent = CommunityImagePolicy.toPermanent("temp/9f1c3a52-7d1e-4b8a-9c3e-1a2b3c4d5e6f.webp");
 
-        assertThat(permanent).isEqualTo("community/9f1c3a52-7d1e-4b8a-9c3e-1a2b3c4d5e6f.webp");
+        assertThat(permanent).isEqualTo("community-img/9f1c3a52-7d1e-4b8a-9c3e-1a2b3c4d5e6f.webp");
         assertThat(permanent.split("/")).hasSize(2);
     }
 
     @Test
-    @DisplayName("[AC-CM-96-1] isPermanentEndpoint는 community/ 접두에만 참이다 - temp·프로필·null은 삭제 대상이 아니다")
+    @DisplayName("[AC-CM-96-1] isPermanentEndpoint는 community-img/ 접두에만 참이다 - temp·프로필·null은 삭제 대상이 아니다")
     void isPermanentEndpoint_onlyCommunityPrefix() {
-        assertThat(CommunityImagePolicy.isPermanentEndpoint("community/a.jpg")).isTrue();
+        assertThat(CommunityImagePolicy.isPermanentEndpoint("community-img/a.jpg")).isTrue();
         assertThat(CommunityImagePolicy.isPermanentEndpoint("temp/a.jpg")).isFalse();
         assertThat(CommunityImagePolicy.isPermanentEndpoint("user-profile-img/a.jpg")).isFalse();
         assertThat(CommunityImagePolicy.isPermanentEndpoint("/community/a.jpg")).isFalse();

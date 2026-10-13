@@ -87,7 +87,7 @@ class CommentResponseAssemblerTest {
         CommunityFixtures.set(c, "dislikeCount", 1L);
         given(commentRepository.findVisibleRepliesByParentIds(List.of(5L))).willReturn(List.of());
         given(commentImageRepository.findAllByComment_IdInOrderBySortOrderAsc(List.of(5L)))
-                .willReturn(List.of(image(c, "community/a.jpg", 0), image(c, "community/b.jpg", 1)));
+                .willReturn(List.of(image(c, "community-img/a.jpg", 0), image(c, "community-img/b.jpg", 1)));
         given(commentReactionRepository.findAllByUserAccount_IdAndComment_IdIn(ME, List.of(5L)))
                 .willReturn(List.of(reaction(c, ReactionType.LIKE)));
 
@@ -97,7 +97,7 @@ class CommentResponseAssemblerTest {
         assertThat(r.parentCommentId()).isNull();
         assertThat(r.status()).isEqualTo(CommentStatus.VISIBLE);
         assertThat(r.content()).isEqualTo("댓글5");
-        assertThat(r.imageUrls()).containsExactly("community/a.jpg", "community/b.jpg");
+        assertThat(r.imageUrls()).containsExactly("community-img/a.jpg", "community-img/b.jpg");
         assertThat(r.author().nickname()).isEqualTo("남");
         assertThat(r.likeCount()).isEqualTo(3L);
         assertThat(r.dislikeCount()).isEqualTo(1L);
@@ -133,7 +133,7 @@ class CommentResponseAssemblerTest {
         CommunityComment r9 = CommunityFixtures.comment(9L, post, p2, other);
         given(commentRepository.findVisibleRepliesByParentIds(List.of(5L, 8L))).willReturn(List.of(r6, r7, r9));
         given(commentImageRepository.findAllByComment_IdInOrderBySortOrderAsc(List.of(5L, 8L, 6L, 7L, 9L)))
-                .willReturn(List.of(image(r7, "community/r7.jpg", 0)));
+                .willReturn(List.of(image(r7, "community-img/r7.jpg", 0)));
         given(commentReactionRepository.findAllByUserAccount_IdAndComment_IdIn(ME, List.of(5L, 8L, 6L, 7L, 9L)))
                 .willReturn(List.of(reaction(r6, ReactionType.DISLIKE)));
 
@@ -146,7 +146,7 @@ class CommentResponseAssemblerTest {
         assertThat(first.status()).isEqualTo(CommentStatus.VISIBLE);
         assertThat(first.isAuthor()).isTrue();
         assertThat(first.myReaction()).isEqualTo(ReactionType.DISLIKE);
-        assertThat(result.get(0).replies().get(1).imageUrls()).containsExactly("community/r7.jpg");
+        assertThat(result.get(0).replies().get(1).imageUrls()).containsExactly("community-img/r7.jpg");
     }
 
     @Test
@@ -273,7 +273,7 @@ class CommentResponseAssemblerTest {
         CommunityComment parent = CommunityFixtures.comment(5L, post, null, other);
         CommunityComment reply = CommunityFixtures.comment(6L, post, parent, me);
         given(commentImageRepository.findAllByComment_IdInOrderBySortOrderAsc(List.of(6L)))
-                .willReturn(List.of(image(reply, "community/r.jpg", 0)));
+                .willReturn(List.of(image(reply, "community-img/r.jpg", 0)));
         given(commentReactionRepository.findAllByUserAccount_IdAndComment_IdIn(ME, List.of(6L)))
                 .willReturn(List.of(reaction(reply, ReactionType.LIKE)));
 
@@ -282,7 +282,7 @@ class CommentResponseAssemblerTest {
         assertThat(r.commentId()).isEqualTo(6L);
         assertThat(r.parentCommentId()).isEqualTo(5L);
         assertThat(r.status()).isEqualTo(CommentStatus.VISIBLE);
-        assertThat(r.imageUrls()).containsExactly("community/r.jpg");
+        assertThat(r.imageUrls()).containsExactly("community-img/r.jpg");
         assertThat(r.myReaction()).isEqualTo(ReactionType.LIKE);
         assertThat(r.isAuthor()).isTrue();
         verify(commentRepository, never()).findVisibleRepliesByParentIds(anyCollection());
