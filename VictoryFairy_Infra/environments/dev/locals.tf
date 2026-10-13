@@ -19,9 +19,9 @@ locals {
   #   경로를 rewrite 하지 않는다.
   api_path_patterns = ["/api/*", "/rt/*", "/chat/*"]
 
-  # 사용자 업로드 자산(프로필 이미지)의 단일 출처. 세 곳이 같은 값을 써야 한다:
+  # 사용자 업로드 자산(프로필·커뮤니티 이미지)의 단일 출처. 세 곳이 같은 값을 써야 한다:
   #   1) modules/asset    — 버킷 이름 + temp/ 만료 규칙 + 버킷 정책이 허용하는 접두사
-  #   2) modules/cdn      — 경로 패턴 /user-profile-img/*, /temp/* (그 외는 종전대로 FE·ALB)
+  #   2) modules/cdn      — 경로 패턴 /user-profile-img/*, /community-img/*, /temp/* (그 외는 종전대로 FE·ALB)
   #   3) modules/user-irsa — user-app 파드가 읽고 쓸 수 있는 접두사
   # ⚠ BE 가 만드는 S3 키와 문자 그대로 일치해야 한다. 어긋나면 업로드는 AccessDenied,
   #   조회는 CloudFront 가 FE 버킷으로 보내 404 가 된다.
@@ -31,6 +31,11 @@ locals {
   asset_bucket_name    = "victoryfairy-asset"
   asset_profile_prefix = "user-profile-img/"
   asset_temp_prefix    = "temp/"
+
+  # 커뮤니티 게시글·댓글 이미지의 확정 접두사. 프로필과 같은 성격(앱이 temp/ 에서 CopyObject 로
+  # 옮기고, UUID 키라 불변, 만료 없음, 지우는 주체는 앱)이라 위 세 곳에 똑같이 배선한다.
+  # ⚠ community/ 가 아니다 — FE 라우트 /community/* 와 겹치면 CloudFront 가 그 경로를 S3 로 보낸다.
+  asset_community_prefix = "community-img/"
 
   # 캐릭터 꾸미기 에셋. 위 둘과 같은 버킷이지만 성격이 다르다 — 저자가 파드가 아니라 사람이고
   # (scripts/upload-character-assets.sh), 앱은 이 접두사를 읽지도 쓰지도 않는다. BE 는 DB 에 담긴
