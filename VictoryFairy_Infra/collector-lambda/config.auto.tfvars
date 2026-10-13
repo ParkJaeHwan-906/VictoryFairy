@@ -77,6 +77,18 @@ inning_events_enabled = true
 #      game-state-events/{오늘}/ 문서 생성과 user-app 로그 수신을 본다.
 game_state_events_enabled = true
 
+# 진행 중 경기 승률 수집(games.home_win_rate/away_win_rate). 위 게이트와 달리 순서를 어기면
+# 사고가 난다 — 컬럼이 없는 DB 에서 켜면 games upsert 전체가 실패한다.
+#
+# 2026-10-13 에 켰다. 선행 조건 확인:
+#   1. 컬럼 — 운영(43.200.82.148)·devdb 에 수동 ALTER 적용, 두 DB 모두
+#      information_schema 로 decimal(4,1) NULL 확인.
+#   2. BE — dev_be #647 → main #650 배포, user-app 이미지 2228a50, 운영 GET /api/games 응답에
+#      homeTeamWinRate·awayTeamWinRate 키 확인(값 null).
+#   3. 이미지 — dev_ai #648 → main #649 후 두 함수 ImageUri 가 kbo-collector:c27c8b5 로 갱신,
+#      그 커밋의 config.py 에 win_rate_enabled 존재 확인.
+win_rate_enabled = true
+
 # --- DB 적재 잡 (records/registrations) — 2026-07-29 조회값 ---
 # 서브넷/SG는 infra 스택 소유. db_host 는 데이터 EC2 프라이빗 IP —
 # 인스턴스 재생성(프라이빗 복귀 등) 시 여기와 k8s/30-external-data.yaml 둘 다 갱신.
