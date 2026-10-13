@@ -76,6 +76,11 @@ export interface GameChatDeletedEvent {
   msgId: number;
 }
 
+/** SSE `event: presence` 페이로드 — 방 접속 인원(고유 계정 수, 본인 포함). */
+export interface GameChatPresenceEvent {
+  count: number;
+}
+
 /* ------------------------------------------------------------------ *
  * 래핑된 응답 별칭 — SSE 구독과 좋아요(202 무본문)를 뺀 나머지는 성공도 ApiResponse 로 감싼다
  * ------------------------------------------------------------------ */
