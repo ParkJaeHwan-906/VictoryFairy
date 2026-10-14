@@ -127,13 +127,21 @@ spec:
             limits:
               cpu: "500m"
               memory: "768Mi"   # MaxRAMPercentage=70 로 힙 산정.
+          # ⚠ startup·liveness 는 TCP, readiness 만 HTTP 다 — 이유는 21-quiz-app.yaml 프로브 주석과 같다
+          #   (startup 을 HTTP readiness 에 걸면 ApplicationRunner 시간까지 150초 한도에 들어가 재시작 루프 위험).
+          #   실측(2026-10-14) Tomcat 까지 약 102초로 이미 한도의 2/3 다 — 기동이 더 느려지면 TCP 로도 걸린다.
           startupProbe:
             tcpSocket: { port: 8080 }
             failureThreshold: 30
             periodSeconds: 5      # JVM 콜드스타트 최대 ~150s 허용
+          # ALB 헬스체크(22-ingress.yaml healthcheck-path)와 같은 경로. Ready 판정을 포트 개방이 아니라
+          #   Spring readiness(ACCEPTING_TRAFFIC)에 맞춰, 롤링이 준비 안 된 신버전으로 넘어가지 않게 한다.
+          #   readiness 그룹은 readinessState 만 본다(db·redis·mail 미포함 — 넣으면 의존 장애 때 전 파드 이탈).
           readinessProbe:
-            tcpSocket: { port: 8080 }
+            httpGet: { path: /api/actuator/health/readiness, port: 8080 }
             periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
           livenessProbe:
             tcpSocket: { port: 8080 }
             periodSeconds: 15
