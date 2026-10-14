@@ -12,6 +12,10 @@ metadata:
   labels:
     app.kubernetes.io/part-of: victoryfairy
     tier: service
+    # 새 파드가 ALB 대상에서 healthy 가 될 때까지 Ready 로 치지 않게 해, 롤링 중 구 파드가
+    # 먼저 내려가 대상 0개가 되는 틈을 막는다. 웹훅 failurePolicy=Ignore 라 컨트롤러 장애 시에도
+    # 파드 생성은 막히지 않는다. 라벨은 이후 생성되는 파드에만 적용된다.
+    elbv2.k8s.aws/pod-readiness-gate-inject: enabled
 ---
 apiVersion: v1
 kind: Namespace
