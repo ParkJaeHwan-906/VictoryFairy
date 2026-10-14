@@ -4,7 +4,7 @@
  * 스토리에 "사용자가 끌어서 옮길 수 있는 스티커"를 얹는 것은 앱과 앱 사이의 약속
  * (안드로이드 인텐트 · iOS URL 스킴)이라 브라우저에서는 흉내 낼 수 없다.
  * `navigator.share` 로는 OS 공유 시트까지가 끝이고 스티커 겹을 지정할 수 없다.
- * 그래서 스티커 이미지는 여기서 만들고(`stickerCanvas.ts`), 인스타로 건네는 일만
+ * 그래서 스티커 이미지는 웹이 준비하고(`shareStickers.ts`), 인스타로 건네는 일만
  * 앱(`VictoryFairy_APP/src/share/`)에 맡긴다 — 알림과 같은 분업이다.
  *
  * ⚠️ 표식·전역 이름은 앱의 `src/share/bridge.ts` 가 그대로 들고 있다.
@@ -43,13 +43,16 @@ export type InstagramShareOutcome =
   /** 이미지가 깨졌거나 인스타를 띄우지 못했다. */
   | 'failed';
 
-/** 앱이 스티커와 함께 받는 것. 색은 스티커 뒤에 깔릴 배경 그라데이션이다. */
+/**
+ * 앱이 받는 것 — **스티커 한 장뿐이다.**
+ *
+ * 앱 계약에는 배경 그라데이션 색(`backgroundTopColor` · `backgroundBottomColor`)도 있지만
+ * 일부러 보내지 않는다. 색을 실으면 인스타가 그 색으로 판을 칠해 사용자가 고른 사진을
+ * 덮는다. 빠져 있으면 앱은 색 없이 스티커만 넘긴다(인스타 기본 배경).
+ */
 export interface InstagramSharePayload {
   /** 스티커 PNG. `data:image/png;base64,` 접두사가 붙어 있어도 앱이 떼어 낸다. */
   stickerBase64: string;
-  /** `#RRGGBB`. 형태가 어긋나면 앱이 버리고 인스타 기본 배경으로 보낸다. */
-  backgroundTopColor?: string;
-  backgroundBottomColor?: string;
 }
 
 interface AppWindow extends Window {
