@@ -15,6 +15,7 @@ import tools.jackson.databind.ObjectMapper;
 public class RealtimeEventSubscriber implements MessageListener {
 
     private final SseEmitterRegistry registry;
+    private final QuizRoomSseRegistry quizRoomRegistry;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -23,6 +24,13 @@ public class RealtimeEventSubscriber implements MessageListener {
             // StringRedisTemplate 은 값을 UTF-8 문자열로 직렬화하므로 body 는 JSON 원문 그대로다.
             RealtimeEventMessage received = objectMapper.readValue(message.getBody(), RealtimeEventMessage.class);
             RealtimeEvent event = received.toEvent();
+
+            // 퀴즈방 토픽은 채팅 레지스트리에 닿지 않게 먼저 가른다(QuizRoomSseRegistry javadoc).
+            if (QuizRoomSseRegistry.isTopic(received.roomUid())) {
+                quizRoomRegistry.deliver(received.roomUid(), event, SubscriptionCloseCommand.isCloseSignal(event)
+                        ? objectMapper.convertValue(event.data(), SubscriptionCloseCommand.class) : null);
+                return;
+            }
 
             // 종료 신호는 전송이 아니라 연결 종료로 갈라진다 — 이 분기가 없으면 종료 명령이 구독자에게
             // data: 로 그대로 나간다. payload 는 역직렬화로 Map 이 되어 있어 명령 타입으로 되돌린다.

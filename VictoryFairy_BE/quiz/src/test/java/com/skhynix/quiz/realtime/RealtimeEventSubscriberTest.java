@@ -41,6 +41,9 @@ class RealtimeEventSubscriberTest {
     private SseEmitterRegistry registry;
 
     @Mock
+    private QuizRoomSseRegistry quizRoomRegistry;
+
+    @Mock
     private StringRedisTemplate redisTemplate;
 
     @Test
@@ -53,7 +56,7 @@ class RealtimeEventSubscriberTest {
         ArgumentCaptor<String> payload = ArgumentCaptor.forClass(String.class);
         verify(redisTemplate).convertAndSend(anyString(), payload.capture());
 
-        new RealtimeEventSubscriber(registry, objectMapper).onMessage(message(payload.getValue()), null);
+        new RealtimeEventSubscriber(registry, quizRoomRegistry, objectMapper).onMessage(message(payload.getValue()), null);
 
         ArgumentCaptor<RealtimeEvent> delivered = ArgumentCaptor.forClass(RealtimeEvent.class);
         verify(registry).publish(anyString(), delivered.capture());
@@ -79,7 +82,7 @@ class RealtimeEventSubscriberTest {
         String json = """
                 {"roomUid":"room-9","name":"message","data":{"content":"hi"},"excludeUserAccountId":null}""";
 
-        new RealtimeEventSubscriber(registry, objectMapper).onMessage(message(json), null);
+        new RealtimeEventSubscriber(registry, quizRoomRegistry, objectMapper).onMessage(message(json), null);
 
         verify(registry).publish(org.mockito.ArgumentMatchers.eq("room-9"), any(RealtimeEvent.class));
     }
@@ -87,7 +90,7 @@ class RealtimeEventSubscriberTest {
     @Test
     @DisplayName("깨진 payload 는 삼키고 전달하지 않는다 — 한 건이 리스너 컨테이너를 멈추게 하지 않는다")
     void onMessage_swallowsMalformedPayload() {
-        RealtimeEventSubscriber subscriber = new RealtimeEventSubscriber(registry, objectMapper);
+        RealtimeEventSubscriber subscriber = new RealtimeEventSubscriber(registry, quizRoomRegistry, objectMapper);
 
         assertThatCode(() -> subscriber.onMessage(message("not-json"), null)).doesNotThrowAnyException();
         verifyNoInteractions(registry);
@@ -103,12 +106,52 @@ class RealtimeEventSubscriberTest {
         ArgumentCaptor<String> payload = ArgumentCaptor.forClass(String.class);
         verify(redisTemplate).convertAndSend(anyString(), payload.capture());
 
-        new RealtimeEventSubscriber(registry, objectMapper).onMessage(message(payload.getValue()), null);
+        new RealtimeEventSubscriber(registry, quizRoomRegistry, objectMapper).onMessage(message(payload.getValue()), null);
 
         ArgumentCaptor<SubscriptionCloseCommand> delivered = ArgumentCaptor.forClass(SubscriptionCloseCommand.class);
         verify(registry).handleCloseCommand(eq("room-1"), delivered.capture());
         assertThat(delivered.getValue()).isEqualTo(command);
         verify(registry, never()).publish(anyString(), any());
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CQR-91, QUIZ-CQR-93] 퀴즈방 토픽 이벤트는 퀴즈방 레지스트리로만 가고 채팅 레지스트리에는 닿지 않는다")
+    void onMessage_quizRoomTopic_goesToQuizRoomRegistryOnly() {
+        String json = """
+                {"roomUid":"quiz-room:5","name":"votes","data":{"quizId":11},"excludeUserAccountId":null}""";
+
+        new RealtimeEventSubscriber(registry, quizRoomRegistry, objectMapper).onMessage(message(json), null);
+
+        ArgumentCaptor<RealtimeEvent> delivered = ArgumentCaptor.forClass(RealtimeEvent.class);
+        verify(quizRoomRegistry).deliver(eq("quiz-room:5"), delivered.capture(), org.mockito.ArgumentMatchers.isNull());
+        assertThat(delivered.getValue().name()).isEqualTo("votes");
+        verifyNoInteractions(registry);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CQR-92] 퀴즈방 토픽의 종료 신호는 SubscriptionCloseCommand 로 복원돼 퀴즈방 레지스트리에 넘어간다")
+    void onMessage_quizRoomTopic_closeSignal_restoredCommandGoesToQuizRoomRegistry() {
+        SubscriptionCloseCommand command = SubscriptionCloseCommand.evict(7L, "origin-1");
+        new RedisPubSubPublisher(redisTemplate, objectMapper).publish("quiz-room:5", command.toEvent());
+        ArgumentCaptor<String> payload = ArgumentCaptor.forClass(String.class);
+        verify(redisTemplate).convertAndSend(anyString(), payload.capture());
+
+        new RealtimeEventSubscriber(registry, quizRoomRegistry, objectMapper).onMessage(message(payload.getValue()), null);
+
+        verify(quizRoomRegistry).deliver(eq("quiz-room:5"), any(RealtimeEvent.class), eq(command));
+        verifyNoInteractions(registry);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CQR-91] 채팅 방 uid 이벤트는 퀴즈방 레지스트리에 닿지 않는다")
+    void onMessage_chatTopic_neverTouchesQuizRoomRegistry() {
+        String json = """
+                {"roomUid":"room-9","name":"message","data":{"content":"hi"},"excludeUserAccountId":null}""";
+
+        new RealtimeEventSubscriber(registry, quizRoomRegistry, objectMapper).onMessage(message(json), null);
+
+        verify(registry).publish(eq("room-9"), any(RealtimeEvent.class));
+        verifyNoInteractions(quizRoomRegistry);
     }
 
     private Message message(String body) {

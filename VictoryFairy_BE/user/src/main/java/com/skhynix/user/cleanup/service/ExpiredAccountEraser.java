@@ -5,6 +5,7 @@ import com.skhynix.domain.chat.repository.ChatroomRepository;
 import com.skhynix.domain.community.repository.CommunityCommentRepository;
 import com.skhynix.domain.community.repository.CommunityPostRepository;
 import com.skhynix.domain.quiz.repository.QuizLikeRepository;
+import com.skhynix.domain.quizroom.repository.QuizRoomRepository;
 import com.skhynix.domain.user.entity.UserAccount;
 import com.skhynix.domain.user.repository.ExpiredAccountView;
 import com.skhynix.domain.user.repository.UserRefreshTokenRepository;
@@ -31,6 +32,7 @@ public class ExpiredAccountEraser {
     private final ChatRepository chatRepository;
     private final CommunityPostRepository communityPostRepository;
     private final CommunityCommentRepository communityCommentRepository;
+    private final QuizRoomRepository quizRoomRepository;
     private final UserRepository userRepository;
     private final UserRefreshTokenRepository userRefreshTokenRepository;
 
@@ -43,8 +45,8 @@ public class ExpiredAccountEraser {
      * <ol>
      *   <li>취소한 좋아요({@code liked = false}) 삭제 — <b>계정 삭제 전에만</b> 할 수 있다. 뒤로 밀면
      *       소유자가 이미 NULL 이라 어느 행이 누구 것인지 가릴 수 없다</li>
-     *   <li>채팅방·채팅·커뮤니티 게시글·댓글 소유권을 더미 계정으로 이관 — {@code chatrooms} 와
-     *       커뮤니티 두 테이블은 FK 가 NO ACTION + NOT NULL 이라 남아 있으면 3단계가 아예 실패한다
+     *   <li>채팅방·채팅·커뮤니티 게시글·댓글·퀴즈방 소유권을 더미 계정으로 이관 — {@code chatrooms}·
+     *       커뮤니티 두 테이블·{@code quiz_rooms} 는 FK 가 NO ACTION + NOT NULL 이라 남아 있으면 3단계가 아예 실패한다
      *       (삭제·블라인드 행도 거르지 않는다 — 하나라도 남으면 막힌다)</li>
      *   <li>{@code users} 행 삭제 — 나머지 자식은 DB 의 CASCADE/SET NULL 이 처리한다</li>
      * </ol>
@@ -60,6 +62,8 @@ public class ExpiredAccountEraser {
         int chats = chatRepository.reassignSender(target.accountId(), unknownAccount);
         int posts = communityPostRepository.reassignAuthor(target.accountId(), unknownAccount);
         int comments = communityCommentRepository.reassignAuthor(target.accountId(), unknownAccount);
+        // 건수는 결과 레코드에 싣지 않는다(회차 요약 로그 형식은 그대로). 퀴즈방 답·추천·주간 베스트 지급 기록은 SET NULL 이 처리한다
+        quizRoomRepository.reassignAuthor(target.accountId(), unknownAccount);
         int removed = userRepository.deleteUserById(target.userId());
         return new AccountEraseResult(chatrooms, chats, posts, comments, cancelledLikes, removed > 0);
     }
