@@ -4,7 +4,6 @@
  */
 import type { CommunityPostDetail } from './types/community';
 import type { Game } from './types/game';
-import type { ShareStickerId } from './utils/shareStickers';
 
 export const ROUTES = {
   login: '/login',
@@ -70,12 +69,10 @@ export const ROUTES = {
    */
   notificationSetting: '/my/notification',
   /**
-   * 인스타그램 스토리 공유. 마이페이지 "설정 > 스토리 공유"로 들어온다.
-   * 디자인에 NavBar 가 없어 레이아웃 밖 전체 화면이다.
+   * 승리요정 스티커(인스타그램 스토리 공유). 홈 배너와 마이페이지 "설정 > 스토리 공유"로
+   * 들어온다. 디자인에 NavBar 가 없어 레이아웃 밖 전체 화면이다.
    *
-   * 무엇을 공유할지는 `StoryShareState` 로 넘긴다 — 지금은 마이페이지 한 곳에서만
-   * 들어오지만, 경기 결과·퀴즈 결과 스티커가 생기면 그 화면들이 자기 종류를 실어
-   * 같은 자리로 들어온다. state 가 비어 있으면 기본 스티커(내 캐릭터)다.
+   * 어떤 스티커를 넘길지는 화면 안에서 고르므로 넘겨받는 state 가 없다.
    */
   storyShare: '/share',
   /**
@@ -290,19 +287,4 @@ export function readQuizPageState(state: unknown): QuizPageState | null {
   return typeof gameId === 'string' && typeof awayTeam === 'string' && typeof homeTeam === 'string'
     ? { gameId, awayTeam, homeTeam }
     : null;
-}
-
-/**
- * 스토리 공유 화면으로 넘길 값 — **무엇을 스티커로 만들지**.
- *
- * 값은 `utils/shareStickers.ts` 의 목록에 있는 id 다. 화면이 종류를 알지 못하게
- * 두려는 것이라(스티커가 늘어도 화면은 그대로다) 여기서도 유니온을 다시 적지 않고
- * 그쪽 타입을 그대로 쓴다.
- *
- * 라우터 state 는 주소를 직접 치고 들어오면 비어 있고, 배포 사이에 history 로 남은 옛
- * 값이 되살아날 수도 있다 — 모르는 값이면 기본 스티커로 본다(`findShareSticker`).
- * 빈 화면을 띄우는 것보다 뭐라도 공유할 수 있는 쪽이 낫다.
- */
-export interface StoryShareState {
-  stickerId: ShareStickerId;
 }

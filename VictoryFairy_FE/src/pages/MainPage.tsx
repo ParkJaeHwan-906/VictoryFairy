@@ -38,8 +38,8 @@ import '../styles/MainPage.css';
  * TOP 3 전용(`GET /rankings/bq/top`)이면 충분하다 — 라운지는 목록까지 함께 그려야 해서
  * TOP 10 을 받아 앞 3건을 시상대로 쓴다. "전체 보기"가 그 화면으로 가는 문이다.
  *
- * **나만의 승요 카드 만들기** 배너는 스토리 공유(`StorySharePage`)로 간다 — 지금 담을 수
- * 있는 것은 내 캐릭터 한 장이고, 경기·퀴즈 기록을 담은 카드가 그 뒤를 잇는다.
+ * **나만의 승요 카드 만들기** 배너는 승리요정 스티커(`StorySharePage`)로 간다 — 캐릭터 ·
+ * 에셋 · 텍스트 · 숫자 스티커를 골라 인스타 스토리에 붙인다.
  */
 export default function MainPage() {
   // 프로필은 새로고침하면 비어 있는 상태로 시작한다(persist 하지 않는다). 채우는 일은
@@ -160,8 +160,7 @@ export default function MainPage() {
       </header>
 
       {/*
-        스토리 공유로 간다. 종류를 실어 보내지 않으므로 기본 스티커(내 캐릭터)가 잡힌다 —
-        담을 것이 늘면 여기서 `state` 로 종류를 골라 보낼 수 있다(`StoryShareState`).
+        승리요정 스티커(스토리 공유)로 간다. 무엇을 넘길지는 그 화면에서 고른다.
       */}
       <Link className="main-page__promo" to={ROUTES.storyShare}>
         {/* 디자인에도 "임시 그래픽"으로 잡혀 있는 두 장의 카드다 */}
