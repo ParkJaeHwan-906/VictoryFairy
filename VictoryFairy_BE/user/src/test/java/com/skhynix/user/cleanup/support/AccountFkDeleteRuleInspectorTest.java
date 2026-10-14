@@ -29,6 +29,9 @@ class AccountFkDeleteRuleInspectorTest {
     private static final String POST_REACTIONS = "community_post_reactions";
     private static final String COMMENT_REACTIONS = "community_comment_reactions";
     private static final String REPORTS = "community_reports";
+    private static final String QUIZ_ROOM_LIKES = "quiz_room_likes";
+    private static final String QUIZ_ROOM_ANSWERS = "quiz_room_answers";
+    private static final String QUIZ_ROOM_WEEKLY_BESTS = "quiz_room_weekly_bests";
 
     @Mock
     private JdbcTemplate jdbcTemplate;
@@ -41,6 +44,12 @@ class AccountFkDeleteRuleInspectorTest {
                 .willReturn(rules);
     }
 
+    private void stubQuizRoomTablesSetNull() {
+        stubRule(QUIZ_ROOM_LIKES, List.of("SET NULL"));
+        stubRule(QUIZ_ROOM_ANSWERS, List.of("SET NULL"));
+        stubRule(QUIZ_ROOM_WEEKLY_BESTS, List.of("SET NULL"));
+    }
+
     private void stubAll(List<String> rules) {
         for (Target t : AccountFkDeleteRuleInspector.TARGETS) {
             stubRule(t.table(), rules);
@@ -48,17 +57,20 @@ class AccountFkDeleteRuleInspectorTest {
     }
 
     @Test
-    @DisplayName("[USER-EDC-58] 검사 대상은 quizzes_like·커뮤니티 반응 2·신고 = 정확히 4개다")
-    void targets_areTheFourTables() {
+    @DisplayName("[USER-EDC-58, QUIZ-CQR-122, QUIZ-CQR-123, QUIZ-CQR-139] 검사 대상은 quizzes_like·커뮤니티 반응 2·신고·퀴즈방 추천·퀴즈방 답·퀴즈방 주간 베스트 보상 계정 = 정확히 7개다")
+    void targets_areTheSevenTables() {
         assertThat(AccountFkDeleteRuleInspector.TARGETS).extracting(Target::table)
-                .containsExactly(QUIZ_LIKE, POST_REACTIONS, COMMENT_REACTIONS, REPORTS);
+                .containsExactly(QUIZ_LIKE, POST_REACTIONS, COMMENT_REACTIONS, REPORTS,
+                        QUIZ_ROOM_LIKES, QUIZ_ROOM_ANSWERS, QUIZ_ROOM_WEEKLY_BESTS);
         assertThat(AccountFkDeleteRuleInspector.TARGETS).extracting(Target::column)
                 .containsExactly("user_account_id", "user_account_id", "user_account_id",
-                        "reporter_account_id");
+                        "reporter_account_id", "user_account_id", "user_account_id", "rewarded_account_id");
+        assertThat(AccountFkDeleteRuleInspector.TARGETS.subList(4, 7)).extracting(Target::migration)
+                .containsOnly("infra/sql/migrate-quiz-room.sql");
     }
 
     @Test
-    @DisplayName("[USER-EDC-49, USER-EDC-58] 4개 전부 정확히 1개이고 SET NULL이면 isAllSetNull=true, 미설정 목록은 비어 있다")
+    @DisplayName("[USER-EDC-49, USER-EDC-58] 7개 전부 정확히 1개이고 SET NULL이면 isAllSetNull=true, 미설정 목록은 비어 있다")
     void allSetNull_returnsTrue_andNoMisconfigured() {
         stubAll(List.of("SET NULL"));
 
@@ -75,7 +87,7 @@ class AccountFkDeleteRuleInspectorTest {
     }
 
     @Test
-    @DisplayName("[USER-EDC-58] 4개 전부 아직 CASCADE면 isAllSetNull=false이고 4개 모두 목록에 담긴다")
+    @DisplayName("[USER-EDC-58] 7개 전부 아직 CASCADE면 isAllSetNull=false이고 7개 모두 목록에 담긴다")
     void allCascade_returnsFalse_andReportsEveryTarget() {
         stubAll(List.of("CASCADE"));
 
@@ -90,6 +102,9 @@ class AccountFkDeleteRuleInspectorTest {
         stubRule(POST_REACTIONS, List.of("CASCADE"));
         stubRule(COMMENT_REACTIONS, List.of("SET NULL"));
         stubRule(REPORTS, List.of("SET NULL"));
+        stubRule(QUIZ_ROOM_LIKES, List.of("SET NULL"));
+        stubRule(QUIZ_ROOM_ANSWERS, List.of("SET NULL"));
+        stubRule(QUIZ_ROOM_WEEKLY_BESTS, List.of("SET NULL"));
 
         assertThat(inspector.isAllSetNull()).isFalse();
         assertThat(inspector.findMisconfigured()).extracting(Target::table).containsExactly(POST_REACTIONS);
@@ -102,9 +117,42 @@ class AccountFkDeleteRuleInspectorTest {
         stubRule(POST_REACTIONS, List.of("SET NULL"));
         stubRule(COMMENT_REACTIONS, List.of("SET NULL"));
         stubRule(REPORTS, List.of("NO ACTION"));
+        stubQuizRoomTablesSetNull();
 
         assertThat(inspector.findMisconfigured()).extracting(Target::table)
                 .containsExactly(QUIZ_LIKE, REPORTS);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CQR-122, QUIZ-CQR-123] 퀴즈방 추천·답 FK가 CASCADE면 그 두 테이블만 미설정으로 보고된다")
+    void quizRoomTablesCascade_reportsOnlyQuizRoomTables() {
+        stubRule(QUIZ_LIKE, List.of("SET NULL"));
+        stubRule(POST_REACTIONS, List.of("SET NULL"));
+        stubRule(COMMENT_REACTIONS, List.of("SET NULL"));
+        stubRule(REPORTS, List.of("SET NULL"));
+        stubRule(QUIZ_ROOM_LIKES, List.of("CASCADE"));
+        stubRule(QUIZ_ROOM_ANSWERS, List.of("CASCADE"));
+        stubRule(QUIZ_ROOM_WEEKLY_BESTS, List.of("SET NULL"));
+
+        assertThat(inspector.isAllSetNull()).isFalse();
+        assertThat(inspector.findMisconfigured()).extracting(Target::table)
+                .containsExactly(QUIZ_ROOM_LIKES, QUIZ_ROOM_ANSWERS);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CQR-139, QUIZ-CQR-148] 주간 베스트 보상 계정 FK(rewarded_account_id)가 CASCADE면 그 테이블만 미설정으로 보고된다 - 하드 삭제가 확정 순위를 지우지 않게")
+    void weeklyBestRewardedAccountCascade_reportsOnlyThatTable() {
+        stubRule(QUIZ_LIKE, List.of("SET NULL"));
+        stubRule(POST_REACTIONS, List.of("SET NULL"));
+        stubRule(COMMENT_REACTIONS, List.of("SET NULL"));
+        stubRule(REPORTS, List.of("SET NULL"));
+        stubRule(QUIZ_ROOM_LIKES, List.of("SET NULL"));
+        stubRule(QUIZ_ROOM_ANSWERS, List.of("SET NULL"));
+        stubRule(QUIZ_ROOM_WEEKLY_BESTS, List.of("CASCADE"));
+
+        assertThat(inspector.isAllSetNull()).isFalse();
+        assertThat(inspector.findMisconfigured()).extracting(Target::table)
+                .containsExactly(QUIZ_ROOM_WEEKLY_BESTS);
     }
 
     @Test
@@ -113,7 +161,7 @@ class AccountFkDeleteRuleInspectorTest {
         stubAll(List.of());
 
         assertThat(inspector.isAllSetNull()).isFalse();
-        assertThat(inspector.findMisconfigured()).hasSize(4);
+        assertThat(inspector.findMisconfigured()).hasSize(7);
     }
 
     @Test
@@ -123,6 +171,7 @@ class AccountFkDeleteRuleInspectorTest {
         stubRule(POST_REACTIONS, List.of("SET NULL"));
         stubRule(COMMENT_REACTIONS, List.of("SET NULL"));
         stubRule(REPORTS, List.of("SET NULL"));
+        stubQuizRoomTablesSetNull();
 
         assertThat(inspector.findMisconfigured()).extracting(Target::table).containsExactly(QUIZ_LIKE);
     }
@@ -135,18 +184,19 @@ class AccountFkDeleteRuleInspectorTest {
                 .queryForList(anyString(), eq(String.class), eq(COMMENT_REACTIONS), anyString());
         stubRule(POST_REACTIONS, List.of("SET NULL"));
         stubRule(REPORTS, List.of("SET NULL"));
+        stubQuizRoomTablesSetNull();
 
         assertThat(inspector.isAllSetNull()).isFalse();
         assertThat(inspector.findMisconfigured()).extracting(Target::table).containsExactly(COMMENT_REACTIONS);
     }
 
     @Test
-    @DisplayName("조회 전체가 실패하면(DB 접근 오류) 4개 모두 미설정으로 간주한다(fail-closed)")
+    @DisplayName("조회 전체가 실패하면(DB 접근 오류) 7개 모두 미설정으로 간주한다(fail-closed)")
     void allQueriesFail_everyTargetMisconfigured() {
         willThrow(new DataAccessResourceFailureException("down")).given(jdbcTemplate)
                 .queryForList(anyString(), eq(String.class), anyString(), anyString());
 
         assertThat(inspector.isAllSetNull()).isFalse();
-        assertThat(inspector.findMisconfigured()).hasSize(4);
+        assertThat(inspector.findMisconfigured()).hasSize(7);
     }
 }

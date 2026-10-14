@@ -58,7 +58,18 @@ public class AccountFkDeleteRuleInspector {
                             + "카운터와 행 수가 되돌릴 수 없이 어긋난다"),
             new Target("community_reports", "reporter_account_id",
                     "infra/sql/migrate-community.sql",
-                    "적용 전에 지우면 CASCADE 가 신고 행을 지워 블라인드의 근거가 사라진다"));
+                    "적용 전에 지우면 CASCADE 가 신고 행을 지워 블라인드의 근거가 사라진다"),
+            new Target("quiz_room_likes", "user_account_id",
+                    "infra/sql/migrate-quiz-room.sql",
+                    "적용 전에 지우면 CASCADE 가 추천 행을 지우는데 like_count 카운터는 남아 "
+                            + "카운터와 행 수가 되돌릴 수 없이 어긋난다"),
+            new Target("quiz_room_answers", "user_account_id",
+                    "infra/sql/migrate-quiz-room.sql",
+                    "적용 전에 지우면 CASCADE 가 답 행을 지워 투표 분포가 되돌릴 수 없이 줄어든다"),
+            new Target("quiz_room_weekly_bests", "rewarded_account_id",
+                    "infra/sql/migrate-quiz-room.sql",
+                    "적용 전에 지우면 CASCADE 가 확정된 주간 베스트 순위 행을 지워 인기 목록이 "
+                            + "되돌릴 수 없이 바뀐다"));
 
     private static final Logger log = LoggerFactory.getLogger(AccountFkDeleteRuleInspector.class);
 
