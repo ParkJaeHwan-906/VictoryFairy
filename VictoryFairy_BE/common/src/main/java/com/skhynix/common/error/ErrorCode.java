@@ -130,6 +130,7 @@ public enum ErrorCode {
     GAME_NOT_FOUND(404, "존재하지 않는 경기입니다."),
     // 미편성(quiz_date NULL) 풀 문제도 404 — 편성 전 문제의 존재는 외부에 노출하지 않는다
     QUIZ_NOT_FOUND(404, "존재하지 않는 퀴즈입니다."),
+    QUIZ_ROOM_NOT_FOUND(404, "존재하지 않는 퀴즈방입니다."),
     CHARACTER_ITEM_NOT_FOUND(404, "존재하지 않는 아이템입니다."),
     // ⚠ 위 코드와 합치지 말 것 — 목록 API 가 카탈로그 전체를 having 과 함께 돌려주므로 "없는 아이템"과
     //   "안 산 아이템"은 이미 구분 가능한 상태이고, 뭉치면 FE 가 "구매하기"를 띄울지 "다시 시도"를
