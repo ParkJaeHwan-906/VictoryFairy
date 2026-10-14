@@ -24,6 +24,9 @@ class InMemoryPublisherTest {
     @Mock
     private SseEmitterRegistry registry;
 
+    @Mock
+    private QuizRoomSseRegistry quizRoomRegistry;
+
     @InjectMocks
     private InMemoryPublisher publisher;
 
@@ -49,5 +52,27 @@ class InMemoryPublisherTest {
 
         verify(registry).handleCloseCommand("room-1", command);
         verify(registry, never()).publish(anyString(), any());
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CQR-91] 퀴즈방 토픽 이벤트는 퀴즈방 레지스트리로만 가고 채팅 레지스트리에는 닿지 않는다")
+    void publish_quizRoomTopic_goesToQuizRoomRegistryOnly() {
+        RealtimeEvent event = new RealtimeEvent("votes", "payload", null);
+
+        publisher.publish("quiz-room:5", event);
+
+        verify(quizRoomRegistry).deliver("quiz-room:5", event, null);
+        org.mockito.Mockito.verifyNoInteractions(registry);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CQR-92] 퀴즈방 토픽의 종료 신호는 명령 객체와 함께 퀴즈방 레지스트리로 간다")
+    void publish_quizRoomTopic_closeSignal_passesCommand() {
+        SubscriptionCloseCommand command = SubscriptionCloseCommand.evict(1L, "origin");
+
+        publisher.publish("quiz-room:5", command.toEvent());
+
+        verify(quizRoomRegistry).deliver("quiz-room:5", command.toEvent(), command);
+        org.mockito.Mockito.verifyNoInteractions(registry);
     }
 }

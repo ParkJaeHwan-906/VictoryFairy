@@ -15,6 +15,7 @@ import com.skhynix.domain.chat.repository.ChatroomRepository;
 import com.skhynix.domain.community.repository.CommunityCommentRepository;
 import com.skhynix.domain.community.repository.CommunityPostRepository;
 import com.skhynix.domain.quiz.repository.QuizLikeRepository;
+import com.skhynix.domain.quizroom.repository.QuizRoomRepository;
 import com.skhynix.domain.user.entity.Gender;
 import com.skhynix.domain.user.entity.User;
 import com.skhynix.domain.user.entity.UserAccount;
@@ -63,6 +64,9 @@ class ExpiredAccountEraserTest {
     private CommunityCommentRepository communityCommentRepository;
 
     @Mock
+    private QuizRoomRepository quizRoomRepository;
+
+    @Mock
     private UserRepository userRepository;
 
     @Mock
@@ -73,7 +77,7 @@ class ExpiredAccountEraserTest {
     @BeforeEach
     void setUp() {
         eraser = new ExpiredAccountEraser(quizLikeRepository, chatroomRepository, chatRepository,
-                communityPostRepository, communityCommentRepository, userRepository,
+                communityPostRepository, communityCommentRepository, quizRoomRepository, userRepository,
                 userRefreshTokenRepository);
     }
 
@@ -241,6 +245,36 @@ class ExpiredAccountEraserTest {
         // given
         UserAccount unknown = unknownAccount();
         willThrow(new RuntimeException("boom")).given(communityCommentRepository)
+                .reassignAuthor(ACCOUNT_ID, unknown);
+
+        // when / then
+        assertThatThrownBy(() -> eraser.erase(target(), unknown)).isInstanceOf(RuntimeException.class);
+        verify(userRepository, never()).deleteUserById(any());
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CQR-121] 퀴즈방 작성자 이관은 댓글 이관 뒤, users 삭제 앞에서 대상 계정 id와 더미 계정을 그대로 넘겨 실행된다")
+    void erase_reassignsQuizRoomAuthor_afterComments_beforeUserDeletion() {
+        // given
+        UserAccount unknown = unknownAccount();
+        given(userRepository.deleteUserById(USER_ID)).willReturn(1);
+
+        // when
+        eraser.erase(target(), unknown);
+
+        // then
+        InOrder inOrder = inOrder(communityCommentRepository, quizRoomRepository, userRepository);
+        inOrder.verify(communityCommentRepository).reassignAuthor(ACCOUNT_ID, unknown);
+        inOrder.verify(quizRoomRepository).reassignAuthor(ACCOUNT_ID, unknown);
+        inOrder.verify(userRepository).deleteUserById(USER_ID);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CQR-121] 퀴즈방 이관이 실패하면 users 삭제는 호출되지 않는다(fail-closed)")
+    void erase_quizRoomReassignFails_neverReachesUserDeletion() {
+        // given
+        UserAccount unknown = unknownAccount();
+        willThrow(new RuntimeException("FK violation")).given(quizRoomRepository)
                 .reassignAuthor(ACCOUNT_ID, unknown);
 
         // when / then

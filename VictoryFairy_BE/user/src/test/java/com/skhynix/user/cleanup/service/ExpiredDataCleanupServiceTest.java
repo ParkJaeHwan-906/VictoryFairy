@@ -146,7 +146,26 @@ class ExpiredDataCleanupServiceTest {
     void removeExpiredData_communityFkMisconfigured_skipsAccountDeletion_butStillPurgesTokens() {
         // given
         given(accountFkDeleteRuleInspector.findMisconfigured()).willReturn(
-                AccountFkDeleteRuleInspector.TARGETS.subList(1, 4));
+                AccountFkDeleteRuleInspector.TARGETS.subList(1, 4)); // 커뮤니티 3개(반응 2 + 신고) 인덱스 1..3
+        given(eraser.purgeExpiredTokens(BASE_TIME)).willReturn(1);
+
+        // when
+        service.removeExpiredData(BASE_TIME);
+
+        // then
+        verify(userAccountRepository, never()).findByUid(anyString());
+        verify(userAccountRepository, never()).findExpiredAccounts(any(), anyString());
+        verify(eraser, never()).erase(any(), any());
+        verify(eraser).purgeExpiredTokens(BASE_TIME);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CQR-122, QUIZ-CQR-123] 퀴즈방 추천·답 FK가 어긋나면 계정 삭제 단계는 통째로 건너뛰고"
+            + " 만료 토큰 삭제는 계속된다")
+    void removeExpiredData_quizRoomFkMisconfigured_skipsAccountDeletion_butStillPurgesTokens() {
+        // given
+        given(accountFkDeleteRuleInspector.findMisconfigured()).willReturn(
+                AccountFkDeleteRuleInspector.TARGETS.subList(4, 6));
         given(eraser.purgeExpiredTokens(BASE_TIME)).willReturn(1);
 
         // when
