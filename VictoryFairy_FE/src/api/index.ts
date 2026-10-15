@@ -164,6 +164,35 @@ export {
   OX_OPTION_NO,
 } from './quiz';
 
+// 퀴즈방(quiz 모듈, `/rt` base, `/quiz-rooms`) 엔드포인트 함수 — 아홉 개 전부 인증이 필수다
+export {
+  createQuizRoom,
+  getQuizRooms,
+  getPopularQuizRooms,
+  getQuizRoom,
+  getQuizRoomQuizzes,
+  submitQuizRoomAnswer,
+  setQuizRoomLike,
+  subscribeQuizRoom,
+  leaveQuizRoom,
+  resolveQuizRoomErrorCode,
+  isQuizRoomNotFound,
+  isQuizRoomQuizNotFound,
+  isQuizRoomOptionNotFound,
+  isQuizRoomAlreadySubmitted,
+  QUIZ_ROOM_ERROR_MESSAGE,
+  QUIZ_ROOM_PAGE_SIZE,
+  QUIZ_ROOM_PAGE_SIZE_MAX,
+  QUIZ_ROOM_TITLE_MAX_LENGTH,
+  QUIZ_ROOM_DESCRIPTION_MAX_LENGTH,
+  QUIZ_ROOM_QUIZ_MAX,
+  QUIZ_ROOM_QUESTION_MAX_LENGTH,
+  QUIZ_ROOM_OPTION_MIN,
+  QUIZ_ROOM_OPTION_MAX,
+  QUIZ_ROOM_OPTION_MAX_LENGTH,
+} from './quizRoom';
+export type { QuizRoomSubscription, QuizRoomSubscriptionHandlers } from './quizRoom';
+
 // 순위(user 모듈) 엔드포인트 함수 — 세 개 전부 인증이 필수이고 파라미터가 0개다
 export { getBqTopRanking, getBqRanking, getMyBqRanking } from './ranking';
 
@@ -357,3 +386,26 @@ export type {
   QuizLikeResult,
   QuizVoteCount,
 } from '../types/quiz';
+export type {
+  QuizRoomAuthor,
+  QuizRoomSummary,
+  QuizRoomDetail,
+  QuizRoomPage,
+  QuizRoomPageParams,
+  QuizRoomCreateQuizItem,
+  QuizRoomChoiceQuizItem,
+  QuizRoomOxQuizItem,
+  QuizRoomCreateRequest,
+  QuizRoomCreateResult,
+  QuizRoomQuiz,
+  QuizRoomAnswerRequest,
+  QuizRoomAnswerResult,
+  QuizRoomResult,
+  QuizRoomResultQuiz,
+  QuizRoomLikeRequest,
+  QuizRoomLikeResult,
+  QuizRoomPresenceEvent,
+  QuizRoomVoteOption,
+  QuizRoomVotesEvent,
+  QuizRoomErrorCode,
+} from '../types/quizRoom';

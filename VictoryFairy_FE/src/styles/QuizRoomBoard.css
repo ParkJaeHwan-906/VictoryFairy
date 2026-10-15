@@ -1,0 +1,154 @@
+/**
+ * QuizRoomBoard(라운지 퀴즈방 탭) 스타일.
+ *
+ * 시안이 없는 화면이라 같은 라운지의 게시판 탭(`CommunityBoard.css`)과 값을 맞췄다:
+ *   좌우 여백 `--layout-gutter`, 인기 묶음은 회색 바탕 카드(`.community-board__popular`),
+ *   상태 문구 · 더 보기 · 만들기 버튼은 게시판의 같은 요소와 같은 값.
+ * 화면 높이 · 앱 폭(402px) · 하단 NavBar 자리는 AppLayout 이 잡아 준다.
+ */
+
+.quiz-room-board {
+  display: flex;
+  flex-direction: column;
+  /* 마지막 방이 만들기 버튼(68px + 아래 여백 24px)에 가리지 않게 */
+  padding-bottom: 100px;
+}
+
+/* ------------------------------------------------------------------ *
+ * 묶음 제목 — 게시판 인기 묶음 제목(`.community-board__popular-title`)과 같은 Title3
+ * ------------------------------------------------------------------ */
+.quiz-room-board__section-title {
+  margin: 0;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-title3);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title3);
+}
+
+/* 인기 묶음이 없을 때 "전체 퀴즈방" 제목은 화면에서만 감춘다(읽어 주기는 남긴다) */
+.quiz-room-board__section-title--hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------ *
+ * Popular — 이번 주 인기 TOP 5
+ * 게시판 인기 묶음처럼 회색 바탕 카드 안에 방 카드를 쌓는다. 카드 좌우 여백은
+ * 회색 카드의 안쪽 여백(16)이 대신하므로 목록 자체의 여백은 지운다.
+ * ------------------------------------------------------------------ */
+.quiz-room-board__popular {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 16px var(--layout-gutter) 0;
+  padding: 16px 16px 0;
+  border-radius: var(--radius-15);
+  background-color: var(--color-background-gray);
+}
+
+/* ------------------------------------------------------------------ *
+ * All — 전체 목록(최신순)
+ * ------------------------------------------------------------------ */
+.quiz-room-board__all {
+  display: flex;
+  flex-direction: column;
+  margin-top: 8px;
+}
+
+.quiz-room-board__all .quiz-room-board__section-title:not(.quiz-room-board__section-title--hidden) {
+  padding: 16px var(--layout-gutter) 0;
+}
+
+/* ------------------------------------------------------------------ *
+ * List · Status · More — `.community-board__*` 와 같은 값
+ * ------------------------------------------------------------------ */
+.quiz-room-board__list {
+  margin: 0;
+  padding: 0 var(--layout-gutter);
+  list-style: none;
+}
+
+.quiz-room-board__list--popular {
+  padding: 0;
+}
+
+.quiz-room-board__status {
+  margin: 24px var(--layout-gutter);
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-body2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body2);
+  text-align: center;
+}
+
+.quiz-room-board__status--error {
+  color: var(--color-error-strong);
+}
+
+.quiz-room-board__more {
+  align-self: center;
+  margin-top: 16px;
+  padding: 10px 20px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-background-gray);
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+}
+
+.quiz-room-board__more:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* ------------------------------------------------------------------ *
+ * Write FAB — 게시판 글쓰기 버튼과 같은 자리 · 모양 · 연필 아이콘
+ * ------------------------------------------------------------------ */
+.quiz-room-board__write-fab {
+  position: fixed;
+  right: max(var(--layout-gutter), calc(50% - var(--layout-app-width) / 2 + var(--layout-gutter)));
+  bottom: calc(var(--layout-navbar-height) + env(safe-area-inset-bottom, 0px) + 24px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 68px;
+  height: 68px;
+  border-radius: var(--radius-35);
+  background-image: linear-gradient(
+    138.19deg,
+    var(--color-primary-200) 2.49%,
+    var(--color-primary-500) 97.51%
+  );
+  box-shadow: 0 0 4px 0 var(--color-gray-300);
+}
+
+.quiz-room-board__write-fab-icon {
+  width: 30px;
+  height: 30px;
+  background-color: var(--color-white);
+  -webkit-mask: url('../assets/pen.svg') no-repeat center / contain;
+  mask: url('../assets/pen.svg') no-repeat center / contain;
+}
+
+/* ------------------------------------------------------------------ *
+ * 반응형 — 게시판과 같은 기준(360 미만에서 좌우 여백 16)
+ * ------------------------------------------------------------------ */
+@media (max-width: 359px) {
+  .quiz-room-board__popular {
+    margin-inline: 16px;
+  }
+
+  .quiz-room-board__list:not(.quiz-room-board__list--popular),
+  .quiz-room-board__all .quiz-room-board__section-title:not(.quiz-room-board__section-title--hidden) {
+    padding-inline: 16px;
+  }
+}

@@ -1,0 +1,762 @@
+/**
+ * QuizRoomPage(퀴즈방 소개 · 풀이 · 결과) 스타일.
+ *
+ * 시안이 없는 화면이라 세 화면의 값을 섞어 쓴다:
+ *   뼈대(상단 바 · 머리말 · 상태 묶음) — 게시글 상세(`CommunityPostDetailPage.css`)
+ *   문항 카드 · 보기 버튼 · O/X 글리프 — 오늘의 퀴즈 카드(`QuizCard.css`)
+ *   풀이 중 인원 — 경기 채팅 접속 인원(`GameChat.css`)을 주황 알약으로
+ *   추천 버튼 — 게시글 추천(`CommunityReactionButtons.css` 큰 버튼)
+ *   CTA — 게시글 작성의 하단 버튼(`CommunityPostEditorPage.css`)
+ */
+
+.quiz-room-page {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--layout-app-width);
+  min-height: 100dvh;
+  margin-inline: auto;
+  padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  background-color: var(--color-background-basic);
+}
+
+/* ------------------------------------------------------------------ *
+ * Bar/Top — 뒤로가기 · 타이틀 · 풀이 중 인원
+ *
+ * 오른쪽 알약이 60px 보다 넓어 flex 로는 타이틀이 왼쪽으로 밀린다. 양쪽을 같은
+ * 1fr 칸으로 두는 grid 로 타이틀을 화면 가운데에 고정한다.
+ * ------------------------------------------------------------------ */
+.quiz-room-page__topbar {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: minmax(60px, 1fr) auto minmax(60px, 1fr);
+  align-items: center;
+  background-color: var(--color-background-basic);
+}
+
+.quiz-room-page__back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 60px;
+  padding: 10px;
+  border-radius: var(--radius-10);
+  overflow: clip;
+}
+
+.quiz-room-page__back-icon {
+  width: 20px;
+  height: 20px;
+  background-color: var(--color-label-assistive);
+  -webkit-mask: url('../assets/arrow_l.svg') center / contain no-repeat;
+  mask: url('../assets/arrow_l.svg') center / contain no-repeat;
+}
+
+.quiz-room-page__topbar-title {
+  min-width: 0;
+  margin: 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.quiz-room-page__topbar-side {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  height: 60px;
+  padding-right: 16px;
+}
+
+/*
+ * 풀이 중 인원 — 경기 채팅 접속 인원과 같은 Caption1 · tabular-nums 를, 실시간이라는
+ * 뜻을 담아 경기 "진행 중" 칩과 같은 주황 계열 알약에 얹는다.
+ */
+.quiz-room-page__presence {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-background-red);
+  color: var(--color-primary-normal);
+  font-size: var(--font-size-caption1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.quiz-room-page__presence-dot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: currentcolor;
+  animation: quiz-room-page-presence-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes quiz-room-page-presence-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+/* 실시간 연결이 끊겼을 때 상단 바 아래 붙는 띠(경기 채팅 `.game-chat__live-notice` 와 같다) */
+.quiz-room-page__live {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 6px var(--layout-gutter);
+  background-color: var(--color-gray-100);
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+  text-align: center;
+}
+
+.quiz-room-page__live--error {
+  color: var(--color-error-strong);
+}
+
+/* ------------------------------------------------------------------ *
+ * 방 소개 — 머리말 · 소개 · 추천
+ * 아래 묶음(시작 · 결과 · 다 푼 안내)과는 게시글 상세의 댓글 띠처럼 굵은 회색 띠로 나눈다.
+ * ------------------------------------------------------------------ */
+.quiz-room-page__article {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 8px solid var(--color-background-gray);
+}
+
+.quiz-room-page__head {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px var(--layout-gutter) 20px;
+  border-bottom: 1px solid var(--color-line-light);
+}
+
+/* 내가 만든 방 표식 — 게시글 줄의 "숨김" 표식과 같은 작은 칩, 색만 주황 */
+.quiz-room-page__author-badge {
+  align-self: flex-start;
+  margin: 0;
+  padding: 2px 6px;
+  border-radius: var(--radius-4);
+  background-color: var(--color-background-red);
+  color: var(--color-primary-normal);
+  font-size: var(--font-size-caption1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+}
+
+.quiz-room-page__title {
+  margin: 0;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-title2);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title2);
+  overflow-wrap: anywhere;
+}
+
+.quiz-room-page__author {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.quiz-room-page__avatar {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background-color: var(--color-profile-container);
+  object-fit: cover;
+}
+
+.quiz-room-page__author-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.quiz-room-page__nickname {
+  margin: 0;
+  overflow: hidden;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quiz-room-page__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+/* 소개 — 게시글 본문(`.community-post-page__content`)과 같은 값, 줄바꿈을 살린다 */
+.quiz-room-page__description {
+  margin: 0;
+  padding: 20px var(--layout-gutter) 0;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-body2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.quiz-room-page__actions {
+  display: flex;
+  justify-content: center;
+  padding: 20px var(--layout-gutter) 28px;
+}
+
+/* 추천 — 게시글 추천 큰 버튼과 같은 회색 테두리 알약, 켜지면 주황 */
+.quiz-room-page__like {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 88px;
+  padding: 10px 16px;
+  border-radius: var(--radius-full);
+  box-shadow: inset 0 0 0 1px var(--color-gray-200);
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  font-variant-numeric: tabular-nums;
+  transition:
+    background-color 0.15s ease-in-out,
+    box-shadow 0.15s ease-in-out,
+    color 0.15s ease-in-out,
+    transform 0.12s ease-out;
+}
+
+.quiz-room-page__like--active {
+  background-color: var(--color-primary-50);
+  box-shadow: inset 0 0 0 1px var(--color-primary-300);
+  color: var(--color-primary-normal);
+}
+
+/* 경기 채팅 하트처럼 누르는 순간 살짝 눌렸다 돌아온다 */
+.quiz-room-page__like:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.quiz-room-page__like:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* 게시판 추천과 같은 엄지 아이콘(`CommunityReactionButtons.css`) — 색은 버튼 글자색을 따라 켜지면 주황이 된다 */
+.quiz-room-page__like-icon {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  background-color: currentcolor;
+  -webkit-mask: url('../assets/thumbs_up.svg') center / contain no-repeat;
+  mask: url('../assets/thumbs_up.svg') center / contain no-repeat;
+}
+
+/* ------------------------------------------------------------------ *
+ * 시작 — 안내문 + CTA
+ * ------------------------------------------------------------------ */
+.quiz-room-page__start {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+  gap: 12px;
+  padding: 24px var(--layout-gutter) 0;
+}
+
+.quiz-room-page__start-hint {
+  margin: 0;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-body4);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body4);
+  text-align: center;
+}
+
+/* 시작 버튼은 화면 아래로 민다(게시글 작성 CTA 와 같은 자리) */
+.quiz-room-page__start .quiz-room-page__cta {
+  margin-top: auto;
+}
+
+/* ------------------------------------------------------------------ *
+ * CTA — 게시글 작성의 하단 버튼과 같은 값(60px · radius 15 · Button2)
+ * ------------------------------------------------------------------ */
+.quiz-room-page__cta {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 60px;
+  padding-inline: 16px;
+  border-radius: var(--radius-15);
+  background-color: var(--color-primary-400);
+  color: var(--color-white);
+  font-size: var(--font-size-button2);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  text-decoration: none;
+  transition: background-color 0.15s ease-in-out;
+}
+
+.quiz-room-page__cta:disabled {
+  background-color: var(--color-action-disabled);
+  color: var(--color-label-disable);
+  cursor: not-allowed;
+}
+
+/* 화면 본문에 바로 놓인 CTA(풀이 "다음 문제" · 결과 아래 링크) — 좌우 여백을 직접 준다 */
+.quiz-room-page > .quiz-room-page__cta {
+  width: auto;
+  margin: 24px var(--layout-gutter) 0;
+}
+
+/*
+ * 보조 CTA — 결과 아래 "다른 퀴즈방 보러 가기". 주인공은 결과라서 버튼 대신
+ * 라운지 상태 문구의 링크(`.community-page__status-link`)처럼 밑줄 글자로 낮춘다.
+ */
+.quiz-room-page > .quiz-room-page__cta--secondary {
+  align-self: center;
+  height: auto;
+  margin-top: 16px;
+  padding: 12px 16px;
+  background-color: transparent;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-label1);
+  text-decoration: underline;
+}
+
+/* ------------------------------------------------------------------ *
+ * 진행 — 방 제목 · 번호 / 전체 · 막대
+ * ------------------------------------------------------------------ */
+.quiz-room-page__progress {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px var(--layout-gutter) 0;
+}
+
+.quiz-room-page__progress-title {
+  margin: 0;
+  overflow: hidden;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quiz-room-page__progress-count {
+  margin: 0;
+  color: var(--color-primary-normal);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * 기본 progress 모양을 지우고 선택율 막대(`.quiz-vote__segment`)와 같은 회색 바탕 ·
+ * 주황 채움으로 다시 칠한다. WebKit 과 Firefox 는 안쪽 부품 이름이 달라 둘 다 적는다.
+ */
+.quiz-room-page__progress-bar {
+  grid-column: 1 / -1;
+  width: 100%;
+  height: 6px;
+  border: none;
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  background-color: var(--color-line-light);
+  color: var(--color-primary-400);
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.quiz-room-page__progress-bar::-webkit-progress-bar {
+  border-radius: var(--radius-full);
+  background-color: var(--color-line-light);
+}
+
+.quiz-room-page__progress-bar::-webkit-progress-value {
+  border-radius: var(--radius-full);
+  background-color: var(--color-primary-400);
+  transition: width 0.24s ease-out;
+}
+
+.quiz-room-page__progress-bar::-moz-progress-bar {
+  border-radius: var(--radius-full);
+  background-color: var(--color-primary-400);
+}
+
+/* ------------------------------------------------------------------ *
+ * 문항 카드 — 오늘의 퀴즈 카드(`.quiz-card`)의 바탕 · 그림자 · 번호 칩
+ * 끌어서 고르는 장치가 없어 고정 높이(560)는 두지 않고 내용만큼 자란다.
+ * ------------------------------------------------------------------ */
+.quiz-room-page__quiz {
+  display: flex;
+  flex-direction: column;
+  margin: 16px var(--layout-gutter) 0;
+  padding: 32px;
+  border-radius: var(--radius-20);
+  background-color: var(--color-surface);
+  box-shadow: 0 0 3px var(--color-gray-200);
+}
+
+.quiz-room-page__quiz-order {
+  align-self: flex-start;
+  margin: 0;
+  padding: 4px 12px;
+  border-radius: var(--radius-20);
+  background-color: var(--color-background-red);
+  color: var(--color-primary-400);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+}
+
+/*
+ * 질문 — 오늘의 퀴즈는 Title1(24)이지만, 여기는 사용자가 쓴 긴 문장이 들어오므로
+ * 한 단계 낮은 Title2(20)로 둔다. 쓴 줄바꿈은 살린다.
+ */
+.quiz-room-page__question {
+  margin: 12px 0 0;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-title2);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ------------------------------------------------------------------ *
+ * 보기 — `.quiz-card__options` / `.quiz-card__option` 과 같은 값
+ * ------------------------------------------------------------------ */
+.quiz-room-page__options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 24px 0 0;
+  list-style: none;
+}
+
+.quiz-room-page__option {
+  width: 100%;
+  min-height: 52px;
+  padding: 12px 16px;
+  border-radius: var(--radius-15);
+  background-color: var(--color-background-gray);
+  color: var(--color-label-normal);
+  font-size: var(--font-size-button2);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  text-align: center;
+  overflow-wrap: anywhere;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    background-color 0.15s ease-out,
+    box-shadow 0.15s ease-out,
+    color 0.15s ease-out,
+    opacity 0.15s ease-out;
+}
+
+/* hover 는 진짜 포인터가 있을 때만 건다 — 이유는 `QuizCard.css` 의 같은 자리 주석 참고 */
+@media (hover: hover) and (pointer: fine) {
+  .quiz-room-page__option:hover:not(:disabled) {
+    background-color: var(--color-background-red);
+    color: var(--color-primary-normal);
+  }
+}
+
+.quiz-room-page__option:active:not(:disabled),
+.quiz-room-page__option:focus-visible {
+  background-color: var(--color-background-red);
+  color: var(--color-primary-normal);
+}
+
+.quiz-room-page__option:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* 내가 고른 보기 — 잠겨도 옅어지지 않고 주황으로 남는다 */
+.quiz-room-page__option--selected,
+.quiz-room-page__option--selected:disabled {
+  background-color: var(--color-background-red);
+  box-shadow: inset 0 0 0 1px var(--color-primary-300);
+  color: var(--color-primary-normal);
+  opacity: 1;
+}
+
+/*
+ * O/X — 두 칸을 좌우로 크게. 글리프는 오늘의 퀴즈 카드(80px · 테두리 10 · 막대 10 x 102.7)를
+ * 0.7 배로 줄인 56px 이다. 고른 칸은 글리프 색 계열의 옅은 바탕(결과 시트 정오 칩 조합).
+ */
+.quiz-room-page__options--ox {
+  flex-direction: row;
+  gap: 12px;
+}
+
+.quiz-room-page__options--ox > li {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.quiz-room-page__options--ox .quiz-room-page__option {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 112px;
+}
+
+.quiz-room-page__option-glyph {
+  position: relative;
+  display: block;
+  flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+}
+
+.quiz-room-page__option--o .quiz-room-page__option-glyph {
+  border: 7px solid var(--color-success-normal);
+  border-radius: 50%;
+}
+
+.quiz-room-page__option--x .quiz-room-page__option-glyph::before,
+.quiz-room-page__option--x .quiz-room-page__option-glyph::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 7px;
+  height: 72px;
+  border-radius: 8px;
+  background-color: var(--color-error-normal);
+  content: '';
+}
+
+.quiz-room-page__option--x .quiz-room-page__option-glyph::before {
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.quiz-room-page__option--x .quiz-room-page__option-glyph::after {
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+.quiz-room-page__option--o.quiz-room-page__option--selected {
+  background-color: var(--color-success-light);
+  box-shadow: inset 0 0 0 1px var(--color-success-normal);
+}
+
+.quiz-room-page__option--x.quiz-room-page__option--selected {
+  background-color: var(--color-background-red);
+  box-shadow: inset 0 0 0 1px var(--color-error-normal);
+}
+
+/* ------------------------------------------------------------------ *
+ * 상태 문구 — 게시글 상세의 댓글 상태(`.community-post-page__status`)와 같은 Body4
+ * ------------------------------------------------------------------ */
+.quiz-room-page__status {
+  margin: 16px var(--layout-gutter) 0;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-body4);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body4);
+  text-align: center;
+}
+
+/* 시작 묶음 안은 좌우 여백을 묶음이 이미 준다 */
+.quiz-room-page__start .quiz-room-page__status {
+  margin: 0;
+}
+
+.quiz-room-page__status--notice {
+  color: var(--color-label-neutral);
+}
+
+.quiz-room-page__status--error {
+  color: var(--color-error-strong);
+}
+
+/* ------------------------------------------------------------------ *
+ * 선택율 — 답한 문항 아래
+ * ------------------------------------------------------------------ */
+.quiz-room-page__vote {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 24px var(--layout-gutter) 0;
+}
+
+.quiz-room-page__vote-title {
+  margin: 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+}
+
+/* ------------------------------------------------------------------ *
+ * 방을 그릴 수 없을 때 · 다 푼 방 — `.community-post-page__state*` 와 같은 값
+ * ------------------------------------------------------------------ */
+.quiz-room-page__state {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 0 var(--layout-gutter) 120px;
+  text-align: center;
+}
+
+/* 다 푼 방은 위에 방 소개가 있어 가운데보다 위쪽에서 시작한다 */
+.quiz-room-page__state--done {
+  justify-content: flex-start;
+  padding-top: 40px;
+}
+
+.quiz-room-page__state-icon {
+  width: 48px;
+  height: 48px;
+  background-color: var(--color-label-assistive);
+  -webkit-mask: url('../assets/report.svg') center / contain no-repeat;
+  mask: url('../assets/report.svg') center / contain no-repeat;
+}
+
+.quiz-room-page__state--done .quiz-room-page__state-icon {
+  -webkit-mask-image: url('../assets/check.svg');
+  mask-image: url('../assets/check.svg');
+}
+
+.quiz-room-page__state-title {
+  margin: 0;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-title3);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title3);
+}
+
+.quiz-room-page__state-text {
+  margin: 0;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-body4);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body4);
+}
+
+.quiz-room-page__state-text--error {
+  color: var(--color-error-strong);
+}
+
+.quiz-room-page__state-link {
+  margin-top: 12px;
+  padding: 12px 24px;
+  border-radius: var(--radius-15);
+  background-color: var(--color-primary-400);
+  color: var(--color-white);
+  font-size: var(--font-size-button2);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  text-decoration: none;
+}
+
+.quiz-room-page__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------ *
+ * 반응형 · 접근성
+ * ------------------------------------------------------------------ */
+
+/* 오늘의 퀴즈 카드와 같은 기준 — 좁은 화면에서는 카드 안쪽 여백을 24 로 */
+@media (max-width: 379px) {
+  .quiz-room-page__quiz {
+    padding: 24px;
+  }
+}
+
+@media (max-width: 359px) {
+  .quiz-room-page__live,
+  .quiz-room-page__head,
+  .quiz-room-page__description,
+  .quiz-room-page__actions,
+  .quiz-room-page__start,
+  .quiz-room-page__progress,
+  .quiz-room-page__state {
+    padding-inline: 16px;
+  }
+
+  .quiz-room-page__quiz,
+  .quiz-room-page__status,
+  .quiz-room-page__vote,
+  .quiz-room-page > .quiz-room-page__cta:not(.quiz-room-page__cta--secondary) {
+    margin-inline: 16px;
+  }
+
+  .quiz-room-page__quiz {
+    padding: 20px;
+  }
+
+  .quiz-room-page__topbar-side {
+    padding-right: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quiz-room-page__presence-dot {
+    animation: none;
+  }
+
+  .quiz-room-page__like,
+  .quiz-room-page__cta,
+  .quiz-room-page__option,
+  .quiz-room-page__progress-bar::-webkit-progress-value {
+    transition: none;
+  }
+
+  .quiz-room-page__like:active:not(:disabled) {
+    transform: none;
+  }
+}
