@@ -1,0 +1,530 @@
+/**
+ * QuizRoomEditorPage(퀴즈방 만들기) 스타일.
+ *
+ * 시안이 없는 화면이라 게시글 작성(`CommunityPostEditorPage.css`)의 뼈대를 그대로 따른다:
+ *   상단 바 60px · 라벨 Label2 · 회색 입력칸(radius 12, 16/12 여백) · 하단 60px CTA.
+ * 그 위에 문항 카드가 더해진다:
+ *   카드 — 흰 바탕 + 회색 테두리(radius 15), 번호 칩은 오늘의 퀴즈 카드(`.quiz-card__order`)
+ *   유형 토글 — 게시글 카테고리 칩(`.community-editor-page__chip`)
+ *   O/X — 오늘의 퀴즈 글리프 색(초록 O · 빨강 X)
+ *   실패 테두리 — 프로필 수정과 같은 inset 1px Error/Strong
+ */
+
+.quiz-room-editor-page {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--layout-app-width);
+  min-height: 100dvh;
+  margin-inline: auto;
+  padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  background-color: var(--color-background-basic);
+}
+
+/* ------------------------------------------------------------------ *
+ * Bar/Top — 뒤로가기 · 타이틀 (다른 화면들과 같은 컴포넌트)
+ * ------------------------------------------------------------------ */
+.quiz-room-editor-page__topbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.quiz-room-editor-page__back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 60px;
+  padding: 10px;
+  border-radius: var(--radius-10);
+  overflow: clip;
+}
+
+.quiz-room-editor-page__back-icon {
+  width: 20px;
+  height: 20px;
+  background-color: var(--color-label-assistive);
+  -webkit-mask: url('../assets/arrow_l.svg') center / contain no-repeat;
+  mask: url('../assets/arrow_l.svg') center / contain no-repeat;
+}
+
+.quiz-room-editor-page__topbar-title {
+  min-width: 0;
+  margin: 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  text-align: center;
+}
+
+.quiz-room-editor-page__topbar-spacer {
+  flex-shrink: 0;
+  width: 60px;
+  height: 60px;
+}
+
+/* ------------------------------------------------------------------ *
+ * Form — 제목 · 소개 · 문항 · CTA
+ * ------------------------------------------------------------------ */
+.quiz-room-editor-page__form {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+  gap: 24px;
+  margin-top: 12px;
+  padding-inline: var(--layout-gutter);
+}
+
+.quiz-room-editor-page__group,
+.quiz-room-editor-page__quizzes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.quiz-room-editor-page__label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* Label/Label2 — Regular 14 / 1.4. "문항" 은 h2 라 브라우저 기본 여백·굵기를 지운다. */
+.quiz-room-editor-page__label,
+.quiz-room-editor-page__sub-label {
+  margin: 0;
+  padding: 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-label2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+.quiz-room-editor-page__counter {
+  flex-shrink: 0;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------------------------------ *
+ * 입력칸 — `.community-editor-page__input/textarea` 와 같은 값
+ * ------------------------------------------------------------------ */
+.quiz-room-editor-page__input,
+.quiz-room-editor-page__textarea {
+  width: 100%;
+  padding: 16px 12px;
+  border: none;
+  border-radius: var(--radius-12);
+  background-color: var(--color-gray-50);
+  color: var(--color-label-normal);
+  font-size: var(--font-size-body2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body2);
+}
+
+/* 소개(최대 500자) — 게시글 본문보다 짧아 높이를 절반 남짓으로 잡는다 */
+.quiz-room-editor-page__textarea {
+  min-height: 120px;
+  resize: vertical;
+}
+
+/* 문제 — rows=2 로 높이를 정하고 위의 최소 높이는 푼다 */
+.quiz-room-editor-page__textarea--question {
+  min-height: 0;
+}
+
+.quiz-room-editor-page__input::placeholder,
+.quiz-room-editor-page__textarea::placeholder {
+  color: var(--color-label-disable);
+}
+
+.quiz-room-editor-page__input:disabled,
+.quiz-room-editor-page__textarea:disabled {
+  opacity: 0.5;
+}
+
+/*
+ * 실패 테두리. border 를 주면 칸 높이가 2px 늘어 옆 버튼과 줄이 어긋나므로
+ * 상자 크기를 건드리지 않는 inset 그림자를 쓴다(ProfileEditPage · SignupPage 와 같은 이유).
+ */
+.quiz-room-editor-page__input[aria-invalid='true'],
+.quiz-room-editor-page__textarea[aria-invalid='true'] {
+  box-shadow: inset 0 0 0 1px var(--color-error-strong);
+}
+
+/* ------------------------------------------------------------------ *
+ * 안내문 — 게시글 작성의 hint 와 같은 모양(정보 아이콘 + Label2)
+ * ------------------------------------------------------------------ */
+.quiz-room-editor-page__hint {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0;
+  font-size: var(--font-size-label2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+.quiz-room-editor-page__hint--error {
+  color: var(--color-error-strong);
+}
+
+.quiz-room-editor-page__hint-icon {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  background-color: currentcolor;
+  -webkit-mask: url('../assets/info.svg') center / contain no-repeat;
+  mask: url('../assets/info.svg') center / contain no-repeat;
+}
+
+/* ------------------------------------------------------------------ *
+ * 문항 카드
+ * ------------------------------------------------------------------ */
+.quiz-room-editor-page__quiz-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/*
+ * 흰 바탕 위의 흰 카드라 테두리로만 떼어 놓는다. 색은 추천 버튼 테두리
+ * (`.community-reaction__button`)와 같은 Gray/200 — Line/Light(Gray/100)는 너무 옅다.
+ */
+.quiz-room-editor-page__quiz {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-15);
+  background-color: var(--color-surface);
+}
+
+.quiz-room-editor-page__quiz-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* 번호 칩 — 오늘의 퀴즈 카드 번호(`.quiz-card__order`)를 Label1 로 줄인 것 */
+.quiz-room-editor-page__quiz-order {
+  margin: 0;
+  padding: 4px 12px;
+  border-radius: var(--radius-20);
+  background-color: var(--color-background-red);
+  color: var(--color-primary-400);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+}
+
+/* 지우기 버튼(문항 · 보기) — 아이콘만 있는 32px 칸 */
+.quiz-room-editor-page__quiz-remove,
+.quiz-room-editor-page__option-remove {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: var(--radius-10);
+}
+
+.quiz-room-editor-page__remove-icon {
+  width: 16px;
+  height: 16px;
+  background-color: var(--color-label-alternative);
+  -webkit-mask: url('../assets/x.svg') center / contain no-repeat;
+  mask: url('../assets/x.svg') center / contain no-repeat;
+}
+
+/* ------------------------------------------------------------------ *
+ * 유형 토글 — 게시글 카테고리 칩과 같은 모양
+ * ------------------------------------------------------------------ */
+.quiz-room-editor-page__types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.quiz-room-editor-page__type {
+  padding: 8px 14px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-background-gray);
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  transition:
+    background-color 0.15s ease-in-out,
+    color 0.15s ease-in-out;
+}
+
+.quiz-room-editor-page__type--active {
+  background-color: var(--color-primary-400);
+  color: var(--color-white);
+}
+
+/* ------------------------------------------------------------------ *
+ * 보기 · 정답 — fieldset 기본 테두리·여백을 지운다
+ * ------------------------------------------------------------------ */
+.quiz-room-editor-page__options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+/* legend 는 fieldset 의 flex 간격을 받지 않는다 — 아래 여백을 직접 준다 */
+.quiz-room-editor-page__options > .quiz-room-editor-page__sub-label {
+  margin-bottom: 8px;
+}
+
+.quiz-room-editor-page__option-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.quiz-room-editor-page__option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* 보기 칸은 한 줄이라 위아래 여백만 줄인다(좌우 12 는 다른 칸과 같다) */
+.quiz-room-editor-page__input--option {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-block: 12px;
+  transition: box-shadow 0.15s ease-in-out;
+}
+
+/* 정답으로 고른 보기 — 추천 버튼의 켜짐(`.community-reaction__button--active`)과 같은 주황 테두리 */
+.quiz-room-editor-page__option--answer .quiz-room-editor-page__input--option {
+  box-shadow: inset 0 0 0 1px var(--color-primary-300);
+}
+
+/* 실패가 정답 표시보다 우선이다 — 같은 명시도라 반드시 뒤에 둔다 */
+.quiz-room-editor-page__option--answer .quiz-room-editor-page__input--option[aria-invalid='true'] {
+  box-shadow: inset 0 0 0 1px var(--color-error-strong);
+}
+
+/*
+ * 정답 라디오 — 24px 원(결과 시트의 보기 번호 원과 같은 크기 · 1.5px 테두리).
+ * 손가락에 작으니 보이지 않는 덧댐으로 누르는 범위만 넓힌다.
+ */
+.quiz-room-editor-page__answer-radio {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1.5px solid var(--color-label-assistive);
+  border-radius: 50%;
+  transition: border-color 0.15s ease-in-out;
+}
+
+.quiz-room-editor-page__answer-radio::after {
+  position: absolute;
+  inset: -8px;
+  content: '';
+}
+
+.quiz-room-editor-page__answer-radio--checked {
+  border-color: var(--color-primary-400);
+}
+
+.quiz-room-editor-page__answer-radio-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background-color: var(--color-primary-400);
+  transform: scale(0);
+  transition: transform 0.15s ease-out;
+}
+
+.quiz-room-editor-page__answer-radio--checked .quiz-room-editor-page__answer-radio-dot {
+  transform: scale(1);
+}
+
+/* ------------------------------------------------------------------ *
+ * O/X 정답 — 두 칸을 반씩. 글자색은 오늘의 퀴즈 O(초록) · X(빨강)와 짝을 맞춘다.
+ * 고르면 같은 계열의 옅은 바탕 + 테두리(결과 시트 번호 칩의 정오 색 조합).
+ * ------------------------------------------------------------------ */
+.quiz-room-editor-page__ox {
+  display: flex;
+  gap: 8px;
+}
+
+.quiz-room-editor-page__ox-choice {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  height: 52px;
+  border-radius: var(--radius-15);
+  background-color: var(--color-background-gray);
+  font-size: var(--font-size-title1);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+  transition:
+    background-color 0.15s ease-in-out,
+    box-shadow 0.15s ease-in-out;
+}
+
+.quiz-room-editor-page__ox-choice--o {
+  color: var(--color-success-strong);
+}
+
+.quiz-room-editor-page__ox-choice--x {
+  color: var(--color-error-strong);
+}
+
+.quiz-room-editor-page__ox-choice--o.quiz-room-editor-page__ox-choice--checked {
+  background-color: var(--color-success-light);
+  box-shadow: inset 0 0 0 1px var(--color-success-normal);
+}
+
+.quiz-room-editor-page__ox-choice--x.quiz-room-editor-page__ox-choice--checked {
+  background-color: var(--color-background-red);
+  box-shadow: inset 0 0 0 1px var(--color-error-normal);
+}
+
+/* ------------------------------------------------------------------ *
+ * 추가 버튼
+ *   보기 추가 — 게시판 "더 보기"와 같은 회색 알약(작게, 왼쪽 정렬)
+ *   문항 추가 — 카드 목록 끝의 점선 칸(다음 카드가 놓일 자리라는 뜻)
+ * ------------------------------------------------------------------ */
+.quiz-room-editor-page__add-option {
+  display: flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 14px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-background-gray);
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+}
+
+.quiz-room-editor-page__add-quiz {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  min-height: 52px;
+  margin-top: 4px;
+  padding: 12px 16px;
+  border: 1px dashed var(--color-gray-300);
+  border-radius: var(--radius-15);
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+}
+
+.quiz-room-editor-page__add-quiz:disabled {
+  border-color: var(--color-gray-200);
+  color: var(--color-label-alternative);
+  cursor: not-allowed;
+}
+
+/* 글자색을 따르는 + 아이콘(마스크) — 비활성일 때 함께 옅어진다 */
+.quiz-room-editor-page__add-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  background-color: currentcolor;
+  -webkit-mask: url('../assets/plus.svg') center / contain no-repeat;
+  mask: url('../assets/plus.svg') center / contain no-repeat;
+}
+
+.quiz-room-editor-page__add-quiz:disabled .quiz-room-editor-page__add-icon {
+  display: none;
+}
+
+/* 제출 중에는 카드 안 버튼이 모두 잠긴다 */
+.quiz-room-editor-page__quiz-remove:disabled,
+.quiz-room-editor-page__type:disabled,
+.quiz-room-editor-page__options:disabled button {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* ------------------------------------------------------------------ *
+ * CTA — 화면 하단에 붙인다(게시글 작성과 같은 값)
+ * ------------------------------------------------------------------ */
+.quiz-room-editor-page__submit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 60px;
+  margin-top: auto;
+  padding-inline: 16px;
+  border-radius: var(--radius-15);
+  background-color: var(--color-primary-400);
+  color: var(--color-white);
+  font-size: var(--font-size-button2);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  transition: background-color 0.15s ease-in-out;
+}
+
+.quiz-room-editor-page__submit:disabled {
+  background-color: var(--color-action-disabled);
+  color: var(--color-label-disable);
+  cursor: not-allowed;
+}
+
+/* ------------------------------------------------------------------ *
+ * 반응형 · 접근성
+ * ------------------------------------------------------------------ */
+@media (max-width: 359px) {
+  .quiz-room-editor-page__form {
+    padding-inline: 16px;
+  }
+
+  /* 카드 안쪽 폭(≈ 254px)을 보기 칸에 조금 더 돌려준다 */
+  .quiz-room-editor-page__quiz {
+    padding: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quiz-room-editor-page__type,
+  .quiz-room-editor-page__input--option,
+  .quiz-room-editor-page__answer-radio,
+  .quiz-room-editor-page__answer-radio-dot,
+  .quiz-room-editor-page__ox-choice,
+  .quiz-room-editor-page__submit {
+    transition: none;
+  }
+}
