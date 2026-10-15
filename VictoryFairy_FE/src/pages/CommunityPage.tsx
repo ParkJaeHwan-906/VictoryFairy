@@ -5,6 +5,7 @@ import type { BqRankingEntry } from '../api';
 import CommunityBoard from '../components/CommunityBoard';
 import LoungeChatSheet from '../components/LoungeChatSheet';
 import NoticeSheet from '../components/NoticeSheet';
+import QuizRoomBoard from '../components/QuizRoomBoard';
 import RankingPodium from '../components/RankingPodium';
 import { readCommunityNotice, ROUTES } from '../routes';
 import { useMyProfile } from '../stores/useAccountStore';
@@ -37,18 +38,25 @@ function RankingRow({ entry, isMine = false }: { entry: BqRankingEntry; isMine?:
 }
 
 /** 라운지 탭. 주소의 `?tab=` 값이다 — 없거나 모르는 값이면 랭킹. */
-type LoungeTab = 'ranking' | 'board';
+type LoungeTab = 'ranking' | 'board' | 'quiz';
 
 const LOUNGE_TABS: readonly { value: LoungeTab; label: string }[] = [
   { value: 'ranking', label: '랭킹' },
   { value: 'board', label: '게시판' },
+  { value: 'quiz', label: '퀴즈방' },
 ];
 
+/** 주소의 `?tab=` 값을 탭으로 읽는다. 모르는 값이면 랭킹이다(옛 주소·오타가 빈 화면이 되지 않게). */
+function readLoungeTab(value: string | null): LoungeTab {
+  return LOUNGE_TABS.find((item) => item.value === value)?.value ?? 'ranking';
+}
+
 /**
- * CommunityPage — 라운지. 랭킹 · 게시판 두 탭.
+ * CommunityPage — 라운지. 랭킹 · 게시판 · 퀴즈방 세 탭.
  *
- * 탭은 **주소(`?tab=board`)에 남긴다** — 게시판에서 글을 열었다가 뒤로 오면 랭킹이 아니라
- * 게시판으로 돌아와야 하는데, 화면 state 로 들고 있으면 상세로 가는 순간 사라진다.
+ * 탭은 **주소(`?tab=board` · `?tab=quiz`)에 남긴다** — 게시판에서 글을(퀴즈방 탭에서 방을)
+ * 열었다가 뒤로 오면 랭킹이 아니라 그 탭으로 돌아와야 하는데, 화면 state 로 들고 있으면
+ * 상세로 가는 순간 사라진다.
  * 탭을 바꿀 때는 `replace` 라 탭 전환이 history 에 쌓이지 않는다(앱의 뒤로가기는 탭
  * 뿌리에서 종료 안내를 띄우는데, 탭 전환마다 한 칸씩 쌓이면 그 판정이 어긋난다).
  *
@@ -57,7 +65,7 @@ const LOUNGE_TABS: readonly { value: LoungeTab; label: string }[] = [
  */
 export default function CommunityPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const tab: LoungeTab = searchParams.get('tab') === 'board' ? 'board' : 'ranking';
+  const tab = readLoungeTab(searchParams.get('tab'));
 
   const location = useLocation();
   const navigate = useNavigate();
@@ -70,7 +78,8 @@ export default function CommunityPage() {
 
   const selectTab = (next: LoungeTab) => {
     if (next === tab) return;
-    setSearchParams(next === 'board' ? { tab: 'board' } : {}, { replace: true });
+    // 랭킹은 기본 탭이라 주소에 남기지 않는다(`/community` 그대로).
+    setSearchParams(next === 'ranking' ? {} : { tab: next }, { replace: true });
   };
 
   return (
@@ -98,7 +107,9 @@ export default function CommunityPage() {
         id={`community-panel-${tab}`}
         aria-labelledby={`community-tab-${tab}`}
       >
-        {tab === 'ranking' ? <LoungeRanking /> : <CommunityBoard />}
+        {tab === 'ranking' && <LoungeRanking />}
+        {tab === 'board' && <CommunityBoard />}
+        {tab === 'quiz' && <QuizRoomBoard />}
       </div>
 
       {notice !== null && <NoticeSheet message={notice} onClose={() => setNotice(null)} />}
