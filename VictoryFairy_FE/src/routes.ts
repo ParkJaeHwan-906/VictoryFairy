@@ -13,7 +13,8 @@ export const ROUTES = {
   /** 온보딩 마지막 단계(완료 안내). 저장은 앞 단계에서 이미 끝난다. */
   complete: '/complete',
   /**
-   * 라운지. 랭킹 · 게시판 두 탭이고, 어느 탭인지는 `?tab=` 으로 남긴다(`communityBoardPath`).
+   * 라운지. 랭킹 · 게시판 · 퀴즈방 세 탭이고, 어느 탭인지는 `?tab=` 으로 남긴다
+   * (`communityBoardPath` · `communityQuizRoomsPath`).
    * 주소의 경로는 그대로라 NavBar 의 라운지 탭 표시와 앱의 "탭 뿌리" 판정이 바뀌지 않는다.
    */
   community: '/community',
@@ -26,6 +27,18 @@ export const ROUTES = {
   communityWrite: '/community/write',
   /** 게시글 수정. 실제 주소는 `communityEditPath` 로 만든다. */
   communityEdit: '/community/posts/:postId/edit',
+  /**
+   * 퀴즈방 만들기. NavBar 없는 전체 화면이다.
+   *
+   * 아래 `quizRoom`(`:roomId`)과 같은 깊이지만 **정적 세그먼트가 동적 세그먼트보다 먼저
+   * 매칭**되므로(React Router 순위 규칙) `write` 가 roomId 로 읽히지 않는다.
+   */
+  quizRoomWrite: '/community/quiz-rooms/write',
+  /**
+   * 퀴즈방 상세 · 풀이 · 결과. NavBar 없는 전체 화면이다.
+   * **라우트 정의에만 쓰는 패턴**이고 실제 주소는 `quizRoomPath` 로 만든다.
+   */
+  quizRoom: '/community/quiz-rooms/:roomId',
   /** 내 게시글(블라인드 포함). 마이페이지 "활동 > 내 게시글"로 들어온다. */
   myCommunityPosts: '/my/posts',
   main: '/main',
@@ -150,6 +163,14 @@ export function readGameDetailPageState(state: unknown): Game | null {
 
 /** 라운지 게시판 탭 주소. 글 상세에서 뒤로 돌아올 때 랭킹이 아니라 게시판으로 온다. */
 export const communityBoardPath = '/community?tab=board';
+
+/** 라운지 퀴즈방 탭 주소. 퀴즈방에서 뒤로 돌아올 때 랭킹이 아니라 퀴즈방 목록으로 온다. */
+export const communityQuizRoomsPath = '/community?tab=quiz';
+
+/** 퀴즈방 상세로 가는 주소. `ROUTES.quizRoom` 의 `:roomId` 를 채운 값이다. */
+export function quizRoomPath(roomId: number): string {
+  return `/community/quiz-rooms/${roomId}`;
+}
 
 /** 게시글 상세로 가는 주소. `ROUTES.communityPost` 의 `:postId` 를 채운 값이다. */
 export function communityPostPath(postId: number): string {

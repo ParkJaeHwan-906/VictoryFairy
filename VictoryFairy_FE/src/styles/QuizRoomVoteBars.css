@@ -1,0 +1,135 @@
+/**
+ * QuizRoomVoteBars(퀴즈방 보기별 선택율) 스타일.
+ *
+ * 오늘의 퀴즈 선택율(`QuizVoteGauge.css`)의 색과 결을 따르되, 좌우 두 칸짜리 막대 대신
+ * 보기마다 한 줄씩 가로 막대를 그린다:
+ *   막대 바탕 — 게이지 칸과 같은 Background/Gray · radius 4
+ *   채움 — 기본 회색, 내 선택은 주황(Primary/Lighter), 정답은 초록(Success/Normal)
+ *   배지 — 내 선택은 주황 칩(번호 칩 바탕), 정답은 초록 칩(결과 시트 정답 칩)
+ * 좌우 여백은 부르는 쪽(`.quiz-room-page__vote` · `.quiz-room-result__votes`)이 준다.
+ */
+
+.quiz-room-vote {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 아직 SSE 값을 하나도 받지 못했을 때 막대 자리에 두는 한 줄 */
+.quiz-room-vote--pending {
+  padding: 12px 0;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-body4);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body4);
+  text-align: center;
+}
+
+/* 한 줄 = [보기 이름 · 배지 | 백분율 · 표 수] 위, 막대 아래 */
+.quiz-room-vote__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px 8px;
+}
+
+.quiz-room-vote__label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* 보기 글은 길 수 있다 — 한 줄로 자르고 백분율을 먼저 지킨다(게이지의 `__name` 과 같은 규칙) */
+.quiz-room-vote__text {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quiz-room-vote__badge {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border-radius: var(--radius-4);
+  font-size: var(--font-size-caption1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  white-space: nowrap;
+}
+
+.quiz-room-vote__badge--mine {
+  background-color: var(--color-background-red);
+  color: var(--color-primary-normal);
+}
+
+.quiz-room-vote__badge--answer {
+  background-color: var(--color-success-light);
+  color: var(--color-success-strong);
+}
+
+.quiz-room-vote__value {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.quiz-room-vote__percent {
+  color: var(--color-label-normal);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+}
+
+.quiz-room-vote__count {
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+/* ------------------------------------------------------------------ *
+ * 막대 — 바탕은 게이지 칸(`.quiz-vote__segment`)과 같은 회색 · radius 4
+ * ------------------------------------------------------------------ */
+.quiz-room-vote__bar {
+  display: block;
+  grid-column: 1 / -1;
+  height: 12px;
+  border-radius: var(--radius-4);
+  overflow: hidden;
+  background-color: var(--color-background-gray);
+}
+
+/* 길이는 `__row` 의 인라인 값(0~100)으로 정한다 — 사용자 지정 속성은 자식으로 상속된다 */
+.quiz-room-vote__fill {
+  display: block;
+  width: calc(var(--quiz-room-vote-ratio, 0) * 1%);
+  height: 100%;
+  border-radius: inherit;
+  background-color: var(--color-gray-300);
+  transition: width 0.3s ease-out;
+}
+
+.quiz-room-vote__row--mine .quiz-room-vote__fill {
+  background-color: var(--color-primary-lighter);
+}
+
+/* 정답이 내 선택보다 우선한다(맞혔으면 초록 하나로 충분하다) — 반드시 뒤에 둔다 */
+.quiz-room-vote__row--answer .quiz-room-vote__fill {
+  background-color: var(--color-success-normal);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quiz-room-vote__fill {
+    transition: none;
+  }
+}

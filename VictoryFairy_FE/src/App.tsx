@@ -23,6 +23,8 @@ import QuizResultPage from './pages/QuizResultPage';
 import CommunityPostDetailPage from './pages/CommunityPostDetailPage';
 import CommunityPostEditorPage from './pages/CommunityPostEditorPage';
 import MyCommunityPostsPage from './pages/MyCommunityPostsPage';
+import QuizRoomPage from './pages/QuizRoomPage';
+import QuizRoomEditorPage from './pages/QuizRoomEditorPage';
 import ProtectedRoute from './components/ProtectedRoute';
 import PublicOnlyRoute from './components/PublicOnlyRoute';
 import { useProfileBootstrap } from './hooks/useProfileBootstrap';
@@ -108,6 +110,13 @@ export default function App() {
         <Route path={ROUTES.communityPost} element={<CommunityPostDetailPage />} />
         <Route path={ROUTES.communityWrite} element={<CommunityPostEditorPage />} />
         <Route path={ROUTES.communityEdit} element={<CommunityPostEditorPage />} />
+        {/*
+          라운지 퀴즈방의 만들기 · 상세(풀이 · 결과). 둘 다 NavBar 없는 전체 화면이다.
+          퀴즈방 API 도 9개 전부 인증 필수라 게시판과 같은 보호 구역에 둔다.
+          `write` 는 정적 세그먼트라 `:roomId` 보다 먼저 매칭된다(선언 순서와 무관).
+        */}
+        <Route path={ROUTES.quizRoomWrite} element={<QuizRoomEditorPage />} />
+        <Route path={ROUTES.quizRoom} element={<QuizRoomPage />} />
         {/* 내 게시글(신고로 숨겨진 글 포함) — 마이페이지 "활동"에서 들어온다 */}
         <Route path={ROUTES.myCommunityPosts} element={<MyCommunityPostsPage />} />
       </Route>
