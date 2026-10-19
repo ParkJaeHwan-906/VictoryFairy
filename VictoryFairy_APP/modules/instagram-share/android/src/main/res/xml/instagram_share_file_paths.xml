@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  FileProvider 가 내보내도 되는 경로. 캐시 아래 딱 이 폴더 하나만 연다.
+  경로를 넓게 잡으면 authority 를 아는 앱에게 앱 내부 파일이 함께 열린다.
+-->
+<paths>
+  <cache-path
+    name="instagram-share"
+    path="instagram-share/" />
+</paths>

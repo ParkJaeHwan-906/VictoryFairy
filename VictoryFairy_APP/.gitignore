@@ -49,3 +49,8 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# 로컬 네이티브 모듈의 빌드 산출물. modules/ 자체는 소스라 커밋하지만
+# gradle이 모듈 안에 떨어뜨리는 build/ 는 앱의 android/ 와 같은 성격이다.
+modules/*/android/build/
+modules/*/ios/build/

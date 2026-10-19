@@ -15,6 +15,7 @@ import type { WebViewMessageEvent, WebViewNavigation } from 'react-native-webvie
 import { WEB_URL } from './config';
 import PermissionSheet from './notifications/PermissionSheet';
 import useGameReminders from './notifications/useGameReminders';
+import useInstagramShare from './share/useInstagramShare';
 import { COLORS } from './theme';
 import {
   CLOSE_SHEET_SCRIPT,
@@ -49,6 +50,9 @@ export default function WebAppView() {
   // 알림 예약은 웹이 아는 것(응원 구단)과 앱만 할 수 있는 것(예약)을 잇는 일이라
   // WebView의 생명주기에 얹혀 있다. 배선만 여기서 하고 판단은 훅 안에서 한다.
   const reminders = useGameReminders(webViewRef);
+  // 인스타 스토리 공유도 같은 모양이다 — 무엇을 그릴지는 웹이 알고, 인스타에 넘기는
+  // 것만 앱이 할 수 있다. 그림을 받아 넘기는 일뿐이라 화면은 생기지 않는다.
+  const instagramShare = useInstagramShare(webViewRef);
   // 백 버튼 리스너는 한 번만 등록하고 싶은데, state로 두면 값이 바뀔 때마다 리스너를
   // 떼었다 붙여야 한다. 리스너 안에서 최신 값만 읽으면 되므로 ref로 들고 있는다.
   const canGoBackRef = useRef(false);
@@ -148,15 +152,20 @@ export default function WebAppView() {
         return;
       }
 
+      if (instagramShare.handleWebMessage(event)) {
+        return;
+      }
+
       reminders.handleWebMessage(event);
     },
-    [reminders],
+    [instagramShare, reminders],
   );
 
   const handleLoadEnd = useCallback(() => {
     setIsLoading(false);
     reminders.handleWebLoaded();
-  }, [reminders]);
+    instagramShare.handleWebLoaded();
+  }, [instagramShare, reminders]);
 
   if (hasError) {
     return <ConnectionErrorView onRetry={handleRetry} />;

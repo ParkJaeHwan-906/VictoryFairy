@@ -50,3 +50,16 @@ const PRODUCTION_API_USER_BASE_URL = 'https://victoryfairy.com/api';
 export const API_USER_BASE_URL = normalize(
   process.env.EXPO_PUBLIC_API_USER_BASE_URL ?? PRODUCTION_API_USER_BASE_URL,
 );
+
+/**
+ * 인스타 스토리 공유에 붙이는 Meta 앱 ID(`source_application`).
+ *
+ * 2023년 1월부터 이 값이 없으면 인스타가 공유 요청을 그냥 무시한다 — 오류도 나지 않고
+ * 편집기가 열리지 않는다. 비밀이 아니라 공유 요청의 출처 표시라서 APK에 평문으로
+ * 들어가도 되고, 그래서 `EXPO_PUBLIC_` 값으로 둔다.
+ *
+ * 값이 없으면 앱은 공유가 불가능하다고 답한다(`src/share/instagram.ts`) — 넘겨 봐야
+ * 인스타가 버리므로, 눌러도 아무 일이 없는 버튼을 웹에 그리게 하는 것보다 낫다.
+ * 운영 폴백을 두지 않은 것도 같은 이유다: 틀린 ID로 조용히 실패하느니 없는 게 낫다.
+ */
+export const INSTAGRAM_APP_ID = (process.env.EXPO_PUBLIC_INSTAGRAM_APP_ID ?? '').trim();

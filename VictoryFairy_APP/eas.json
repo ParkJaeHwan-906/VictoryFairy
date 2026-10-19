@@ -8,7 +8,8 @@
       "distribution": "internal",
       "env": {
         "EXPO_PUBLIC_WEB_URL": "https://victoryfairy.com",
-        "EXPO_PUBLIC_API_USER_BASE_URL": "https://victoryfairy.com/api"
+        "EXPO_PUBLIC_API_USER_BASE_URL": "https://victoryfairy.com/api",
+        "EXPO_PUBLIC_INSTAGRAM_APP_ID": "2313843609390550"
       },
       "android": {
         "buildType": "apk"
@@ -19,7 +20,8 @@
       "autoIncrement": true,
       "env": {
         "EXPO_PUBLIC_WEB_URL": "https://victoryfairy.com",
-        "EXPO_PUBLIC_API_USER_BASE_URL": "https://victoryfairy.com/api"
+        "EXPO_PUBLIC_API_USER_BASE_URL": "https://victoryfairy.com/api",
+        "EXPO_PUBLIC_INSTAGRAM_APP_ID": "2313843609390550"
       },
       "android": {
         "buildType": "app-bundle"
