@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  키보드 설명. 글자를 치는 키보드가 아니라 설정 화면도 따로 두지 않는다.
+  다른 키보드로 돌아가는 전환 키를 직접 그리므로 시스템에도 전환을 지원한다고 알린다.
+-->
+<input-method
+  xmlns:android="http://schemas.android.com/apk/res/android"
+  android:supportsSwitchingToNextInputMethod="true" />
