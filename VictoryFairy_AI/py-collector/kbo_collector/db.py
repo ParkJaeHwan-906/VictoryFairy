@@ -241,10 +241,14 @@ LINEUP_DELETE_UNPLAYED = (
 # (2026-10-21 KIA@LG 실측). 빠진 경기는 upsert 가 다시 닿지 않아 예정 상태로 굳으므로 날짜 단위로
 # "응답에 없는 행"을 찾아 켜고, 다시 나타난 행은 끈다. 행을 지우지 않는 건 라인업·퀴즈 FK 와
 # 일시적 빈 응답 때문이다. {not_in} 은 그날 응답이 비었으면 빈 문자열이다 — NOT IN () 은 문법 오류다.
+#
+# DEMO 접두사 행은 운영 games 에 손으로 넣는 데모 경기라 네이버 일정에 있을 리 없다 — 거르지 않으면
+# 넣자마자 다음 수집에서 사라진 경기가 된다. 접두사가 4444 가 아닌 이유: 네이버가 포스트시즌 실경기 id 에
+# 4444 를 써서(2026-10-14 사고) 실경기와 데모가 구분되지 않았다. %% 는 pymysql 파라미터 치환 때문이다.
 GAMES_MARK_REMOVED = (
     "UPDATE games SET removed = 1, updated_at = NOW(6) "
     "WHERE game_date >= %s AND game_date < %s AND removed = 0 "
-    "AND naver_game_id IS NOT NULL {not_in}"
+    "AND naver_game_id IS NOT NULL AND naver_game_id NOT LIKE 'DEMO%%' {not_in}"
 )
 GAMES_RESTORE_REMOVED = (
     "UPDATE games SET removed = 0, updated_at = NOW(6) "
