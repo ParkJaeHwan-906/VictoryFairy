@@ -78,7 +78,7 @@ class ChatPresencePodsIT {
         String gameId = "PODS" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         Game today = game(gameId, new ChatClock().today().atTime(18, 30), "SCHEDULED");
         for (AppLauncher pod : pods) {
-            given(pod.gameRepository.findByNaverGameId(gameId)).willReturn(Optional.of(today));
+            given(pod.gameRepository.findActiveByNaverGameId(gameId)).willReturn(Optional.of(today));
             given(pod.gameRepository.findWithDetailsByNaverGameId(gameId)).willReturn(Optional.of(today));
         }
         return gameId;

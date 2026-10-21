@@ -62,7 +62,7 @@ class ChatRoomGuardTest {
     void requireOrCreate_metaExists_doesNotTouchGamesOrCreate() {
         given(redisTemplate.hasKey("chat:room:" + GAME_ID)).willReturn(true);
 
-        Optional<Game> result = guard.requireOrCreate(GAME_ID, gameRepository::findByNaverGameId);
+        Optional<Game> result = guard.requireOrCreate(GAME_ID, gameRepository::findActiveByNaverGameId);
 
         assertThat(result).isEmpty();
         verifyNoInteractions(gameRepository);
@@ -74,9 +74,9 @@ class ChatRoomGuardTest {
     void requireOrCreate_metaMissingButTodayGame_lazilyCreates() {
         Game todayGame = game(GAME_ID, LocalDateTime.of(2026, 10, 9, 18, 30), "SCHEDULED");
         given(redisTemplate.hasKey("chat:room:" + GAME_ID)).willReturn(false);
-        given(gameRepository.findByNaverGameId(GAME_ID)).willReturn(Optional.of(todayGame));
+        given(gameRepository.findActiveByNaverGameId(GAME_ID)).willReturn(Optional.of(todayGame));
 
-        Optional<Game> result = guard.requireOrCreate(GAME_ID, gameRepository::findByNaverGameId);
+        Optional<Game> result = guard.requireOrCreate(GAME_ID, gameRepository::findActiveByNaverGameId);
 
         assertThat(result).containsSame(todayGame);
         verify(valueOps).setIfAbsent("chat:room:" + GAME_ID, "20261009", Duration.ofSeconds(12 * 3600));
@@ -90,7 +90,7 @@ class ChatRoomGuardTest {
     void requireOrCreate_yesterdayGame_throws404WithoutCreate() {
         Game yesterday = game(GAME_ID, LocalDateTime.of(2026, 10, 8, 18, 30), "FINISHED");
         given(redisTemplate.hasKey(anyString())).willReturn(false);
-        given(gameRepository.findByNaverGameId(GAME_ID)).willReturn(Optional.of(yesterday));
+        given(gameRepository.findActiveByNaverGameId(GAME_ID)).willReturn(Optional.of(yesterday));
 
         assertBusiness(() -> guard.requireOrCreate(GAME_ID), ErrorCode.CHATROOM_NOT_FOUND);
 
@@ -103,7 +103,7 @@ class ChatRoomGuardTest {
     void requireOrCreate_tomorrowGame_throws404() {
         Game tomorrow = game(GAME_ID, LocalDateTime.of(2026, 10, 10, 0, 0), "SCHEDULED");
         given(redisTemplate.hasKey(anyString())).willReturn(false);
-        given(gameRepository.findByNaverGameId(GAME_ID)).willReturn(Optional.of(tomorrow));
+        given(gameRepository.findActiveByNaverGameId(GAME_ID)).willReturn(Optional.of(tomorrow));
 
         assertBusiness(() -> guard.requireOrCreate(GAME_ID), ErrorCode.CHATROOM_NOT_FOUND);
     }
@@ -112,7 +112,7 @@ class ChatRoomGuardTest {
     @DisplayName("[CHAT-GC-24] 메타도 없고 games 에도 없는 gameId 는 404 이다")
     void requireOrCreate_unknownGame_throws404() {
         given(redisTemplate.hasKey(anyString())).willReturn(false);
-        given(gameRepository.findByNaverGameId("nope")).willReturn(Optional.empty());
+        given(gameRepository.findActiveByNaverGameId("nope")).willReturn(Optional.empty());
 
         assertBusiness(() -> guard.requireOrCreate("nope"), ErrorCode.CHATROOM_NOT_FOUND);
     }
@@ -132,7 +132,7 @@ class ChatRoomGuardTest {
     void requireOrCreate_redisDownOnLazyCreate_throws503() {
         Game todayGame = game(GAME_ID, LocalDateTime.of(2026, 10, 9, 18, 30), "SCHEDULED");
         given(redisTemplate.hasKey(anyString())).willReturn(false);
-        given(gameRepository.findByNaverGameId(GAME_ID)).willReturn(Optional.of(todayGame));
+        given(gameRepository.findActiveByNaverGameId(GAME_ID)).willReturn(Optional.of(todayGame));
         given(valueOps.setIfAbsent(anyString(), anyString(), any(Duration.class)))
                 .willThrow(new QueryTimeoutException("timeout"));
 
