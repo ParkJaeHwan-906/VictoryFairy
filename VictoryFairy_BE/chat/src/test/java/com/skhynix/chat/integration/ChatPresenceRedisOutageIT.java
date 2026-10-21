@@ -49,7 +49,7 @@ class ChatPresenceRedisOutageIT {
     private static String room(AppLauncher app) {
         String gameId = "OUT" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         Game today = game(gameId, new ChatClock().today().atTime(18, 30), "SCHEDULED");
-        given(app.gameRepository.findByNaverGameId(gameId)).willReturn(Optional.of(today));
+        given(app.gameRepository.findActiveByNaverGameId(gameId)).willReturn(Optional.of(today));
         given(app.gameRepository.findWithDetailsByNaverGameId(gameId)).willReturn(Optional.of(today));
         return gameId;
     }

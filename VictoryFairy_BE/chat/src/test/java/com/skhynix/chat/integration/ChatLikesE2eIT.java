@@ -388,7 +388,7 @@ class ChatLikesE2eIT extends E2eSupport {
         await().atMost(WAIT).until(() -> publishedFor(ghost).size() == 1);
         assertThat(redis.hasKey("chat:room:" + ghost)).as("방 메타가 생기지 않는다").isFalse();
         assertThat(probe().dbSize()).as("Redis 키가 하나도 늘지 않는다").isEqualTo(dbBefore);
-        verify(gameRepository, never()).findByNaverGameId(ghost);
+        verify(gameRepository, never()).findActiveByNaverGameId(ghost);
         verify(gameRepository, never()).findWithDetailsByNaverGameId(ghost);
     }
 

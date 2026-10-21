@@ -37,7 +37,7 @@ public class ChatRoomGuard {
     private final ChatClock clock;
 
     public void requireOrCreate(String gameId) {
-        requireOrCreate(gameId, gameRepository::findByNaverGameId);
+        requireOrCreate(gameId, gameRepository::findActiveByNaverGameId);
     }
 
     /**

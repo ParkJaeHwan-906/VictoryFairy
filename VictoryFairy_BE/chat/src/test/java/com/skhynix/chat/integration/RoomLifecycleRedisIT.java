@@ -169,7 +169,7 @@ class RoomLifecycleRedisIT extends RedisIntegrationSupport {
     @DisplayName("[CHAT-GC-107] 메타가 없는데 오늘 경기면 지연 생성한다 — TTL 은 다음 자정까지 남은 초 이하이고 chat:rooms:{오늘} 에 등록된다")
     void lazyCreate_createsMetaUntilMidnightAndRegistersInSet() {
         Game g_LATE = game("LATE", today.atTime(19, 0), "SCHEDULED");
-        given(gameRepository.findByNaverGameId("LATE")).willReturn(Optional.of(g_LATE));
+        given(gameRepository.findActiveByNaverGameId("LATE")).willReturn(Optional.of(g_LATE));
 
         guard().requireOrCreate("LATE");
 
@@ -183,7 +183,7 @@ class RoomLifecycleRedisIT extends RedisIntegrationSupport {
     @DisplayName("[CHAT-GC-107] 같은 요청이 두 번(두 파드) 와도 NX 라 메타는 하나이고 처음 값이 유지된다")
     void lazyCreate_twice_keepsFirstMeta() {
         Game g_LATE = game("LATE", today.atTime(19, 0), "SCHEDULED");
-        given(gameRepository.findByNaverGameId("LATE")).willReturn(Optional.of(g_LATE));
+        given(gameRepository.findActiveByNaverGameId("LATE")).willReturn(Optional.of(g_LATE));
         redis.opsForValue().set("chat:room:LATE", "first", java.time.Duration.ofSeconds(1000));
 
         guard().requireOrCreate("LATE");
@@ -196,8 +196,8 @@ class RoomLifecycleRedisIT extends RedisIntegrationSupport {
     @DisplayName("[CHAT-GC-24] 어제 경기·없는 gameId 는 404 이고 아무 키도 만들지 않는다")
     void lazyCreate_notTodaysGame_is404AndCreatesNothing() {
         Game g_OLD = game("OLD", yesterday.atTime(19, 0), "FINISHED");
-        given(gameRepository.findByNaverGameId("OLD")).willReturn(Optional.of(g_OLD));
-        given(gameRepository.findByNaverGameId("NOPE")).willReturn(Optional.empty());
+        given(gameRepository.findActiveByNaverGameId("OLD")).willReturn(Optional.of(g_OLD));
+        given(gameRepository.findActiveByNaverGameId("NOPE")).willReturn(Optional.empty());
 
         assertBusiness(() -> guard().requireOrCreate("OLD"), ErrorCode.CHATROOM_NOT_FOUND);
         assertBusiness(() -> guard().requireOrCreate("NOPE"), ErrorCode.CHATROOM_NOT_FOUND);
@@ -209,7 +209,7 @@ class RoomLifecycleRedisIT extends RedisIntegrationSupport {
     @DisplayName("[CHAT-GC-107] 히스토리·신고용 requireExisting 은 오늘 경기여도 메타를 만들지 않고 404 이다")
     void requireExisting_doesNotLazilyCreate() {
         Game g_LATE = game("LATE", today.atTime(19, 0), "SCHEDULED");
-        given(gameRepository.findByNaverGameId("LATE")).willReturn(Optional.of(g_LATE));
+        given(gameRepository.findActiveByNaverGameId("LATE")).willReturn(Optional.of(g_LATE));
 
         assertBusiness(() -> guard().requireExisting("LATE"), ErrorCode.CHATROOM_NOT_FOUND);
 
@@ -220,9 +220,9 @@ class RoomLifecycleRedisIT extends RedisIntegrationSupport {
     @DisplayName("[CHAT-GC-23] 경기가 끝났거나 취소된 방도 자정 전까지 존재한다 — 상태가 FINISHED/CANCELED 여도 지연 생성·통과한다")
     void lazyCreate_finishedAndCanceledGames_stillOpen() {
         Game g_FIN = game("FIN", today.atTime(13, 0), "FINISHED");
-        given(gameRepository.findByNaverGameId("FIN")).willReturn(Optional.of(g_FIN));
+        given(gameRepository.findActiveByNaverGameId("FIN")).willReturn(Optional.of(g_FIN));
         Game g_CAN = game("CAN", today.atTime(13, 0), "CANCELED");
-        given(gameRepository.findByNaverGameId("CAN")).willReturn(Optional.of(g_CAN));
+        given(gameRepository.findActiveByNaverGameId("CAN")).willReturn(Optional.of(g_CAN));
 
         guard().requireOrCreate("FIN");
         guard().requireOrCreate("CAN");

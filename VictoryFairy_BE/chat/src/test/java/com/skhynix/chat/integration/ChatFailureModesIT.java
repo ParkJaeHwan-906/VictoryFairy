@@ -116,7 +116,7 @@ class ChatFailureModesIT extends E2eSupport {
         TestUser listener = user();
         TestUser stranger = user();
         openRoom(listener, room);
-        Game g = gameRepository.findByNaverGameId(room).orElseThrow();
+        Game g = gameRepository.findActiveByNaverGameId(room).orElseThrow();
         given(gameRepository.findAllByGameDateGreaterThanEqualAndGameDateLessThanOrderByGameDateAsc(any(), any()))
                 .willReturn(List.of(g));
         var docker = Containers.redis().getDockerClient();

@@ -78,7 +78,7 @@ class ChatSendFlowIT extends E2eSupport {
     @DisplayName("[CHAT-GC-26] 방 목록은 200 이고 games 만 읽는다 — 목록 호출이 Redis 방 키를 만들지 않는다. 필드는 7개다")
     void roomList_readsOnlyGames() {
         String roomId = room();
-        Game g = gameRepository.findByNaverGameId(roomId).orElseThrow();
+        Game g = gameRepository.findActiveByNaverGameId(roomId).orElseThrow();
         org.mockito.BDDMockito.given(gameRepository
                 .findAllByGameDateGreaterThanEqualAndGameDateLessThanOrderByGameDateAsc(any(), any()))
                 .willReturn(List.of(g));
@@ -156,7 +156,7 @@ class ChatSendFlowIT extends E2eSupport {
     void roomDetail_yesterdayGame_is404() {
         String roomId = "E2E-OLD-" + System.nanoTime();
         Game yesterday = com.skhynix.chat.support.ChatFixtures.game(roomId, clock.today().minusDays(1).atTime(18, 30), "FINISHED");
-        org.mockito.BDDMockito.given(gameRepository.findByNaverGameId(roomId)).willReturn(java.util.Optional.of(yesterday));
+        org.mockito.BDDMockito.given(gameRepository.findActiveByNaverGameId(roomId)).willReturn(java.util.Optional.of(yesterday));
 
         E2eHttp.Resp resp = http.get("/chat/rooms/" + roomId, user().token());
 
@@ -170,7 +170,7 @@ class ChatSendFlowIT extends E2eSupport {
     void finishedGame_stillAcceptsMessages() {
         String roomId = "E2E-FIN-" + System.nanoTime();
         Game finished = com.skhynix.chat.support.ChatFixtures.game(roomId, clock.today().atTime(13, 0), "FINISHED");
-        org.mockito.BDDMockito.given(gameRepository.findByNaverGameId(roomId)).willReturn(java.util.Optional.of(finished));
+        org.mockito.BDDMockito.given(gameRepository.findActiveByNaverGameId(roomId)).willReturn(java.util.Optional.of(finished));
 
         assertThat(send(user(), roomId, "경기 끝났다", newClientMsgId()).status()).isEqualTo(202);
     }
