@@ -1,0 +1,156 @@
+# kube-prometheus-stack Helm values — ⚠ kubectl apply 대상이 아니다. helm 으로만 쓴다(docs/monitoring.md).
+#   차트 버전은 docs/monitoring.md 에 고정한다. 올릴 때는 CRD 를 먼저 갱신해야 한다(helm upgrade 는 CRD 를 안 건드림).
+#
+# 배치: operator·prometheus·alertmanager·grafana·kube-state-metrics 는 monitoring 노드그룹(t3.medium 1대)에만.
+#   node-exporter 만 DaemonSet 으로 모든 노드(app·batch·monitoring)에 뜬다.
+# 메모리 예산: monitoring 노드 allocatable ≈ 3.2Gi. 아래 requests 합 ≈ 1.1Gi, limits 합 ≈ 2.6Gi.
+#   Prometheus 가 가장 크게 자란다 — 시리즈가 늘어 OOMKilled 가 나면 limit 보다 scrape 대상부터 줄일 것.
+
+# EKS 는 컨트롤플레인을 숨긴다. scheduler·controller-manager·etcd 는 긁을 수 없고,
+# kube-proxy 는 127.0.0.1 에만 metrics 를 열어 둬서 타깃이 계속 down 으로 뜬다.
+# 끄지 않으면 해당 타깃 down 알람(TargetDown 등)이 상시 울린다.
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeEtcd:
+  enabled: false
+kubeProxy:
+  enabled: false
+
+defaultRules:
+  rules:
+    etcd: false
+    kubeControllerManager: false
+    kubeProxy: false
+    kubeSchedulerAlerting: false
+    kubeSchedulerRecording: false
+
+prometheusOperator:
+  nodeSelector:
+    workload: monitoring
+  tolerations:
+    - key: workload
+      operator: Equal
+      value: monitoring
+      effect: NoSchedule
+  resources:
+    requests:
+      cpu: 50m
+      memory: 96Mi
+    limits:
+      memory: 192Mi
+  admissionWebhooks:
+    # 설치·업그레이드 때 인증서를 만드는 일회성 Job. 이것도 고정하지 않으면 app 노드에 뜬다.
+    patch:
+      nodeSelector:
+        workload: monitoring
+      tolerations:
+        - key: workload
+          operator: Equal
+          value: monitoring
+          effect: NoSchedule
+
+prometheus:
+  prometheusSpec:
+    nodeSelector:
+      workload: monitoring
+    tolerations:
+      - key: workload
+        operator: Equal
+        value: monitoring
+        effect: NoSchedule
+    resources:
+      requests:
+        cpu: 200m
+        memory: 640Mi
+      limits:
+        memory: 1536Mi
+    scrapeInterval: 30s
+    # 기간·용량 중 먼저 닿는 쪽으로 지운다. retentionSize 는 PVC(10Gi)보다 작게 둬야
+    # WAL·compaction 여유가 남는다 — 디스크가 꽉 차면 Prometheus 가 기동조차 못 한다.
+    retention: 15d
+    retentionSize: 7GB
+    # 기본값(true)이면 이 릴리스 라벨이 붙은 ServiceMonitor/Rule 만 줍는다.
+    # victoryfairy 네임스페이스의 앱 ServiceMonitor 를 Helm 밖에서 추가하려면 꺼야 한다.
+    ruleSelectorNilUsesHelmValues: false
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+    scrapeConfigSelectorNilUsesHelmValues: false
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp3
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+
+alertmanager:
+  alertmanagerSpec:
+    nodeSelector:
+      workload: monitoring
+    tolerations:
+      - key: workload
+        operator: Equal
+        value: monitoring
+        effect: NoSchedule
+    resources:
+      requests:
+        cpu: 10m
+        memory: 48Mi
+      limits:
+        memory: 128Mi
+  # 수신처(Slack 등)는 아직 없다 — 차트 기본 config 의 null 리시버로 둔다. 알람은 Grafana·Alertmanager UI 로 확인.
+
+grafana:
+  nodeSelector:
+    workload: monitoring
+  tolerations:
+    - key: workload
+      operator: Equal
+      value: monitoring
+      effect: NoSchedule
+  resources:
+    requests:
+      cpu: 50m
+      memory: 192Mi
+    limits:
+      memory: 384Mi
+  defaultDashboardsTimezone: Asia/Seoul
+  # 비밀번호를 values 에 두지 않는다. 시크릿은 설치 전에 손으로 만든다(docs/monitoring.md).
+  admin:
+    existingSecret: grafana-admin
+  # UI 에서 만든 대시보드·사용자를 파드 재시작에도 남긴다. 차트가 넣는 기본 대시보드는 ConfigMap 이라 무관.
+  persistence:
+    enabled: true
+    storageClassName: gp3
+    size: 2Gi
+  # ClusterIP 로만 둔다(Ingress 없음). 접근은 kubectl port-forward — 공개 ALB 에 붙이지 말 것.
+
+kube-state-metrics:
+  nodeSelector:
+    workload: monitoring
+  tolerations:
+    - key: workload
+      operator: Equal
+      value: monitoring
+      effect: NoSchedule
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      memory: 192Mi
+
+prometheus-node-exporter:
+  # 모든 노드를 봐야 하므로 taint 를 가리지 않는다(batch Spot 노드 포함).
+  tolerations:
+    - operator: Exists
+  resources:
+    requests:
+      cpu: 10m
+      memory: 24Mi
+    limits:
+      memory: 64Mi
