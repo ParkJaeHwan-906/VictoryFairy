@@ -136,7 +136,7 @@ abstract class E2eSupport {
     protected String room() {
         String gameId = "E2E" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         Game todayGame = game(gameId, clock.today().atTime(18, 30), "SCHEDULED");
-        given(gameRepository.findByNaverGameId(gameId)).willReturn(Optional.of(todayGame));
+        given(gameRepository.findActiveByNaverGameId(gameId)).willReturn(Optional.of(todayGame));
         given(gameRepository.findWithDetailsByNaverGameId(gameId)).willReturn(Optional.of(todayGame));
         return gameId;
     }

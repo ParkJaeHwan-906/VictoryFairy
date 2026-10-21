@@ -576,7 +576,7 @@ class ChatSubscriptionFlowIT extends E2eSupport {
         try (SseStream stream = openOk(me, room, null)) {
             redis.unlink("chat:room:" + room);                                  // 자정 정리
             Game yesterday = com.skhynix.chat.support.ChatFixtures.game(room, clock.today().minusDays(1).atTime(18, 30), "FINISHED");
-            given(gameRepository.findByNaverGameId(room)).willReturn(Optional.of(yesterday));
+            given(gameRepository.findActiveByNaverGameId(room)).willReturn(Optional.of(yesterday));
             Thread.sleep(1500);
 
             assertThat(stream.isEnded()).isFalse();

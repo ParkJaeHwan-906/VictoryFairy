@@ -111,7 +111,7 @@ final class AppLauncher implements AutoCloseable {
     String room() {
         String gameId = "LAUNCH" + UUID.randomUUID().toString().replace("-", "").substring(0, 10);
         Game today = game(gameId, clock.today().atTime(18, 30), "SCHEDULED");
-        given(gameRepository.findByNaverGameId(gameId)).willReturn(Optional.of(today));
+        given(gameRepository.findActiveByNaverGameId(gameId)).willReturn(Optional.of(today));
         given(gameRepository.findWithDetailsByNaverGameId(gameId)).willReturn(Optional.of(today));
         return gameId;
     }

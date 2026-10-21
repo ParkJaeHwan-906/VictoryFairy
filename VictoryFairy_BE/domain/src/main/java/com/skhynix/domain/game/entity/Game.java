@@ -142,6 +142,21 @@ public class Game {
     @Column(name = "away_win_rate", precision = 4, scale = 1, nullable = true)
     private BigDecimal awayWinRate;
 
+    /**
+     * 네이버 일정에서 경기가 <b>사라졌다</b>. 경기 취소({@code CANCELED})와 다르다 — 취소는 네이버가 일정에
+     * 남긴 채 {@code cancel=true} 로 알려 주지만, 포스트시즌 시리즈가 일찍 끝나면 남은 경기는 표시 없이
+     * 일정에서 빠진다(2026-10-21 KIA@LG 실측). 그런 행은 수집기가 다시 건드리지 않아 예정 상태로 굳으므로,
+     * 수집기가 "그날 응답에 없는 경기"를 찾아 이 값을 켠다. 다시 나타나면 upsert 가 끈다.
+     *
+     * <p>행을 지우지 않는 이유는 라인업·퀴즈·제출 기록이 FK 로 걸려 있고, 일시적으로 빈 응답이 와도 되돌릴 수
+     * 있어야 해서다. 사용자에게 나가는 조회는 전부 이 값이 false 인 행만 본다({@code GameRepository}).
+     *
+     * <p>{@code DEFAULT 0} 은 컬럼을 손 ALTER 로 먼저 만들고 수집기를 나중에 올리는 순서 때문이다 — 그 사이
+     * 이 컬럼을 모르는 수집기의 INSERT 가 strict 모드에서 실패하지 않아야 한다.
+     */
+    @Column(name = "removed", columnDefinition = "TINYINT(1) DEFAULT 0", nullable = false)
+    private boolean removed;
+
     // 네이버 스포츠 gameId — py-collector가 재실행해도 중복 없이 upsert하기 위한 소스 자연키(UNIQUE)
     @Column(name = "naver_game_id", length = 20, unique = true)
     private String naverGameId;
