@@ -88,6 +88,158 @@
 }
 
 /* ------------------------------------------------------------------ *
+ * 담은 스티커 트레이 — 디자인 전 시험용. 안드로이드 앱에서 하나라도 담으면 보인다.
+ * 상단 바(60) 바로 아래에 붙어 스크롤해도 남는다.
+ * ------------------------------------------------------------------ */
+.story-share-page__tray {
+  position: sticky;
+  z-index: 1;
+  top: 60px;
+  padding: 8px var(--layout-gutter);
+  border-bottom: 1px solid var(--color-line-light);
+  background-color: var(--color-background-basic);
+}
+
+.story-share-page__tray-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.story-share-page__tray-list {
+  display: flex;
+  flex: 1;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  /* ✕ 가 칸 밖으로 살짝 걸치므로 위·오른쪽에 그만큼 여유를 둔다. */
+  padding: 6px 6px 2px 0;
+  list-style: none;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.story-share-page__tray-list::-webkit-scrollbar {
+  display: none;
+}
+
+.story-share-page__tray-item {
+  position: relative;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-10);
+  background-color: var(--color-background-gray);
+}
+
+.story-share-page__tray-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 4px;
+  object-fit: contain;
+}
+
+/* ✕ — 아이콘 에셋이 없어 두 줄을 겹쳐 그린다. 누르는 자리는 그림보다 넓게 잡는다. */
+.story-share-page__tray-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background-color: var(--color-label-normal);
+}
+
+.story-share-page__tray-remove::before,
+.story-share-page__tray-remove::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 8px;
+  height: 1.5px;
+  border-radius: 1px;
+  background-color: var(--color-white);
+  content: '';
+}
+
+.story-share-page__tray-remove::before {
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.story-share-page__tray-remove::after {
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+
+.story-share-page__tray-upload {
+  flex-shrink: 0;
+  padding: 10px 14px;
+  border-radius: var(--radius-10);
+  background-color: var(--color-primary-normal);
+  color: var(--color-white);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  white-space: nowrap;
+}
+
+.story-share-page__tray-upload:disabled {
+  background-color: var(--color-action-disabled);
+}
+
+.story-share-page__tray-message {
+  margin: 6px 0 0;
+  color: var(--color-error-strong);
+  font-size: var(--font-size-caption1);
+  line-height: var(--line-height-tight);
+}
+
+/* ------------------------------------------------------------------ *
+ * 승요 스티커 키보드 안내 — 디자인 전 시험용. 안드로이드 앱에서만 보인다.
+ * ------------------------------------------------------------------ */
+.story-share-page__keyboard {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px var(--layout-gutter) 0;
+  padding: 12px 16px;
+  border-radius: var(--radius-12);
+  background-color: var(--color-background-gray);
+}
+
+.story-share-page__keyboard-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.story-share-page__keyboard-title {
+  margin: 0;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+}
+
+.story-share-page__keyboard-description {
+  margin: 4px 0 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-caption1);
+  line-height: var(--line-height-tight);
+}
+
+.story-share-page__keyboard-button {
+  flex-shrink: 0;
+  padding: 8px 14px;
+  border-radius: var(--radius-10);
+  background-color: var(--color-primary-normal);
+  color: var(--color-white);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+}
+
+/* ------------------------------------------------------------------ *
  * 탭 (Btn/Selectbar) — 네 칸이 402 보다 넓어(420) 옆으로 밀린다
  * ------------------------------------------------------------------ */
 .story-share-page__tabs {
