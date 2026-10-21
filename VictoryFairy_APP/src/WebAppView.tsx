@@ -16,6 +16,7 @@ import { WEB_URL } from './config';
 import PermissionSheet from './notifications/PermissionSheet';
 import useGameReminders from './notifications/useGameReminders';
 import useInstagramShare from './share/useInstagramShare';
+import useStickerKeyboard from './share/useStickerKeyboard';
 import { COLORS } from './theme';
 import {
   CLOSE_SHEET_SCRIPT,
@@ -53,6 +54,8 @@ export default function WebAppView() {
   // 인스타 스토리 공유도 같은 모양이다 — 무엇을 그릴지는 웹이 알고, 인스타에 넘기는
   // 것만 앱이 할 수 있다. 그림을 받아 넘기는 일뿐이라 화면은 생기지 않는다.
   const instagramShare = useInstagramShare(webViewRef);
+  // 승요 스티커 키보드(안드로이드)도 같다 — 웹이 담은 스티커를 보내면 앱이 그림을 받아 두고 인스타를 연다.
+  const stickerKeyboard = useStickerKeyboard(webViewRef);
   // 백 버튼 리스너는 한 번만 등록하고 싶은데, state로 두면 값이 바뀔 때마다 리스너를
   // 떼었다 붙여야 한다. 리스너 안에서 최신 값만 읽으면 되므로 ref로 들고 있는다.
   const canGoBackRef = useRef(false);
@@ -152,13 +155,13 @@ export default function WebAppView() {
         return;
       }
 
-      if (instagramShare.handleWebMessage(event)) {
+      if (instagramShare.handleWebMessage(event) || stickerKeyboard.handleWebMessage(event)) {
         return;
       }
 
       reminders.handleWebMessage(event);
     },
-    [instagramShare, reminders],
+    [instagramShare, reminders, stickerKeyboard],
   );
 
   const handleLoadEnd = useCallback(() => {
