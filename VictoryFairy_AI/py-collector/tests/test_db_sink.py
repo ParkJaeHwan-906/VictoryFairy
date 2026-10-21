@@ -692,3 +692,13 @@ def test_sync_removed_games_empty_day_marks_all_without_not_in():
     assert "NOT IN" not in sql
     assert params == ["2026-10-31 00:00:00", "2026-11-01 00:00:00"]
     assert (removed, restored) == (2, 0)
+
+
+def test_sync_removed_games_never_marks_demo_games():
+    # 데모 경기는 네이버에 없으니 거르지 않으면 넣자마자 숨는다. pymysql 이 %% 를 % 로 바꾼다.
+    conn = FakeConn(rowcounts=[0])
+    DbSink(None, connection=conn).sync_removed_games("2026-10-31", [])
+
+    _, sql, params = conn.log[0]
+    assert "NOT LIKE 'DEMO%%'" in sql
+    assert (sql % tuple(params)).count("'DEMO%'") == 1
