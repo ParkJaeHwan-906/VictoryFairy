@@ -735,7 +735,8 @@ def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=
     """
     resp = fetch.fetch(client, game_records.schedule_url(settings, date),
                        settings=settings, referer=settings.naver_referer)
-    games = game_records.list_kbo_games(resp.json())
+    schedule = resp.json()
+    games = game_records.list_kbo_games(schedule)
     # 구장은 한 번 채우면 변하지 않는다 — 아는 경기는 상세 API 를 다시 부르지 않는다.
     known_stadium = db.games_with_stadium([g.get("gameId") for g in games])
     synced, skipped, failed = 0, 0, 0
@@ -862,10 +863,33 @@ def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=
         except Exception as exc:
             failed += 1
             log.warning("경기 동기화 실패 %s: %s", g.get("gameId"), exc)
+    _sync_removed_games(db, date, schedule, games, log)
     lineups = _land_preview_lineups(settings, db, client, pending, team_ids, log) if pending else 0
     log.info("%s: synced=%d skipped=%d failed=%d lineups=%d",
              date, synced, skipped, failed, lineups)
     return synced
+
+
+def _sync_removed_games(db, date, schedule, games, log) -> None:
+    """그날 응답에 없는 경기를 games.removed 로 표시하고, 다시 나타난 경기는 되돌린다.
+
+    응답에 games 배열이 없으면(깨진 응답) 판단하지 않는다 — 빈 배열과 달리 "그날 경기가 없다"는
+    뜻이 아니다. 빈 배열은 그대로 판단한다: 시리즈가 끝난 날의 응답이 바로 빈 배열이다.
+    present 는 상태 판정에서 skip 된 경기까지 포함한다 — 상태를 못 읽었을 뿐 일정에는 있다.
+
+    실패는 경고만 남긴다. removed 컬럼을 손 ALTER 로 만들기 전에 이 코드가 먼저 배포돼도
+    상태 동기화는 그대로 돌아야 한다.
+    """
+    if not isinstance((schedule.get("result") or {}).get("games"), list):
+        log.warning("%s: 일정 응답에 games 가 없어 사라진 경기 판정을 건너뜀", date)
+        return
+    try:
+        removed, restored = db.sync_removed_games(date, [g.get("gameId") for g in games])
+    except Exception as exc:
+        log.warning("%s: 사라진 경기 판정 실패: %s", date, exc)
+        return
+    if removed or restored:
+        log.info("%s: 일정에서 사라짐 %d건, 복귀 %d건", date, removed, restored)
 
 
 def job_games_sync(settings, db, date, sink=None):
