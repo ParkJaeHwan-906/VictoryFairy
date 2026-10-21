@@ -554,6 +554,7 @@ class _RecordingSyncDb:
         self.calls = []
         self.lineup_calls = []
         self.purged = []
+        self.removed_sync_calls = []
         self.upsert_teams_calls = 0
         self._done = set(done)
         self._with_stadium = set(with_stadium)
@@ -617,6 +618,10 @@ class _RecordingSyncDb:
     def delete_lineups_if_unplayed(self, game_pk):
         self.purged.append(game_pk)
         return 0
+
+    def sync_removed_games(self, date, present_ids):
+        self.removed_sync_calls.append((date, sorted(present_ids)))
+        return 0, 0
 
 
 def _games_sync_schedule_games():
@@ -1770,3 +1775,72 @@ def test_win_rate_already_null_after_finish_is_not_a_change(monkeypatch, setting
     run.job_games_sync(settings, db, "2026-07-10", sink=sink)
 
     assert sink.put_json_calls == []
+
+
+def test_job_games_sync_marks_removed_with_every_game_in_the_response(monkeypatch, settings):
+    # 상태를 못 읽어 skip 한 경기("unknown")도 일정에는 있으니 present 에 들어가야 한다 —
+    # 빠지면 상태 코드 하나가 낯설다는 이유로 경기가 사용자 화면에서 사라진다.
+    import contextlib
+    monkeypatch.setattr(run.fetch, "build_client", lambda settings: contextlib.nullcontext(object()))
+    monkeypatch.setattr(run.fetch, "fetch", lambda *a, **k: _FakeScheduleResp())
+    db = _RecordingSyncDb(team_ids={"OB": 1, "LG": 2})
+
+    run.job_games_sync(settings, db, "2026-07-10")
+
+    assert db.removed_sync_calls == [("2026-07-10", sorted(
+        ["finished", "draw", "live", "scheduled", "cancelled", "no_dt", "unknown"]))]
+
+
+def test_job_games_sync_empty_day_still_marks_removed(monkeypatch, settings):
+    # 시리즈가 끝난 날의 실제 응답 모양이다(2026-10-21) — 빈 배열은 "그날 경기 없음"이라 판단한다.
+    import contextlib
+
+    class _Empty:
+        def json(self):
+            return {"result": {"games": []}}
+
+    monkeypatch.setattr(run.fetch, "build_client", lambda settings: contextlib.nullcontext(object()))
+    monkeypatch.setattr(run.fetch, "fetch", lambda *a, **k: _Empty())
+    db = _RecordingSyncDb(team_ids={"OB": 1, "LG": 2})
+
+    run.job_games_sync(settings, db, "2026-10-21")
+
+    assert db.removed_sync_calls == [("2026-10-21", [])]
+
+
+def test_job_games_sync_skips_removed_check_on_malformed_response(monkeypatch, settings, caplog):
+    # games 배열이 없는 응답은 빈 날과 다르다 — 여기서 판단하면 그날 경기가 전부 사라진다.
+    import contextlib
+
+    class _Broken:
+        def json(self):
+            return {"result": None}
+
+    monkeypatch.setattr(run.fetch, "build_client", lambda settings: contextlib.nullcontext(object()))
+    monkeypatch.setattr(run.fetch, "fetch", lambda *a, **k: _Broken())
+    db = _RecordingSyncDb(team_ids={"OB": 1, "LG": 2})
+
+    with caplog.at_level("WARNING", logger="games_sync"):
+        run.job_games_sync(settings, db, "2026-10-21")
+
+    assert db.removed_sync_calls == []
+    assert "사라진 경기 판정을 건너뜀" in caplog.text
+
+
+def test_job_games_sync_removed_check_failure_does_not_break_sync(monkeypatch, settings, caplog):
+    # removed 컬럼을 손 ALTER 로 만들기 전에 배포돼도 상태 동기화는 돌아야 한다.
+    import contextlib
+    monkeypatch.setattr(run.fetch, "build_client", lambda settings: contextlib.nullcontext(object()))
+    monkeypatch.setattr(run.fetch, "fetch", lambda *a, **k: _FakeScheduleResp())
+    db = _RecordingSyncDb(team_ids={"OB": 1, "LG": 2})
+
+    def boom(date, present_ids):
+        raise RuntimeError("Unknown column 'removed'")
+
+    db.sync_removed_games = boom
+
+    with caplog.at_level("WARNING", logger="games_sync"):
+        synced = run.job_games_sync(settings, db, "2026-07-10")
+
+    assert synced == 6
+    assert "사라진 경기 판정 실패" in caplog.text

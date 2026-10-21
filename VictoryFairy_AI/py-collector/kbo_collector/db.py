@@ -7,6 +7,7 @@ game_statuses/games/game_lineups/registrations — dev_be 브랜치 VictoryFairy
 upsert 해 재실행에도 멱등이다. PK 는 전부 서비스 소유의 AUTO_INCREMENT id.
 """
 import logging
+from datetime import date as date_cls, timedelta
 
 import pymysql
 
@@ -233,6 +234,21 @@ LINEUP_DELETE_EXCEPT = (
 LINEUP_DELETE_UNPLAYED = (
     "DELETE FROM game_lineups WHERE game_id = %s "
     "AND NOT EXISTS (SELECT 1 FROM batter_records b WHERE b.game_id = %s)"
+)
+
+# 네이버 일정에서 사라진 경기 표시(games.removed). 취소(CANCELED)와 다르다 — 취소는 일정에 남아
+# cancel=true 로 오지만, 포스트시즌 시리즈가 일찍 끝나면 남은 경기는 표시 없이 일정에서 빠진다
+# (2026-10-21 KIA@LG 실측). 빠진 경기는 upsert 가 다시 닿지 않아 예정 상태로 굳으므로 날짜 단위로
+# "응답에 없는 행"을 찾아 켜고, 다시 나타난 행은 끈다. 행을 지우지 않는 건 라인업·퀴즈 FK 와
+# 일시적 빈 응답 때문이다. {not_in} 은 그날 응답이 비었으면 빈 문자열이다 — NOT IN () 은 문법 오류다.
+GAMES_MARK_REMOVED = (
+    "UPDATE games SET removed = 1, updated_at = NOW(6) "
+    "WHERE game_date >= %s AND game_date < %s AND removed = 0 "
+    "AND naver_game_id IS NOT NULL {not_in}"
+)
+GAMES_RESTORE_REMOVED = (
+    "UPDATE games SET removed = 0, updated_at = NOW(6) "
+    "WHERE naver_game_id IN ({ph}) AND removed = 1"
 )
 
 # 취소 사유는 KBO 공식 일정표에만 있어(네이버는 "경기취소"로 뭉뚱그린다) 네이버 자연키
@@ -576,6 +592,27 @@ class DbSink:
             deleted = cur.rowcount
         self._conn.commit()
         return deleted
+
+    def sync_removed_games(self, date, present_ids) -> tuple[int, int]:
+        """그날 네이버 응답의 경기 목록으로 games.removed 를 맞춘다 -> (사라짐, 복귀) 행 수.
+
+        present_ids 가 비어 있으면 그날 경기 전부를 사라진 것으로 본다 — 시리즈 종료로 그날
+        일정이 통째로 빈 경우가 바로 그 상황이다. 응답 자체가 깨진 경우를 거르는 건 호출부 몫이다.
+        """
+        ids = [gid for gid in set(present_ids or ()) if gid]
+        start = f"{date} 00:00:00"
+        end = f"{date_cls.fromisoformat(date) + timedelta(days=1)} 00:00:00"
+        ph = ",".join(["%s"] * len(ids))
+        not_in = f"AND naver_game_id NOT IN ({ph})" if ids else ""
+        with self._conn.cursor() as cur:
+            cur.execute(GAMES_MARK_REMOVED.format(not_in=not_in), [start, end, *ids])
+            removed = cur.rowcount
+            restored = 0
+            if ids:
+                cur.execute(GAMES_RESTORE_REMOVED.format(ph=ph), ids)
+                restored = cur.rowcount
+        self._conn.commit()
+        return removed, restored
 
     def upsert_lineups(self, game_pk, lineups, player_map, team_ids) -> None:
         """LineupRow 목록 upsert. position(네이버 원문 표기) -> 정식 명칭으로

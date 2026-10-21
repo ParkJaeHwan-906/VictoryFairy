@@ -664,3 +664,31 @@ def test_get_game_win_rate_returns_pair_or_none():
     assert sink.get_game_win_rate("g1") == (Decimal("35.8"), None)
     assert sink.get_game_win_rate("new-game") is None
     assert "home_win_rate" in conn.log[0][1] and conn.log[0][2] == ("g1",)
+
+
+def test_sync_removed_games_marks_absent_and_restores_present():
+    from kbo_collector.db import GAMES_RESTORE_REMOVED
+    conn = FakeConn(rowcounts=[2, 1])
+    removed, restored = DbSink(None, connection=conn).sync_removed_games("2026-10-21", ["a", "b"])
+
+    (_, mark_sql, mark_params), (_, restore_sql, restore_params) = conn.log
+    # 날짜는 반개구간 — game_date 가 DATETIME 이라 등치 비교는 늘 0건이다.
+    assert mark_params[:2] == ["2026-10-21 00:00:00", "2026-10-22 00:00:00"]
+    assert sorted(mark_params[2:]) == ["a", "b"]
+    assert "NOT IN (%s,%s)" in mark_sql and "removed = 1" in mark_sql
+    assert restore_sql == GAMES_RESTORE_REMOVED.format(ph="%s,%s")
+    assert sorted(restore_params) == ["a", "b"]
+    assert (removed, restored) == (2, 1)
+    assert conn.commits == 1
+
+
+def test_sync_removed_games_empty_day_marks_all_without_not_in():
+    # NOT IN () 은 MySQL 문법 오류다 — 빈 날은 조건 자체를 빼고 그날 전부를 표시한다.
+    conn = FakeConn(rowcounts=[2])
+    removed, restored = DbSink(None, connection=conn).sync_removed_games("2026-10-31", [])
+
+    assert len(conn.log) == 1
+    _, sql, params = conn.log[0]
+    assert "NOT IN" not in sql
+    assert params == ["2026-10-31 00:00:00", "2026-11-01 00:00:00"]
+    assert (removed, restored) == (2, 0)
