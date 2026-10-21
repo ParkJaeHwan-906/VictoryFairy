@@ -24,3 +24,12 @@ metadata:
   labels:
     app.kubernetes.io/part-of: victoryfairy
     tier: batch
+---
+# kube-prometheus-stack(Helm) 설치 대상. monitoring 노드그룹에서만 돈다(k8s/61-*.values.yaml).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    app.kubernetes.io/part-of: victoryfairy
+    tier: monitoring
