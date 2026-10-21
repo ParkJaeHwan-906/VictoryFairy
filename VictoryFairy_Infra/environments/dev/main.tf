@@ -60,7 +60,26 @@ module "eks" {
         workload = { key = "workload", value = "batch", effect = "NO_SCHEDULE" }
       }
     }
+    # monitoring: kube-prometheus-stack 전용, 1대 고정(k8s/60-monitoring).
+    #   app 풀과 나눈 이유: 앱이 메모리를 다 쓰면 같은 노드의 Prometheus 가 축출돼
+    #   정작 장애 시점의 지표가 비게 된다. taint 로 앱 파드가 들어오지 못하게 막는다.
+    #   CA 대상에서 뺀다 — Prometheus PV 가 2a EBS 에 묶여 있어 노드가 늘어도 옮겨 갈 수 없다.
+    monitoring = {
+      instance_types     = ["t3.medium"]
+      capacity_type      = "ON_DEMAND"
+      min_size           = 1
+      desired_size       = 1
+      max_size           = 1
+      labels             = { workload = "monitoring" }
+      cluster_autoscaler = false
+      taints = {
+        workload = { key = "workload", value = "monitoring", effect = "NO_SCHEDULE" }
+      }
+    }
   }
+
+  # app 노드는 메모리 requests 가 이미 빠듯하다(2026-10-21 기준 68%). PVC 의 주 사용자도 모니터링이다.
+  ebs_csi_controller_node_group = "monitoring"
 }
 
 module "ecr" {
