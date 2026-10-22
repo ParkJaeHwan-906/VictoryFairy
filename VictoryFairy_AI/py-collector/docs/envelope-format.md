@@ -19,8 +19,8 @@ question-source/{docType}/{date}/{safeId}.json   ← 이 문서 (Envelope v1)
 질문 생성기 (공통 4필드만 읽음)
 ```
 
-- **game_result / player_profile / community_post**: `exporter.py`의 reader가 저장소(MySQL·S3)를
-  읽어 envelope로 재포장 → `python -m kbo_collector.run export --target <docType>`.
+- **game_result / player_profile / player_season_stat / community_post**: `exporter.py`의 reader가
+  저장소(MySQL·S3)를 읽어 envelope로 재포장 → `python -m kbo_collector.run export --target <docType>`.
 - **player_meme**: 중간 저장소가 없어 소스 `collect`가 곧 export → `run collect --target meme_dict`.
 
 ---
@@ -33,7 +33,7 @@ question-source/{docType}/{date}/{safeId}.json   ← 이 문서 (Envelope v1)
 |---|---|---|---|
 | 1 | `envelopeVersion` | int | 봉투 스키마 버전. 현재 **`1`** (`ENVELOPE_VERSION`) |
 | 2 | `docId` | string | 봉투 고유 ID. docType별 규칙으로 결정론적 생성(아래 표). S3 파일명의 근거 |
-| 3 | `docType` | string | `game_result` / `player_profile` / `community_post` / `player_meme` 중 하나 |
+| 3 | `docType` | string | `game_result` / `player_profile` / `player_season_stat` / `community_post` / `player_meme` 중 하나 |
 | 4 | `source` | string | 원천 식별자(`naver` / `kbo_official` / `dcinside`\|`fmkorea` / `seed_file`) |
 | 5 | `sourceRef` | string | 원본 위치 역참조(`mysql://games/{id}`, 커뮤니티 원글 URL, `config/memes.yaml` 등) |
 | 6 | `collectedAt` | string | 봉투 생성 시각(UTC ISO-8601, `YYYY-MM-DDThh:mm:ssZ`) |
@@ -80,17 +80,27 @@ question-source/{docType}/{date}/{safeId}.json   ← 이 문서 (Envelope v1)
 
 ---
 
-## 3. docType 4종별 차이
+## 3. docType 5종별 차이
 
 | docType | 읽는 곳 | content 생성 방식 | entities 채움 | 대표 tags | payload 키 |
 |---|---|---|---|---|---|
 | **game_result** | MySQL `games`·`teams`·`game_pitching`·`game_players` | **결정적 템플릿**(스코어·승패투수를 문장 조립) | `gameId` + `teamCodes` | `박스스코어`,`경기결과`(+`시범경기`/`무승부`) | `gameId`,`awayScore`,`homeScore`,`winner`,`stadium`,`startTime` |
 | **player_profile** | MySQL `players`·`teams`(+`game_players`로 uid) | **결정적 템플릿**(포지션·등번호·투타·생일 조립) | `teamCodes` + (`playerUids` 또는 `unresolved`) | `프로필`,`선수` | `playerId`,`backNumber`,`position`,`throwBat`,`isFirstTeam` |
+| **player_season_stat**(2026-10-06 신설) | MySQL `batter_records`·`pitcher_records`(+`games`로 시즌 필터, `players`·`teams`) | **결정적 템플릿**(시즌 누적 합계를 문장 조립, SUM/AVG는 SQL이 계산) | `teamCodes` + `playerUids` | `개인기록`,`시즌통계` | `playerId`,`season`,`batting`(선택),`pitching`(선택) |
 | **community_post** | S3 `community/{dcinside\|fmkorea}/{date}/` RawPost | **커뮤니티 원문 통과**(`title`+`body`, 요약·필터 없음) | **비어 있음**(`empty_entities()`) | `커뮤니티`,`여론`(+팀코드) | `engagement`,`crawledAt` |
 | **player_meme** | `config/memes.yaml`(+MySQL로 uid 해소) | **결정적 템플릿**(별명+유래 조립) | `teamCodes` + (`playerUids` 또는 `unresolved`) | `밈`(+사전 tags) | `text`,`origin` |
 
-> `content`는 **커뮤니티만 원문 통과**, 나머지 3종은 사실 데이터에서 **결정적으로 렌더된 자기완결 문장**입니다.
+> `content`는 **커뮤니티만 원문 통과**, 나머지 4종은 사실 데이터에서 **결정적으로 렌더된 자기완결 문장**입니다.
 > content 생성에 **LLM을 쓰지 않습니다**(사실 데이터 환각 방지 — 4절 주의점).
+
+**`player_season_stat`이 다른 PLAYER 관련 docType과 다른 점**: `player_profile`은 이름·팀뿐이고
+위키 서사(CAREER_PATH 등)는 사람이 수작업 큐레이션한 선수만 커버한다. `batter_records`·
+`pitcher_records`는 **records 잡이 "그 경기에 뛴 선수마다" 자격 하한 없이** 적재하는 박스스코어
+원자료라 — 1군에서 단 1경기라도 타석/투구를 기록한 선수는 전부 이 docType에 잡힌다. 실측
+검증(2026-10-06, KBO 공식 사이트 팀필터 교차조회)으로 롯데 자이언츠 기준 로스터 78명 중 62명
+(~79%)이 이 경로로 집계 가능함을 확인했다 — 위키 서사 기반 PLAYER scope 템플릿의 13%(같은 팀
+기준)보다 훨씬 높다. 자세한 설계 근거는 `exporter.py`의 `read_player_season_stats` docstring과
+`question-gen/config/question-templates.yaml`의 `TEAMMATE_STAT_COMPARE` 항목 참고.
 
 ### docId 규칙
 
@@ -98,6 +108,7 @@ question-source/{docType}/{date}/{safeId}.json   ← 이 문서 (Envelope v1)
 |---|---|---|
 | game_result | `game_result:{gameId}` | `game_result:20260708LGSS02026` |
 | player_profile | `player_profile:{playerId}` | `player_profile:60632` |
+| player_season_stat | `player_season_stat:{kboPlayerId}` | `player_season_stat:53554` |
 | community_post | `community_post:{SOURCE}:{postExternalId}` | `community_post:DCINSIDE:11158020` |
 | player_meme | `player_meme:{team}:{name}:{text}` | `player_meme:LG:오스틴:오카도` |
 
@@ -143,6 +154,33 @@ question-source/{docType}/{date}/{safeId}.json   ← 이 문서 (Envelope v1)
 ```
 
 > uid 해소 실패 시(경기 미출전 등) `playerUids`는 비고 `unresolved: [{"kind":"player","name":"김도영","reason":"no-game-uid"}]`가 채워집니다.
+
+### player_season_stat
+
+```json
+{
+  "envelopeVersion": 1,
+  "docId": "player_season_stat:53554",
+  "docType": "player_season_stat",
+  "source": "naver",
+  "sourceRef": "mysql://batter_records,pitcher_records/53554",
+  "collectedAt": "2026-10-06T05:00:12Z",
+  "title": "롯데 김민석 2026시즌 기록",
+  "content": "롯데 김민석은(는) 2026시즌 10경기 30타수 10안타(타율 0.333) 2홈런 5타점 1도루를 기록했다.",
+  "tags": ["개인기록", "시즌통계"],
+  "entities": { "playerUids": [123], "teamCodes": ["LT"], "gameId": null, "unresolved": [] },
+  "payload": {
+    "playerId": "53554",
+    "season": 2026,
+    "batting": { "games": 10, "atBats": 30, "hits": 10, "homeRuns": 2, "rbi": 5, "walks": 3, "strikeouts": 7, "stolenBases": 1, "avg": 0.333 }
+  }
+}
+```
+
+> 타자·투수 겸업 선수는 `payload`에 `batting`·`pitching`을 **둘 다** 채운 envelope 하나로 합친다.
+> 타수 0인 타자·이닝 0인 투수는 `avg`/`era`가 `null`이다(0으로 나누지 않음 — `content`에도
+> "집계불가"로 명시). `player_profile`과 같은 "최신 파티션 1개" 스냅샷 패턴이라 날짜 창이 없고
+> 매 실행마다 시즌 전체를 다시 합산한다.
 
 ### community_post
 
@@ -192,7 +230,7 @@ question-source/{docType}/{date}/{safeId}.json   ← 이 문서 (Envelope v1)
 question-source/{docType}/{date}/{safeId}.json
 ```
 
-- `{docType}` — 4종 중 하나. `{safeId}` — `safe_id(docId)`로 특수문자를 `_`로 치환(한글은 유지).
+- `{docType}` — 5종 중 하나. `{safeId}` — `safe_id(docId)`로 특수문자를 `_`로 치환(한글은 유지).
   예: `player_meme:LG:오스틴:오카도` → `player_meme_LG_오스틴_오카도.json`.
 - `{date}` — **export/collect 실행일**(UTC, `_now()[:10]`)이지 콘텐츠 자체의 날짜가 아님.
   같은 경기라도 오늘 export하면 오늘 파티션에 놓입니다.
@@ -210,7 +248,7 @@ question-source/{docType}/{date}/{safeId}.json
 - **content 자연어화 책임은 소스/exporter에 있고, LLM을 쓰지 않는다.** game_result·player_profile·
   player_meme의 `content`는 사실 필드를 **결정적 템플릿**으로 렌더한 문장이다(환각 방지). 커뮤니티만
   원문 통과이며, 이때 본문은 무필터라는 점을 소비자가 인지해야 한다.
-- **`content` 성격이 docType마다 다르다.** 3종은 자기완결 사실 문장, community_post는 무필터 원문.
+- **`content` 성격이 docType마다 다르다.** 4종은 자기완결 사실 문장, community_post는 무필터 원문.
   봉투 스키마는 같지만 프롬프트에 넣을 때 소스 성격 차이를 감안할 것.
 - **`payload`는 계약이 아니다.** docType별로 구조가 다르고 소비자 필수도 아니다. 안정적으로 의존하려면
   공통 4필드(`title`/`content`/`tags`/`entities`)만 사용.

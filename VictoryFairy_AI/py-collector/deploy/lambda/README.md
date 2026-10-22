@@ -12,9 +12,14 @@
 - **records** — `cron(30 18 * * ? *)`(03:30 KST) → `{"job":"records"}` : 완료 경기 → games/game_lineups
 - **registrations** — `cron(0 2 * * ? *)`(11:00 KST) → `{"job":"registrations"}` : KBO 1군 등록명단 → players
 - **games_sync** — `{"job":"games_sync"}` : 당일 KBO 경기 전부의 상태(SCHEDULED/LIVE/종료/취소) →
-  games 동기화. 스케줄 제안(**테라폼 미적용 — 아래 두 줄은 문서 기록용, infra 반영 보류**):
-  - 아침 동기화: `cron(0 23 * * ? *)`(08:00 KST) — 당일 SCHEDULED 선반영
-  - 경기 시간대: `cron(0/10 8-14 * * ? *)`(17:00~23:50 KST, 10분 간격) — LIVE/종료/취소 반영
+  games 동기화. 실제 적용된 룰(`VictoryFairy_Infra/collector-lambda`, dev_infra 소유 —
+  이 아래는 문서 기록용이고 실제 값이 바뀌면 거기서 먼저 바뀐다, 여기는 따라 적는 것뿐):
+  - 아침 동기화: `cron(0 23 * * ? *)`(08:00 KST) — 당일 SCHEDULED 선반영, `{"days":7}`(라인업 수집 없음)
+  - 야간 동기화: `cron(30 15 * * ? *)`(00:30 KST) — 위와 같은 선적재, `{"days":7}`
+  - 경기 시간대: `cron(* 4-14 * * ? *)`(13:00~23:59 KST, 1분 간격) — 당일 단일 날짜 호출(LIVE/종료/취소
+    + **선발 라인업**). 2026-10-04 조정 — 종전 17:00 시작이 일요일 14:00 경기를 놓쳤다(실측 확인:
+    해당 시각 games 테이블 상태·이닝·라인업 전부 비어 있었음). 1분 간격인 이유는 선발 라인업 공시가
+    경기 직전 한 번만 뜨기 때문(`collector-lambda/variables.tf`의 `games_sync_live_schedule` 주석 참고).
 
 함수를 나눈 이유: 운영 MySQL(데이터 EC2)은 VPC 안에서만 접근되므로 DB 잡 함수만
 프라이빗 서브넷에 배치하고(외부 API는 기존 NAT로 아웃바운드), S3 잡 함수는 VPC 밖에

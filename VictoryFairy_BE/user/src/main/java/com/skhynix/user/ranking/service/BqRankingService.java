@@ -5,11 +5,13 @@ import com.skhynix.common.error.ErrorCode;
 import com.skhynix.domain.support.entity.UserSupportTeam;
 import com.skhynix.domain.support.repository.UserSupportTeamRepository;
 import com.skhynix.domain.user.repository.BqRankingEntryView;
+import com.skhynix.domain.user.repository.UserBlockRepository;
 import com.skhynix.domain.user.repository.UserBqRepository;
 import com.skhynix.user.ranking.dto.BqRankingResponse;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
@@ -18,6 +20,10 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * 응원 구단 안의 BQ 순위. 쓰기 경로가 없다 — 조회가 행을 만들지 않는다는 계약을 클래스 모양으로 둔다.
  * 순위 규칙(점수 내림차순·동점 공동 순위 1·1·3·동점자 id 오름차순)은 이 클래스와 그 뒤의 두 쿼리에만 있다.
+ *
+ * <p>목록({@code getTopRanking}/{@code getRanking})과 본인 순위({@code getMyRanking})는 요청자와
+ * 차단 관계(양방향)인 계정을 모집단에서 제외한다({@code docs/requirements/user/user-block.md}
+ * USER-BLK-17/18) — 제외 대상은 {@code UserBlockRepository.findRelatedAccountIds} 하나로 통일한다.
  */
 @Service
 @RequiredArgsConstructor
@@ -29,6 +35,7 @@ public class BqRankingService {
 
     private final UserSupportTeamRepository userSupportTeamRepository;
     private final UserBqRepository userBqRepository;
+    private final UserBlockRepository userBlockRepository;
 
     public List<BqRankingResponse> getTopRanking(Long userAccountId) {
         return ranking(userAccountId, TOP_LIMIT);
@@ -50,16 +57,25 @@ public class BqRankingService {
         // 사라진 것이므로 UserProfileService 와 같은 401 로 맞춘다.
         BqRankingEntryView entry = userBqRepository.findRankingEntry(userAccountId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHENTICATED));
-        return BqRankingResponse.of(rankOf(teamId.get(), entry.getBqScore()), entry);
+        Set<Long> excludedAccountIds = userBlockRepository.findRelatedAccountIds(userAccountId);
+        return BqRankingResponse.of(rankOf(teamId.get(), entry.getBqScore(), excludedAccountIds), entry);
     }
 
     /**
      * 그 구단 모집단에서 이 점수의 순위. 점수를 받는 이유는 {@code /me} 가 이미 읽은 값을 다시 읽지 않기
      * 위해서다 — 순위 계산을 여기 하나로 모아 두되 SELECT 는 count 1 회만 더한다.
+     *
+     * <p>차단 필터가 없는 버전이다 — {@code UserProfileService}(`/me`의 {@code bqRank})가 재사용하는
+     * 경로로, 그 응답은 {@code docs/requirements/user/user-block.md} 범위 밖이라 그대로 남긴다.
      */
     public int rankOf(Long teamId, long bqScore) {
         // 모집단 크기가 int 를 넘을 일은 없다 — 한 구단의 응원 계정 수다.
         return (int) userBqRepository.countHigherInTeam(teamId, bqScore) + 1;
+    }
+
+    // getMyRanking 전용 — 차단 관계(양방향)인 계정을 모집단에서 뺀 순위(USER-BLK-18).
+    private int rankOf(Long teamId, long bqScore, Set<Long> excludedAccountIds) {
+        return (int) userBqRepository.countHigherInTeam(teamId, bqScore, excludedAccountIds) + 1;
     }
 
     private List<BqRankingResponse> ranking(Long userAccountId, int limit) {
@@ -67,7 +83,9 @@ public class BqRankingService {
         if (teamId.isEmpty()) {
             return List.of();
         }
-        return assignRanks(userBqRepository.findTeamRanking(teamId.get(), Limit.of(limit)));
+        Set<Long> excludedAccountIds = userBlockRepository.findRelatedAccountIds(userAccountId);
+        return assignRanks(
+                userBqRepository.findTeamRanking(teamId.get(), excludedAccountIds, Limit.of(limit)));
     }
 
     private Optional<Long> activeTeamId(Long userAccountId) {

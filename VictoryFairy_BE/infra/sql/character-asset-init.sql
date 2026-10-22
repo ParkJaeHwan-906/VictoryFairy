@@ -6,11 +6,11 @@
 --
 -- 재실행 안전: 전부 INSERT ... SELECT ... WHERE NOT EXISTS 다.
 --
--- ⚠ Step 4·5 는 백필이자 자가 치유 장치다. 가입 시 지급(DefaultCharacterGrantService)이 시드 부재로
+-- ⚠ Step 4·5·6 은 백필이자 자가 치유 장치다. 가입 시 지급(DefaultCharacterGrantService)이 시드 부재로
 --   건너뛰어진 계정도 다음 기동에 여기서 채워진다 — 그래서 그쪽이 가입을 막지 않고 넘어갈 수 있다.
 --
--- ⚠ 이름 문자열('승리요정'·'기본 의상'·부위 3종)은 임의 값이 아니다. DefaultCharacterPolicy 가 id 가
---   아닌 이 이름으로 지급 대상을 찾으므로, 한쪽만 바꾸면 지급이 조용히 건너뛰어진다.
+-- ⚠ 이름 문자열('승리요정'·'기본 의상'·'레드 캡'·부위 3종)은 임의 값이 아니다. DefaultCharacterPolicy 가
+--   id 가 아닌 이 이름으로 지급 대상을 찾으므로, 한쪽만 바꾸면 지급이 조용히 건너뛰어진다.
 --
 -- ⚠ EP(img·display_img·using_img)는 BaseURL 을 뺀 S3 오브젝트 키다. 절대 URL 을 넣지 말 것.
 --   키 규칙의 단일 출처는 VictoryFairy_Infra/scripts/character-assets.tsv 이고, 어긋나면 상점에
@@ -145,6 +145,31 @@ WHERE ci.name = '기본 의상'
 
 
 -- ============================================================================
+-- Step 6. user_character_items_inventory 백필 — 기존 전 계정에 '레드 캡' 지급
+--
+-- Step 5 와 같은 모양이다. 이미 같은 부위(모자)를 착용 중인 계정에는 꺼진 채로 넣는다 — 기존 가입자는
+-- 모자를 사서 쓰고 있을 수 있으므로, 무조건 1 로 넣으면 "부위당 하나"가 여기서 깨진다.
+-- 의상(Step 5)과 부위가 달라 둘 다 1 로 들어가도 서로 충돌하지 않는다.
+-- ============================================================================
+
+INSERT INTO user_character_items_inventory (user_account_id, character_item_id, active, created_at, updated_at)
+SELECT ua.id, ci.id,
+       CASE WHEN EXISTS (
+           SELECT 1 FROM user_character_items_inventory x
+           JOIN character_items xc ON xc.id = x.character_item_id
+           WHERE x.user_account_id = ua.id AND x.active = 1 AND xc.item_type_id = ci.item_type_id
+       ) THEN 0 ELSE 1 END,
+       NOW(6), NOW(6)
+FROM users_account ua
+CROSS JOIN character_items ci
+WHERE ci.name = '레드 캡'
+  AND NOT EXISTS (
+      SELECT 1 FROM user_character_items_inventory i
+      WHERE i.user_account_id = ua.id AND i.character_item_id = ci.id
+  );
+
+
+-- ============================================================================
 -- 검증 쿼리 (적용 후 수동 실행)
 -- ============================================================================
 -- 1) 카탈로그가 다 들어갔는지
@@ -154,11 +179,15 @@ WHERE ci.name = '기본 의상'
 --    SELECT t.name, COUNT(*) FROM character_items ci JOIN item_types t ON t.id = ci.item_type_id
 --     GROUP BY t.name;                       -- 기대: 의상 11 / 모자 6 / 소품 6
 --
--- 2) 백필이 전 계정을 덮었는지 (두 쿼리 모두 0행이어야 한다)
+-- 2) 백필이 전 계정을 덮었는지 (세 쿼리 모두 0행이어야 한다)
 --    SELECT ua.id FROM users_account ua
 --     WHERE NOT EXISTS (SELECT 1 FROM user_characters_inventory i WHERE i.user_account_id = ua.id);
 --    SELECT ua.id FROM users_account ua
 --     WHERE NOT EXISTS (SELECT 1 FROM user_character_items_inventory i WHERE i.user_account_id = ua.id);
+--    SELECT ua.id FROM users_account ua
+--     WHERE NOT EXISTS (
+--         SELECT 1 FROM user_character_items_inventory i JOIN character_items ci ON ci.id = i.character_item_id
+--          WHERE i.user_account_id = ua.id AND ci.name = '레드 캡');
 --
 -- 3) 부위당 하나가 지켜지는지 (0행이어야 한다)
 --    SELECT x.user_account_id, xc.item_type_id, COUNT(*)

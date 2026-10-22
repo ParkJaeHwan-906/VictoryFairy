@@ -115,7 +115,7 @@ class GameLineupServiceTest {
     void getLineup_resolvesNaverGameIdToInternalIdBeforeQueryingLineups() {
         // given
         Game game = gameOf(42L, "20260801LGSS02026");
-        given(gameRepository.findByNaverGameId("20260801LGSS02026")).willReturn(Optional.of(game));
+        given(gameRepository.findActiveByNaverGameId("20260801LGSS02026")).willReturn(Optional.of(game));
         given(gameLineupRepository.findStarterPitchers(42L)).willReturn(Collections.emptyList());
         given(gameLineupRepository.findStarterBatters(42L)).willReturn(Collections.emptyList());
 
@@ -123,7 +123,7 @@ class GameLineupServiceTest {
         gameLineupService.getLineup("20260801LGSS02026");
 
         // then
-        verify(gameRepository).findByNaverGameId("20260801LGSS02026");
+        verify(gameRepository).findActiveByNaverGameId("20260801LGSS02026");
         verify(gameLineupRepository).findStarterPitchers(eq(42L));
         verify(gameLineupRepository).findStarterBatters(eq(42L));
     }
@@ -132,7 +132,7 @@ class GameLineupServiceTest {
     @DisplayName("[USER-GL-20] 일치하는 naverGameId 행이 없으면 BusinessException(GAME_NOT_FOUND)을 던진다")
     void getLineup_noMatchingGame_throwsGameNotFound() {
         // given
-        given(gameRepository.findByNaverGameId("없는값")).willReturn(Optional.empty());
+        given(gameRepository.findActiveByNaverGameId("없는값")).willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> gameLineupService.getLineup("없는값"))
@@ -146,14 +146,14 @@ class GameLineupServiceTest {
             + "흡수된다(naverGameId 조회가 빈 Optional을 반환하는 것과 동일하게 처리)")
     void getLineup_blankGameId_throwsGameNotFoundViaSamePath() {
         // given
-        given(gameRepository.findByNaverGameId("")).willReturn(Optional.empty());
+        given(gameRepository.findActiveByNaverGameId("")).willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> gameLineupService.getLineup(""))
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.GAME_NOT_FOUND);
-        verify(gameRepository).findByNaverGameId("");
+        verify(gameRepository).findActiveByNaverGameId("");
     }
 
     @Test
@@ -161,7 +161,7 @@ class GameLineupServiceTest {
     void getLineup_gameExistsButNoLineupRows_returnsEmptyListWithoutException() {
         // given
         Game game = gameOf(1L, "20260801LGSS02026");
-        given(gameRepository.findByNaverGameId("20260801LGSS02026")).willReturn(Optional.of(game));
+        given(gameRepository.findActiveByNaverGameId("20260801LGSS02026")).willReturn(Optional.of(game));
         given(gameLineupRepository.findStarterPitchers(1L)).willReturn(Collections.emptyList());
         given(gameLineupRepository.findStarterBatters(1L)).willReturn(Collections.emptyList());
 
@@ -179,7 +179,7 @@ class GameLineupServiceTest {
         Game game = gameOf(1L, "20260801LGSS02026");
         Team teamHigh = teamOf(9L, "높은팀");
         Team teamLow = teamOf(3L, "낮은팀");
-        given(gameRepository.findByNaverGameId("20260801LGSS02026")).willReturn(Optional.of(game));
+        given(gameRepository.findActiveByNaverGameId("20260801LGSS02026")).willReturn(Optional.of(game));
         // 리포지토리가 낮은/높은 팀 순서를 보장하지 않는다고 가정 — 높은 팀을 먼저 준다.
         given(gameLineupRepository.findStarterPitchers(1L)).willReturn(List.of(
                 pitcherOf(game, teamHigh, "투수높은", positionOf("투수")),
@@ -202,7 +202,7 @@ class GameLineupServiceTest {
         // given
         Game game = gameOf(1L, "20260801LGSS02026");
         Team team = teamOf(3L, "삼성");
-        given(gameRepository.findByNaverGameId("20260801LGSS02026")).willReturn(Optional.of(game));
+        given(gameRepository.findActiveByNaverGameId("20260801LGSS02026")).willReturn(Optional.of(game));
         // 투수 이름 오름차순으로 이미 정렬돼 온다고 가정(리포지토리 계약)
         given(gameLineupRepository.findStarterPitchers(1L)).willReturn(List.of(
                 pitcherOf(game, team, "가나다", positionOf("투수")),
@@ -233,7 +233,7 @@ class GameLineupServiceTest {
         // given
         Game game = gameOf(1L, "20260801LGSS02026");
         Team loadedTeam = teamOf(3L, "삼성");
-        given(gameRepository.findByNaverGameId("20260801LGSS02026")).willReturn(Optional.of(game));
+        given(gameRepository.findActiveByNaverGameId("20260801LGSS02026")).willReturn(Optional.of(game));
         given(gameLineupRepository.findStarterPitchers(1L)).willReturn(List.of(
                 pitcherOf(game, loadedTeam, "원태인", positionOf("투수"))));
         given(gameLineupRepository.findStarterBatters(1L)).willReturn(List.of(
@@ -255,7 +255,7 @@ class GameLineupServiceTest {
         Game game = gameOf(1L, "20260801LGSS02026");
         Team pitcherOnlyTeam = teamOf(3L, "투수만있는팀");
         Team batterOnlyTeam = teamOf(9L, "타자만있는팀");
-        given(gameRepository.findByNaverGameId("20260801LGSS02026")).willReturn(Optional.of(game));
+        given(gameRepository.findActiveByNaverGameId("20260801LGSS02026")).willReturn(Optional.of(game));
         given(gameLineupRepository.findStarterPitchers(1L)).willReturn(List.of(
                 pitcherOf(game, pitcherOnlyTeam, "투수만", positionOf("투수"))));
         given(gameLineupRepository.findStarterBatters(1L)).willReturn(List.of(
@@ -283,7 +283,7 @@ class GameLineupServiceTest {
         // given
         Game game = gameOf(1L, "20260801LGSS02026");
         Team team = teamOf(3L, "삼성");
-        given(gameRepository.findByNaverGameId("20260801LGSS02026")).willReturn(Optional.of(game));
+        given(gameRepository.findActiveByNaverGameId("20260801LGSS02026")).willReturn(Optional.of(game));
         given(gameLineupRepository.findStarterPitchers(1L)).willReturn(List.of(
                 pitcherOf(game, team, "포지션미상투수", null)));
         given(gameLineupRepository.findStarterBatters(1L)).willReturn(List.of(

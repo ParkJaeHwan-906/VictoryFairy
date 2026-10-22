@@ -7,6 +7,8 @@ import com.skhynix.user.profileimage.policy.ProfileImageFormat;
  *
  * <p>둘을 함께 들고 다니는 이유: 확장자와 저장 Content-Type 이 모두 이 {@code format} 에서 나와야
  * 하는데, 저장 시점에 다시 판정하면 같은 바이트를 두 번 읽게 되고 두 판정이 갈릴 여지가 생긴다.
+ *
+ * <p>public 인 것은 커뮤니티 이미지 업로드가 같은 검증·저장을 재사용하기 때문이다.
  */
-record ProfileImageContent(byte[] bytes, ProfileImageFormat format) {
+public record ProfileImageContent(byte[] bytes, ProfileImageFormat format) {
 }

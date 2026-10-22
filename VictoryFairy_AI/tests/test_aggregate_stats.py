@@ -54,6 +54,21 @@ def test_recent_scoring_window():
     assert rs["LG"]["games"] == 3 and rs["LG"]["runsFor"] == 14
 
 
+def test_windowed_record_computes_win_loss_draw_and_pct():
+    wr = agg.windowed_record(GAMES, end_date="2026-05-03", days=7)
+    assert wr["LG"] == {"wins": 1, "losses": 1, "draws": 1, "winPct": 0.5}
+
+
+def test_recent_vs_prior_compares_two_adjacent_windows():
+    """RECENT_VS_EARLY 이동창 버전의 재료 — 두 창 모두에 존재하는 팀만 포함하고
+    (HT는 최근 창에만 있어 제외), 값은 매일 창이 밀리면서 실제로 달라진다."""
+    rvp = agg.recent_vs_prior(GAMES, end_date="2026-06-01", days=30)
+    # LG: 직전 창(05-01·05-02) 1승1패 -> 최근 창(05-03 무 + 06-01 홈 승리) 1승1무
+    assert rvp["LG"] == {"recentWinPct": 1.0, "priorWinPct": 0.5, "delta": 0.5}
+    assert rvp["OB"] == {"recentWinPct": 0.0, "priorWinPct": 0.5, "delta": -0.5}
+    assert "HT" not in rvp
+
+
 def test_yoy_none_without_prev():
     assert agg.yoy(GAMES, [], as_of="2026-06-02") is None
 
@@ -174,7 +189,8 @@ def test_extract_kbo_official():
 def test_build_season_stats_shape():
     stats = agg.build_season_stats(GAMES, today="2026-06-02")
     assert set(stats) == {"generatedAt", "asOf", "headToHead", "standings", "streaks",
-                          "homeAway", "monthly", "standingsTrend", "recentScoring", "yoy"}
+                          "homeAway", "monthly", "standingsTrend", "recentScoring",
+                          "recentVsPrior", "yoy"}
     assert stats["asOf"] == "2026-06-02"
 
 

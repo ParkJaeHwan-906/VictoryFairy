@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.skhynix.domain.game.entity.Game;
+import com.skhynix.domain.game.entity.InningHalf;
 import com.skhynix.domain.game.repository.GameRepository;
 import com.skhynix.domain.player.entity.Player;
 import com.skhynix.domain.player.repository.PlayerRepository;
@@ -90,7 +91,16 @@ class QuizIngestServiceTest {
     private static QuizCandidate candidate(String kind, String format,
             List<QuizCandidate.Option> options, String answer, QuizCandidate.Subject subject) {
         return new QuizCandidate(EXTERNAL_ID, null, kind, "MEME_ORIGIN", format, "문제 지문?",
-                options, answer, "MEDIUM", 30, 2, List.of("HH"), subject);
+                options, answer, "MEDIUM", 30, 2, List.of("HH"), subject, null);
+    }
+
+    /** PREDICTION(BATTER_HIT_IN_INNING) 후보 한 건 — options[0]=적중, options[1]=미적중 고정 계약. */
+    private static QuizCandidate predictionCandidate(QuizCandidate.Settlement settlement,
+            QuizCandidate.Subject subject) {
+        return new QuizCandidate(EXTERNAL_ID, null, "PREDICTION", "INNING_TRIGGER", "BINARY",
+                "이 선수가 이 이닝에 안타를 칠까?",
+                List.of(option("A", "안타를 친다"), option("B", "안타를 치지 못한다")),
+                null, "MEDIUM", 30, 2, null, subject, settlement);
     }
 
     private static QuizType multipleType() {
@@ -169,7 +179,7 @@ class QuizIngestServiceTest {
         givenMultipleTypeSeed(multipleType());
         givenSaveReturnsArgument();
         QuizCandidate candidate = new QuizCandidate(EXTERNAL_ID, null, "KNOWLEDGE", "MEME_ORIGIN",
-                "MULTI4", "문제 지문?", fourOptions(), "A", "EASY", 30, 3, List.of("HH"), null);
+                "MULTI4", "문제 지문?", fourOptions(), "A", "EASY", 30, 3, List.of("HH"), null, null);
 
         ingestService.ingest(candidate, QUIZ_DATE);
 
@@ -186,7 +196,7 @@ class QuizIngestServiceTest {
         givenMultipleTypeSeed(multipleType());
         givenSaveReturnsArgument();
         QuizCandidate candidate = new QuizCandidate(EXTERNAL_ID, null, "KNOWLEDGE", "MEME_ORIGIN",
-                "MULTI4", "문제 지문?", fourOptions(), "A", "HARD", 30, null, List.of("HH"), null);
+                "MULTI4", "문제 지문?", fourOptions(), "A", "HARD", 30, null, List.of("HH"), null, null);
 
         ingestService.ingest(candidate, QUIZ_DATE);
 
@@ -202,7 +212,7 @@ class QuizIngestServiceTest {
         givenMultipleTypeSeed(multipleType());
         givenSaveReturnsArgument();
         QuizCandidate candidate = new QuizCandidate(EXTERNAL_ID, null, "KNOWLEDGE", "MEME_ORIGIN",
-                "MULTI4", "문제 지문?", fourOptions(), "A", null, 30, null, List.of("HH"), null);
+                "MULTI4", "문제 지문?", fourOptions(), "A", null, 30, null, List.of("HH"), null, null);
 
         QuizIngestService.Result result = ingestService.ingest(candidate, QUIZ_DATE);
 
@@ -221,7 +231,7 @@ class QuizIngestServiceTest {
         givenMultipleTypeSeed(multipleType());
         givenSaveReturnsArgument();
         QuizCandidate candidate = new QuizCandidate(EXTERNAL_ID, null, "KNOWLEDGE", "MEME_ORIGIN",
-                "MULTI4", "문제 지문?", fourOptions(), "A", "MEDIUM", null, 2, List.of("HH"), null);
+                "MULTI4", "문제 지문?", fourOptions(), "A", "MEDIUM", null, 2, List.of("HH"), null, null);
 
         ingestService.ingest(candidate, QUIZ_DATE);
 
@@ -294,6 +304,126 @@ class QuizIngestServiceTest {
         verify(quizRepository, never()).save(any(Quiz.class));
         verifyNoInteractions(quizOptionRepository, quizTypeRepository, teamRepository,
                 playerRepository, gameRepository);
+    }
+
+    // ---------- PREDICTION(BATTER_HIT_IN_INNING) ----------
+
+    @Test
+    @DisplayName("[정산] PREDICTION BATTER_HIT_IN_INNING 후보는 answer 없이 적재되고 "
+            + "settlementMetric/Inning/Half·game·player가 채워진다")
+    void ingest_predictionBatterHitInInning_loadsWithNullAnswerAndSettlementColumns() {
+        givenNotDuplicated();
+        QuizType type = multipleType();
+        givenMultipleTypeSeed(type);
+        givenSaveReturnsArgument();
+        Team home = team("LG", "LG");
+        Team away = team("SK", "SSG");
+        Game game = Game.builder()
+                .gameDate(LocalDateTime.of(2026, 8, 7, 18, 30))
+                .homeTeam(home)
+                .awayTeam(away)
+                .naverGameId("20260807LGSK02026")
+                .build();
+        given(gameRepository.findByNaverGameId("20260807LGSK02026")).willReturn(Optional.of(game));
+        Player player = player(home);
+        given(playerRepository.findByKboPlayerId("54260")).willReturn(Optional.of(player));
+        QuizCandidate.Settlement settlement =
+                new QuizCandidate.Settlement("BATTER_HIT_IN_INNING", "20260807LGSK02026", 7, "TOP");
+        QuizCandidate candidate = predictionCandidate(settlement,
+                new QuizCandidate.Subject("PLAYER", List.of(54260L), null, null));
+
+        QuizIngestService.Result result = ingestService.ingest(candidate, QUIZ_DATE);
+
+        assertThat(result).isEqualTo(QuizIngestService.Result.LOADED);
+        verify(quizRepository).save(quizCaptor.capture());
+        Quiz saved = quizCaptor.getValue();
+        assertThat(saved.getAnswer()).isNull();
+        assertThat(saved.getSettlementMetric()).isEqualTo("BATTER_HIT_IN_INNING");
+        assertThat(saved.getSettlementInning()).isEqualTo(7);
+        assertThat(saved.getSettlementHalf()).isEqualTo(InningHalf.TOP.ordinal());
+        assertThat(saved.getGame()).isSameAs(game);
+        assertThat(saved.getTeam()).isSameAs(home);
+        assertThat(saved.getOpponentTeam()).isSameAs(away);
+        assertThat(saved.getPlayer()).isSameAs(player);
+        assertThat(saved.getQuizDate()).isEqualTo(QUIZ_DATE);
+        assertThat(saved.isUnsettledPrediction()).isTrue();
+
+        verify(quizOptionRepository).saveAll(optionsCaptor.capture());
+        // 고정 계약: index 0 = 적중, index 1 = 미적중 — QuizSettlementService 가 텍스트 없이
+        // 이 순서만으로 정답을 판정한다
+        assertThat(optionsCaptor.getValue()).extracting(QuizOption::getOption)
+                .containsExactly(0, 1);
+    }
+
+    @Test
+    @DisplayName("[정산] settlement.gameId를 games에서 못 찾으면 game/team/opponentTeam은 null로 "
+            + "적재되지만 quizDate는 그대로 찍히고 settlement 좌표는 유지된다")
+    void ingest_predictionGameUnresolved_loadsWithNullGameFkButStampsQuizDate() {
+        givenNotDuplicated();
+        givenMultipleTypeSeed(multipleType());
+        givenSaveReturnsArgument();
+        given(gameRepository.findByNaverGameId("20991231XXYY0")).willReturn(Optional.empty());
+        QuizCandidate.Settlement settlement =
+                new QuizCandidate.Settlement("BATTER_HIT_IN_INNING", "20991231XXYY0", 3, "BOTTOM");
+        QuizCandidate candidate = predictionCandidate(settlement, null);
+
+        QuizIngestService.Result result = ingestService.ingest(candidate, QUIZ_DATE);
+
+        assertThat(result).isEqualTo(QuizIngestService.Result.LOADED);
+        verify(quizRepository).save(quizCaptor.capture());
+        Quiz saved = quizCaptor.getValue();
+        assertThat(saved.getGame()).isNull();
+        assertThat(saved.getTeam()).isNull();
+        assertThat(saved.getOpponentTeam()).isNull();
+        assertThat(saved.getQuizDate()).isEqualTo(QUIZ_DATE);
+        assertThat(saved.getSettlementInning()).isEqualTo(3);
+        assertThat(saved.getSettlementHalf()).isEqualTo(InningHalf.BOTTOM.ordinal());
+    }
+
+    @Test
+    @DisplayName("[정산] metric이 BATTER_HIT_IN_INNING이 아닌 PREDICTION은 settlement가 있어도 "
+            + "SKIPPED_PREDICTION이고 어떤 리포지토리도 부르지 않는다")
+    void ingest_predictionUnsupportedMetric_skipsWithoutTouchingRepositories() {
+        QuizCandidate.Settlement settlement =
+                new QuizCandidate.Settlement("WIN_PROBABILITY", "20260807LGSK02026", 7, "TOP");
+        QuizCandidate candidate = predictionCandidate(settlement, null);
+
+        QuizIngestService.Result result = ingestService.ingest(candidate, QUIZ_DATE);
+
+        assertThat(result).isEqualTo(QuizIngestService.Result.SKIPPED_PREDICTION);
+        verifyNoInteractions(quizRepository, quizOptionRepository, quizTypeRepository,
+                teamRepository, playerRepository, gameRepository);
+    }
+
+    @Test
+    @DisplayName("[정산] settlement.gameId가 없으면 정산 불가라 SKIPPED_PREDICTION이고 save를 부르지 "
+            + "않는다")
+    void ingest_predictionMissingSettlementGameId_skips() {
+        givenNotDuplicated();
+        QuizCandidate.Settlement settlement =
+                new QuizCandidate.Settlement("BATTER_HIT_IN_INNING", null, 7, "TOP");
+        QuizCandidate candidate = predictionCandidate(settlement, null);
+
+        QuizIngestService.Result result = ingestService.ingest(candidate, QUIZ_DATE);
+
+        assertThat(result).isEqualTo(QuizIngestService.Result.SKIPPED_PREDICTION);
+        verify(quizRepository, never()).save(any(Quiz.class));
+        verifyNoInteractions(gameRepository, quizOptionRepository);
+    }
+
+    @Test
+    @DisplayName("[정산] PREDICTION도 externalId가 이미 적재돼 있으면 SKIPPED_DUPLICATE다")
+    void ingest_predictionDuplicateExternalId_skipsDuplicate() {
+        given(quizRepository.existsByExternalId(EXTERNAL_ID)).willReturn(true);
+        QuizCandidate.Settlement settlement =
+                new QuizCandidate.Settlement("BATTER_HIT_IN_INNING", "20260807LGSK02026", 7, "TOP");
+        QuizCandidate candidate = predictionCandidate(settlement, null);
+
+        QuizIngestService.Result result = ingestService.ingest(candidate, QUIZ_DATE);
+
+        assertThat(result).isEqualTo(QuizIngestService.Result.SKIPPED_DUPLICATE);
+        verify(quizRepository, never()).save(any(Quiz.class));
+        verifyNoInteractions(gameRepository);
     }
 
     // ---------- subject → 대상 FK ----------
@@ -475,7 +605,7 @@ class QuizIngestServiceTest {
         given(gameRepository.findByNaverGameId("20260807HHKT02026")).willReturn(Optional.empty());
         QuizCandidate candidate = new QuizCandidate(EXTERNAL_ID, "20260807HHKT02026", "KNOWLEDGE",
                 "MEME_ORIGIN", "MULTI4", "문제 지문?", fourOptions(), "A", "MEDIUM", 30, 2,
-                List.of("HH"), null);
+                List.of("HH"), null, null);
 
         ingestService.ingest(candidate, QUIZ_DATE);
 

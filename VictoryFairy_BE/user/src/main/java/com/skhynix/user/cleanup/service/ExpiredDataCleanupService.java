@@ -4,7 +4,8 @@ import com.skhynix.domain.user.entity.UserAccount;
 import com.skhynix.domain.user.repository.ExpiredAccountView;
 import com.skhynix.domain.user.repository.UserAccountRepository;
 import com.skhynix.user.cleanup.policy.UnknownAccountPolicy;
-import com.skhynix.user.cleanup.support.QuizLikeDeleteRuleInspector;
+import com.skhynix.user.cleanup.support.AccountFkDeleteRuleInspector;
+import com.skhynix.user.cleanup.support.AccountFkDeleteRuleInspector.Target;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -43,13 +44,15 @@ public class ExpiredDataCleanupService {
 
     private final UserAccountRepository userAccountRepository;
     private final ExpiredAccountEraser eraser;
-    private final QuizLikeDeleteRuleInspector quizLikeDeleteRuleInspector;
+    private final AccountFkDeleteRuleInspector accountFkDeleteRuleInspector;
 
     public void removeExpiredData(LocalDateTime baseTime) {
         log.info("만료 데이터 정리 시작 — 기준 시각 {}", baseTime);
 
         int chatrooms = 0;
         int chats = 0;
+        int posts = 0;
+        int comments = 0;
         int cancelledLikes = 0;
         int deletedAccounts = 0;
         int failedAccounts = 0;
@@ -65,6 +68,8 @@ public class ExpiredDataCleanupService {
                     AccountEraseResult result = eraser.erase(target, unknownAccount.get());
                     chatrooms += result.chatroomsTransferred();
                     chats += result.chatsTransferred();
+                    posts += result.postsTransferred();
+                    comments += result.commentsTransferred();
                     cancelledLikes += result.cancelledLikesDeleted();
                     if (result.accountRemoved()) {
                         deletedAccounts++;
@@ -89,10 +94,11 @@ public class ExpiredDataCleanupService {
             log.error("만료 refresh 토큰 삭제 실패 — 계정 처리 결과는 유지: 기준 시각 {}", baseTime, e);
         }
 
-        log.info("만료 데이터 정리 완료 — 기준 시각 {}: 이관 chatrooms {}건·chats {}건, "
+        log.info("만료 데이터 정리 완료 — 기준 시각 {}: 이관 chatrooms {}건·chats {}건·"
+                        + "community posts {}건·comments {}건, "
                         + "취소 추천 삭제 {}건, 계정 삭제 {}건, 실패 {}건, 만료 토큰 삭제 {}건",
-                baseTime, chatrooms, chats, cancelledLikes, deletedAccounts, failedAccounts,
-                deletedTokens);
+                baseTime, chatrooms, chats, posts, comments, cancelledLikes, deletedAccounts,
+                failedAccounts, deletedTokens);
     }
 
     /**
@@ -104,10 +110,14 @@ public class ExpiredDataCleanupService {
      * 정리는 무인 작업이라 이 로그가 유일한 신호다.
      */
     private Optional<UserAccount> findTransferTarget() {
-        if (!quizLikeDeleteRuleInspector.isSetNull()) {
-            log.error("quizzes_like 의 계정 FK 가 아직 ON DELETE SET NULL 이 아니다 — 계정 삭제 단계를 "
-                    + "건너뛴다. infra/sql/migrate-quiz-like-account-set-null.sql 을 먼저 적용할 것"
-                    + "(적용 전에 지우면 CASCADE 가 추천 행까지 지워 추천 수가 되돌릴 수 없이 줄어든다)");
+        // 대상(quizzes_like + 커뮤니티 반응 2·신고 1)마다 한 줄씩 남긴다 — 운영자가 한 회차 로그로 적용할
+        // DDL 을 전부 알 수 있어야 한다. 하나라도 어긋나면 그 회차의 계정 삭제는 통째로 없다.
+        List<Target> misconfigured = accountFkDeleteRuleInspector.findMisconfigured();
+        if (!misconfigured.isEmpty()) {
+            for (Target target : misconfigured) {
+                log.error("{} 의 계정 FK 가 아직 ON DELETE SET NULL 이 아니다 — 계정 삭제 단계를 건너뛴다. "
+                        + "{} 을 먼저 적용할 것({})", target.table(), target.migration(), target.reason());
+            }
             return Optional.empty();
         }
         Optional<UserAccount> unknownAccount =

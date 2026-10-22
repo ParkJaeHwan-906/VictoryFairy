@@ -8,5 +8,6 @@ package com.skhynix.user.cleanup.service;
  * 실패 건수에 넣지 않고, 그렇다고 이 회차의 삭제 건수로 세지도 않는다.
  */
 public record AccountEraseResult(int chatroomsTransferred, int chatsTransferred,
+        int postsTransferred, int commentsTransferred,
         int cancelledLikesDeleted, boolean accountRemoved) {
 }

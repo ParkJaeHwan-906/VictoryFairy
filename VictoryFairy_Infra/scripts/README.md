@@ -99,6 +99,31 @@ EKS 워커 노드도 22 인바운드를 인터넷에 열지 않습니다(소스 
 - SSH 키(pem) 관리 불필요 — 팀원 온·오프보딩은 IAM 권한 부여/회수로 끝
 - 모든 접속이 CloudTrail에 감사 기록됨
 
+## redis-enable-aof.sh — 서비스 Redis AOF(everysec) + maxmemory 512mb (1회성 패치)
+
+chat 모듈의 당일 히스토리(Redis Stream)가 Redis 재시작에 사라지지 않게 하고, 그 몫을 담도록
+maxmemory 를 256mb → 512mb 로 올린다(정책 allkeys-lru 유지). user_data 를 고치면 운영 DB 인스턴스가
+stop/start 되므로, 실행 중 호스트를 SSM 으로 패치한다.
+
+```bash
+./scripts/redis-enable-aof.sh check   # 읽기 전용 — 현행 값 + 메모리 판정(통과/실패와 필요한 --memory 값)
+./scripts/redis-enable-aof.sh apply   # 판정 통과 시: 1단계 무중단(상한 상향·maxmemory·AOF) → 2단계 재생성(수 초 끊김)
+
+# 목표값 바꾸기(기본 512mb / 1152m)
+VF_REDIS_MAXMEMORY=512mb VF_REDIS_CONTAINER_MEMORY=1152m ./scripts/redis-enable-aof.sh check
+```
+
+- 메모리 판정: redis `--memory` ≥ 목표 × 2 + 128MiB(AOF 재작성 fork 여유), 호스트 available ≥
+  (목표 − 현재 used) + 목표 + 256MiB, mysql 상한 + redis 상한 ≤ MemTotal − 256MiB. 하나라도 어긋나면
+  apply 는 아무것도 바꾸지 않고 중단하고, 필요한 `--memory` 값을 출력한다.
+- 현재 `--memory` 가 모자라면 `VF_REDIS_CONTAINER_MEMORY`(기본 1152m = 512mb × 2 + 128m)로 올린다.
+  1단계에서는 `docker update` 로 재시작 없이 올리고, 2단계 재생성에도 같은 값을 쓴다.
+- 2단계는 같은 `/data` 볼륨을 물고 `--maxmemory <목표> --appendonly yes --appendfsync everysec` 인자로
+  redis 컨테이너를 다시 만든다. 이전 컨테이너는 `redis-pre-aof` 로 정지 상태로 남는다.
+- 되돌리기: apply 출력의 `되돌리기 값:` 줄(이전 maxmemory·--memory)을 들고 스크립트 머리 주석의 절차를
+  따른다(2단계 이후 / 1단계에서 멈춘 경우 두 갈래).
+- 저트래픽 시간대에 실행할 것 — 재생성 동안 user·quiz·chat 의 Redis 호출이 실패한다.
+
 ## kubectl — EKS 클러스터 접속
 
 DB·EKS 노드 SSH와 달리 **EKS API 서버는 로컬에서 직접** 붙습니다(SSM 터널

@@ -7,6 +7,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date as date_cls
 from datetime import datetime, timedelta, timezone
+from decimal import ROUND_HALF_UP, Decimal
 
 from . import (community, dimensions, fetch, game_records, kbo_register, kbo_schedule,
                kbo_trade, keys, naver)
@@ -16,6 +17,13 @@ from .sink import S3RawSink
 from .targets import load_targets
 
 RELAY_MAX_INNING = 15
+
+# BE InningEventFact.half 계약(domain InningHalf#name()) — ordinal(TOP=0/BOTTOM=1)이
+# 아니라 "TOP"/"BOTTOM" 문자열이다. ingest 시점 candidate 의 settlement.half 와 같은
+# 계약이라, S3 라이브 이벤트 문서도 이 문자열로 맞춘다(2026-10-04, BE PR #560 실제
+# 코드 확인 후 수정 — 원래 ordinal int 로 내고 있어 InningHalf.valueOf 가 매번
+# IllegalArgumentException 으로 조용히 실패하고 있었다).
+_INNING_HALF_NAME = {0: "TOP", 1: "BOTTOM"}
 
 
 def _now_iso() -> str:
@@ -111,6 +119,32 @@ def land_results(date, game_ids, *, settings, sink, client, journal, force=False
     return landed
 
 
+def _fetch_relay_response(game_id, inning, *, settings, client):
+    # land_relays(전체 적재)와 fetch_single_inning_relay(단일 이닝 재조회)가 같이
+    # 쓰는 "relay URL 빌드 + fetch" 한 줄 — 중복 두지 않으려 뺐다. FetchError 는
+    # 그대로 호출자에게 전달한다(재시도/죽은 편지 처리 여부는 호출자마다 다르다).
+    url = naver.relay_url(settings, game_id, inning)
+    return fetch.fetch(client, url, settings=settings, referer=settings.naver_referer)
+
+
+def fetch_single_inning_relay(game_id, inning, *, settings, client) -> dict | None:
+    """이미 끝난 특정 이닝 하나의 relay 문서만 조회한다. 빈 이닝이면 None.
+
+    `land_relays` 내부의 "한 이닝 fetch -> relay_is_empty 체크" 를 재사용 가능하게
+    뺀 버전이다. **1..`RELAY_MAX_INNING` 루프나 "빈 이닝=경기 종료" 판단은 가져오지
+    않는다** — land_relays 는 "경기당 전체 이닝을 끝까지 적재"가 목적이라 빈 이닝을
+    "이 경기는 이제 끝, 다음 경기로" 신호로 쓰지만, 이 함수는 games_sync 의 이닝
+    전환 감지처럼 "이미 끝난 걸 아는 이닝 하나만 안전하게 조회"하는 용도라 그
+    판단 자체가 성립하지 않는다. S3 랜딩·dead-letter·체크포인트도 하지 않는다
+    (그건 land_relays 가 전체 적재 파이프라인으로서 여전히 담당).
+    """
+    resp = _fetch_relay_response(game_id, inning, settings=settings, client=client)
+    data = resp.json()
+    if naver.relay_is_empty(data):
+        return None
+    return data
+
+
 def land_relays(date, game_ids, *, settings, sink, client, journal, force=False) -> int:
     run_id = journal.run_id
     landed = 0
@@ -118,13 +152,13 @@ def land_relays(date, game_ids, *, settings, sink, client, journal, force=False)
     dead: list[str] = []
     for gid in game_ids:
         for inning in range(1, RELAY_MAX_INNING + 1):
-            url = naver.relay_url(settings, gid, inning)
             key = keys.relay_key(gid, inning)
             if not force and sink.exists(key):
                 continue
             try:
-                resp = fetch.fetch(client, url, settings=settings, referer=settings.naver_referer)
+                resp = _fetch_relay_response(gid, inning, settings=settings, client=client)
             except fetch.FetchError as exc:
+                url = naver.relay_url(settings, gid, inning)
                 sink.dead_letter("relay", date, f"{gid}-{inning}", url, exc,
                                  settings.retry_attempts, _now_iso())
                 journal.record(status="dead-letter", item_id=f"{gid}-{inning}", s3_key=key)
@@ -560,16 +594,149 @@ def _land_preview_lineups(settings, db, client, pending, team_ids, log) -> int:
     return landed
 
 
-def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=True) -> int:
+def _land_finished_inning_events(settings, sink, client, game_id, date, inning, half, log):
+    """방금 끝난 (inning, half) 의 relay 를 당겨와 안타 이벤트를 S3에 적재한다.
+
+    `_sync_games_for_date` 가 DB upsert **직전**에 읽은 "이전" (current_inning,
+    inning_half) 가 새로 받아온 값과 달라졌을 때(= 전환 감지)만 불린다. 여기
+    `inning`/`half` 는 그 **이전** 값이다 — "막 끝난 이닝은 이전 값 기준"이라는
+    요구사항 그대로. 둘 중 하나가 None 이면(경기 시작 전이라 애초에 진행 중 상태가
+    아니었음) 부를 이닝이 없으므로 아무것도 하지 않는다.
+
+    구장 조회(`_scheduled_game_stadium`)와 같은 이유로 실패를 자체 삼킨다 — 이건
+    games_sync 의 "부가" 기능(BE의 이닝 단위 퀴즈 정산용)이라, relay 조회·S3 적재가
+    실패해도 **DB 상태 동기화(sync_game)는 그대로 진행돼야** 한다.
+    """
+    if inning is None or half is None:
+        return
+    try:
+        relay = fetch_single_inning_relay(game_id, inning, settings=settings, client=client)
+        if relay is None:
+            return
+        events = naver.extract_inning_events(relay, inning, half)
+        if not events:
+            return
+        sink.put_json(keys.inning_event_key(date, game_id, inning, half), {
+            "gameId": game_id, "date": date, "inning": inning,
+            "half": _INNING_HALF_NAME[half],
+            "events": events,
+        })
+        log.info("%s %d회(half=%s) 안타 이벤트 %d명 적재", game_id, inning, half, len(events))
+    except Exception as exc:  # 부가 기능 실패가 DB 동기화를 막으면 안 된다
+        log.warning("이닝 이벤트 적재 실패 %s %d회(half=%s): %s", game_id, inning, half, exc)
+
+
+GAME_STATE_FIELDS = ("inning", "inningHalf", "homeScore", "awayScore", "status")
+
+
+def _changed_game_state_fields(old_state, new_state) -> list[str]:
+    """(inning, half, home, away, status) 두 튜플을 비교해 달라진 필드 이름 목록.
+
+    이닝과 공수는 한 필드("inning")로 접는다 — 소비자(BE SSE)가 "이닝이 바뀌었다"를
+    하나의 변화로 보기 때문이다. 점수는 홈/원정을 따로 낸다(어느 쪽이 냈는지가 곧 정보다).
+    """
+    labels = ("inning", "inning", "homeScore", "awayScore", "status")
+    changed = []
+    for label, old, new in zip(labels, old_state, new_state):
+        if old != new and label not in changed:
+            changed.append(label)
+    return changed
+
+
+def _fetch_live_win_rate(settings, client, game_id, inning, log):
+    """진행 중 경기의 현재 이닝 relay 에서 최신 유효 승률 (홈, 원정). 못 구하면 None.
+
+    None 은 "모름"이다 — 호출자는 이걸 받으면 DB 의 직전 값을 그대로 둔다. 실패를 여기서
+    삼키는 이유는 `_land_finished_inning_events` 와 같다: 부가 호출이 점수·상태 동기화를
+    막으면 안 된다.
+    """
+    try:
+        relay = fetch_single_inning_relay(game_id, inning, settings=settings, client=client)
+        if relay is None:
+            return None
+        return naver.extract_latest_win_rate(relay)
+    except Exception as exc:  # 부가 기능 실패가 DB 동기화를 막으면 안 된다
+        log.warning("승률 조회 실패 %s %d회: %s", game_id, inning, exc)
+        return None
+
+
+def _normalize_win_rate(pair):
+    # DB(DECIMAL) 값과 relay 에서 반올림한 값을 같은 자릿수의 Decimal 로 맞춰 비교한다.
+    # 한쪽만 NULL 인 행은 BE 가 둘 다 null 로 보듯 "승률 없음"으로 접는다.
+    if not pair or pair[0] is None or pair[1] is None:
+        return None
+    step = Decimal("0.1")
+    return tuple(Decimal(str(v)).quantize(step, rounding=ROUND_HALF_UP) for v in pair)
+
+
+def _land_game_state_event(sink, date, g, state, last_inning, changed, log,
+                           now=None) -> bool:
+    """경기 하나의 "지금 상태" 스냅샷을 S3 game-state-events/ 에 적재한다.
+
+    `_sync_games_for_date` 가 DB upsert **직후** 부른다 — 소비자(BE user-app 의
+    SQS 리스너)가 알림을 받고 games 행을 다시 읽어도 이 스냅샷과 같은 값을 보게 하기
+    위해서다(upsert 전에 쓰면 알림이 DB 보다 먼저 도착해 한 폴링 전 값을 읽는다).
+
+    `_land_finished_inning_events` 와 같은 이유로 실패를 자체 삼킨다 — 부가 기능이라
+    S3 적재가 실패해도 DB 동기화 결과(synced 집계·라인업 단계)는 그대로 진행돼야 한다.
+    반환값은 적재 여부(테스트·로그용).
+    """
+    inning, half, home, away, status = state
+    observed = (now or datetime.now(timezone.utc))
+    try:
+        sink.put_json(
+            keys.game_state_event_key(date, g["gameId"], observed.strftime("%Y%m%dT%H%M%S%fZ")),
+            {
+                "gameId": g["gameId"], "date": date,
+                "gameDateTime": g.get("gameDateTime"),
+                "homeTeamCode": g.get("homeTeamCode"), "awayTeamCode": g.get("awayTeamCode"),
+                "status": status,
+                "homeScore": home, "awayScore": away,
+                "inning": inning,
+                "inningHalf": _INNING_HALF_NAME.get(half) if half is not None else None,
+                "lastInning": last_inning,
+                "changed": list(changed),
+                "observedAt": observed.isoformat(),
+            })
+        log.info("%s 상태 변화 적재 %s", g["gameId"], ",".join(changed))
+        return True
+    except Exception as exc:  # 부가 기능 실패가 DB 동기화를 막으면 안 된다
+        log.warning("상태 변화 적재 실패 %s: %s", g.get("gameId"), exc)
+        return False
+
+
+def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=True,
+                         sink=None) -> int:
     """하루치 경기를 games 에 동기화.
 
     `live_window`(단일 날짜 호출 = live 룰) 일 때만 선발 라인업까지 따라간다.
     선적재(morning/nightly, 오늘~+N일)에서는 켜지 않는다 — 미래 경기의 preview 엔
     라인업이 있을 리 없어 매 실행마다 날짜 수만큼 헛호출이 된다.
+
+    `settings.inning_events_enabled` 가 켜져 있을 때만(기본 꺼짐 — 꺼져 있으면
+    이 함수는 기존 동작과 100% 동일하다), games_sync upsert 직전에 DB의 이전
+    (current_inning, inning_half) 를 읽어 새 값과 비교한다. 달라졌으면(이닝/공수
+    전환, 또는 경기 종료로 인한 None 전환) 그 이전 값 기준 "막 끝난 이닝"의 relay를
+    당겨 안타 이벤트를 S3에 적재한다(`_land_finished_inning_events`). `sink` 가
+    None 이면(플래그를 켰는데 sink 를 안 넘긴 배선 실수) 조회 자체를 건너뛴다 —
+    DB 동기화를 막아선 안 되므로 조용히 skip 한다.
+
+    `settings.game_state_events_enabled` 가 켜져 있으면(기본 꺼짐) **라이브 윈도에서만**
+    upsert 직전에 DB 의 (이닝, 공수, 홈 점수, 원정 점수, 상태) 를 읽어 새 값과 비교하고,
+    하나라도 다르면 upsert **직후** 현재 스냅샷을 S3 game-state-events/ 에 적재한다
+    (`_land_game_state_event`). 선적재(morning/nightly)는 미래 경기라 변화가 없고 첫
+    INSERT 를 변화로 오인할 수 있어 켜지 않는다. 행이 아직 없는 경기(None)도 같은 이유로
+    건너뛴다 — 00:30/08:00 선적재가 그날 경기 행을 미리 만들어 두는 것이 전제다.
+
+    `settings.win_rate_enabled` 가 켜져 있으면(기본 꺼짐) 진행 중 경기마다 현재 이닝 relay 를
+    한 번 더 받아 승률을 함께 upsert 하고, 진행 중이 아닌 경기의 승률은 지운다. 승률이 바뀌면
+    (NULL↔값 포함, NULL→NULL 제외) 위 상태 변화 문서의 changed 에 "winRate" 가 붙는다.
+    문서 본문에 승률 값은 싣지 않는다 — 소비자(BE)는 알림을 받으면 DB 를 다시 읽는다.
     """
     resp = fetch.fetch(client, game_records.schedule_url(settings, date),
                        settings=settings, referer=settings.naver_referer)
-    games = game_records.list_kbo_games(resp.json())
+    schedule = resp.json()
+    games = game_records.list_kbo_games(schedule)
     # 구장은 한 번 채우면 변하지 않는다 — 아는 경기는 상세 API 를 다시 부르지 않는다.
     known_stadium = db.games_with_stadium([g.get("gameId") for g in games])
     synced, skipped, failed = 0, 0, 0
@@ -619,18 +786,70 @@ def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=
                 log.warning("이닝 파싱 실패 %s: statusInfo=%r",
                             g.get("gameId"), g.get("statusInfo"))
             live = status == "IN_PROGRESS"
+            new_current_inning = inning if live else None
+            new_inning_half = inning_half if live else None
+            new_home_score = g.get("homeTeamScore") if live_or_done else None
+            new_away_score = g.get("awayTeamScore") if live_or_done else None
+            win_rate_on = settings.win_rate_enabled
+            new_win_rate = None
+            if win_rate_on and live and new_current_inning is not None:
+                new_win_rate = _fetch_live_win_rate(
+                    settings, client, g["gameId"], new_current_inning, log)
+            old_state = None
+            old_win_rate = None
+            if settings.game_state_events_enabled and sink is not None and live_window:
+                # 이닝 이벤트와 같은 이유로 upsert 전에 읽는다. 행이 없으면 None 이고,
+                # 그 경기는 이번 폴링엔 이벤트를 내지 않는다(첫 적재는 변화가 아니다).
+                old_state = db.get_game_live_state(g["gameId"])
+                if old_state is not None and win_rate_on:
+                    old_win_rate = _normalize_win_rate(db.get_game_win_rate(g["gameId"]))
+            if settings.inning_events_enabled and sink is not None:
+                # upsert 가 VALUES() 로 블라인드 오버라이트하기 전에 "지금까지"
+                # 값을 읽어둔다 — sync_game 이후에는 이미 덮여서 못 읽는다.
+                old_inning, old_half = db.get_live_inning_state(g["gameId"])
+                if (old_inning, old_half) != (new_current_inning, new_inning_half):
+                    # 전환 감지(이닝/공수 전환, 또는 경기 종료로 인한 None 전환) —
+                    # "막 끝난 이닝"은 이전 값(old_inning/old_half) 기준이다.
+                    _land_finished_inning_events(
+                        settings, sink, client, g["gameId"], date,
+                        old_inning, old_half, log)
+            # 게이트가 꺼져 있으면 승률 인자를 아예 넘기지 않는다 — 기존 호출과 글자 그대로 같다.
+            win_rate_kwargs = (dict(with_win_rate=True, in_progress=live, win_rate=new_win_rate)
+                               if win_rate_on else {})
             game_pk = db.sync_game(
                 naver_game_id=g["gameId"], game_dt=dt,
                 home_team_id=team_ids[g["homeTeamCode"]],
                 away_team_id=team_ids[g["awayTeamCode"]],
-                home_score=g.get("homeTeamScore") if live_or_done else None,
-                away_score=g.get("awayTeamScore") if live_or_done else None,
+                home_score=new_home_score,
+                away_score=new_away_score,
                 status_id=db.status_id(status),
                 stadium_id=db.stadium_id(stadium),
-                current_inning=inning if live else None,
-                inning_half=inning_half if live else None,
-                last_inning=last_inning)
+                current_inning=new_current_inning,
+                inning_half=new_inning_half,
+                last_inning=last_inning,
+                **win_rate_kwargs)
             synced += 1
+            if old_state is not None:
+                # 점수는 upsert 가 COALESCE 라 None 을 보내도 DB 값이 남는다 — 비교도
+                # 그 규칙을 따른다(None 은 "모름"이지 "0 으로 지움"이 아니다).
+                new_state = (new_current_inning, new_inning_half,
+                             new_home_score if new_home_score is not None else old_state[2],
+                             new_away_score if new_away_score is not None else old_state[3],
+                             status)
+                changed = _changed_game_state_fields(old_state, new_state)
+                if win_rate_on:
+                    # 진행 중에 값을 못 구했으면 upsert 가 직전 값을 지키므로 비교도 그 값으로
+                    # 한다. 그래서 NULL→NULL(아직 승률 없음)은 변화가 아니다.
+                    if not live:
+                        stored_win_rate = None
+                    elif new_win_rate is not None:
+                        stored_win_rate = _normalize_win_rate(new_win_rate)
+                    else:
+                        stored_win_rate = old_win_rate
+                    if stored_win_rate != old_win_rate:
+                        changed.append("winRate")
+                if changed:
+                    _land_game_state_event(sink, date, g, new_state, last_inning, changed, log)
             if not live_window:
                 continue
             if status in LINEUP_PENDING_STATUSES:
@@ -644,18 +863,41 @@ def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=
         except Exception as exc:
             failed += 1
             log.warning("경기 동기화 실패 %s: %s", g.get("gameId"), exc)
+    _sync_removed_games(db, date, schedule, games, log)
     lineups = _land_preview_lineups(settings, db, client, pending, team_ids, log) if pending else 0
     log.info("%s: synced=%d skipped=%d failed=%d lineups=%d",
              date, synced, skipped, failed, lineups)
     return synced
 
 
-def job_games_sync(settings, db, date):
+def _sync_removed_games(db, date, schedule, games, log) -> None:
+    """그날 응답에 없는 경기를 games.removed 로 표시하고, 다시 나타난 경기는 되돌린다.
+
+    응답에 games 배열이 없으면(깨진 응답) 판단하지 않는다 — 빈 배열과 달리 "그날 경기가 없다"는
+    뜻이 아니다. 빈 배열은 그대로 판단한다: 시리즈가 끝난 날의 응답이 바로 빈 배열이다.
+    present 는 상태 판정에서 skip 된 경기까지 포함한다 — 상태를 못 읽었을 뿐 일정에는 있다.
+
+    실패는 경고만 남긴다. removed 컬럼을 손 ALTER 로 만들기 전에 이 코드가 먼저 배포돼도
+    상태 동기화는 그대로 돌아야 한다.
+    """
+    if not isinstance((schedule.get("result") or {}).get("games"), list):
+        log.warning("%s: 일정 응답에 games 가 없어 사라진 경기 판정을 건너뜀", date)
+        return
+    try:
+        removed, restored = db.sync_removed_games(date, [g.get("gameId") for g in games])
+    except Exception as exc:
+        log.warning("%s: 사라진 경기 판정 실패: %s", date, exc)
+        return
+    if removed or restored:
+        log.info("%s: 일정에서 사라짐 %d건, 복귀 %d건", date, removed, restored)
+
+
+def job_games_sync(settings, db, date, sink=None):
     """당일 KBO 경기 전부의 상태를 games 테이블에 동기화 (취소·예정 포함)."""
-    return job_games_sync_range(settings, db, date, date)
+    return job_games_sync_range(settings, db, date, date, sink=sink)
 
 
-def job_games_sync_range(settings, db, start, end, sleep=time.sleep) -> int:
+def job_games_sync_range(settings, db, start, end, sleep=time.sleep, sink=None) -> int:
     """[start, end] 각 날짜의 KBO 경기를 games 에 동기화하고 총 건수 반환.
 
     오늘~+N일로 부르면 아직 열리지 않은 경기가 SCHEDULED 행으로 미리 깔린다 —
@@ -666,6 +908,10 @@ def job_games_sync_range(settings, db, start, end, sleep=time.sleep) -> int:
     단일 날짜 호출(start==end)은 EventBridge 의 live 룰(days 없음)이 오는 길이라
     '당일 폴링'으로, 구간 호출은 morning/nightly 의 '선적재'로 취급한다 — 무엇을
     더 받아올지가 갈리는 근거는 _sync_games_for_date 참고.
+
+    `sink` 는 `settings.inning_events_enabled`(이닝 전환 시 relay 재조회 + 안타 이벤트
+    S3 적재) 또는 `settings.game_state_events_enabled`(이닝·점수·상태 변화 시 스냅샷
+    S3 적재) 가 켜졌을 때만 쓰인다. 둘 다 꺼져 있으면(기본) 넘기지 않아도 된다.
     """
     log = logging.getLogger("games_sync")
     team_ids = db.upsert_teams(dimensions.TEAMS)
@@ -678,7 +924,7 @@ def job_games_sync_range(settings, db, start, end, sleep=time.sleep) -> int:
             day = d.isoformat()
             try:
                 total += _sync_games_for_date(settings, db, client, day, team_ids, log,
-                                              live_window=live_window)
+                                              live_window=live_window, sink=sink)
             except Exception as exc:  # 하루가 막혀도 나머지 날짜는 적재한다
                 log.warning("games_sync fail %s: %s", day, exc)
             d += timedelta(days=1)
@@ -837,9 +1083,11 @@ def main(argv=None) -> int:
                 # job_games_sync_range 는 fetch 클라이언트를 자체 관리한다(Lambda
                 # 핸들러가 settings/db/구간만으로 직접 호출하는 것과 동일 경로).
                 # records 와 같은 --from/--to 로 구간(예: 오늘~+7일)을 받는다.
+                # sink 는 S3RawSink 생성만(네트워크 호출 없음) — inning_events_enabled
+                # 가 꺼져 있으면(기본) 실제로 쓰이지 않는다.
                 start = args.from_date or date
                 end = args.to_date or start
-                job_games_sync_range(settings, db, start, end)
+                job_games_sync_range(settings, db, start, end, sink=S3RawSink(settings))
             else:
                 with fetch.build_client(settings) as client:
                     if args.job == "teams":

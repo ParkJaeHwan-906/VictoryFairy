@@ -29,8 +29,14 @@ stays outside the VPC. Both functions share this handler and image.
 
 Env (set by Terraform): COLLECTOR_S3_BUCKET, COLLECTOR_S3_REGION,
 COLLECTOR_PII_SALT (from Secrets Manager), COLLECTOR_TARGETS_FILE,
-JOURNAL_DIR=/tmp/journal (Lambda's only writable path); the -db function gets
-COLLECTOR_DB_HOST/PORT/NAME/USER/PASSWORD instead of the S3 vars.
+JOURNAL_DIR=/tmp/journal (Lambda's only writable path); the -db function
+additionally gets COLLECTOR_DB_HOST/PORT/NAME/USER/PASSWORD. It still gets
+COLLECTOR_S3_BUCKET too (lambda_db.tf) — games_sync's optional S3 landings need it
+there: inning events (COLLECTOR_INNING_EVENTS_ENABLED, off by default) and
+game-state snapshots (COLLECTOR_GAME_STATE_EVENTS_ENABLED, off by default).
+COLLECTOR_WIN_RATE_ENABLED (off by default) makes games_sync write
+games.home_win_rate/away_win_rate — turn it on only after those columns exist in
+the target DB, or every games upsert fails.
 """
 import datetime
 import uuid
@@ -97,7 +103,10 @@ def handler(event, context):
                     start, min(int(event.get("days") or 0), MAX_SYNC_DAYS))
                 end = min(end, _plus_days(start, MAX_SYNC_DAYS))  # ISO 문자열 비교 = 날짜 비교
                 summary["from"], summary["to"] = start, end
-                summary["gamesSynced"] = run.job_games_sync_range(settings, db, start, end)
+                # sink 는 S3RawSink 생성만(네트워크 호출 없음) — COLLECTOR_INNING_EVENTS_ENABLED
+                # 와 COLLECTOR_GAME_STATE_EVENTS_ENABLED 가 둘 다 꺼져 있으면(기본) 실제로 쓰이지 않는다.
+                summary["gamesSynced"] = run.job_games_sync_range(
+                    settings, db, start, end, sink=S3RawSink(settings))
             else:
                 with fetch.build_client(settings) as client:
                     if job == "registrations":
