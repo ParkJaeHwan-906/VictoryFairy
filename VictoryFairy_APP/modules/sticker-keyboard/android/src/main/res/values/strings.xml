@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <!-- 설정 → 키보드 목록과 키보드 전환 창에 보이는 이름. -->
+  <string name="sticker_keyboard_label">승요 스티커</string>
+</resources>

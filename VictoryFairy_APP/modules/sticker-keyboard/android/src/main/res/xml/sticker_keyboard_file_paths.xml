@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  키보드가 내보내도 되는 경로. 내려받은 스티커 그림 폴더 하나만 연다.
+  목록 파일(manifest.json)까지 열 이유가 없어서 images/ 아래로 좁힌다.
+-->
+<paths>
+  <files-path
+    name="sticker-keyboard"
+    path="sticker-keyboard/images/" />
+</paths>
