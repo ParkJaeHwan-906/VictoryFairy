@@ -9,8 +9,8 @@ from datetime import date as date_cls
 from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 
-from . import (community, dimensions, fetch, game_records, kbo_register, kbo_schedule,
-               kbo_trade, keys, naver)
+from . import (community, dimensions, fetch, game_records, kbo_gamecenter, kbo_register,
+               kbo_schedule, kbo_trade, keys, naver)
 from .config import get_settings
 from .journal import Journal, setup_logging
 from .sink import S3RawSink
@@ -733,10 +733,20 @@ def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=
     (NULL↔값 포함, NULL→NULL 제외) 위 상태 변화 문서의 changed 에 "winRate" 가 붙는다.
     문서 본문에 승률 값은 싣지 않는다 — 소비자(BE)는 알림을 받으면 DB 를 다시 읽는다.
     """
-    resp = fetch.fetch(client, game_records.schedule_url(settings, date),
-                       settings=settings, referer=settings.naver_referer)
-    schedule = resp.json()
-    games = game_records.list_kbo_games(schedule)
+    try:
+        resp = fetch.fetch(client, game_records.schedule_url(settings, date),
+                           settings=settings, referer=settings.naver_referer)
+        schedule = resp.json()
+        games = game_records.list_kbo_games(schedule)
+        naver_ok = True
+    except fetch.FetchError as exc:
+        # 네이버가 AWS 대역에 응답하지 않는 동안의 대체 경로(kbo_gamecenter 모듈 주석 참고).
+        # 아래에서 네이버를 다시 부르는 부가 기능(구장·승률·이닝 이벤트·라인업)은 전부 끈다 —
+        # 켜 두면 경기마다 타임아웃을 기다려 1분 주기를 넘긴다.
+        log.warning("%s: 네이버 일정 실패, KBO 게임센터로 대체: %s", date, exc)
+        schedule = None
+        games = _kbo_fallback_games(settings, db, client, date, team_ids, log)
+        naver_ok = False
     # 구장은 한 번 채우면 변하지 않는다 — 아는 경기는 상세 API 를 다시 부르지 않는다.
     known_stadium = db.games_with_stadium([g.get("gameId") for g in games])
     synced, skipped, failed = 0, 0, 0
@@ -759,7 +769,7 @@ def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=
         try:
             live_or_done = status in ("IN_PROGRESS", "FINISHED", "DRAW")
             dt = (g.get("gameDateTime") or "").replace("T", " ") or f"{date} 00:00:00"
-            stadium = (None if g.get("gameId") in known_stadium
+            stadium = (None if not naver_ok or g.get("gameId") in known_stadium
                        else _scheduled_game_stadium(settings, client, g, status, log))
             # statusInfo 한 번 읽어 정반대 정책의 두 곳으로 나눠 보낸다.
             #
@@ -792,7 +802,9 @@ def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=
             new_away_score = g.get("awayTeamScore") if live_or_done else None
             win_rate_on = settings.win_rate_enabled
             new_win_rate = None
-            if win_rate_on and live and new_current_inning is not None:
+            # 대체 경로에서는 승률을 못 구한다. 진행 중이면 upsert 가 직전 값을 그대로 두고
+            # (값 없음 = 모름), 경기가 끝나면 지운다.
+            if win_rate_on and live and naver_ok and new_current_inning is not None:
                 new_win_rate = _fetch_live_win_rate(
                     settings, client, g["gameId"], new_current_inning, log)
             old_state = None
@@ -803,7 +815,7 @@ def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=
                 old_state = db.get_game_live_state(g["gameId"])
                 if old_state is not None and win_rate_on:
                     old_win_rate = _normalize_win_rate(db.get_game_win_rate(g["gameId"]))
-            if settings.inning_events_enabled and sink is not None:
+            if settings.inning_events_enabled and sink is not None and naver_ok:
                 # upsert 가 VALUES() 로 블라인드 오버라이트하기 전에 "지금까지"
                 # 값을 읽어둔다 — sync_game 이후에는 이미 덮여서 못 읽는다.
                 old_inning, old_half = db.get_live_inning_state(g["gameId"])
@@ -863,11 +875,33 @@ def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=
         except Exception as exc:
             failed += 1
             log.warning("경기 동기화 실패 %s: %s", g.get("gameId"), exc)
-    _sync_removed_games(db, date, schedule, games, log)
-    lineups = _land_preview_lineups(settings, db, client, pending, team_ids, log) if pending else 0
-    log.info("%s: synced=%d skipped=%d failed=%d lineups=%d",
-             date, synced, skipped, failed, lineups)
+    lineups = 0
+    if naver_ok:
+        # 대체 경로에서 돌리면 매칭 못 한 경기가 "일정에서 사라짐"으로 찍힌다.
+        _sync_removed_games(db, date, schedule, games, log)
+        if pending:
+            lineups = _land_preview_lineups(settings, db, client, pending, team_ids, log)
+    log.info("%s: source=%s synced=%d skipped=%d failed=%d lineups=%d",
+             date, "naver" if naver_ok else "kbo", synced, skipped, failed, lineups)
     return synced
+
+
+def _kbo_fallback_games(settings, db, client, date, team_ids, log) -> list[dict]:
+    """KBO 게임센터의 그날 경기를 기존 games 행에 짝지어 네이버 모양으로 돌려준다.
+
+    짝이 없는 경기는 버린다 — 이 원천으로는 행을 만들지 않는다(모듈 주석 참고). 그날 행은
+    morning/nightly 선적재가 미리 깔아 두므로, 차단이 그 선적재 기간(+7일)보다 길어지면
+    새 날짜의 경기는 여기서 전부 빠진다.
+    """
+    rows = db.games_on_date(date)
+    out = []
+    for kg in kbo_gamecenter.fetch_day(date, settings=settings, client=client):
+        game_id = kbo_gamecenter.match_game_id(kg, rows, team_ids)
+        if game_id is None:
+            log.warning("%s: KBO 경기 %s 에 맞는 games 행이 없어 건너뜀", date, kg.get("G_ID"))
+            continue
+        out.append(kbo_gamecenter.to_schedule_game(kg, game_id))
+    return out
 
 
 def _sync_removed_games(db, date, schedule, games, log) -> None:
@@ -946,7 +980,7 @@ def _cancel_reason_months(date_str: str) -> list[str]:
 def job_cancel_reasons(settings, db, date=None, months=None) -> int:
     """KBO 공식 일정표의 취소 사유를 games.cancel_reason 에 반영, **바뀐** 행 수 반환.
 
-    네이버에는 사유가 없어서(취소를 "경기취소" 로만 준다) 이 잡만 KBO 를 긁는다.
+    네이버에는 사유가 없어서(취소를 "경기취소" 로만 준다) 이 잡이 KBO 일정표를 긁는다.
     games_sync 에 얹지 않고 따로 둔 이유는 KBO 응답이 월 단위이기 때문 — 날짜
     루프에 넣으면 같은 달을 날짜 수만큼 반복해서 받게 된다.
 

@@ -1844,3 +1844,85 @@ def test_job_games_sync_removed_check_failure_does_not_break_sync(monkeypatch, s
 
     assert synced == 6
     assert "사라진 경기 판정 실패" in caplog.text
+
+
+# --------------------------------------------------------------------------- 네이버 실패 시 KBO 대체
+class _FallbackDb(_RecordingSyncDb):
+    def __init__(self, rows, **kw):
+        super().__init__(**kw)
+        self.rows = rows
+
+    def games_on_date(self, date):
+        return self.rows
+
+
+def _naver_down(monkeypatch, kbo_games):
+    import contextlib
+    urls = []
+
+    def _fetch(client, url, **k):
+        urls.append(url)
+        raise run.fetch.FetchError(f"fetch failed after 2 attempts: {url}: timed out")
+
+    monkeypatch.setattr(run.fetch, "build_client", lambda settings: contextlib.nullcontext(object()))
+    monkeypatch.setattr(run.fetch, "fetch", _fetch)
+    monkeypatch.setattr(run.kbo_gamecenter, "fetch_day", lambda date, **k: kbo_games)
+    return urls
+
+
+def _kbo(g_id, state, inn=None, tb=None, away="0", home="0"):
+    return {"G_ID": g_id, "G_DT": g_id[:8], "G_TM": "18:30", "AWAY_ID": g_id[8:10],
+            "HOME_ID": g_id[10:12], "GAME_STATE_SC": state, "GAME_INN_NO": inn,
+            "GAME_TB_SC": tb, "T_SCORE_CN": away, "B_SCORE_CN": home, "CANCEL_SC_ID": "0"}
+
+
+def test_job_games_sync_falls_back_to_kbo_when_naver_schedule_fails(monkeypatch, settings, caplog):
+    """2026-10-26 차단 사고의 재현: 네이버 일정이 타임아웃이면 KBO 게임센터 값으로 기존 행을
+    갱신한다. 네이버를 다시 부르는 단계(구장·라인업)와 사라진 경기 판정은 돌지 않아야 한다."""
+    urls = _naver_down(monkeypatch, [
+        _kbo("20261026LGOB0", "2", 9, "T", away="5", home="1"),
+        _kbo("20261026HTSS0", "1"),
+    ])
+    db = _FallbackDb(rows=[("55551026LGOB02026", 1, 2), ("20261026HTSS02026", 4, 3)],
+                     team_ids={"OB": 1, "LG": 2, "HT": 3, "SS": 4})
+
+    with caplog.at_level("INFO", logger="games_sync"):
+        synced = run.job_games_sync(settings, db, "2026-10-26")
+
+    assert synced == 2
+    by_id = {c["naver_game_id"]: c for c in db.calls}
+    live = by_id["55551026LGOB02026"]
+    assert live["status_id"] == 2
+    assert (live["home_score"], live["away_score"]) == (1, 5)
+    assert (live["current_inning"], live["inning_half"]) == (9, 0)
+    assert live["game_dt"] == "2026-10-26 18:30:00"
+    assert by_id["20261026HTSS02026"]["status_id"] == 1
+    assert len(urls) == 1  # 실패한 일정 호출 하나뿐 — 구장 상세·preview 를 부르지 않았다
+    assert db.removed_sync_calls == [] and db.lineup_calls == []
+    assert "source=kbo" in caplog.text
+
+
+def test_kbo_fallback_skips_games_without_a_matching_row(monkeypatch, settings, caplog):
+    _naver_down(monkeypatch, [_kbo("20261026HTSS0", "2", 1, "T")])
+    db = _FallbackDb(rows=[], team_ids={"HT": 3, "SS": 4})
+
+    with caplog.at_level("WARNING", logger="games_sync"):
+        synced = run.job_games_sync(settings, db, "2026-10-26")
+
+    assert synced == 0 and db.calls == []
+    assert "20261026HTSS0" in caplog.text
+
+
+def test_kbo_fallback_still_lands_state_events(monkeypatch, settings):
+    # BE 는 이 이벤트로 SSE 를 민다 — 대체 경로에서도 끊기면 화면이 멈춘다.
+    _naver_down(monkeypatch, [_kbo("20261026HTSS0", "3", 9, "B", away="5", home="1")])
+    monkeypatch.setattr(settings, "game_state_events_enabled", True)
+    db = _FallbackDb(rows=[("55551026HTSS02026", 4, 3)], team_ids={"HT": 3, "SS": 4},
+                     game_live_state={"55551026HTSS02026": (9, 0, 1, 5, "IN_PROGRESS")})
+    sink = _FakeInningEventSink()
+
+    run.job_games_sync(settings, db, "2026-10-26", sink=sink)
+
+    (_, payload), = sink.put_json_calls
+    assert payload["gameId"] == "55551026HTSS02026" and payload["status"] == "FINISHED"
+    assert payload["lastInning"] == 9
