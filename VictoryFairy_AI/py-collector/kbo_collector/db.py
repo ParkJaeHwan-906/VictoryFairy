@@ -272,6 +272,14 @@ CANCEL_REASON_UPDATE = (
     "  AND (cancel_reason IS NULL OR cancel_reason <> %s)"
 )
 
+# KBO 대체 원천(kbo_gamecenter)이 기존 행을 대진으로 찾을 때 쓴다. DEMO 행을 빼는 이유는
+# GAMES_MARK_REMOVED 와 같고, 여기서는 실경기와 대진이 겹치면 매칭이 둘로 갈려 둘 다 못 쓴다.
+GAMES_ON_DATE = (
+    "SELECT naver_game_id, home_team_id, away_team_id FROM games "
+    "WHERE game_date >= %s AND game_date < DATE_ADD(%s, INTERVAL 1 DAY) "
+    "AND naver_game_id IS NOT NULL AND naver_game_id NOT LIKE 'DEMO%%'"
+)
+
 LINEUP_UPSERT = (
     "INSERT INTO game_lineups (game_id, team_id, player_id, bat_order, position_id, "
     " is_starter, decision, created_at, updated_at) "
@@ -518,6 +526,12 @@ class DbSink:
             changed = cur.rowcount
         self._conn.commit()
         return changed
+
+    def games_on_date(self, date) -> list[tuple]:
+        """그날 games 행의 (naver_game_id, home_team_id, away_team_id). DEMO 행은 뺀다."""
+        with self._conn.cursor() as cur:
+            cur.execute(GAMES_ON_DATE, (date, date))
+            return [(r[0], r[1], r[2]) for r in cur.fetchall()]
 
     def lineup_done_games(self, game_pks) -> set:
         """선발 라인업 적재가 끝난 game PK 집합 (LINEUP_DONE_GAMES 판정).
