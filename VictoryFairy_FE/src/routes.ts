@@ -102,6 +102,13 @@ export const ROUTES = {
    * 공지사항 한 건. **라우트 정의에만 쓰는 패턴**이고, 실제 주소는 `noticeDetailPath` 로 만든다.
    */
   noticeDetail: '/notice/:noticeId',
+  /**
+   * 개인정보 처리방침 · 서비스 이용약관. 마이페이지 "센터"로 들어온다.
+   * 둘 다 **로그인 없이 열린다** — 가입하기 전에도 읽을 수 있어야 하는 글이다.
+   * 문의하기와 같이 NavBar 없는 전체 화면이다.
+   */
+  privacyPolicy: '/privacy',
+  termsOfService: '/terms',
 } as const;
 
 /**

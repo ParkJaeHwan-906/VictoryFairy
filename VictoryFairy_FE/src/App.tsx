@@ -13,6 +13,8 @@ import CompletePage from './pages/CompletePage';
 import InquiryPage from './pages/InquiryPage';
 import NoticePage from './pages/NoticePage';
 import NoticeDetailPage from './pages/NoticeDetailPage';
+import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
+import TermsOfServicePage from './pages/TermsOfServicePage';
 import ProfileEditPage from './pages/ProfileEditPage';
 import AccountSettingPage from './pages/AccountSettingPage';
 import NotificationSettingPage from './pages/NotificationSettingPage';
@@ -74,6 +76,12 @@ export default function App() {
         채팅(과 퀴즈)만 계정 기능이라 비로그인이면 화면 안에서 로그인 안내로 바꾼다.
       */}
       <Route path={ROUTES.gameDetail} element={<GameDetailPage />} />
+      {/*
+        약관 두 건도 공개다 — 가입하기 전에 읽을 수 있어야 하는 글이라 로그인으로 막지 않는다.
+        마이페이지에서 들어오는 NavBar 없는 전체 화면이다.
+      */}
+      <Route path={ROUTES.privacyPolicy} element={<PrivacyPolicyPage />} />
+      <Route path={ROUTES.termsOfService} element={<TermsOfServicePage />} />
       {/*
         여기부터는 로그인해야 들어올 수 있는 계정 기능이다. 위쪽 온보딩(구단 · 선수 선택 · 완료)은
         회원가입으로 토큰을 막 받은 채 지나는 구간이라 어느 쪽으로도 막지 않는다 —
