@@ -1,0 +1,248 @@
+/**
+ * CommunityBoard(라운지 게시판 탭) 스타일.
+ *
+ * 시안이 없는 화면이라 같은 라운지의 랭킹 탭(`CommunityPage.css`)과 값을 맞췄다:
+ *   좌우 여백 `--layout-gutter`, 상태 문구 `.community-page__status` 와 같은 값,
+ *   글쓰기 버튼은 랭킹 탭 채팅 버튼(`.community-page__chat-fab`)과 같은 자리·크기·그라데이션.
+ * 화면 높이 · 앱 폭(402px) · 하단 NavBar 자리는 AppLayout 이 잡아 준다.
+ */
+
+.community-board {
+  display: flex;
+  flex-direction: column;
+  /* 마지막 글이 글쓰기 버튼(68px + 아래 여백 24px)에 가리지 않게 */
+  padding-bottom: 100px;
+}
+
+/* ------------------------------------------------------------------ *
+ * Filters — 카테고리 칩(가로 스크롤) + 정렬
+ * ------------------------------------------------------------------ */
+.community-board__filters {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 16px;
+}
+
+.community-board__chips {
+  display: flex;
+  gap: 8px;
+  padding: 0 var(--layout-gutter);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+
+.community-board__chips::-webkit-scrollbar {
+  display: none;
+}
+
+/* 칩 — 구단 선택 화면의 선택/비선택처럼 주황 바탕 ↔ 회색 바탕으로 갈린다 */
+.community-board__chip {
+  flex-shrink: 0;
+  padding: 8px 14px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-background-gray);
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  white-space: nowrap;
+  transition:
+    background-color 0.15s ease-in-out,
+    color 0.15s ease-in-out;
+}
+
+.community-board__chip--active {
+  background-color: var(--color-primary-400);
+  color: var(--color-white);
+}
+
+.community-board__sorts {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 0 var(--layout-gutter);
+}
+
+.community-board__sort {
+  padding: 4px 0;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-label2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+.community-board__sort--active {
+  color: var(--color-label-normal);
+  font-weight: var(--font-weight-medium);
+}
+
+/* ------------------------------------------------------------------ *
+ * Popular — 최근 7일 인기 게시글(최대 5)
+ * 랭킹 탭의 "내 순위" 줄처럼 회색 바탕 카드에 순위 숫자만 주황으로 강조한다.
+ * ------------------------------------------------------------------ */
+.community-board__popular {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px var(--layout-gutter) 0;
+  padding: 16px;
+  border-radius: var(--radius-15);
+  background-color: var(--color-background-gray);
+}
+
+.community-board__popular-title {
+  margin: 0;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-title3);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title3);
+}
+
+.community-board__popular-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.community-board__popular-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.community-board__popular-rank {
+  flex-shrink: 0;
+  width: 16px;
+  color: var(--color-primary-normal);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  text-align: center;
+}
+
+.community-board__popular-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.community-board__popular-count {
+  flex-shrink: 0;
+  color: var(--color-primary-normal);
+  font-size: var(--font-size-caption1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+}
+
+/* ------------------------------------------------------------------ *
+ * List · Status · More
+ * ------------------------------------------------------------------ */
+.community-board__list {
+  margin: 8px 0 0;
+  padding: 0 var(--layout-gutter);
+  list-style: none;
+}
+
+/* `.community-page__status` 와 같은 값 — 두 탭을 오갈 때 어긋나 보이지 않게 */
+.community-board__status {
+  margin: 24px var(--layout-gutter);
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-body2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body2);
+  text-align: center;
+}
+
+.community-board__status--error {
+  color: var(--color-error-strong);
+}
+
+.community-board__more {
+  align-self: center;
+  margin-top: 16px;
+  padding: 10px 20px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-background-gray);
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+}
+
+.community-board__more:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* ------------------------------------------------------------------ *
+ * Write FAB — 랭킹 탭 채팅 버튼과 같은 자리·모양, 아이콘만 연필
+ * ------------------------------------------------------------------ */
+.community-board__write-fab {
+  position: fixed;
+  right: max(var(--layout-gutter), calc(50% - var(--layout-app-width) / 2 + var(--layout-gutter)));
+  bottom: calc(var(--layout-navbar-height) + var(--safe-area-bottom) + 24px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 68px;
+  height: 68px;
+  border-radius: var(--radius-35);
+  background-image: linear-gradient(
+    138.19deg,
+    var(--color-primary-200) 2.49%,
+    var(--color-primary-500) 97.51%
+  );
+  box-shadow: 0 0 4px 0 var(--color-gray-300);
+}
+
+.community-board__write-fab-icon {
+  width: 30px;
+  height: 30px;
+  background-color: var(--color-white);
+  -webkit-mask: url('../assets/pen.svg') no-repeat center / contain;
+  mask: url('../assets/pen.svg') no-repeat center / contain;
+}
+
+.community-board__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+@media (max-width: 359px) {
+  .community-board__chips,
+  .community-board__sorts,
+  .community-board__list {
+    padding-inline: 16px;
+  }
+
+  .community-board__popular {
+    margin-inline: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .community-board__chip {
+    transition: none;
+  }
+}

@@ -283,6 +283,11 @@
   mask: var(--row-icon) center / contain no-repeat;
 }
 
+/* 내 게시글 — 글을 쓰는 연필. 게시판의 글쓰기 버튼과 같은 그림이다 */
+.my-page__row-icon--posts {
+  --row-icon: url('../assets/pen.svg');
+}
+
 .my-page__row-icon--account {
   --row-icon: url('../assets/setting.svg');
 }
@@ -291,8 +296,9 @@
   --row-icon: url('../assets/bell.svg');
 }
 
-.my-page__row-icon--sns {
-  --row-icon: url('../assets/link.svg');
+/* 종이비행기. 디자인에서 'SNS 연동'이던 자리라 고리(link) 대신 내보내는 그림을 쓴다. */
+.my-page__row-icon--share {
+  --row-icon: url('../assets/send.svg');
 }
 
 .my-page__row-icon--notice {

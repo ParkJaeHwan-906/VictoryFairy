@@ -93,6 +93,21 @@ output "fe_cloudfront_domain_name" {
   value       = module.cdn.distribution_domain_name
 }
 
+output "kafka_bootstrap_servers" {
+  description = "chat-app 의 KAFKA_BOOTSTRAP_SERVERS 값(<Kafka EC2 private_ip>:9092)"
+  value       = module.kafka_ec2.bootstrap_servers
+}
+
+output "kafka_instance_id" {
+  description = "Kafka 호스트 EC2 인스턴스 ID (SSM 세션 대상)"
+  value       = module.kafka_ec2.instance_id
+}
+
+output "kafka_security_group_id" {
+  description = "Kafka 보안그룹 ID (9092 인입은 EKS 노드 SG 로부터만)"
+  value       = module.kafka_ec2.security_group_id
+}
+
 output "mysql_instance_id" {
   description = "MySQL EC2 인스턴스 ID (SSM 포트포워딩 대상)"
   value       = module.mysql_ec2.instance_id
@@ -146,6 +161,26 @@ output "refine_bedrock_dlq_url" {
 output "refine_budget_table_name" {
   description = "일별 Bedrock 소비액 카운터 DynamoDB 테이블 이름"
   value       = module.refine_pipeline.budget_table_name
+}
+
+output "inning_events_queue_url" {
+  description = "이닝 종료 이벤트 SQS 큐 URL. BE quiz-app 컨테이너 환경변수로 주입해 폴링 대상으로 쓴다(k8s 매니페스트 소관)."
+  value       = module.refine_pipeline.inning_events_queue_url
+}
+
+output "inning_events_dlq_url" {
+  description = "3회 수신 실패한 이닝 이벤트가 쌓이는 DLQ URL — 쌓이면 사람이 봐야 한다"
+  value       = module.refine_pipeline.inning_events_dlq_url
+}
+
+output "game_state_events_queue_url" {
+  description = "경기 상태 변화 이벤트 SQS 큐 URL. k8s/20-user-app.yaml 의 USER_GAME_EVENTS_SQS_QUEUE_URL 값(문자 그대로 일치해야 한다)."
+  value       = module.refine_pipeline.game_state_events_queue_url
+}
+
+output "game_state_events_dlq_url" {
+  description = "3회 수신 실패한 경기 상태 변화 이벤트가 쌓이는 DLQ URL — 쌓이면 사람이 봐야 한다"
+  value       = module.refine_pipeline.game_state_events_dlq_url
 }
 
 output "quiz_app_role_arn" {

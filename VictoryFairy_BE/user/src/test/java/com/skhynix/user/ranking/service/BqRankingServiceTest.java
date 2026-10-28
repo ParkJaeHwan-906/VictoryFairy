@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
@@ -16,10 +17,12 @@ import com.skhynix.domain.support.repository.UserSupportTeamRepository;
 import com.skhynix.domain.team.entity.Team;
 import com.skhynix.domain.user.entity.UserAccount;
 import com.skhynix.domain.user.repository.BqRankingEntryView;
+import com.skhynix.domain.user.repository.UserBlockRepository;
 import com.skhynix.domain.user.repository.UserBqRepository;
 import com.skhynix.user.ranking.dto.BqRankingResponse;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -50,6 +53,9 @@ class BqRankingServiceTest {
 
     @Mock
     private UserBqRepository userBqRepository;
+
+    @Mock
+    private UserBlockRepository userBlockRepository;
 
     @InjectMocks
     private BqRankingService bqRankingService;
@@ -97,7 +103,7 @@ class BqRankingServiceTest {
     void getRanking_tiedScores_assignsCompetitionRanking() {
         // given
         stubActiveTeam(TEAM_ID);
-        given(userBqRepository.findTeamRanking(eq(TEAM_ID), any(Limit.class))).willReturn(List.of(
+        given(userBqRepository.findTeamRanking(eq(TEAM_ID), anySet(), any(Limit.class))).willReturn(List.of(
                 entryOf("a", null, 50L),
                 entryOf("b", null, 50L),
                 entryOf("c", null, 30L)));
@@ -114,7 +120,7 @@ class BqRankingServiceTest {
     void getRanking_distinctScores_assignsSequentialRank() {
         // given
         stubActiveTeam(TEAM_ID);
-        given(userBqRepository.findTeamRanking(eq(TEAM_ID), any(Limit.class))).willReturn(List.of(
+        given(userBqRepository.findTeamRanking(eq(TEAM_ID), anySet(), any(Limit.class))).willReturn(List.of(
                 entryOf("a", null, 50L),
                 entryOf("b", null, 30L),
                 entryOf("c", null, 10L)));
@@ -135,14 +141,14 @@ class BqRankingServiceTest {
     void getTopRanking_passesLimitOfThreeToRepository() {
         // given
         stubActiveTeam(TEAM_ID);
-        given(userBqRepository.findTeamRanking(eq(TEAM_ID), any(Limit.class))).willReturn(List.of());
+        given(userBqRepository.findTeamRanking(eq(TEAM_ID), anySet(), any(Limit.class))).willReturn(List.of());
 
         // when
         bqRankingService.getTopRanking(ACCOUNT_ID);
 
         // then
         ArgumentCaptor<Limit> limitCaptor = ArgumentCaptor.forClass(Limit.class);
-        verify(userBqRepository).findTeamRanking(eq(TEAM_ID), limitCaptor.capture());
+        verify(userBqRepository).findTeamRanking(eq(TEAM_ID), anySet(), limitCaptor.capture());
         assertThat(limitCaptor.getValue().max()).isEqualTo(3);
     }
 
@@ -152,14 +158,14 @@ class BqRankingServiceTest {
     void getRanking_passesLimitOfTenToRepository() {
         // given
         stubActiveTeam(TEAM_ID);
-        given(userBqRepository.findTeamRanking(eq(TEAM_ID), any(Limit.class))).willReturn(List.of());
+        given(userBqRepository.findTeamRanking(eq(TEAM_ID), anySet(), any(Limit.class))).willReturn(List.of());
 
         // when
         bqRankingService.getRanking(ACCOUNT_ID);
 
         // then
         ArgumentCaptor<Limit> limitCaptor = ArgumentCaptor.forClass(Limit.class);
-        verify(userBqRepository).findTeamRanking(eq(TEAM_ID), limitCaptor.capture());
+        verify(userBqRepository).findTeamRanking(eq(TEAM_ID), anySet(), limitCaptor.capture());
         assertThat(limitCaptor.getValue().max()).isEqualTo(10);
     }
 
@@ -169,7 +175,7 @@ class BqRankingServiceTest {
     void getRanking_populationSmallerThanLimit_returnsOnlyAvailableEntries() {
         // given
         stubActiveTeam(TEAM_ID);
-        given(userBqRepository.findTeamRanking(eq(TEAM_ID), any(Limit.class))).willReturn(List.of(
+        given(userBqRepository.findTeamRanking(eq(TEAM_ID), anySet(), any(Limit.class))).willReturn(List.of(
                 entryOf("a", null, 50L),
                 entryOf("b", null, 30L)));
 
@@ -196,7 +202,7 @@ class BqRankingServiceTest {
 
         // then
         assertThat(result).isEmpty();
-        verify(userBqRepository, never()).findTeamRanking(any(), any());
+        verify(userBqRepository, never()).findTeamRanking(any(), any(), any());
     }
 
     @Test
@@ -237,7 +243,7 @@ class BqRankingServiceTest {
     void getRanking_entryWithZeroScore_isIncludedAsIs() {
         // given
         stubActiveTeam(TEAM_ID);
-        given(userBqRepository.findTeamRanking(eq(TEAM_ID), any(Limit.class))).willReturn(List.of(
+        given(userBqRepository.findTeamRanking(eq(TEAM_ID), anySet(), any(Limit.class))).willReturn(List.of(
                 entryOf("a", null, 30L),
                 entryOf("b", null, 0L),
                 entryOf("c", null, 0L)));
@@ -257,7 +263,7 @@ class BqRankingServiceTest {
     void getRanking_entryWithNullProfileImgUrl_mapsToNullProfileImgUrl() {
         // given
         stubActiveTeam(TEAM_ID);
-        given(userBqRepository.findTeamRanking(eq(TEAM_ID), any(Limit.class)))
+        given(userBqRepository.findTeamRanking(eq(TEAM_ID), anySet(), any(Limit.class)))
                 .willReturn(List.of(entryOf("a", null, 30L)));
 
         // when
@@ -303,7 +309,7 @@ class BqRankingServiceTest {
         stubActiveTeam(TEAM_ID);
         given(userBqRepository.findRankingEntry(ACCOUNT_ID))
                 .willReturn(Optional.of(entryOf("gildong", "user-profile-img/a.jpg", 120L)));
-        given(userBqRepository.countHigherInTeam(TEAM_ID, 120L)).willReturn(6L);
+        given(userBqRepository.countHigherInTeam(eq(TEAM_ID), eq(120L), anySet())).willReturn(6L);
 
         // when
         BqRankingResponse result = bqRankingService.getMyRanking(ACCOUNT_ID);
@@ -323,7 +329,7 @@ class BqRankingServiceTest {
         stubActiveTeam(TEAM_ID);
         given(userBqRepository.findRankingEntry(ACCOUNT_ID))
                 .willReturn(Optional.of(entryOf("nick", null, 5L)));
-        given(userBqRepository.countHigherInTeam(TEAM_ID, 5L)).willReturn(186L);
+        given(userBqRepository.countHigherInTeam(eq(TEAM_ID), eq(5L), anySet())).willReturn(186L);
 
         // when
         BqRankingResponse result = bqRankingService.getMyRanking(ACCOUNT_ID);
@@ -340,7 +346,7 @@ class BqRankingServiceTest {
         stubActiveTeam(TEAM_ID);
         given(userBqRepository.findRankingEntry(ACCOUNT_ID))
                 .willReturn(Optional.of(entryOf("nick", null, 0L)));
-        given(userBqRepository.countHigherInTeam(TEAM_ID, 0L)).willReturn(3L);
+        given(userBqRepository.countHigherInTeam(eq(TEAM_ID), eq(0L), anySet())).willReturn(3L);
 
         // when
         BqRankingResponse result = bqRankingService.getMyRanking(ACCOUNT_ID);
@@ -372,10 +378,10 @@ class BqRankingServiceTest {
     void allReadPaths_neverCallSave() {
         // given
         stubActiveTeam(TEAM_ID);
-        given(userBqRepository.findTeamRanking(eq(TEAM_ID), any(Limit.class))).willReturn(List.of());
+        given(userBqRepository.findTeamRanking(eq(TEAM_ID), anySet(), any(Limit.class))).willReturn(List.of());
         given(userBqRepository.findRankingEntry(ACCOUNT_ID))
                 .willReturn(Optional.of(entryOf("nick", null, 0L)));
-        given(userBqRepository.countHigherInTeam(eq(TEAM_ID), anyLong())).willReturn(0L);
+        given(userBqRepository.countHigherInTeam(eq(TEAM_ID), anyLong(), anySet())).willReturn(0L);
 
         // when
         bqRankingService.getTopRanking(ACCOUNT_ID);
@@ -385,5 +391,85 @@ class BqRankingServiceTest {
         // then
         verify(userBqRepository, never()).save(any());
         verify(userSupportTeamRepository, never()).save(any());
+    }
+
+    // ---------- 차단 관계자 제외 (USER-BLK-17, 18) ----------
+
+    @Test
+    @DisplayName("[USER-BLK-17] getRanking은 findRelatedAccountIds가 반환한 차단 관계자 id 집합을 "
+            + "findTeamRanking의 제외 조건으로 그대로 전달한다(목록에서 빠짐)")
+    void getRanking_passesBlockRelatedAccountIdsAsExclusionToFindTeamRanking() {
+        // given
+        stubActiveTeam(TEAM_ID);
+        Set<Long> blockedRelatedIds = Set.of(99L, 100L);
+        given(userBlockRepository.findRelatedAccountIds(ACCOUNT_ID)).willReturn(blockedRelatedIds);
+        given(userBqRepository.findTeamRanking(eq(TEAM_ID), eq(blockedRelatedIds), any(Limit.class)))
+                .willReturn(List.of(entryOf("a", null, 50L)));
+
+        // when
+        List<BqRankingResponse> result = bqRankingService.getRanking(ACCOUNT_ID);
+
+        // then
+        assertThat(result).hasSize(1);
+        verify(userBqRepository).findTeamRanking(eq(TEAM_ID), eq(blockedRelatedIds), any(Limit.class));
+    }
+
+    @Test
+    @DisplayName("[USER-BLK-17] getTopRanking도 findRelatedAccountIds가 반환한 차단 관계자 id 집합을 "
+            + "findTeamRanking의 제외 조건으로 그대로 전달한다")
+    void getTopRanking_passesBlockRelatedAccountIdsAsExclusionToFindTeamRanking() {
+        // given
+        stubActiveTeam(TEAM_ID);
+        Set<Long> blockedRelatedIds = Set.of(7L);
+        given(userBlockRepository.findRelatedAccountIds(ACCOUNT_ID)).willReturn(blockedRelatedIds);
+        given(userBqRepository.findTeamRanking(eq(TEAM_ID), eq(blockedRelatedIds), any(Limit.class)))
+                .willReturn(List.of());
+
+        // when
+        bqRankingService.getTopRanking(ACCOUNT_ID);
+
+        // then
+        verify(userBqRepository).findTeamRanking(eq(TEAM_ID), eq(blockedRelatedIds), any(Limit.class));
+    }
+
+    @Test
+    @DisplayName("[USER-BLK-17] 차단 이력이 없으면 findRelatedAccountIds가 빈 집합을 반환하고 그대로 "
+            + "제외 조건에 전달된다(제외 없이 종전과 동일하게 동작)")
+    void getRanking_noBlockHistory_passesEmptySetAsExclusion() {
+        // given
+        stubActiveTeam(TEAM_ID);
+        given(userBlockRepository.findRelatedAccountIds(ACCOUNT_ID)).willReturn(Set.of());
+        given(userBqRepository.findTeamRanking(eq(TEAM_ID), eq(Set.of()), any(Limit.class)))
+                .willReturn(List.of(entryOf("a", null, 50L)));
+
+        // when
+        List<BqRankingResponse> result = bqRankingService.getRanking(ACCOUNT_ID);
+
+        // then
+        assertThat(result).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("[USER-BLK-18] getMyRanking은 findRelatedAccountIds가 반환한 차단 관계자 id 집합을 "
+            + "countHigherInTeam의 제외 조건으로 전달하고, 차단 관계자가 상위에서 빠지면 본인 순위가 "
+            + "그만큼 당겨진다(양방향 차단 관계자 2명이 상위에서 빠져 순위가 7 → 5)")
+    void getMyRanking_excludesBlockRelatedAccountsFromRankCalculation() {
+        // given
+        stubActiveTeam(TEAM_ID);
+        Set<Long> blockedRelatedIds = Set.of(11L, 12L);
+        given(userBqRepository.findRankingEntry(ACCOUNT_ID))
+                .willReturn(Optional.of(entryOf("gildong", "user-profile-img/a.jpg", 120L)));
+        given(userBlockRepository.findRelatedAccountIds(ACCOUNT_ID)).willReturn(blockedRelatedIds);
+        // 차단 관계자를 뺀 뒤 나보다 높은 점수 계정 수가 6 → 4로 줄었다(2명이 차단 관계자였던 경우).
+        given(userBqRepository.countHigherInTeam(eq(TEAM_ID), eq(120L), eq(blockedRelatedIds)))
+                .willReturn(4L);
+
+        // when
+        BqRankingResponse result = bqRankingService.getMyRanking(ACCOUNT_ID);
+
+        // then
+        assertThat(result.rank()).isEqualTo(5);
+        verify(userBqRepository).countHigherInTeam(eq(TEAM_ID), eq(120L), eq(blockedRelatedIds));
+        verify(userBqRepository, never()).countHigherInTeam(any(Long.class), anyLong());
     }
 }

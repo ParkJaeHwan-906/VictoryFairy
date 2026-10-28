@@ -60,6 +60,8 @@ spring:
         - classpath:sql/game-statuses-init.sql
         - classpath:sql/quiz-type-init.sql
         - classpath:sql/character-asset-init.sql
+        # 커뮤니티 카테고리 11행(구단 10 + 자유게시판). teams.code 로 team_id 를 해석하므로 teams-init 뒤여야 한다.
+        - classpath:sql/community-categories-init.sql
 
   web:
     error:

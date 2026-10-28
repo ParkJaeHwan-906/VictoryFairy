@@ -221,4 +221,84 @@ class QuizTest {
         assertThat(quiz.getTemplateId()).isEqualTo("CAREER_PATH");
         assertThat(quiz.getPoint()).isEqualTo(80.0);
     }
+
+    // ---------- PREDICTION 정산(settlementMetric/Inning/Half, answer nullable) ----------
+
+    @Test
+    @DisplayName("answer 없이(PREDICTION) settlementMetric/Inning/Half만 채워 생성할 수 있다 — "
+            + "isUnsettledPrediction()이 true다")
+    void builder_predictionWithoutAnswer_isUnsettledPrediction() {
+        Quiz quiz = Quiz.builder()
+                .quizType(newQuizType("객관식"))
+                .content("이 선수가 7회 초에 안타를 칠까?")
+                .settlementMetric("BATTER_HIT_IN_INNING")
+                .settlementInning(7)
+                .settlementHalf(0)
+                .build();
+
+        assertThat(quiz.getAnswer()).isNull();
+        assertThat(quiz.getSettlementMetric()).isEqualTo("BATTER_HIT_IN_INNING");
+        assertThat(quiz.getSettlementInning()).isEqualTo(7);
+        assertThat(quiz.getSettlementHalf()).isEqualTo(0);
+        assertThat(quiz.isUnsettledPrediction()).isTrue();
+    }
+
+    @Test
+    @DisplayName("settlementMetric이 없으면(KNOWLEDGE) isUnsettledPrediction()은 항상 false다")
+    void isUnsettledPrediction_falseForKnowledge() {
+        Quiz quiz = Quiz.builder()
+                .quizType(newQuizType("객관식"))
+                .content("지식 문제")
+                .answer(1)
+                .build();
+
+        assertThat(quiz.isUnsettledPrediction()).isFalse();
+    }
+
+    @Test
+    @DisplayName("settle()은 PREDICTION의 answer를 확정한다")
+    void settle_fillsAnswerForPrediction() {
+        Quiz quiz = Quiz.builder()
+                .quizType(newQuizType("객관식"))
+                .content("이 선수가 7회 초에 안타를 칠까?")
+                .settlementMetric("BATTER_HIT_IN_INNING")
+                .settlementInning(7)
+                .settlementHalf(0)
+                .build();
+
+        quiz.settle(1);
+
+        assertThat(quiz.getAnswer()).isEqualTo(1);
+        assertThat(quiz.isUnsettledPrediction()).isFalse();
+    }
+
+    @Test
+    @DisplayName("settle()은 settlementMetric이 없는(KNOWLEDGE) 문제에는 IllegalStateException을 던진다")
+    void settle_throwsWhenNotPrediction() {
+        Quiz quiz = Quiz.builder()
+                .quizType(newQuizType("객관식"))
+                .content("지식 문제")
+                .answer(1)
+                .build();
+
+        assertThat(org.assertj.core.api.Assertions.catchThrowable(() -> quiz.settle(0)))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    @DisplayName("settle()은 이미 정산된(answer != null) 문제를 다시 정산하려 하면 "
+            + "IllegalStateException을 던진다")
+    void settle_throwsWhenAlreadySettled() {
+        Quiz quiz = Quiz.builder()
+                .quizType(newQuizType("객관식"))
+                .content("이 선수가 7회 초에 안타를 칠까?")
+                .answer(1)
+                .settlementMetric("BATTER_HIT_IN_INNING")
+                .settlementInning(7)
+                .settlementHalf(0)
+                .build();
+
+        assertThat(org.assertj.core.api.Assertions.catchThrowable(() -> quiz.settle(0)))
+                .isInstanceOf(IllegalStateException.class);
+    }
 }

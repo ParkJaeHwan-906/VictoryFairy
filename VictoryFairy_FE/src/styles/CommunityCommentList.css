@@ -1,0 +1,184 @@
+/**
+ * CommunityCommentList(댓글 목록) 스타일.
+ *
+ * 줄 구성은 라운지 채팅의 상대 메시지(아바타 + 닉네임 + 본문 + 시간)를 목록형으로 펼친 것이다.
+ * 아바타 32px · 닉네임 Label1 · 본문 Body4 · 시간 Caption2 · 답글은 아바타 폭만큼 들여 쓴다.
+ */
+
+.community-comment-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.community-comment-list__thread {
+  border-bottom: 1px solid var(--color-line-light);
+}
+
+.community-comment-list__replies {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.community-comment {
+  display: flex;
+  gap: 10px;
+  padding: 14px var(--layout-gutter);
+  transition: background-color 0.15s ease-in-out;
+}
+
+/* 답글 — 부모 아바타(32) + 간격(10) 만큼 들이고 옅은 회색 바탕에 얹는다 */
+.community-comment--reply {
+  padding-left: calc(var(--layout-gutter) + 42px);
+  background-color: var(--color-background-gray);
+}
+
+/* 입력창이 붙든 댓글(답글 대상 · 수정 대상) */
+.community-comment--focused {
+  background-color: var(--color-primary-50);
+}
+
+.community-comment--placeholder {
+  padding-block: 16px;
+}
+
+.community-comment__placeholder {
+  margin: 0;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-body4);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body4);
+}
+
+.community-comment__avatar {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.community-comment__main {
+  display: flex;
+  flex: 1 0 0;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.community-comment__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 28px;
+}
+
+.community-comment__author {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+}
+
+.community-comment__nickname {
+  overflow: hidden;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.community-comment__mine {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: var(--radius-4);
+  background-color: var(--color-background-red);
+  color: var(--color-primary-normal);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+}
+
+/* 사용자가 넣은 줄바꿈을 그대로 살린다 */
+.community-comment__content {
+  margin: 0;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-body4);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body4);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.community-comment__images {
+  display: flex;
+  gap: 6px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.community-comment__image {
+  width: 80px;
+  height: 80px;
+  border-radius: var(--radius-10);
+  background-color: var(--color-background-gray);
+  object-fit: cover;
+}
+
+.community-comment__foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 2px;
+}
+
+.community-comment__time {
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+.community-comment__reply {
+  position: relative;
+  padding: 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-caption1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+}
+
+.community-comment__reply::after {
+  position: absolute;
+  inset: -8px -6px;
+  content: '';
+}
+
+/* 반응 버튼은 줄 끝으로 민다 */
+.community-comment__foot .community-reaction {
+  margin-left: auto;
+}
+
+@media (max-width: 359px) {
+  .community-comment {
+    padding-inline: 16px;
+  }
+
+  .community-comment--reply {
+    padding-left: calc(16px + 42px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .community-comment {
+    transition: none;
+  }
+}

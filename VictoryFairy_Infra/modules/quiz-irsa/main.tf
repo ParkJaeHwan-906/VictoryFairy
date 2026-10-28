@@ -65,6 +65,25 @@ data "aws_iam_policy_document" "quiz_app" {
     actions   = ["s3:GetObject"]
     resources = ["${local.crawl_bucket_arn}/quiz-candidates/*"]
   }
+
+  # 이닝 종료 이벤트 SQS 큐 소비 — py-collector 가 S3 에 쓴 이닝 종료 알림을 받아
+  # 예측 퀴즈를 정산한다(modules/refine-pipeline 이 큐와 S3→SQS 알림 배선을 소유).
+  # SendMessage 는 S3 서비스 principal 몫이라 여기엔 없다 — quiz-app 은 소비만 한다.
+  statement {
+    sid       = "ConsumeInningEvents"
+    actions   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"]
+    resources = [var.inning_events_queue_arn]
+  }
+
+  # SQS 메시지가 가리키는 inning-events/ 문서 본문 읽기. SQS 권한만 주고 이걸 빠뜨려서
+  # (2026-10-04 라이브 운영 중 발견) 리스너가 메시지는 받되 매번 s3:GetObject
+  # AccessDenied 로 정산을 못 하고 있었다 — ListBucket 은 필요 없다(메시지가 정확한
+  # 키를 주므로 나열이 아니라 단건 조회).
+  statement {
+    sid       = "GetInningEvents"
+    actions   = ["s3:GetObject"]
+    resources = ["${local.crawl_bucket_arn}/inning-events/*"]
+  }
 }
 
 resource "aws_iam_role_policy" "quiz_app" {

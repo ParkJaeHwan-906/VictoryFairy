@@ -13,8 +13,10 @@ RUN chmod +x ./gradlew
 COPY common common
 COPY domain domain
 COPY web-support web-support
+COPY profanity profanity
 COPY user user
 COPY quiz quiz
+COPY chat chat
 # user/build.gradle 의 processResources 가 infra/sql 의 시드 SQL 을 jar 클래스패스로 복사한다
 # (user prod 의 spring.sql.init 이 classpath:sql/*.sql 로 읽는다).
 # ⚠ 이 줄을 빼면 빌드는 성공하고 jar 에서 sql 만 빠진다 — Gradle 의 from() 은 없는 디렉터리를
@@ -36,6 +38,7 @@ COPY --from=builder /app/${MODULE}/build/libs/*.jar app.jar
 
 EXPOSE 8080
 EXPOSE 8081
+EXPOSE 8082
 
 ENV SPRING_PROFILES_ACTIVE=dev
 

@@ -1,0 +1,121 @@
+/**
+ * MyCommunityPostsPage(내 게시글) 스타일.
+ * 공지사항 목록(`NoticePage.css`)과 같은 상단 바 · 여백이고, 글 한 줄은 `CommunityPostCard.css` 가 그린다.
+ */
+
+.my-community-posts-page {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--layout-app-width);
+  min-height: 100dvh;
+  margin-inline: auto;
+  padding-bottom: calc(48px + var(--safe-area-bottom));
+  background-color: var(--color-background-basic);
+}
+
+/* ------------------------------------------------------------------ *
+ * Bar/Top — 뒤로가기 · 타이틀 (다른 화면들과 같은 컴포넌트)
+ * ------------------------------------------------------------------ */
+.my-community-posts-page__topbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.my-community-posts-page__back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 60px;
+  padding: 10px;
+  border-radius: var(--radius-10);
+  overflow: clip;
+}
+
+.my-community-posts-page__back-icon {
+  width: 20px;
+  height: 20px;
+  background-color: var(--color-label-assistive);
+  -webkit-mask: url('../assets/arrow_l.svg') center / contain no-repeat;
+  mask: url('../assets/arrow_l.svg') center / contain no-repeat;
+}
+
+.my-community-posts-page__topbar-title {
+  min-width: 0;
+  margin: 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  text-align: center;
+}
+
+.my-community-posts-page__topbar-spacer {
+  flex-shrink: 0;
+  width: 60px;
+  height: 60px;
+}
+
+/* ------------------------------------------------------------------ *
+ * 목록 · 상태 · 더 보기
+ * ------------------------------------------------------------------ */
+.my-community-posts-page__list {
+  margin: 0;
+  padding: 0 var(--layout-gutter);
+  list-style: none;
+}
+
+.my-community-posts-page__status {
+  margin: 24px var(--layout-gutter);
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-body2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body2);
+  text-align: center;
+}
+
+.my-community-posts-page__status--error {
+  color: var(--color-error-strong);
+}
+
+/* 숨겨진 글 지우기 — 마이페이지의 로그아웃 · 탈퇴 같은 작은 글자 버튼, 에러 색 */
+.my-community-posts-page__delete {
+  position: relative;
+  padding: 0;
+  color: var(--color-error-strong);
+  font-size: var(--font-size-label2);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+}
+
+.my-community-posts-page__delete::after {
+  position: absolute;
+  inset: -10px -8px;
+  content: '';
+}
+
+.my-community-posts-page__more {
+  align-self: center;
+  margin-top: 16px;
+  padding: 10px 20px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-background-gray);
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+}
+
+.my-community-posts-page__more:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+@media (max-width: 359px) {
+  .my-community-posts-page__list {
+    padding-inline: 16px;
+  }
+}

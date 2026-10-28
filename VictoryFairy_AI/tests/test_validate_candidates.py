@@ -9,8 +9,83 @@ CATALOG = {"H2H_SEASON_RECORD": {"id": "H2H_SEASON_RECORD", "kind": "KNOWLEDGE",
            "YOY_TEAM": {"id": "YOY_TEAM", "kind": "KNOWLEDGE",
                         "format": "MULTI4", "enabled": False},
            "PRED_WIN_LOSE": {"id": "PRED_WIN_LOSE", "kind": "PREDICTION",
-                             "format": "BINARY", "enabled": True}}
+                             "format": "BINARY", "enabled": True},
+           "PRED_BATTER_HIT_INNING": {"id": "PRED_BATTER_HIT_INNING",
+                                      "kind": "PREDICTION", "format": "BINARY",
+                                      "subjectScope": "PLAYER", "enabled": True},
+           "CAREER_PATH": {"id": "CAREER_PATH", "kind": "KNOWLEDGE",
+                          "format": "MULTI4", "enabled": True},
+           "INTERNATIONAL_CALLUP": {"id": "INTERNATIONAL_CALLUP", "kind": "KNOWLEDGE",
+                                    "format": "MULTI4", "subjectScope": "TEAM",
+                                    "enabled": True},
+           "FRANCHISE_RECORD": {"id": "FRANCHISE_RECORD", "kind": "KNOWLEDGE",
+                                "format": "MULTI4", "subjectScope": "TEAM",
+                                "enabled": True},
+           "TEAMMATE_STAT_COMPARE": {"id": "TEAMMATE_STAT_COMPARE", "kind": "KNOWLEDGE",
+                                     "format": "BINARY", "subjectScope": "PLAYER",
+                                     "enabled": True}}
 BANNED = ["음주", "폭행"]
+
+
+def ok_batter_hit_inning():
+    # 실제 존재하는 경기(2026-10-03 KIA@LG, naverGameId 20261003HTLG02026)와 실제
+    # 선수(KIA 김도영, kboPlayerId 52605)로 만든 샘플 — away팀(KIA) 소속이라
+    # half="TOP"(초). deadlineAt은 그 경기 startTime(14:00 KST) - 2시간 = 03:00Z.
+    return {"quizId": "QZ-20261003-901", "gameId": "20261003HTLG02026",
+            "kind": "PREDICTION", "type": "PRED_BATTER_HIT_INNING",
+            "templateId": "PRED_BATTER_HIT_INNING", "format": "BINARY",
+            "question": "오늘 KIA-LG 3회 초, 김도영은 안타를 칠까?",
+            "options": [{"id": "A", "text": "안타를 친다"},
+                        {"id": "B", "text": "안타를 치지 못한다"}],
+            "answer": None, "evidence": None,
+            "settlement": {"metric": "BATTER_HIT_IN_INNING",
+                           "gameId": "20261003HTLG02026", "inning": 3, "half": "TOP"},
+            "difficulty": "MEDIUM", "pointReward": 50, "bqReward": 2,
+            "status": "PENDING", "createdAt": "2026-10-02T23:50:00Z",
+            "deadlineAt": "2026-10-03T03:00:00Z", "createdBy": "AI_ENGINE",
+            "teamCodes": ["HT", "LG"],
+            "subject": {"scope": "PLAYER", "playerIds": [52605], "teamCodes": [],
+                        "gameId": None}}
+
+
+def test_batter_hit_inning_valid_passes():
+    assert vc.validate_candidate(ok_batter_hit_inning(), CATALOG, BANNED) == []
+
+
+def test_batter_hit_inning_requires_inning_in_range():
+    c = ok_batter_hit_inning(); c["settlement"]["inning"] = 12   # INNING_MAX=11 초과
+    violations = vc.validate_candidate(c, CATALOG, BANNED)
+    assert any("settlement.inning" in v for v in violations)
+
+    c = ok_batter_hit_inning(); c["settlement"]["inning"] = 0   # 1 미만
+    assert any("settlement.inning" in v for v in vc.validate_candidate(c, CATALOG, BANNED))
+
+    c = ok_batter_hit_inning(); del c["settlement"]["inning"]   # 부재
+    assert any("settlement.inning" in v for v in vc.validate_candidate(c, CATALOG, BANNED))
+
+
+def test_batter_hit_inning_half_must_be_top_or_bottom_string():
+    # half는 BE InningHalf#name() 문자열("TOP"/"BOTTOM")이어야 한다 — 흔히
+    # 오해하는 0/1 정수 표기는 거부된다(BE 역직렬화 계약, generation-rules.md §3).
+    c = ok_batter_hit_inning(); c["settlement"]["half"] = 0
+    violations = vc.validate_candidate(c, CATALOG, BANNED)
+    assert any("settlement.half" in v for v in violations)
+
+    c = ok_batter_hit_inning(); c["settlement"]["half"] = "1"
+    assert any("settlement.half" in v for v in vc.validate_candidate(c, CATALOG, BANNED))
+
+    c = ok_batter_hit_inning(); c["settlement"]["half"] = "MIDDLE"
+    assert any("settlement.half" in v for v in vc.validate_candidate(c, CATALOG, BANNED))
+
+
+def test_other_prediction_metrics_unaffected_by_inning_half_check():
+    # check 11은 metric==BATTER_HIT_IN_INNING일 때만 적용된다 — WIN_TEAM 등
+    # 기존 PRED_* 후보는 inning/half가 없어도(기존 동작) 그대로 통과해야 한다.
+    c = ok_knowledge()
+    c.update(kind="PREDICTION", templateId="PRED_WIN_LOSE", answer=None, evidence=None,
+             settlement={"gameId": "20260730LGOB02026", "metric": "WIN_TEAM"},
+             gameId="20260730LGOB02026")
+    assert vc.validate_candidate(c, CATALOG, BANNED) == []
 
 
 def ok_knowledge():
@@ -200,3 +275,173 @@ def test_main_duplicate_quiz_id_exits_one(tmp_path):
     with pytest.raises(SystemExit) as exc_info:
         vc.main(["--dir", str(tmp_path)])
     assert exc_info.value.code == 1
+
+
+def test_roster_template_forbidden_in_game_unit():
+    """2026-10-03 신설(check 10) — CAREER_PATH·MEME_ORIGIN·RELATION_LINK는
+    gameId가 있으면(경기 유닛) 금지된다. 교차 중복(경기 유닛 vs 팀 특화 유닛이
+    같은 선수 소재를 독립적으로 중복 생성) 방지용."""
+    c = ok_knowledge()
+    c.update(templateId="CAREER_PATH", format="MULTI4", gameId="20261003LTKT02026",
+             options=[{"id": "A", "text": "KT"}, {"id": "B", "text": "LG"},
+                      {"id": "C", "text": "SSG"}, {"id": "D", "text": "키움"}])
+    assert any("경기 유닛" in v and "CAREER_PATH" in v
+               for v in vc.validate_candidate(c, CATALOG, BANNED))
+
+
+def test_roster_template_allowed_outside_game_unit():
+    """같은 템플릿이라도 gameId가 없으면(팀 특화·공통 유닛) 정상이다."""
+    c = ok_knowledge()
+    c.update(templateId="CAREER_PATH", format="MULTI4", gameId=None,
+             options=[{"id": "A", "text": "KT"}, {"id": "B", "text": "LG"},
+                      {"id": "C", "text": "SSG"}, {"id": "D", "text": "키움"}])
+    assert vc.validate_candidate(c, CATALOG, BANNED) == []
+
+
+@pytest.mark.parametrize("template_id", ["INTERNATIONAL_CALLUP", "FRANCHISE_RECORD"])
+def test_new_roster_templates_forbidden_in_game_unit(template_id):
+    """2026-10-08 신설 — INTERNATIONAL_CALLUP·FRANCHISE_RECORD도 위키 '커리어
+    이력' 기반 로스터 템플릿이라 CAREER_PATH 등과 같은 이유로 경기 유닛에서
+    금지된다(check 10, GAME_UNIT_FORBIDDEN_TEMPLATES)."""
+    c = ok_knowledge()
+    c.update(templateId=template_id, format="MULTI4", gameId="20261003LTKT02026",
+             options=[{"id": "A", "text": "김선수"}, {"id": "B", "text": "이선수"},
+                      {"id": "C", "text": "박선수"}, {"id": "D", "text": "최선수"}])
+    assert any("경기 유닛" in v and template_id in v
+               for v in vc.validate_candidate(c, CATALOG, BANNED))
+
+
+def test_international_callup_valid_subject_passes():
+    """팀은 질문 문면의 전제, 선수가 정답(CAREER_PATH와 반대 방향) — scope=TEAM,
+    teamCodes 정확히 1개·playerIds 빔이면 정답 유출 없이 통과한다."""
+    c = ok_knowledge()
+    c.update(templateId="INTERNATIONAL_CALLUP", format="MULTI4", gameId=None,
+              difficulty="MEDIUM", pointReward=50, bqReward=2,
+              question="2023년 항저우 아시안게임에 NC 소속으로 선발된 선수는?",
+              options=[{"id": "A", "text": "김주원"}, {"id": "B", "text": "박건우"},
+                       {"id": "C", "text": "손아섭"}, {"id": "D", "text": "노진혁"}],
+              answer="A",
+              subject={"scope": "TEAM", "playerIds": [], "teamCodes": ["NC"],
+                       "gameId": None})
+    assert vc.validate_candidate(c, CATALOG, BANNED) == []
+
+
+def test_franchise_record_valid_subject_passes():
+    c = ok_knowledge()
+    c.update(templateId="FRANCHISE_RECORD", format="MULTI4", gameId=None,
+              difficulty="HARD", pointReward=80, bqReward=3,
+              question="NC 구단 통산 만루홈런 공동 2위(5개)인 선수는?",
+              options=[{"id": "A", "text": "나성범"}, {"id": "B", "text": "박석민"},
+                       {"id": "C", "text": "테임즈"}, {"id": "D", "text": "에르난데스"}],
+              answer="A",
+              subject={"scope": "TEAM", "playerIds": [], "teamCodes": ["NC"],
+                       "gameId": None})
+    assert vc.validate_candidate(c, CATALOG, BANNED) == []
+
+
+# ── TEAMMATE_STAT_COMPARE (check 12, 2026-10-06 신설) ────────────
+
+def ok_teammate_stat_compare():
+    # 실제 player_season_stat 집계치를 흉내낸 샘플 — 보기엔 선수 이름만,
+    # evidence는 기존 계약대로 정답(더 우수한 쪽) 선수 한 명의 envelope만
+    # 가리킨다(source 1개·quote 1개 — runner/finalize.py check_evidence와
+    # 같은 단일 소스 계약, ROUTINE.md §3-2).
+    return {"quizId": "QZ-20261006-901", "gameId": None, "kind": "KNOWLEDGE",
+            "type": "STAT", "templateId": "TEAMMATE_STAT_COMPARE", "format": "BINARY",
+            "question": "롯데 두 선수 중 올 시즌 타율이 더 높은 쪽은?",
+            "options": [{"id": "A", "text": "김민석"}, {"id": "B", "text": "전준우"}],
+            "answer": "A",
+            "evidence": {
+                "source": "question-source/player_season_stat/2026-10-06/player_season_stat_53554.json",
+                "quote": "롯데 김민석은(는) 2026시즌 90경기 300타수 102안타(타율 0.340) 8홈런 "
+                         "40타점 10도루를 기록했다."},
+            "settlement": None, "difficulty": "MEDIUM", "pointReward": 50,
+            "bqReward": 2,
+            "status": "PENDING", "createdAt": "2026-10-06T00:00:00Z",
+            "deadlineAt": "2026-10-06T07:30:00Z", "createdBy": "AI_ENGINE",
+            "teamCodes": ["LT"],
+            "subject": {"scope": "PLAYER", "playerIds": [53554, 50129],
+                        "teamCodes": [], "gameId": None}}
+
+
+def test_teammate_stat_compare_valid_passes():
+    assert vc.validate_candidate(ok_teammate_stat_compare(), CATALOG, BANNED) == []
+
+
+def test_teammate_stat_compare_rejects_numbers_in_options():
+    c = ok_teammate_stat_compare()
+    c["options"] = [{"id": "A", "text": "김민석(타율 0.340)"}, {"id": "B", "text": "전준우"}]
+    violations = vc.validate_candidate(c, CATALOG, BANNED)
+    assert any("보기에 수치를 노출" in v for v in violations)
+
+
+def test_teammate_stat_compare_requires_exactly_two_player_ids():
+    c = ok_teammate_stat_compare()
+    c["subject"]["playerIds"] = [53554]
+    violations = vc.validate_candidate(c, CATALOG, BANNED)
+    assert any("정확히 2명" in v for v in violations)
+
+    c = ok_teammate_stat_compare()
+    c["subject"]["playerIds"] = [53554, 50129, 12345]
+    assert any("정확히 2명" in v for v in vc.validate_candidate(c, CATALOG, BANNED))
+
+
+def test_teammate_stat_compare_requires_single_team_code():
+    c = ok_teammate_stat_compare()
+    c["teamCodes"] = ["LT", "KT"]
+    violations = vc.validate_candidate(c, CATALOG, BANNED)
+    assert any("teamCodes가 정확히 1개" in v for v in violations)
+
+
+def test_teammate_stat_compare_requires_evidence_with_two_numbers():
+    c = ok_teammate_stat_compare()
+    c["evidence"]["quote"] = "김민석이 전준우보다 타율이 더 높다."
+    violations = vc.validate_candidate(c, CATALOG, BANNED)
+    assert any("evidence.quote가 실제 집계 수치" in v for v in violations)
+
+
+def test_teammate_stat_compare_valid_passes_for_easy_hits_metric():
+    # 2026-10-07 난이도 다변화 — 타자 안타(hits, raw count) 비교는 EASY다.
+    # check 12는 지표에 무관하게 구조만 검사하므로(보기 숫자 금지·playerIds
+    # 2명·teamCodes 1개·evidence.quote 숫자 2개 이상) EASY/HARD 지표에도 그대로
+    # 통과해야 한다.
+    c = ok_teammate_stat_compare()
+    c.update(
+        question="롯데 두 선수 중 올 시즌 안타가 더 많은 쪽은?",
+        difficulty="EASY", pointReward=30, bqReward=1)
+    assert vc.validate_candidate(c, CATALOG, BANNED) == []
+
+
+def test_teammate_stat_compare_valid_passes_for_hard_rbi_metric():
+    # 타자 타점(rbi) 비교는 HARD다.
+    c = ok_teammate_stat_compare()
+    c.update(
+        question="롯데 두 선수 중 올 시즌 타점이 더 많은 쪽은?",
+        difficulty="HARD", pointReward=80, bqReward=3)
+    assert vc.validate_candidate(c, CATALOG, BANNED) == []
+
+
+def test_teammate_stat_compare_valid_passes_for_hard_whip_metric():
+    # 투수 WHIP(2026-10-07 exporter 신규 필드) 비교는 HARD다 — evidence.quote는
+    # exporter가 렌더한 투수 기록 문장(경기수·이닝·평균자책점·탈삼진·WHIP 등
+    # 숫자 여러 개 포함)을 그대로 쓰므로 check 12(숫자 2개 이상)를 자연히
+    # 만족한다.
+    c = ok_teammate_stat_compare()
+    c.update(
+        question="롯데 두 투수 중 올 시즌 WHIP이 더 낮은 쪽은?",
+        difficulty="HARD", pointReward=80, bqReward=3,
+        options=[{"id": "A", "text": "박세웅"}, {"id": "B", "text": "다른투수"}],
+        evidence={
+            "source": "question-source/player_season_stat/2026-10-07/player_season_stat_60100.json",
+            "quote": "롯데 박세웅은(는) 2026시즌 20경기 33⅓이닝 평균자책점 8.10 "
+                     "80탈삼진 WHIP 2.85를 기록했다."})
+    assert vc.validate_candidate(c, CATALOG, BANNED) == []
+
+
+def test_other_templates_unaffected_by_teammate_stat_compare_check():
+    # check 12는 templateId==TEAMMATE_STAT_COMPARE일 때만 적용된다 — 다른
+    # 템플릿은 보기에 숫자가 있어도(예: YESTERDAY_SCORE류) 영향받지 않는다.
+    c = ok_knowledge()
+    c.update(templateId="H2H_SEASON_RECORD", options=[
+        {"id": "A", "text": "LG가 8승 2패로 우위"}, {"id": "B", "text": "두산이 우위"}])
+    assert vc.validate_candidate(c, CATALOG, BANNED) == []

@@ -268,4 +268,36 @@ class ChatControllerRoomTest {
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.message").value(ErrorCode.CHATROOM_TEAM_MISMATCH.getMessage()));
     }
+
+    @Test
+    @DisplayName("EventSource 처럼 Accept: text/event-stream 만 보낸 구독이 없는 방이면 404 JSON 으로 응답한다"
+            + "(핸들러 producible 타입과 협상할 컨버터가 없어 예외가 컨테이너로 새던 회귀 방지)")
+    void subscribe_acceptEventStreamOnly_notFound_returns404Json() throws Exception {
+        given(chatService.subscribe(eq("nope"), eq(USER_ID)))
+                .willThrow(new BusinessException(ErrorCode.CHATROOM_NOT_FOUND));
+
+        mockMvc.perform(get("/chat/rooms/{roomUid}/subscribe", "nope")
+                        .accept(MediaType.TEXT_EVENT_STREAM)
+                        .with(authenticatedAs(USER_ID)))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.data").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.message").value(ErrorCode.CHATROOM_NOT_FOUND.getMessage()));
+    }
+
+    @Test
+    @DisplayName("Accept: text/event-stream 만 보낸 구독이 다른 구단 방이면 403 JSON 으로 응답한다")
+    void subscribe_acceptEventStreamOnly_teamMismatch_returns403Json() throws Exception {
+        given(chatService.subscribe(eq("other-team-uid"), eq(USER_ID)))
+                .willThrow(new BusinessException(ErrorCode.CHATROOM_TEAM_MISMATCH));
+
+        mockMvc.perform(get("/chat/rooms/{roomUid}/subscribe", "other-team-uid")
+                        .accept(MediaType.TEXT_EVENT_STREAM)
+                        .with(authenticatedAs(USER_ID)))
+                .andExpect(status().isForbidden())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value(ErrorCode.CHATROOM_TEAM_MISMATCH.getMessage()));
+    }
 }

@@ -73,6 +73,16 @@ user:
     bucket: ${USER_PROFILE_IMAGE_BUCKET:victoryfairy-asset}
     region: ${USER_PROFILE_IMAGE_REGION:ap-northeast-2}
 
+  # 경기 실시간 갱신(GET /api/games/subscribe · /api/games/support/subscribe) — py-collector 가 경기의
+  # 이닝·점수·상태가 바뀔 때 쓰는 S3 game-state-events/* 의 ObjectCreated 알림이 쌓이는 SQS 큐
+  # (GameStateEventListener 가 롱폴링). 큐 자체는 Infra 레포가 만든다.
+  game-events:
+    # 비어 있으면(기본값) 리스너가 폴링을 시작하지 않는다 — 큐가 아직 없는 환경(로컬 등)에서도
+    # 기동이 깨지지 않게 하기 위함. 하드코딩하지 않는다: 큐 이름은 Infra 쪽 값이라 바뀔 수 있다.
+    # 파드 간 팬아웃은 prod 프로파일에서만 Redis pub/sub(game:events)을 탄다(GameEventRedisConfig).
+    sqs-queue-url: ${USER_GAME_EVENTS_SQS_QUEUE_URL:}
+    sqs-region: ${USER_GAME_EVENTS_SQS_REGION:ap-northeast-2}
+
 # 소셜 로그인(OAuth) 3사.
 #
 # ⚠ 시크릿은 이 파일에 적지 않는다 — 값의 출처는 언제나 환경변수(.env / k8s Secret)다.

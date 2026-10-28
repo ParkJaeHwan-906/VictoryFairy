@@ -92,6 +92,13 @@ resource "aws_lambda_function" "db" {
       COLLECTOR_S3_BUCKET = var.data_bucket_name
       COLLECTOR_S3_REGION = var.region
       COLLECTOR_PII_SALT  = local.pii_salt
+      # 기본 false(quiz_source_jobs_enabled 와 같은 절차) — py-collector PR #561 머지 후 켠다.
+      COLLECTOR_INNING_EVENTS_ENABLED = tostring(var.inning_events_enabled)
+      # 같은 절차 — 이 분기를 아는 이미지가 배포된 뒤 tfvars 에서 켠다.
+      COLLECTOR_GAME_STATE_EVENTS_ENABLED = tostring(var.game_state_events_enabled)
+      # ⚠ 위 둘과 달리 "먼저 켜도 무해"하지 않다 — games 에 승률 컬럼이 없는 DB 에서 켜면
+      # games upsert 전체가 실패해 점수 동기화까지 멈춘다. 컬럼 확인 뒤에 tfvars 에서 켠다.
+      COLLECTOR_WIN_RATE_ENABLED = tostring(var.win_rate_enabled)
     }
   }
 
@@ -309,6 +316,38 @@ resource "aws_lambda_permission" "export_player_profile" {
   function_name = aws_lambda_function.db[0].function_name
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.export_player_profile[0].arn
+}
+
+# --- export(player_season_stat): batter_records/pitcher_records -> S3 envelope
+# (매일 04:10 KST, records 03:30·export_game_result 04:00 이후) ---
+#
+# TEAMMATE_STAT_COMPARE(question-gen) 템플릿의 유일한 재료 소스. exporter.py에
+# 2026-10-06 추가됐는데 이 룰을 빠뜨려 2026-10-07 파티션 이후로 전혀 갱신되지
+# 않고 있었다(2026-10-09 S3 실측 — 최신 파티션이 여전히 2026-10-07) — 매일
+# 같은 스냅샷으로 7일 비반복 윈도를 돌리니 조합이 금방 소진돼 TEAMMATE_STAT_COMPARE가
+# 거의 0건만 나오던 진짜 원인이었다.
+resource "aws_cloudwatch_event_rule" "export_player_season_stat" {
+  count               = local.db_enabled && var.quiz_source_jobs_enabled ? 1 : 0
+  name                = "${var.name}-export-player-season-stat"
+  description         = "player_season_stat envelope export -> S3 (04:10 KST)"
+  schedule_expression = var.export_player_season_stat_schedule
+  tags                = var.tags
+}
+
+resource "aws_cloudwatch_event_target" "export_player_season_stat" {
+  count = local.db_enabled && var.quiz_source_jobs_enabled ? 1 : 0
+  rule  = aws_cloudwatch_event_rule.export_player_season_stat[0].name
+  arn   = aws_lambda_function.db[0].arn
+  input = jsonencode({ job = "export", target = "player_season_stat" })
+}
+
+resource "aws_lambda_permission" "export_player_season_stat" {
+  count         = local.db_enabled && var.quiz_source_jobs_enabled ? 1 : 0
+  statement_id  = "AllowEventBridgeExportPlayerSeasonStat"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.db[0].function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.export_player_season_stat[0].arn
 }
 
 # --- export(player_meme) 는 일부러 크론이 없다 ---

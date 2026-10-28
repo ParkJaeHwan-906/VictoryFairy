@@ -1,0 +1,223 @@
+/**
+ * StickerShareSheet(스티커 복사 바텀시트) 스타일.
+ * Figma: [Sticker] 승요 스티커 - 캐릭터 스티커 복사화면 (1733:28405) · Bottom Area (1733:29408)
+ *
+ * 딤 · 모서리 · 핸들 · rise 는 다른 시트들(ConfirmSheet 등)과 같은 값을 쓴다.
+ *
+ * 높이는 고정하지 않는다. 디자인은 590px 이지만 그 안에 홈 인디케이터(28px)가 들어 있고,
+ * 웹에는 그 자리가 없다. 대신 여백을 디자인대로 두고 내용에 맡긴다 — 이름이 길어
+ * 두 줄이 되거나 안내 문구가 붙어도 버튼이 잘리지 않는다.
+ */
+
+.sticker-share-sheet {
+  position: fixed;
+  z-index: 10;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+/* 딤 — 클릭하면 닫힌다. 버튼이지만 화면에는 어두운 면으로만 보인다. */
+.sticker-share-sheet__dim {
+  position: absolute;
+  inset: 0;
+  border: none;
+  padding: 0;
+  background-color: var(--color-dim);
+  cursor: default;
+}
+
+.sticker-share-sheet__panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--layout-app-width);
+  max-height: 100dvh;
+  padding-bottom: calc(24px + var(--safe-area-bottom));
+  border-radius: var(--radius-40) var(--radius-40) 0 0;
+  background-color: var(--color-surface);
+  overflow-y: auto;
+  animation: sticker-share-sheet-rise 0.24s ease-out;
+}
+
+@keyframes sticker-share-sheet-rise {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+/* 화면에는 감추고 보조기기에만 남기는 텍스트 */
+.sticker-share-sheet__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------ *
+ * Bar/Handle
+ * ------------------------------------------------------------------ */
+.sticker-share-sheet__handle {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 12px 0;
+}
+
+.sticker-share-sheet__handle-bar {
+  width: 48px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-label-assistive);
+}
+
+/* 맨 위 작은 제목 — Body/Body1 (Medium 16 / 1.5), 핸들(30) 아래 8px */
+.sticker-share-sheet__eyebrow {
+  margin: 8px 0 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  text-align: center;
+}
+
+/* ------------------------------------------------------------------ *
+ * 스티커 — 회색 판(354×240) 가운데에 240 정사각
+ * ------------------------------------------------------------------ */
+.sticker-share-sheet__preview {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  height: 240px;
+  margin: 24px var(--layout-gutter) 0;
+  border-radius: var(--radius-20);
+  background-color: var(--color-background-gray);
+  overflow: clip;
+}
+
+.sticker-share-sheet__image {
+  width: 240px;
+  height: 240px;
+  object-fit: contain;
+}
+
+/* ------------------------------------------------------------------ *
+ * 이름 · 설명
+ * ------------------------------------------------------------------ */
+.sticker-share-sheet__body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 24px var(--layout-gutter) 0;
+  text-align: center;
+}
+
+/* Title/Title1 — SemiBold 24 / 1.4 / -2% */
+.sticker-share-sheet__name {
+  margin: 0;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-title1);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title1);
+}
+
+/* Body/Body2 — Regular 16 / 1.5 */
+.sticker-share-sheet__description {
+  margin: 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body2);
+}
+
+/* 줄바꿈 자리는 문구가 정한다. 폭이 좁아 넘치면 그 줄 안에서 접힌다. */
+.sticker-share-sheet__description-line {
+  display: block;
+}
+
+/* 넘기지 못한 이유 — 디자인에 없는 줄이라 다른 화면의 오류 안내와 같은 값을 쓴다. */
+.sticker-share-sheet__message {
+  margin: 4px 0 0;
+  color: var(--color-error-strong);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+/* ------------------------------------------------------------------ *
+ * Btn/CTA 두 칸 — 취소 | 복사하기
+ * ------------------------------------------------------------------ */
+.sticker-share-sheet__actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 16px;
+  padding: 40px var(--layout-gutter) 0;
+}
+
+.sticker-share-sheet__button {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  height: 60px;
+  padding-inline: 16px;
+  border-radius: var(--radius-15);
+  font-size: var(--font-size-button2);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  transition: background-color 0.15s ease-in-out;
+}
+
+.sticker-share-sheet__button--cancel {
+  background-color: var(--color-gray-100);
+  color: var(--color-label-neutral);
+}
+
+.sticker-share-sheet__button--confirm {
+  background-color: var(--color-primary-normal);
+  color: var(--color-white);
+}
+
+.sticker-share-sheet__button:disabled {
+  background-color: var(--color-action-disabled);
+  color: var(--color-label-disable);
+  cursor: not-allowed;
+}
+
+/* ------------------------------------------------------------------ *
+ * 반응형 — 소형 단말에서 좌우 여백 축소 (다른 화면들과 같은 기준)
+ * ------------------------------------------------------------------ */
+@media (max-width: 359px) {
+  .sticker-share-sheet__preview {
+    margin-inline: 16px;
+  }
+
+  .sticker-share-sheet__body,
+  .sticker-share-sheet__actions {
+    padding-inline: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sticker-share-sheet__panel {
+    animation: none;
+  }
+
+  .sticker-share-sheet__button {
+    transition: none;
+  }
+}

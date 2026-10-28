@@ -118,10 +118,23 @@ d=json.load(open('.work/wiki-repo/wiki/_meta/builder-runs/$LAST_RUN_KEY'))
 print(len(d.get('pendingPlayers') or []))" 2>/dev/null || echo 0)
 fi
 
-if [ "$PENDING_COUNT" -gt 0 ]; then
-  # 미처리 선수가 남아 있다 — 그들의 근거 게시글은 증분 창 밖(과거)이므로 전량 받는다.
+# material-gaps.yaml(2026-10-06 신설, question-gen/ROUTINE.md §8이 씀) — quiz-daily가
+# MEME_ORIGIN·RELATION_LINK 재료 고갈을 발견한 팀 목록. 미처리(processedAt 없음)
+# 건수만 센다 — pendingPlayers와 같은 이유로, 그 팀 로스터의 밈/관계 소재가 있을
+# 법한 게시글이 증분 창 밖(과거)에 있을 수 있으므로 전체 파티션을 받는다.
+MATERIAL_GAP_COUNT=0
+if [ -f .work/wiki-repo/wiki/_meta/material-gaps.yaml ]; then
+  MATERIAL_GAP_COUNT=$(py-collector/.venv/bin/python -c "
+import yaml
+d = yaml.safe_load(open('.work/wiki-repo/wiki/_meta/material-gaps.yaml')) or {}
+print(len([g for g in (d.get('gaps') or []) if not g.get('processedAt')]))" 2>/dev/null || echo 0)
+fi
+
+if [ "$PENDING_COUNT" -gt 0 ] || [ "$MATERIAL_GAP_COUNT" -gt 0 ]; then
+  # 미처리 선수 또는 위키 보강 필요 팀이 있다 — 그 근거가 될 게시글은 증분 창
+  # 밖(과거)에 있을 수 있으므로 전량 받는다.
   SINCE_DATE="0000-00-00"
-  echo "미처리 선수 ${PENDING_COUNT}명 — 전체 파티션 수집"
+  echo "미처리 선수 ${PENDING_COUNT}명 + 위키 보강 필요 팀 ${MATERIAL_GAP_COUNT}건 — 전체 파티션 수집"
 elif [ -n "$LAST_RUN_KEY" ]; then
   SINCE_DATE=$(date -u -d "$LAST_RUN_ISO" +%Y-%m-%d 2>/dev/null \
     || date -u -jf "%Y-%m-%dT%H:%M:%S" "${LAST_RUN_ISO%%.*}" +%Y-%m-%d 2>/dev/null \
@@ -147,6 +160,14 @@ done
 
 `pendingPlayers`가 있으면 **그 선수들을 3단계에서 먼저 처리**한다(신규 게시글보다
 우선). 오래 밀린 선수가 계속 뒤로 밀리는 것을 막기 위한 순서다.
+
+**`material-gaps.yaml`에 등재된 팀의 선수들도 `pendingPlayers`와 같은 우선순위로
+먼저 처리한다(2026-10-06 신설).** quiz-daily(question-gen routine)가 팀 특화
+묶음에서 `MEME_ORIGIN`(밈/별명) 또는 `RELATION_LINK`(관계, `graph.json` 엣지)
+소재가 로스터 대비 고갈됐다고 판단하면 이 파일에 팀 단위로 신호를 남긴다 —
+**`CAREER_PATH`(이적 서사) 부족은 여기 안 남는다**, 실제 트레이드가 없으면
+크롤링으로도 만들 수 없는 소재라 위키 빌더가 손댈 수 없기 때문이다
+(`question-gen/ROUTINE.md` §8 참고). 처리 순서·갱신 방법은 §3-3에 정리한다.
 
 **입력은 `validation/bedrock/success/` 뿐이다.** `community/`(원문) 경로는 위키
 빌더가 직접 읽지 않는다 — 검열·주제 필터를 통과한 정제 게시글만 소비한다.
@@ -232,7 +253,17 @@ PY
 ```
 
 **3-2. 선수별 병합(LLM, 이 세션이 직접 수행)** — `.work/groups/`에 후보가 생긴
-`kboPlayerId`마다 반복한다:
+`kboPlayerId`를 다음 순서로 반복한다(60분 상한 안에서 fail-closed 우선순위 —
+"실패 처리" 절 참고):
+
+1. 마커의 `pendingPlayers`(오래 밀린 선수 — 먼저 처리해야 또 밀리지 않는다)
+2. `material-gaps.yaml`에 등재된 팀의 로스터 선수 중 `.work/groups/`에 후보가
+   있는 선수(§3-3 참고 — `pendingPlayers`와 동급 우선순위이지만, `pendingPlayers`가
+   이미 한 번 밀린 쪽이라 그 안에서는 먼저 둔다)
+3. 그 외 신규 후보
+
+같은 순위 안에서는 `kboPlayerId` 사전순으로 처리해, 중단돼도 다음 실행이 어디서
+멈췄는지 재현 가능하게 한다. 각 선수에 대해:
 
 1. `.work/wiki-repo/wiki/players/{kboPlayerId}.md`를 Read(없으면
    `wiki-builder/templates/player-doc.md`를 시작점으로 Read)
@@ -275,6 +306,34 @@ $(cat ".work/player_profile/player_profile:$KBO_ID.json" 2>/dev/null)
 막기 위해, `merge-rules.md`·`player-doc.md`는 변수로 먼저 읽어 실패 시 즉시
 `exit 1`한다 — 실패한 채로 `claude -p`를 실행해 규칙 누락 상태로 문서를
 덮어쓰는 위험한 실패 모드를 차단한다.
+
+**3-3. `material-gaps.yaml` 연동(2026-10-06 신설)** — quiz-daily가 팀 특화 묶음의
+`MEME_ORIGIN`·`RELATION_LINK` 재료 고갈을 발견하면 `wiki/_meta/material-gaps.yaml`에
+팀 단위로 신호를 남긴다(`question-gen/ROUTINE.md` §8, 스키마는 그 문서에 있음).
+이 routine은 1단계에서 이미 미처리(`processedAt` 없음) 건수를 세어 전체 파티션을
+받아 두었으므로, 이 단계에서는 다음만 한다:
+
+1. `.work/wiki-repo/wiki/_meta/material-gaps.yaml`을 Read한다(없으면 이 단계
+   전체를 스킵 — quiz-daily가 아직 아무 팀도 flag하지 않은 정상 상태다).
+2. `processedAt`이 없는 각 항목의 `team`에 대해, `.work/player_profile/`에서
+   그 팀 소속 선수의 `kboPlayerId`를 추려 `.work/groups/`에 이미 후보가 있는
+   선수부터(위 3-2의 우선순위 2) 처리한다. `templateTypes`가 `MEME_ORIGIN`이면
+   병합 때 밈/별명 소재(merge-rules.md의 해당 섹션)를, `RELATION_LINK`이면
+   `relations` front-matter(그래프 엣지 소재, 6단계가 이걸로 `graph.json`을
+   컴파일한다)를 **그 선수의 게시글에 실제로 그런 내용이 있는지부터 확인하고**
+   있으면 우선적으로 반영한다 — 없으면 억지로 지어내지 않는다(merge-rules.md
+   규칙 6과 같은 원칙, 사건연루 등 금지 소재도 그대로 적용).
+3. 그 팀의 로스터 선수 중 **최소 1명 이상**에게서 해당 `templateTypes` 소재를
+   실제로 보강했다고 이 세션이 판단하면, 7단계에서 그 항목의 `processedAt`에
+   오늘 날짜를 채운다. 선수를 다뤘지만 게시글 자체에 밈/관계 언급이 없어 보강할
+   게 없었다면 `processedAt`을 비워 두고 실행 로그에 사유를 남긴다 — 다음 실행
+   (또는 그다음 quiz-daily 실행이 같은 팀을 다시 flag할 때)이 재시도한다.
+
+`CAREER_PATH`(이적 서사) 신호는 이 파일에 올라오지 않는다(quiz-daily 쪽에서
+걸러짐) — 실제 트레이드가 없으면 게시글을 아무리 모아도 만들 수 없는 소재라
+이 routine이 할 수 있는 보강이 없기 때문이다. 이 연동은 1단계의 `player_profile`
+동기화·`validation/bedrock/success/`만 읽는 제약(사전 조건 참고)을 그대로
+쓴다 — 새 입력 소스를 추가하지 않는다.
 
 ### 4. trending.md
 
@@ -422,13 +481,21 @@ cat > "wiki/_meta/builder-runs/$RUN_ISO.json" <<JSON
 }
 JSON
 
+# material-gaps.yaml 반영(§3-3에서 판단한 결과) — 이 세션이 직접 Read → 처리한
+# 항목의 processedAt에 $RUN_ISO 날짜를 채움 → Write (결정적 스크립트가 아니라
+# casebook과 같은 LLM 직접 갱신 원칙). 지우지 않는다(이력 보존). §3-3에서 이번
+# 실행이 아무 항목도 안 건드렸으면(파일이 없거나 미처리 항목이 0건) 이 파일은
+# 그대로 두고 커밋 대상에서 자연히 빠진다.
+
 git add -A wiki/
 if git diff --cached --quiet; then
   echo "갱신된 문서 없음 — 커밋 생략"
 else
   git commit -m "wiki: builder run $RUN_ISO"
-  # 퀴즈 루틴도 같은 브랜치에 쓴다(stats·casebook) — 그 사이 올라온 커밋이 있으면
-  # rebase 후 재시도한다. 서로 건드리는 파일이 달라 충돌은 사실상 없다.
+  # 퀴즈 루틴도 같은 브랜치에 쓴다(stats·casebook·material-gaps) — 그 사이 올라온
+  # 커밋이 있으면 rebase 후 재시도한다. material-gaps.yaml은 양쪽이 공유하는
+  # 유일한 파일이고(question-gen/ROUTINE.md §8 참고) 그 외에는 서로 건드리는
+  # 파일이 달라 충돌은 거의 없다.
   git push origin dev || {
     git pull --rebase origin dev && git push origin dev
   }
@@ -464,3 +531,10 @@ cd -
   다음 실행의 증분 창(게시글 날짜 기준)이 좁혀지면서 그 선수들이 후보에서 영영
   사라진다 — 2026-08-06에 447명이 이 구멍에 빠졌다(1단계 설명 참고). 강제 종료돼
   커밋조차 못 했으면 마커도 안 써지므로 다음 실행이 같은 구간을 다시 처리한다.
+- **`material-gaps.yaml` 파싱 실패(깨진 YAML 등)**: 1단계에서 감지되면
+  `MATERIAL_GAP_COUNT=0`으로 두고(미처리 0건으로 간주) 나머지 절차는 평소처럼
+  진행한다 — `pendingPlayers`와 신규 후보만으로도 계속 동작해야 하므로, 이
+  파일 하나의 결함이 실행 전체를 막으면 안 된다. 7단계에서도 파일을 건드리지
+  않고 그대로 둔다(잘못 고치려다 quiz-daily가 남긴 다른 팀의 기록을 날리는
+  것보다, 사람이 직접 보고 고치는 게 안전하다). 실행 로그에 파싱 실패 사실만
+  남긴다.

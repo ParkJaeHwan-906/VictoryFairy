@@ -3,7 +3,7 @@
  * Figma: SWM / [Onboarding] 선호 선수 선택-검색x — `Bottom Area` 402 x 760.
  *
  * 목록이 길고(페이징 없이 전 구단이면 500명대) 검색창은 늘 보여야 하므로,
- * GameDetailSheet 처럼 높이를 내용에 맡기지 않고 고정한 뒤 목록만 스크롤한다.
+ * 높이를 내용에 맡기지 않고 고정한 뒤 목록만 스크롤한다.
  *
  * 세로 간격은 Figma 좌표에서 앞 요소의 아랫변을 빼서 얻었다
  * (핸들 30 → 검색창 62 = 32 / 검색창 118 → 목록 제목 142 = 24 / 제목 163 → 목록 171 = 8).
@@ -35,8 +35,8 @@
   flex-direction: column;
   width: 100%;
   max-width: var(--layout-app-width);
-  /* 디자인 높이(760)를 쓰되 작은 화면에서는 화면을 넘지 않게 잘라낸다 */
-  height: min(var(--layout-player-sheet-height), 90dvh);
+  /* 디자인 높이(760)를 상한으로, 작은 화면에서는 비율대로 줄인다(tokens.css) */
+  height: var(--layout-player-sheet-height);
   border-radius: var(--radius-40) var(--radius-40) 0 0;
   background-color: var(--color-surface);
   overflow: clip;
@@ -160,7 +160,7 @@
   min-height: 0;
   margin-top: 8px;
   padding-inline: var(--layout-gutter);
-  padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(12px + var(--safe-area-bottom));
   overflow-y: auto;
   overscroll-behavior: contain;
 }

@@ -9,12 +9,21 @@
 실재하는지, 활성 상태인지, kind/format이 선언과 일치하는지 확인하고,
 `question-gen/config/banned-topics.txt`로 안전 규칙(스펙 4.2, 사건사고·법적
 논란·사생활·건강 소재 금지)의 결정적 부분(키워드 부분 문자열 매칭)을 검사한다.
+로스터 기반 템플릿(CAREER_PATH·MEME_ORIGIN·RELATION_LINK)이 경기 유닛에
+섞여 들어가 팀 특화 유닛과 교차 중복을 일으키는 것도 막는다(check 10).
+PREDICTION 지표가 `BATTER_HIT_IN_INNING`(이닝 트리거 기반 실시간 정산)이면
+settlement.inning·half도 형식에 맞는지 검사한다(check 11).
+`TEAMMATE_STAT_COMPARE`(비교형 PLAYER scope, 2026-10-06 신설)는 보기에 실제
+수치가 노출되면 비교형 설계(암기형 유출 방지)가 무너지므로 그걸 하드로
+막고, 비교 대상 playerIds가 정확히 2명인지·evidence가 실제 집계 수치를
+인용하는지도 검사한다(check 12).
 
 stdlib + PyYAML만 사용(boto3 금지).
 """
 
 import argparse
 import json
+import re
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -34,7 +43,26 @@ BQ: dict = {}
 
 #: BE가 RDB로 정산 가능한 예측 지표만 허용(check 4). 스펙 6. 리스크 참조 —
 #: 선수 퍼포먼스 등 상세 스탯 예측은 정산 불가라 카탈로그에도 없음.
-METRICS = {"WIN_TEAM", "TOTAL_RUNS", "SCORE_GAP", "PITCHER_DECISION"}
+#: `BATTER_HIT_IN_INNING`(2026-10-04 추가)은 예외다 — py-collector가 S3
+#: inning-events/*에 적재하는 이닝별 안타 사실로 BE가 나중에 정산하는 이닝
+#: 트리거 기반 지표라, 나머지 넷(경기 전 확정 가능한 승패/점수)과 달리 settlement에
+#: inning·half가 추가로 필요하다(check 11).
+METRICS = {"WIN_TEAM", "TOTAL_RUNS", "SCORE_GAP", "PITCHER_DECISION",
+           "BATTER_HIT_IN_INNING"}
+
+#: BATTER_HIT_IN_INNING 전용 settlement.inning 상한(check 11). 정본은 py-collector
+#: `kbo_collector/game_records.py`의 `INNING_MAX = 11`(연장 포함 KBO 경기 이닝
+#: 파서 상한)이고 여기는 그 사본이다 — TEAM_CODE_NAMES와 같은 하드코드 미러 패턴.
+#: 그쪽 값이 바뀌면 여기도 맞출 것.
+INNING_MAX = 11
+
+#: BATTER_HIT_IN_INNING 전용 settlement.half 허용값(check 11). BE
+#: `com.skhynix.domain.game.entity.InningHalf`의 enum 이름 문자열이다(TOP=초,
+#: BOTTOM=말). DB 컬럼(`quiz.settlement_half`)에는 ordinal(0/1)로 저장되지만,
+#: candidate JSON 계약은 **이름 문자열**이다 — `QuizCandidate.Settlement.half()`를
+#: BE가 `InningHalf.valueOf(...)`로 역직렬화한다(VictoryFairy_BE 커밋 3e2f30f0
+#: 실측). 0/1 정수를 그대로 쓰면 그 역직렬화가 깨진다 — 흔한 오해이므로 명시한다.
+INNING_HALVES = {"TOP", "BOTTOM"}
 
 #: format별 필수 option 개수(check 2). 주관식은 계약에 없다.
 FORMAT_OPTION_COUNTS = {"OX": 2, "BINARY": 2, "MULTI4": 4}
@@ -64,6 +92,31 @@ TEAM_CODE_NAMES = {
 #: subject.scope 허용값(check 9, 스펙 4.3 v2). scope는 문항별 판단이 아니라
 #: 카탈로그 템플릿의 `subjectScope` 선언을 그대로 따라야 한다.
 SUBJECT_SCOPES = {"PLAYER", "TEAM", "MATCHUP", "LEAGUE", "GAME"}
+
+#: 경기 유닛(gameId 있음)에서 금지하는 템플릿(check 10, 2026-10-03 신설).
+#: 2026-10-03 실행에서 경기 유닛과 팀 특화 유닛이 서로 모른 채 같은 선수의
+#: CAREER_PATH·MEME_ORIGIN·RELATION_LINK를 독립적으로 뽑아 39건 중 28건이
+#: 교차 중복으로 폐기됐다(`wiki/_meta/casebook/bad.md` #102). 이 세 템플릿은
+#: 로스터 기반이라 경기 당일 여부와 무관하고(perTeam이 이미 매일 전담), 경기
+#: 유닛에는 애초에 재료 자격이 없어야 한다 — 프롬프트 설명만으로는 다시 샐 수
+#: 있어 결정적 게이트로 못박는다. 소속은 `subjectScope`(PLAYER)로도 추정
+#: 가능하지만, 이 세 템플릿만 명시적으로 금지하는 것이 과거 이력과 더 안전하게
+#: 호환된다(RECORD_OX 등 다른 PLAYER scope 템플릿까지 건드리지 않음).
+#: INTERNATIONAL_CALLUP·FRANCHISE_RECORD(2026-10-08 신설)도 같은 이유로
+#: 추가한다 — 위키 '커리어 이력' 섹션 기반이라 똑같이 로스터 기반·경기 당일
+#: 무관이다(subjectScope는 TEAM이라 PLAYER 추정 휴리스틱으로도 안 걸려서,
+#: 명시 등재가 더더욱 필요하다).
+GAME_UNIT_FORBIDDEN_TEMPLATES = {
+    "CAREER_PATH", "MEME_ORIGIN", "RELATION_LINK",
+    "INTERNATIONAL_CALLUP", "FRANCHISE_RECORD",
+}
+
+#: TEAMMATE_STAT_COMPARE 전용(check 12, 2026-10-06 신설). 비교형 설계 보호 —
+#: 보기 문면에 실제 수치(타율·ERA 등)가 노출되면 "암기형 유출"이 된다. 두
+#: 선수 이름만 보기로 허용한다.
+TEAMMATE_STAT_COMPARE_ID = "TEAMMATE_STAT_COMPARE"
+_HAS_DIGIT_RE = re.compile(r"\d")
+_NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
 
 
 # ── 로더 ────────────────────────────────────────────────
@@ -341,6 +394,71 @@ def validate_candidate(c: dict, catalog: dict, banned: list) -> list:
                 violations.append(
                     f"subject.teamCodes의 팀({code}={name})이 정답 보기 문면에 등장"
                     f"(정답 유출): \"{answer_text}\"")
+
+    # 10. 경기 유닛 전용 템플릿 금지(교차 중복 방지, 2026-10-03 신설)
+    if c.get("gameId") is not None and template_id in GAME_UNIT_FORBIDDEN_TEMPLATES:
+        violations.append(
+            f"{template_id}는 경기 유닛(gameId 있음)에 쓸 수 없음 — 로스터 기반이라 "
+            f"팀 특화 유닛(perTeam) 전용(교차 중복 방지, check 10)")
+
+    # 11. PREDICTION BATTER_HIT_IN_INNING 전용 — inning·half 필수(2026-10-04 신설)
+    # BE QuizIngestService.ingestPrediction()이 이 metric일 때만 settlement.inning/
+    # half로 Quiz.settlementInning/settlementHalf를 채운다(그 외 metric은 이
+    # 필드를 전혀 보지 않으므로 검사하지 않는다 — 기존 WIN_TEAM 등 후보는 이 필드가
+    # 없어도/있어도 그대로 통과한다, 기존 동작 유지). kind!="PREDICTION"이거나
+    # settlement가 dict가 아니면 이미 위 3/4에서 걸리므로 여기선 재검사하지 않는다.
+    settlement = c.get("settlement")
+    if (kind == "PREDICTION" and isinstance(settlement, dict)
+            and settlement.get("metric") == "BATTER_HIT_IN_INNING"):
+        inning = settlement.get("inning")
+        if not (isinstance(inning, int) and not isinstance(inning, bool)
+                and 1 <= inning <= INNING_MAX):
+            violations.append(
+                f"BATTER_HIT_IN_INNING 문항은 settlement.inning이 1~{INNING_MAX} "
+                f"사이 정수여야 함: {inning!r}")
+        half = settlement.get("half")
+        if half not in INNING_HALVES:
+            violations.append(
+                f"BATTER_HIT_IN_INNING 문항은 settlement.half가 "
+                f"{sorted(INNING_HALVES)!r} 중 하나여야 함(BE InningHalf#name() "
+                f"문자열 — 0/1 정수가 아님): {half!r}")
+
+    # 12. TEAMMATE_STAT_COMPARE 전용 — 비교형 설계 보호(2026-10-06 신설)
+    # 보기 문면에 실제 수치가 노출되면 비교형 설계(암기형 유출 방지, 카탈로그
+    # intent)가 무너진다. subject.playerIds도 "정확히 2명"이어야 한다(비교
+    # 대상 둘 — 일반 PLAYER scope 하한인 "1개 이상"보다 이 템플릿만 더
+    # 엄격하다, ROUTINE.md §3-2). evidence는 기존 계약대로 정답 선수 한 명의
+    # envelope만 가리키지만(source 1개·quote 1개, check_evidence/_resolve
+    # 재사용), 그 quote가 실제 집계 수치(숫자 2개 이상 — 그 선수의 결정적으로
+    # 렌더된 기록 문장에는 경기수·안타·타율 등 여러 수치가 이미 들어있다)를
+    # 인용하는지는 검사한다 — 뭉뚱그린 서술만으로는 원문 대조의 의미가 없다.
+    # 상대 선수와의 비교 정확성 자체는 이 결정적 검사 범위 밖이고 검증 패스
+    # (6단계)의 책임이다(ROUTINE.md §3-2 참고).
+    if template_id == TEAMMATE_STAT_COMPARE_ID:
+        for o in options:
+            text = (o.get("text") if isinstance(o, dict) else None) or ""
+            if _HAS_DIGIT_RE.search(text):
+                violations.append(
+                    f"{TEAMMATE_STAT_COMPARE_ID}는 보기에 수치를 노출할 수 없음"
+                    f"(비교형 설계 — 선수 이름만 허용): \"{text}\"")
+        if isinstance(subject, dict) and subject.get("scope") == "PLAYER":
+            pids = subject.get("playerIds")
+            if not (isinstance(pids, list) and len(pids) == 2):
+                violations.append(
+                    f"{TEAMMATE_STAT_COMPARE_ID}는 subject.playerIds가 정확히 "
+                    f"2명(비교 대상)이어야 함: {pids!r}")
+        if isinstance(top_team_codes, list) and len(top_team_codes) != 1:
+            violations.append(
+                f"{TEAMMATE_STAT_COMPARE_ID}는 top-level teamCodes가 정확히 1개 "
+                f"팀이어야 함(같은 팀 두 선수 비교, 다른 팀 섞기 금지, §3): "
+                f"{top_team_codes!r}")
+        evidence = c.get("evidence")
+        quote = evidence.get("quote") if isinstance(evidence, dict) else None
+        numbers = _NUMBER_RE.findall(quote or "")
+        if len(numbers) < 2:
+            violations.append(
+                f"{TEAMMATE_STAT_COMPARE_ID}는 evidence.quote가 실제 집계 수치를 "
+                f"인용해야 함(숫자 2개 이상 필요, 실제 {len(numbers)}개): {quote!r}")
 
     return violations
 

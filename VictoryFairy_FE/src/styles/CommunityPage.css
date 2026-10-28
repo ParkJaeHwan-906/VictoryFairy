@@ -18,6 +18,54 @@
 }
 
 /* ------------------------------------------------------------------ *
+ * Tabs — 랭킹 · 게시판
+ *
+ * 시안 밖에서 더한 줄이다. 글자 아래 주황(`--color-primary-normal`) 막대로 고른 탭을
+ * 알리고, 바깥 실선은 공지 상세 머리말과 같은 `--color-line-light` 다.
+ * 위아래로 붙어 있어 스크롤해도 탭이 따라온다 — 게시판 목록이 길어지기 때문이다.
+ * ------------------------------------------------------------------ */
+.community-page__tabs {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  gap: 20px;
+  padding: 0 var(--layout-gutter);
+  border-bottom: 1px solid var(--color-line-light);
+  background-color: var(--color-background-basic);
+}
+
+.community-page__tab {
+  position: relative;
+  padding: 16px 0 12px;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-title3);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title3);
+}
+
+.community-page__tab--active {
+  color: var(--color-label-normal);
+}
+
+.community-page__tab--active::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-primary-normal);
+  content: '';
+}
+
+.community-page__panel {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ------------------------------------------------------------------ *
  * Header — 제목 + 시상대 카드
  * 제목은 흰 바탕 위에 그대로 놓인다(이전 디자인의 아이보리 카드는 없어졌다).
  * ------------------------------------------------------------------ */
@@ -148,7 +196,7 @@
   position: fixed;
   right: max(var(--layout-gutter), calc(50% - var(--layout-app-width) / 2 + var(--layout-gutter)));
   /* Figma: 버튼 하단(762)이 NavBar 흰 바 위끝(786)보다 24px 위다. */
-  bottom: calc(var(--layout-navbar-height) + env(safe-area-inset-bottom, 0px) + 24px);
+  bottom: calc(var(--layout-navbar-height) + var(--safe-area-bottom) + 24px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -181,6 +229,7 @@
  * ------------------------------------------------------------------ */
 @media (max-width: 359px) {
   /* 시상대 카드의 여백은 `RankingPodium.css` 가 같은 기준으로 함께 줄인다 */
+  .community-page__tabs,
   .community-page__ranking {
     padding-inline: 16px;
   }

@@ -60,21 +60,41 @@ module "eks" {
         workload = { key = "workload", value = "batch", effect = "NO_SCHEDULE" }
       }
     }
+    # monitoring: kube-prometheus-stack 전용, 1대 고정(k8s/60-monitoring).
+    #   app 풀과 나눈 이유: 앱이 메모리를 다 쓰면 같은 노드의 Prometheus 가 축출돼
+    #   정작 장애 시점의 지표가 비게 된다. taint 로 앱 파드가 들어오지 못하게 막는다.
+    #   CA 대상에서 뺀다 — Prometheus PV 가 2a EBS 에 묶여 있어 노드가 늘어도 옮겨 갈 수 없다.
+    monitoring = {
+      instance_types     = ["t3.medium"]
+      capacity_type      = "ON_DEMAND"
+      min_size           = 1
+      desired_size       = 1
+      max_size           = 1
+      labels             = { workload = "monitoring" }
+      cluster_autoscaler = false
+      taints = {
+        workload = { key = "workload", value = "monitoring", effect = "NO_SCHEDULE" }
+      }
+    }
   }
+
+  # app 노드는 메모리 requests 가 이미 빠듯하다(2026-10-21 기준 68%). PVC 의 주 사용자도 모니터링이다.
+  ebs_csi_controller_node_group = "monitoring"
 }
 
 module "ecr" {
   source = "../../modules/ecr"
 
   name_prefix = "victoryfairy"
-  # user/quiz 는 BE Gradle 모듈과 1:1 (Dockerfile ARG MODULE).
+  # user/quiz/chat 은 BE Gradle 모듈과 1:1 (Dockerfile ARG MODULE).
+  # ⚠ chat → 리포지토리 이름 victoryfairy-chat. k8s 매니페스트(chat-app Deployment image)가 이 이름을 쓴다.
   # pipeline 은 정제 러너 이미지 — 패턴·Bedrock Lambda 가 같은 이미지를 공유한다(ARCHITECTURE §4).
   # fe 리포지토리는 2026-08-07 제거했다. FE 는 S3+CloudFront 가 서비스하므로 이미지를 pull 할
   # 주체(fe-app 파드)가 없어졌다(docs/fe-hosting.md).
   # ⚠ 여기서 이름을 빼면 리포지토리가 destroy 된다. 이 모듈은 force_delete 를 켜지 않으므로
   #   이미지가 남아 있으면 RepositoryNotEmptyException 으로 apply 가 실패한다 —
   #   aws ecr batch-delete-image 로 먼저 비워야 한다(fe 는 그렇게 처리했다).
-  repository_names = ["user", "quiz", "pipeline"]
+  repository_names = ["user", "quiz", "pipeline", "chat"]
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -123,6 +143,9 @@ module "quiz_irsa" {
 
   # ⚠ 이름의 -dev 에 속지 말 것 — crawl-dev 가 크롤 파이프라인의 운영 버킷이다(crawl-local 이 테스트).
   crawl_bucket_name = var.crawl_bucket_name
+
+  # 이닝 종료 이벤트 큐 — py-collector → S3 → SQS(refine_pipeline 소유) → quiz-app 소비.
+  inning_events_queue_arn = module.refine_pipeline.inning_events_queue_arn
 }
 
 # 퍼블릭 DNS(Route53) + TLS(ACM) + ExternalDNS IRSA.
@@ -209,6 +232,7 @@ module "cdn" {
   asset_bucket_name                 = module.asset.bucket_name
   asset_bucket_regional_domain_name = module.asset.bucket_regional_domain_name
   asset_profile_prefix              = local.asset_profile_prefix
+  asset_community_prefix            = local.asset_community_prefix
   asset_temp_prefix                 = local.asset_temp_prefix
   asset_static_prefixes             = local.asset_static_prefixes
 
@@ -223,9 +247,10 @@ module "cdn" {
 module "asset" {
   source = "../../modules/asset"
 
-  bucket_name    = local.asset_bucket_name
-  profile_prefix = local.asset_profile_prefix
-  temp_prefix    = local.asset_temp_prefix
+  bucket_name      = local.asset_bucket_name
+  profile_prefix   = local.asset_profile_prefix
+  community_prefix = local.asset_community_prefix
+  temp_prefix      = local.asset_temp_prefix
 
   # 캐릭터 꾸미기 에셋 — 버킷 정책의 읽기 허용 접두사에만 더한다(만료 규칙도 IRSA 쓰기 권한도 없다).
   static_prefixes = local.asset_static_prefixes
@@ -234,7 +259,7 @@ module "asset" {
   cloudfront_distribution_arn = module.cdn.distribution_arn
 }
 
-# user-app 파드용 IRSA — asset 버킷의 temp/·user-profile-img/ 읽기·쓰기·삭제 + temp/ 나열.
+# user-app 파드용 IRSA — asset 버킷의 temp/·user-profile-img/·community-img/ 읽기·쓰기·삭제 + temp/ 나열.
 # 역할 ARN 을 k8s/20-user-app.yaml 의 SA 어노테이션에 지정한다(출력 user_app_role_arn).
 # ⚠ 현재 user-app 에는 ServiceAccount 자체가 없다 — 매니페스트에 SA 를 새로 만들고
 #   Deployment 에 serviceAccountName 을 걸어야 이 권한이 파드에 닿는다(k8s-manifest 소관).
@@ -247,7 +272,13 @@ module "user_irsa" {
 
   asset_bucket_name = module.asset.bucket_name
   profile_prefix    = local.asset_profile_prefix
+  community_prefix  = local.asset_community_prefix
   temp_prefix       = local.asset_temp_prefix
+
+  # 경기 상태 변화 큐 — py-collector → S3 game-state-events/ → SQS(refine_pipeline 소유)
+  #   → user-app 소비(경기 SSE 푸시). quiz_irsa 의 inning_events 와 같은 배선, 다른 큐.
+  crawl_bucket_name           = var.crawl_bucket_name
+  game_state_events_queue_arn = module.refine_pipeline.game_state_events_queue_arn
 }
 
 # 상시 감시 — 배포 스모크(수십 초)가 닫힌 뒤를 맡는다.
@@ -366,6 +397,22 @@ module "mysql_ec2" {
   # DLM 스냅샷 정책 생성이 불가. 백업은 mysqldump→S3 크론으로만 수행한다.
   # SCP 제약이 없는 계정으로 이전 시 이 줄을 제거해 스냅샷 병행을 복원할 것.
   enable_dlm_snapshot = false
+}
+
+# chat 모듈의 Kafka: 전용 EC2 에 KRaft 단일 브로커(MSK 미사용 — 비용 사유).
+#   프라이빗 서브넷(운영 AZ 2a) + SSM 전용 접근, 9092 인입은 EKS 노드 SG 에서만.
+#   토픽 chat-messages·chat-control 은 부팅 시 if-not-exists 로 만든다(파티션 3·RF 1·보존 48h — 모듈 기본값).
+# ⚠ 커플링: chat-app 의 KAFKA_BOOTSTRAP_SERVERS 는 출력 kafka_bootstrap_servers(<private_ip>:9092)와
+#   일치해야 한다. 인스턴스가 재생성되면 IP 가 바뀌니 k8s 쪽 값도 같이 바꿀 것.
+module "kafka_ec2" {
+  source = "../../modules/kafka-ec2"
+
+  environment = var.environment
+  vpc_id      = module.network.vpc_id
+  subnet_id   = module.network.private_subnet_ids_by_az[var.azs[0]]
+
+  # 노드는 공용 클러스터 SG 하나라 mysql_ec2 와 같은 SG 를 넘긴다.
+  kafka_ingress_sg_ids = { eks_nodes = module.eks.node_security_group_id }
 }
 
 # dev 전용 DB(비 프로덕션): 프로덕션 mysqldump S3 백업을 매일 restore 로 받아 데이터를

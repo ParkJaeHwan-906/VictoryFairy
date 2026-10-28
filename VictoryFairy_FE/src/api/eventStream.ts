@@ -9,7 +9,8 @@
  * - `event:` / `data:` 필드, `data:` 여러 줄은 개행으로 이어붙임
  * - `:ping` 하트비트를 포함한 주석 줄 무시
  * - CRLF/LF 개행 혼용
- * 미지원: `id:`(서버가 보내지 않아 Last-Event-ID 복구가 불가하다), `retry:`
+ * - `id:` — 경기 채팅(`/chat`)만 보낸다. 다른 스트림은 보내지 않아 늘 `undefined` 다.
+ * 미지원: `retry:`
  */
 
 export interface SseFrame {
@@ -17,11 +18,14 @@ export interface SseFrame {
   event: string;
   /** `data:` 줄들을 개행으로 이어붙인 원문. */
   data: string;
+  /** `id:` 필드. 그 프레임에 없으면 `undefined` — 규격의 "마지막 id 유지"는 호출자 몫이다. */
+  id?: string;
 }
 
 /** 프레임 하나(빈 줄로 끝나는 블록)를 파싱한다. data가 없으면 null(주석/하트비트만 있는 블록). */
 function parseFrame(block: string): SseFrame | null {
   let event = 'message';
+  let id: string | undefined;
   const dataLines: string[] = [];
 
   for (const line of block.split('\n')) {
@@ -38,12 +42,16 @@ function parseFrame(block: string): SseFrame | null {
       event = value;
     } else if (field === 'data') {
       dataLines.push(value);
+    } else if (field === 'id' && !value.includes('\0')) {
+      // 규격상 NUL 이 든 id 는 무시한다.
+      id = value;
     }
-    // id/retry 및 알 수 없는 필드는 무시한다.
+    // retry 및 알 수 없는 필드는 무시한다.
   }
 
   if (dataLines.length === 0) return null;
-  return { event, data: dataLines.join('\n') };
+  const data = dataLines.join('\n');
+  return id === undefined ? { event, data } : { event, data, id };
 }
 
 /**

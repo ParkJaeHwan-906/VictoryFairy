@@ -7,6 +7,7 @@ game_statuses/games/game_lineups/registrations — dev_be 브랜치 VictoryFairy
 upsert 해 재실행에도 멱등이다. PK 는 전부 서비스 소유의 AUTO_INCREMENT id.
 """
 import logging
+from datetime import date as date_cls, timedelta
 
 import pymysql
 
@@ -155,6 +156,31 @@ GAME_SYNC_UPSERT = (
     "  updated_at=NOW(6)"
 )
 
+# GAME_SYNC_UPSERT + 승률 두 컬럼. 별도 문장으로 둔 이유: 컬럼이 없는 DB(수동 ALTER 전)에
+# 이 문장을 보내면 upsert 전체가 실패한다 — COLLECTOR_WIN_RATE_ENABLED 가 꺼져 있으면
+# 위 문장을 글자 그대로 쓰게 해 배포 순서 사고의 반경을 설정 하나로 막는다.
+#
+# 승률은 세 경우를 한 문장에서 가른다(마지막 %s = 진행 중 여부):
+#   진행 중 + 값 있음 → 새 값 / 진행 중 + 값 없음(relay 실패·유효 줄 없음) → 기존 값 유지
+#   진행 중 아님 → NULL. 상태로 거르는 건 current_inning 과 같은 이유(종료 경기에 남으면 안 됨)지만,
+#   진행 중일 때 None 을 "모름"으로 봐야 해서 current_inning 처럼 블라인드 덮어쓰기는 못 한다.
+GAME_SYNC_UPSERT_WITH_WIN_RATE = (
+    "INSERT INTO games (naver_game_id, game_date, home_team_id, away_team_id, "
+    " stadium_id, home_score, away_score, game_status_id, current_inning, inning_half, "
+    " last_inning, home_win_rate, away_win_rate, created_at, updated_at) "
+    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(6), NOW(6)) "
+    "ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id), game_date=VALUES(game_date), "
+    "  stadium_id=COALESCE(VALUES(stadium_id), stadium_id), "
+    "  home_score=COALESCE(VALUES(home_score), home_score), "
+    "  away_score=COALESCE(VALUES(away_score), away_score), "
+    "  game_status_id=VALUES(game_status_id), "
+    "  current_inning=VALUES(current_inning), inning_half=VALUES(inning_half), "
+    "  last_inning=COALESCE(VALUES(last_inning), last_inning), "
+    "  home_win_rate=IF(%s, COALESCE(VALUES(home_win_rate), home_win_rate), NULL), "
+    "  away_win_rate=IF(%s, COALESCE(VALUES(away_win_rate), away_win_rate), NULL), "
+    "  updated_at=NOW(6)"
+)
+
 # 선발 라인업이 '완성'된 경기 판정. 완성 = 선발 타순 1~9 가 두 팀에 걸쳐 18행.
 # game 단위 COUNT>0 으로 보면 한 팀만 먼저 공시된 경기에서 나머지 한 팀이 영영
 # 안 들어온다(공시는 팀별로 따로 뜬다).
@@ -172,6 +198,29 @@ GAMES_WITH_STADIUM = (
     "WHERE naver_game_id IN ({ph}) AND stadium_id IS NOT NULL"
 )
 
+# 이닝 전환 감지용: GAME_SYNC_UPSERT 는 VALUES()로 current_inning/inning_half 를
+# 매번 블라인드 오버라이트해 이전 값을 돌려주지 않는다(games_sync 전체가 그렇다 —
+# 실측, GAME_SYNC_UPSERT 주석 참고). upsert 직전에 "덮이기 전" 값을 읽어야 "방금
+# 끝난 이닝"을 알 수 있어 별도로 조회한다.
+GET_LIVE_INNING_STATE = (
+    "SELECT current_inning, inning_half FROM games WHERE naver_game_id=%s"
+)
+
+# 경기 상태 변화 감지용(game-state-events): 위와 같은 이유로 upsert 직전에 읽는다.
+# 점수·상태까지 함께 본다 — 이닝은 그대로인데 득점만 난 폴링도 "변화"다.
+# 상태는 id 가 아니라 이름으로 비교한다(game_statuses.id 는 환경마다 다르다).
+GET_GAME_LIVE_STATE = (
+    "SELECT g.current_inning, g.inning_half, g.home_score, g.away_score, gs.name "
+    "FROM games g LEFT JOIN game_statuses gs ON gs.id=g.game_status_id "
+    "WHERE g.naver_game_id=%s"
+)
+
+# 승률 변화 감지용. GET_GAME_LIVE_STATE 에 합치지 않은 이유는 GAME_SYNC_UPSERT_WITH_WIN_RATE 와
+# 같다 — 컬럼이 없는 DB 에서 게이트가 꺼져 있으면 이 문장은 아예 나가지 않아야 한다.
+GET_GAME_WIN_RATE = (
+    "SELECT home_win_rate, away_win_rate FROM games WHERE naver_game_id=%s"
+)
+
 # preview(경기 전 공시)로 적재해 놓고 실제로는 출전하지 않은 선수를 걷어낸다.
 # records 잡이 박스스코어로 확정 적재한 뒤 부르며, 박스스코어에 없는 행이 곧 유령이다.
 LINEUP_DELETE_EXCEPT = (
@@ -185,6 +234,25 @@ LINEUP_DELETE_EXCEPT = (
 LINEUP_DELETE_UNPLAYED = (
     "DELETE FROM game_lineups WHERE game_id = %s "
     "AND NOT EXISTS (SELECT 1 FROM batter_records b WHERE b.game_id = %s)"
+)
+
+# 네이버 일정에서 사라진 경기 표시(games.removed). 취소(CANCELED)와 다르다 — 취소는 일정에 남아
+# cancel=true 로 오지만, 포스트시즌 시리즈가 일찍 끝나면 남은 경기는 표시 없이 일정에서 빠진다
+# (2026-10-21 KIA@LG 실측). 빠진 경기는 upsert 가 다시 닿지 않아 예정 상태로 굳으므로 날짜 단위로
+# "응답에 없는 행"을 찾아 켜고, 다시 나타난 행은 끈다. 행을 지우지 않는 건 라인업·퀴즈 FK 와
+# 일시적 빈 응답 때문이다. {not_in} 은 그날 응답이 비었으면 빈 문자열이다 — NOT IN () 은 문법 오류다.
+#
+# DEMO 접두사 행은 운영 games 에 손으로 넣는 데모 경기라 네이버 일정에 있을 리 없다 — 거르지 않으면
+# 넣자마자 다음 수집에서 사라진 경기가 된다. 접두사가 4444 가 아닌 이유: 네이버가 포스트시즌 실경기 id 에
+# 4444 를 써서(2026-10-14 사고) 실경기와 데모가 구분되지 않았다. %% 는 pymysql 파라미터 치환 때문이다.
+GAMES_MARK_REMOVED = (
+    "UPDATE games SET removed = 1, updated_at = NOW(6) "
+    "WHERE game_date >= %s AND game_date < %s AND removed = 0 "
+    "AND naver_game_id IS NOT NULL AND naver_game_id NOT LIKE 'DEMO%%' {not_in}"
+)
+GAMES_RESTORE_REMOVED = (
+    "UPDATE games SET removed = 0, updated_at = NOW(6) "
+    "WHERE naver_game_id IN ({ph}) AND removed = 1"
 )
 
 # 취소 사유는 KBO 공식 일정표에만 있어(네이버는 "경기취소"로 뭉뚱그린다) 네이버 자연키
@@ -391,7 +459,8 @@ class DbSink:
 
     def sync_game(self, *, naver_game_id, game_dt, home_team_id, away_team_id,
                  home_score, away_score, status_id, stadium_id=None,
-                 current_inning=None, inning_half=None, last_inning=None) -> int:
+                 current_inning=None, inning_half=None, last_inning=None,
+                 with_win_rate=False, in_progress=False, win_rate=None) -> int:
         """games_sync 잡 전용 upsert. GAME_SYNC_UPSERT 를 써서 점수·구장은
         COALESCE로 기존 값을 지킨다(구장의 최종 진실은 records 잡).
 
@@ -399,16 +468,40 @@ class DbSink:
         아닌 경기는 None 을 받아 NULL 로 지워져야 한다. `last_inning` 은 다시
         반대로 COALESCE 다 — 경기가 끝난 뒤에도 남아야 하는 값이라 None 이 와도
         기존 값을 덮지 않는다 (GAME_SYNC_UPSERT 주석 참고).
+
+        `with_win_rate` 가 False 면 승률 인자는 무시되고 GAME_SYNC_UPSERT 를 그대로 쓴다.
+        True 면 `win_rate`((홈, 원정) 또는 None) 를 `in_progress` 에 따라 쓰거나 지운다
+        (GAME_SYNC_UPSERT_WITH_WIN_RATE 주석 참고).
         """
+        params = (
+            naver_game_id, game_dt, home_team_id, away_team_id,
+            stadium_id, home_score, away_score, status_id,
+            current_inning, inning_half, last_inning,
+        )
         with self._conn.cursor() as cur:
-            cur.execute(GAME_SYNC_UPSERT, (
-                naver_game_id, game_dt, home_team_id, away_team_id,
-                stadium_id, home_score, away_score, status_id,
-                current_inning, inning_half, last_inning,
-            ))
+            if with_win_rate:
+                home_rate, away_rate = win_rate if (in_progress and win_rate) else (None, None)
+                live = 1 if in_progress else 0
+                cur.execute(GAME_SYNC_UPSERT_WITH_WIN_RATE,
+                            params + (home_rate, away_rate, live, live))
+            else:
+                cur.execute(GAME_SYNC_UPSERT, params)
             pk = cur.lastrowid
         self._conn.commit()
         return pk
+
+    def get_live_inning_state(self, naver_game_id) -> tuple:
+        """DB에 지금 저장돼 있는 (current_inning, inning_half)를 조회(덮어쓰기 전).
+
+        `sync_game`/GAME_SYNC_UPSERT 는 이 두 컬럼을 VALUES()로 매번 블라인드
+        오버라이트해 이전 값을 돌려주지 않는다 — 이닝/공수 전환을 감지하려면
+        upsert 직전에 호출자가 먼저 이걸로 "지금까지의" 값을 읽어둬야 한다.
+        경기 행이 아직 없으면 (None, None).
+        """
+        with self._conn.cursor() as cur:
+            cur.execute(GET_LIVE_INNING_STATE, (naver_game_id,))
+            row = cur.fetchone()
+        return (row[0], row[1]) if row else (None, None)
 
     def set_cancel_reason(self, *, date, home_team_id, away_team_id, reason) -> int:
         """(날짜, 대진) 의 games 행에 취소 사유를 기록하고 **실제로 바뀐** 행 수를 반환.
@@ -438,6 +531,29 @@ class DbSink:
             return set()
         ph = ",".join(["%s"] * len(pks))
         return {row[0] for row in self.fetch_all(LINEUP_DONE_GAMES.format(ph=ph), pks)}
+
+    def get_game_live_state(self, naver_game_id):
+        """DB에 지금 저장돼 있는 (current_inning, inning_half, home_score, away_score,
+        status_name) 를 조회(덮어쓰기 전). 경기 행이 아직 없으면 None.
+
+        get_live_inning_state 와 같은 동기(블라인드 오버라이트 전에 읽기)지만 반환이
+        다르다 — 행 자체가 없는 것(None)과 값이 비어 있는 것(튜플 안의 None)을
+        구분해야 "처음 보는 경기의 첫 적재"를 변화로 오인하지 않는다.
+        """
+        with self._conn.cursor() as cur:
+            cur.execute(GET_GAME_LIVE_STATE, (naver_game_id,))
+            row = cur.fetchone()
+        return (row[0], row[1], row[2], row[3], row[4]) if row else None
+
+    def get_game_win_rate(self, naver_game_id):
+        """DB에 지금 저장된 (home_win_rate, away_win_rate). 행이 없으면 None.
+
+        COLLECTOR_WIN_RATE_ENABLED 일 때만 불러야 한다 — 컬럼이 없는 DB 에선 실패한다.
+        """
+        with self._conn.cursor() as cur:
+            cur.execute(GET_GAME_WIN_RATE, (naver_game_id,))
+            row = cur.fetchone()
+        return (row[0], row[1]) if row else None
 
     def games_with_stadium(self, naver_game_ids) -> set:
         """구장이 이미 채워진 naver_game_id 집합 (GAMES_WITH_STADIUM 판정)."""
@@ -480,6 +596,27 @@ class DbSink:
             deleted = cur.rowcount
         self._conn.commit()
         return deleted
+
+    def sync_removed_games(self, date, present_ids) -> tuple[int, int]:
+        """그날 네이버 응답의 경기 목록으로 games.removed 를 맞춘다 -> (사라짐, 복귀) 행 수.
+
+        present_ids 가 비어 있으면 그날 경기 전부를 사라진 것으로 본다 — 시리즈 종료로 그날
+        일정이 통째로 빈 경우가 바로 그 상황이다. 응답 자체가 깨진 경우를 거르는 건 호출부 몫이다.
+        """
+        ids = [gid for gid in set(present_ids or ()) if gid]
+        start = f"{date} 00:00:00"
+        end = f"{date_cls.fromisoformat(date) + timedelta(days=1)} 00:00:00"
+        ph = ",".join(["%s"] * len(ids))
+        not_in = f"AND naver_game_id NOT IN ({ph})" if ids else ""
+        with self._conn.cursor() as cur:
+            cur.execute(GAMES_MARK_REMOVED.format(not_in=not_in), [start, end, *ids])
+            removed = cur.rowcount
+            restored = 0
+            if ids:
+                cur.execute(GAMES_RESTORE_REMOVED.format(ph=ph), ids)
+                restored = cur.rowcount
+        self._conn.commit()
+        return removed, restored
 
     def upsert_lineups(self, game_pk, lineups, player_map, team_ids) -> None:
         """LineupRow 목록 upsert. position(네이버 원문 표기) -> 정식 명칭으로

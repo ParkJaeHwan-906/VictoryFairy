@@ -14,7 +14,7 @@
   max-width: var(--layout-app-width);
   min-height: 100dvh;
   margin-inline: auto;
-  padding-bottom: calc(48px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(48px + var(--safe-area-bottom));
   /* 카드가 흰색이라 바탕은 회색이다(문의하기·마이페이지와 반대) */
   background-color: var(--color-background-gray);
 }

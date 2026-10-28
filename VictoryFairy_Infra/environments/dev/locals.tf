@@ -12,14 +12,16 @@ locals {
   api_origin_host = "origin.${var.domain_name}"
 
   # FE 정적 자산 경로는 ALB 가 아니라 CloudFront→S3 로 간다. 여기 없는 경로는 전부 S3 다.
-  #   /api → user-app(인증·계정), /rt → quiz-app(채팅 SSE, realtime)
+  #   /api → user-app(인증·계정), /rt → quiz-app(채팅 SSE, realtime), /chat → chat-app(경기 채팅 SSE)
+  # 셋 다 같은 behavior(캐시 끔·compress=false·AllViewer)를 받는다 — SSE 는 압축·캐시가 붙으면 스트림이 깨진다.
+  # /chat/* 는 리스트 '끝'에 붙인다. 앞에 끼우면 /api/*·/rt/* 의 precedence 번호까지 밀려 diff 가 커진다.
   # ⚠ BE 의 server.servlet.context-path 와 문자 그대로 일치해야 한다 — ALB 도 CloudFront 도
   #   경로를 rewrite 하지 않는다.
-  api_path_patterns = ["/api/*", "/rt/*"]
+  api_path_patterns = ["/api/*", "/rt/*", "/chat/*"]
 
-  # 사용자 업로드 자산(프로필 이미지)의 단일 출처. 세 곳이 같은 값을 써야 한다:
+  # 사용자 업로드 자산(프로필·커뮤니티 이미지)의 단일 출처. 세 곳이 같은 값을 써야 한다:
   #   1) modules/asset    — 버킷 이름 + temp/ 만료 규칙 + 버킷 정책이 허용하는 접두사
-  #   2) modules/cdn      — 경로 패턴 /user-profile-img/*, /temp/* (그 외는 종전대로 FE·ALB)
+  #   2) modules/cdn      — 경로 패턴 /user-profile-img/*, /community-img/*, /temp/* (그 외는 종전대로 FE·ALB)
   #   3) modules/user-irsa — user-app 파드가 읽고 쓸 수 있는 접두사
   # ⚠ BE 가 만드는 S3 키와 문자 그대로 일치해야 한다. 어긋나면 업로드는 AccessDenied,
   #   조회는 CloudFront 가 FE 버킷으로 보내 404 가 된다.
@@ -29,6 +31,11 @@ locals {
   asset_bucket_name    = "victoryfairy-asset"
   asset_profile_prefix = "user-profile-img/"
   asset_temp_prefix    = "temp/"
+
+  # 커뮤니티 게시글·댓글 이미지의 확정 접두사. 프로필과 같은 성격(앱이 temp/ 에서 CopyObject 로
+  # 옮기고, UUID 키라 불변, 만료 없음, 지우는 주체는 앱)이라 위 세 곳에 똑같이 배선한다.
+  # ⚠ community/ 가 아니다 — FE 라우트 /community/* 와 겹치면 CloudFront 가 그 경로를 S3 로 보낸다.
+  asset_community_prefix = "community-img/"
 
   # 캐릭터 꾸미기 에셋. 위 둘과 같은 버킷이지만 성격이 다르다 — 저자가 파드가 아니라 사람이고
   # (scripts/upload-character-assets.sh), 앱은 이 접두사를 읽지도 쓰지도 않는다. BE 는 DB 에 담긴

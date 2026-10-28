@@ -1,0 +1,4 @@
+spring:
+  kafka:
+    # 로컬은 compose 의 Kafka 호스트 리스너(EXTERNAL://localhost:29092). prod 는 기본값 없이 환경변수가 필수다.
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}

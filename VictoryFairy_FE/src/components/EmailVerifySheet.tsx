@@ -24,7 +24,7 @@ type EmailVerifySheetProps = {
  * 여기서 바로 안내하는 편이 자연스럽다.
  *
  * 구조(딤 · 핸들 · rise 애니메이션 · Esc 닫기 · 배경 스크롤 잠금)는 PlayerSearchSheet 와
- * 같게 맞췄다. 높이만 다르다 — 내용이 짧고 고정이라 GameDetailSheet 처럼 내용에 맡긴다.
+ * 같게 맞췄다. 높이만 다르다 — 내용이 짧고 고정이라 높이를 내용에 맡긴다.
  */
 export default function EmailVerifySheet({ email, onVerified, onClose }: EmailVerifySheetProps) {
   const [code, setCode] = useState('');

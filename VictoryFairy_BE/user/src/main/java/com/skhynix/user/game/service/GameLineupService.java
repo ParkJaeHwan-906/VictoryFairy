@@ -29,7 +29,7 @@ public class GameLineupService {
 
     // gameId 는 내부 PK 가 아니라 Game.naverGameId 다 — 내부 PK 를 넘기면 매칭이 안 돼 404 가 난다.
     public List<GameLineupResponse> getLineup(String gameId) {
-        Game game = gameRepository.findByNaverGameId(gameId)
+        Game game = gameRepository.findActiveByNaverGameId(gameId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.GAME_NOT_FOUND));
 
         Map<Long, List<GameLineup>> pitchersByTeam =

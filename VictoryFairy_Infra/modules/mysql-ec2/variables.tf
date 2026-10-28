@@ -97,9 +97,15 @@ variable "mysql_container_memory" {
 }
 
 variable "redis_container_memory" {
-  description = "redis 컨테이너 cgroup 메모리 상한(docker --memory 표기). redis_maxmemory 보다 넉넉해야 한다(오버헤드 포함)."
+  description = <<-EOT
+    redis 컨테이너 cgroup 메모리 상한(docker --memory 표기).
+    AOF 를 켜므로 redis_maxmemory × 2(재작성 fork 의 COW 여유 1배) + 오버헤드 128m 이상이어야 한다.
+    512mb 기준 1152m. t3.medium(4GB)에서 mysql 2g + redis 1152m ≈ 3.1GB 로 상한 합계를 RAM 안에 둔다
+    (상한일 뿐 상시 사용량이 아니다. 2026-08-17 mysqld 라이브락 이력 때문에 합계가 RAM 을 넘지 않게 잡았다).
+    scripts/redis-enable-aof.sh 의 VF_REDIS_CONTAINER_MEMORY 기본값과 같은 값이다.
+  EOT
   type        = string
-  default     = "512m"
+  default     = "1152m"
 }
 
 variable "mysql_ingress_sg_ids" {
@@ -184,9 +190,9 @@ variable "redis_ingress_sg_ids" {
 }
 
 variable "redis_maxmemory" {
-  description = "서비스 Redis maxmemory 상한(2GB 박스에서 MySQL과 분할, ARCHITECTURE §3)."
+  description = "서비스 Redis maxmemory 상한(MySQL과 분할, ARCHITECTURE §3). 2026-10 chat 히스토리(Stream ~100MB) 때문에 256mb → 512mb(사용자 결정), 정책 allkeys-lru 유지."
   type        = string
-  default     = "256mb"
+  default     = "512mb"
 }
 
 variable "root_volume_size_gb" {

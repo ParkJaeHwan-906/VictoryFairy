@@ -4,10 +4,10 @@
  */
 
 // 모듈별 base URL — 엔드포인트 함수는 이 base 기준 상대 경로를 쓴다.
-export { USER_BASE_URL, GAME_BASE_URL, ASSET_BASE_URL, toAssetUrl } from './config';
+export { USER_BASE_URL, GAME_BASE_URL, CHAT_BASE_URL, ASSET_BASE_URL, toAssetUrl } from './config';
 
 // 모듈별 axios 인스턴스(고급 사용/직접 요청용). 일반적으로는 아래 엔드포인트 함수를 쓴다.
-export { userClient, gameClient } from './httpClient';
+export { userClient, gameClient, chatClient } from './httpClient';
 
 // 인증(user 모듈) 엔드포인트 함수
 export {
@@ -57,13 +57,21 @@ export {
 // 구단(user 모듈) 엔드포인트 함수 — 인증 없이 호출한다
 export { getTeamList } from './team';
 
-// 경기(user 모듈) 엔드포인트 함수 — `getSupportGameList` 만 인증이 필요하고 나머지는 공개다
+// 경기(user 모듈) 엔드포인트 함수 — `getSupportGameList`·`subscribeSupportGameList` 만 인증이 필요하고 나머지는 공개다
 export {
   getGameList,
   getSupportGameList,
   getLineUp,
+  subscribeGameList,
+  subscribeSupportGameList,
+  applyGameUpdate,
   isGameNotFound,
   GAME_ERROR_MESSAGE,
+} from './game';
+export type {
+  GameSubscription,
+  GameSubscriptionHandlers,
+  SupportGameSubscriptionHandlers,
 } from './game';
 
 // 선수(user 모듈) 엔드포인트 함수 — 인증 없이 호출한다
@@ -105,6 +113,34 @@ export {
 } from './chat';
 export type { ChatSubscription, ChatSubscriptionHandlers } from './chat';
 
+// 경기별 채팅(chat 모듈, `/chat` base) 엔드포인트 함수 — 여덟 개 전부 인증이 필수다
+export {
+  getGameChatRooms,
+  getGameChatRoom,
+  subscribeGameChatRoom,
+  leaveGameChatRoom,
+  sendGameChatMessage,
+  getGameChatMessages,
+  reportGameChatMessage,
+  likeGameChatRoom,
+  createClientMsgId,
+  validateGameChatMessageContent,
+  isGameChatRoomNotFound,
+  isGameChatMessageNotFound,
+  isGameChatSelfReport,
+  isGameChatMessageInFlight,
+  isGameChatRateLimited,
+  isGameChatBrokerUnavailable,
+  GAME_CHAT_ERROR_MESSAGE,
+  GAME_CHAT_MESSAGE_PAGE_SIZE,
+  GAME_CHAT_MESSAGE_MAX_LENGTH,
+} from './gameChat';
+export type {
+  GameChatSubscription,
+  GameChatSubscriptionHandlers,
+  GameChatSubscribeOptions,
+} from './gameChat';
+
 // 데일리 퀴즈(quiz 모듈 — 채팅과 같은 `/rt` base) 엔드포인트 함수 — 여섯 개 전부 인증이 필수다
 export {
   getTodayQuizzes,
@@ -128,8 +164,81 @@ export {
   OX_OPTION_NO,
 } from './quiz';
 
+// 퀴즈방(quiz 모듈, `/rt` base, `/quiz-rooms`) 엔드포인트 함수 — 아홉 개 전부 인증이 필수다
+export {
+  createQuizRoom,
+  getQuizRooms,
+  getPopularQuizRooms,
+  getQuizRoom,
+  getQuizRoomQuizzes,
+  submitQuizRoomAnswer,
+  setQuizRoomLike,
+  subscribeQuizRoom,
+  leaveQuizRoom,
+  resolveQuizRoomErrorCode,
+  isQuizRoomNotFound,
+  isQuizRoomQuizNotFound,
+  isQuizRoomOptionNotFound,
+  isQuizRoomAlreadySubmitted,
+  QUIZ_ROOM_ERROR_MESSAGE,
+  QUIZ_ROOM_PAGE_SIZE,
+  QUIZ_ROOM_PAGE_SIZE_MAX,
+  QUIZ_ROOM_TITLE_MAX_LENGTH,
+  QUIZ_ROOM_DESCRIPTION_MAX_LENGTH,
+  QUIZ_ROOM_QUIZ_MAX,
+  QUIZ_ROOM_QUESTION_MAX_LENGTH,
+  QUIZ_ROOM_OPTION_MIN,
+  QUIZ_ROOM_OPTION_MAX,
+  QUIZ_ROOM_OPTION_MAX_LENGTH,
+} from './quizRoom';
+export type { QuizRoomSubscription, QuizRoomSubscriptionHandlers } from './quizRoom';
+
 // 순위(user 모듈) 엔드포인트 함수 — 세 개 전부 인증이 필수이고 파라미터가 0개다
 export { getBqTopRanking, getBqRanking, getMyBqRanking } from './ranking';
+
+// 차단(user 모듈) 엔드포인트 함수 — 두 개 전부 인증이 필수다
+export {
+  blockUser,
+  getMyBlockedUsers,
+  isSelfBlockNotAllowed,
+  isBlockTargetNotFound,
+  BLOCK_ERROR_MESSAGE,
+} from './block';
+
+// 커뮤니티(user 모듈) 엔드포인트 함수 — 열일곱 개 전부 인증이 필수다
+export {
+  getCommunityCategories,
+  uploadCommunityImage,
+  createCommunityPost,
+  getCommunityPosts,
+  getPopularCommunityPosts,
+  getMyCommunityPosts,
+  getCommunityPost,
+  updateCommunityPost,
+  deleteCommunityPost,
+  setCommunityPostReaction,
+  reportCommunityPost,
+  createCommunityComment,
+  getCommunityComments,
+  updateCommunityComment,
+  deleteCommunityComment,
+  setCommunityCommentReaction,
+  reportCommunityComment,
+  isCommunityBlinded,
+  isCommunityNotFound,
+  isCommunityForbidden,
+  isCommunityImageTooLarge,
+  COMMUNITY_IMAGE_MAX_BYTES,
+  COMMUNITY_IMAGE_MIME_TYPES,
+  COMMUNITY_IMAGE_ACCEPT,
+  COMMUNITY_POST_IMAGE_MAX,
+  COMMUNITY_COMMENT_IMAGE_MAX,
+  COMMUNITY_POST_TITLE_MAX_LENGTH,
+  COMMUNITY_POST_CONTENT_MAX_LENGTH,
+  COMMUNITY_COMMENT_CONTENT_MAX_LENGTH,
+  COMMUNITY_PAGE_SIZE,
+  COMMUNITY_PAGE_SIZE_MAX,
+} from './community';
 
 // 캐릭터 꾸미기(user 모듈) 엔드포인트 함수 — 세 개 전부 인증이 필수다
 export {
@@ -191,6 +300,8 @@ export type {
   Game,
   GameState,
   InningHalf,
+  GameUpdateField,
+  GameUpdateEvent,
   PositionName,
   TeamLineUp,
   LineUpPitcher,
@@ -210,6 +321,15 @@ export type {
   ChatMessagePage,
   SendChatMessageRequest,
 } from '../types/chat';
+export type {
+  GameChatRoom,
+  GameChatMessage,
+  GameChatMessagePage,
+  GameChatDeletedEvent,
+  GameChatPresenceEvent,
+  SendGameChatMessageRequest,
+  SendGameChatMessageResult,
+} from '../types/gameChat';
 export { CHARACTER_ITEM_TYPE } from '../types/character';
 export type {
   CharacterItemType,
@@ -220,6 +340,33 @@ export type {
   CharacterItemActiveResult,
 } from '../types/character';
 export type { BqRankingEntry } from '../types/ranking';
+export type { BlockUserRequest, BlockedUser } from '../types/block';
+export type {
+  CommunityAuthor,
+  CommunityPage,
+  CommunityPageParams,
+  CommunityReaction,
+  CommunityReactionInput,
+  CommunityReactionRequest,
+  CommunityReactionResult,
+  CommunityCategory,
+  CommunityImageUploadResponse,
+  CommunityPostSort,
+  CommunityPostListParams,
+  CommunityPopularPostParams,
+  CommunityPostRequest,
+  CommunityPostCreateResult,
+  CommunityPostSummary,
+  MyCommunityPostSummary,
+  CommunityPostDetail,
+  CommunityCommentCreateRequest,
+  CommunityCommentUpdateRequest,
+  CommunityCommentCreateResult,
+  CommunityCommentStatus,
+  CommunityReply,
+  CommunityComment,
+  CommunityCommentUpdateResult,
+} from '../types/community';
 export type {
   QuizType,
   QuizDifficulty,
@@ -239,3 +386,26 @@ export type {
   QuizLikeResult,
   QuizVoteCount,
 } from '../types/quiz';
+export type {
+  QuizRoomAuthor,
+  QuizRoomSummary,
+  QuizRoomDetail,
+  QuizRoomPage,
+  QuizRoomPageParams,
+  QuizRoomCreateQuizItem,
+  QuizRoomChoiceQuizItem,
+  QuizRoomOxQuizItem,
+  QuizRoomCreateRequest,
+  QuizRoomCreateResult,
+  QuizRoomQuiz,
+  QuizRoomAnswerRequest,
+  QuizRoomAnswerResult,
+  QuizRoomResult,
+  QuizRoomResultQuiz,
+  QuizRoomLikeRequest,
+  QuizRoomLikeResult,
+  QuizRoomPresenceEvent,
+  QuizRoomVoteOption,
+  QuizRoomVotesEvent,
+  QuizRoomErrorCode,
+} from '../types/quizRoom';

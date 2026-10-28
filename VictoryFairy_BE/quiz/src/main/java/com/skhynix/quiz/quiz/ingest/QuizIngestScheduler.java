@@ -1,6 +1,7 @@
 package com.skhynix.quiz.quiz.ingest;
 
 import com.skhynix.quiz.quiz.service.QuizPublishService;
+import com.skhynix.quiz.quiz.settlement.QuizSettlementService;
 import java.time.Clock;
 import java.time.LocalDate;
 import org.slf4j.Logger;
@@ -21,6 +22,7 @@ public class QuizIngestScheduler {
     private final QuizCandidateReader reader;
     private final QuizIngestService ingestService;
     private final QuizPublishService publishService;
+    private final QuizSettlementService settlementService;
     // KST 고정 클록(QuizConfig) — 파드 기본 존은 k8s Deployment env 의 TZ 에 달려 있어, LocalDate.now()
     // 기본값에 기대면 그 설정 하나로 자정~09시 하루 어긋남이 재발할 수 있다
     private final Clock clock;
@@ -40,6 +42,13 @@ public class QuizIngestScheduler {
             // 편성 실패가 적재 성공을 삼키면 안 된다 — 적재분은 이미 커밋됐고, 편성은 다음
             // 실행(스케줄·기동 적재)이 다시 시도한다
             log.error("오늘의 퀴즈 편성 실패 — 적재 결과는 유지, 다음 실행이 재시도: {}", today, e);
+        }
+        try {
+            // 이닝 종료 이벤트(SQS)가 유실됐을 때의 폴백 — 종료된 경기의 미정산 PREDICTION을
+            // 오답으로 확정한다. 같은 이유로 실패를 삼킨다: 다음 실행이 다시 쓸어간다.
+            settlementService.sweepUnresolved();
+        } catch (RuntimeException e) {
+            log.error("미정산 PREDICTION 오답 확정 실패 — 다음 실행이 재시도: {}", today, e);
         }
     }
 

@@ -9,6 +9,8 @@ import java.util.HashMap;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.MessageSourceResolvable;
+import org.springframework.core.MethodParameter;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -20,9 +22,12 @@ import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.validation.method.ParameterValidationResult;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
@@ -88,10 +93,46 @@ public class GlobalExceptionHandler {
      * (컨트롤러 밖에서 터져 별도 진입점이 필요한 401과 다르다 — {@code RestAuthenticationEntryPoint}).
      */
     @ExceptionHandler(MaxUploadSizeExceededException.class)
-    public ResponseEntity<ApiResponse<Void>> handleMaxUploadSizeExceeded(MaxUploadSizeExceededException e) {
-        ErrorCode errorCode = ErrorCode.PROFILE_IMAGE_TOO_LARGE;
+    public ResponseEntity<ApiResponse<Void>> handleMaxUploadSizeExceeded(MaxUploadSizeExceededException e,
+            HttpServletRequest request) {
+        // 핸들러가 정해지기 전에 터지는 예외라 어느 업로드 경로인지는 요청 경로로만 가를 수 있다.
+        // 두 코드의 문구는 지금 같지만 코드가 갈라져 있어야 한쪽 문구가 바뀌어도 다른 쪽이 안 끌려간다.
+        String path = request.getRequestURI();
+        ErrorCode errorCode = path != null && path.contains("/community/")
+                ? ErrorCode.COMMUNITY_IMAGE_TOO_LARGE
+                : ErrorCode.PROFILE_IMAGE_TOO_LARGE;
         return ResponseEntity.status(errorCode.getStatus())
                 .body(ApiResponse.fail(errorCode.getMessage()));
+    }
+
+    /**
+     * {@code @RequestParam}·경로 변수에 직접 건 제약({@code @Min}·{@code @Max} 등)의 위반을
+     * {@link #handleValidation} 과 같은 모양({@code data} = 파라미터명→메시지)의 400 으로 내보낸다.
+     *
+     * <p>스프링 6.1+ 의 내장 메서드 검증은 이 예외를 던지는데, 이 타입은 {@code ErrorResponse} 라
+     * 아래 {@link #handleUnexpected} 가 다시 던져 <b>스프링 기본 에러 본문</b>으로 나간다(래퍼 없음).
+     * 그 비대칭을 여기서 닫는다. ⚠ 컨트롤러에 {@code @Validated} 를 붙이면 내장 검증 대신 AOP 검증이
+     * 돌아 {@code ConstraintViolationException}(=500) 이 된다 — 붙이지 말 것(GameLineupController 주석).
+     */
+    @ExceptionHandler(HandlerMethodValidationException.class)
+    public ResponseEntity<ApiResponse<Map<String, String>>> handleMethodValidation(
+            HandlerMethodValidationException e) {
+        Map<String, String> errors = new HashMap<>();
+        for (ParameterValidationResult result : e.getParameterValidationResults()) {
+            MethodParameter parameter = result.getMethodParameter();
+            RequestParam requestParam = parameter.getParameterAnnotation(RequestParam.class);
+            String name = requestParam != null && !requestParam.name().isEmpty()
+                    ? requestParam.name()
+                    : parameter.getParameterName();
+            if (name == null) {
+                name = "arg" + parameter.getParameterIndex();
+            }
+            for (MessageSourceResolvable error : result.getResolvableErrors()) {
+                errors.putIfAbsent(name, error.getDefaultMessage());
+            }
+        }
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.fail("입력값이 올바르지 않습니다.", errors));
     }
     /**
      * 지원하지 않는 {@code Content-Type}을 {@code ApiResponse} 래퍼가 붙은 415로 내보낸다.

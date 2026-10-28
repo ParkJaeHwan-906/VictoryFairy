@@ -36,6 +36,25 @@ class Settings(BaseSettings):
         default="{base}/schedule/games/{gameId}/preview",
         validation_alias="COLLECTOR_PREVIEW_URL_TEMPLATE",
     )
+    # games_sync 라이브 폴링에서 이닝/공수 전환을 감지해 막 끝난 이닝의 relay를
+    # 당겨와 안타 이벤트를 S3에 기록할지. 꺼져 있으면(기본) games_sync는 기존
+    # 동작과 100% 동일하다 — BE/Infra의 "이닝 단위 예측 퀴즈 정산" 소비 경로가
+    # 준비되기 전에는 off로 둔다.
+    inning_events_enabled: bool = Field(
+        default=False, validation_alias="COLLECTOR_INNING_EVENTS_ENABLED")
+    # games_sync 라이브 폴링에서 경기의 이닝·점수·상태 중 하나라도 직전 폴링과 다르면
+    # 그 경기의 현재 스냅샷을 S3 game-state-events/ 에 기록할지. 위 inning_events 와
+    # 별개의 스위치·별개의 prefix 다 — 저쪽은 "막 끝난 이닝의 안타"(퀴즈 정산용),
+    # 이쪽은 "지금 상태"(BE user-app 의 경기 SSE 푸시용)라 소비자가 다르다.
+    # 꺼져 있으면(기본) games_sync 는 기존 동작과 100% 동일하다.
+    game_state_events_enabled: bool = Field(
+        default=False, validation_alias="COLLECTOR_GAME_STATE_EVENTS_ENABLED")
+    # games_sync 가 진행 중 경기의 현재 이닝 relay 를 한 번 더 받아 승률을
+    # games.home_win_rate/away_win_rate 에 쓸지. 두 컬럼은 수동 ALTER 로 생기는데,
+    # 컬럼이 없는 DB 에 켜면 games upsert 전체가 실패해 점수·상태 동기화까지 멈춘다 —
+    # 대상 DB 에 컬럼이 생긴 걸 확인한 뒤에만 켤 것. 꺼져 있으면(기본) SQL·호출 모두 기존과 동일.
+    win_rate_enabled: bool = Field(
+        default=False, validation_alias="COLLECTOR_WIN_RATE_ENABLED")
 
     # --- community ---
     targets_file: str = Field(default="config/targets.yaml", validation_alias="COLLECTOR_TARGETS_FILE")

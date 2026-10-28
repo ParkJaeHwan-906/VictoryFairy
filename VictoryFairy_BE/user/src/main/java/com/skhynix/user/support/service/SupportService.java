@@ -12,6 +12,7 @@ import com.skhynix.domain.team.entity.Team;
 import com.skhynix.domain.team.repository.TeamRepository;
 import com.skhynix.domain.user.repository.UserAccountRepository;
 import com.skhynix.user.player.dto.PlayerResponse;
+import com.skhynix.user.support.event.SupportTeamChangedEvent;
 import com.skhynix.user.team.dto.TeamResponse;
 import java.time.LocalDateTime;
 import java.util.HashSet;
@@ -19,6 +20,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,6 +39,7 @@ public class SupportService {
     private final TeamRepository teamRepository;
     private final PlayerRepository playerRepository;
     private final UserAccountRepository userAccountRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     public TeamResponse selectTeam(Long userAccountId, Long teamId) {
         // 구단 변경은 응원 선수를 전원 취소한다. 락이 없으면 그 사이 들어온 addPlayers 가 옛 구단 선수를
@@ -68,6 +71,12 @@ public class SupportService {
                         .build()));
         // 신규 행은 이미 oppose=null 이라 무해하고, 과거에 취소했던 행이면 여기서 재활성된다.
         target.support();
+
+        // 첫 선택은 알리지 않는다 — chat 은 빈 조회 결과를 캐시하지 않아 지울 항목이 없다. chat 이 빈 결과도
+        // 캐시하게 바뀌면 여기서도 알려야 한다. 발행 자체는 커밋 후 리스너가 한다(락·커밋 전 발행 회피).
+        if (current.isPresent()) {
+            eventPublisher.publishEvent(new SupportTeamChangedEvent(userAccountId));
+        }
 
         return TeamResponse.from(team);
     }

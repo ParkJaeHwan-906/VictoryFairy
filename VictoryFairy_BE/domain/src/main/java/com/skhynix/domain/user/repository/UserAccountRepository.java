@@ -73,6 +73,17 @@ public interface UserAccountRepository extends JpaRepository<UserAccount, Long> 
     boolean existsByNickname(String nickname);
 
     /**
+     * 닉네임으로 활성 계정(exit_at IS NULL)을 찾는다 — 회원 차단 대상 식별의 근거다
+     * ({@code docs/requirements/user/user-block.md} USER-BLK-1/4).
+     *
+     * <p>⚠ 닉네임은 이 저장소에서 DB {@code UNIQUE} 제약이 아니다({@code existsByNickname} 이 이미
+     * 애플리케이션 검사로만 유일성을 지킨다는 사실의 연장) — 동일 닉네임 계정이 이론상 둘 이상 있을 수
+     * 있고, 그 경우 이 메서드는 {@code IncorrectResultSizeDataAccessException} 을 그대로 던진다. 그
+     * 경우의 동작은 요구사항 문서가 규정하지 않는 미정의 동작으로 남겨졌다("알려진 한계" 참고).
+     */
+    Optional<UserAccount> findByNicknameAndExitAtIsNull(String nickname);
+
+    /**
      * 계정 행을 비관적 쓰기 락으로 잡아 <b>같은 계정의 응원 상태 변경을 직렬화</b>한다.
      *
      * <p>응원 선수 상한 판정은 "활성 응원 선수를 읽고 → 개수를 판정하고 → 저장"이라 그 사이가 열려 있으면

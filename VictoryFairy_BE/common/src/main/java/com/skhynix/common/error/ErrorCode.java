@@ -9,6 +9,9 @@ public enum ErrorCode {
     DUPLICATE_EMAIL(409, "이미 사용 중인 이메일입니다."),
     DUPLICATE_TEL(409, "이미 사용 중인 전화번호입니다."),
     DUPLICATE_NICKNAME(409, "이미 사용 중인 닉네임입니다."),
+    // 경기별 채팅 dedup 선점(PENDING) 중 같은 clientMsgId 재요청 — 첫 요청이 아직 Kafka ack 를 기다린다.
+    // 에러가 아니라 "잠시 뒤 같은 clientMsgId 로 재시도"하라는 신호다.
+    CHAT_MESSAGE_IN_FLIGHT(409, "같은 메시지를 처리하고 있습니다. 잠시 후 다시 시도해 주세요."),
 
     // 401 Unauthorized
     UNAUTHENTICATED(401, "인증이 필요합니다."),
@@ -53,6 +56,11 @@ public enum ErrorCode {
     // 자기 닉네임을 DUPLICATE_NICKNAME(409)으로 흡수하지 않는다 — "이미 사용 중"이라는 문구가
     // 자기 자신에 대해서는 거짓이다.
     SAME_AS_CURRENT_NICKNAME(400, "현재 닉네임과 다른 닉네임을 사용해 주세요."),
+
+    // 400 Bad Request - 회원 차단
+    // 자기 자신 차단 요청을 BLOCK_TARGET_NOT_FOUND(404)로 흡수하지 않는다 — 대상 닉네임이 실재해
+    // "존재하지 않음"이 거짓이다(USER-BLK-5).
+    SELF_BLOCK_NOT_ALLOWED(400, "자기 자신은 차단할 수 없습니다."),
 
     // 400 Bad Request - 응원 선택
     SUPPORT_TEAM_REQUIRED(400, "응원하는 구단을 먼저 선택해 주세요."),
@@ -122,11 +130,15 @@ public enum ErrorCode {
     GAME_NOT_FOUND(404, "존재하지 않는 경기입니다."),
     // 미편성(quiz_date NULL) 풀 문제도 404 — 편성 전 문제의 존재는 외부에 노출하지 않는다
     QUIZ_NOT_FOUND(404, "존재하지 않는 퀴즈입니다."),
+    QUIZ_ROOM_NOT_FOUND(404, "존재하지 않는 퀴즈방입니다."),
     CHARACTER_ITEM_NOT_FOUND(404, "존재하지 않는 아이템입니다."),
     // ⚠ 위 코드와 합치지 말 것 — 목록 API 가 카탈로그 전체를 having 과 함께 돌려주므로 "없는 아이템"과
     //   "안 산 아이템"은 이미 구분 가능한 상태이고, 뭉치면 FE 가 "구매하기"를 띄울지 "다시 시도"를
     //   띄울지 판단할 근거를 잃는다.
     CHARACTER_ITEM_NOT_OWNED(404, "보유하지 않은 아이템입니다."),
+    // 차단 대상 닉네임에 해당하는 활성 계정이 없는 경우(USER-BLK-4) — "존재하지 않는 사용자"로만
+    // 알린다(탈퇴 계정 점유 여부 등 세부 사유는 노출하지 않는다).
+    BLOCK_TARGET_NOT_FOUND(404, "존재하지 않는 사용자입니다."),
 
     // 400 Bad Request - 아이템 구매
     INSUFFICIENT_POINT(400, "보유 포인트가 부족합니다."),
@@ -152,6 +164,47 @@ public enum ErrorCode {
     // "크기"이고, 이 응답은 컨트롤러에 닿기도 전에 멀티파트 해석 단계에서 나간다(web-support의
     // GlobalExceptionHandler.handleMaxUploadSizeExceeded).
     PROFILE_IMAGE_TOO_LARGE(413, "이미지 크기는 5MB를 넘을 수 없습니다."),
+    // 커뮤니티 이미지의 413. 문구는 위와 같지만 코드를 가른다 — 멀티파트 해석 단계의 413 은
+    // GlobalExceptionHandler 가 요청 경로(/community/)로 둘을 분기한다.
+    COMMUNITY_IMAGE_TOO_LARGE(413, "이미지 크기는 5MB를 넘을 수 없습니다."),
+
+    // 404 Not Found - 커뮤니티
+    // 삭제된 글·댓글도 같은 404 다 — "삭제됐음"을 구분해 주지 않는다(채팅의 삭제 메시지 404 와 같은 처리).
+    // 조회 필터(?categoryId=)의 없는 값은 빈 페이지이고, 대상 자원 지정(본문 categoryId)만 여기다.
+    COMMUNITY_CATEGORY_NOT_FOUND(404, "존재하지 않는 카테고리입니다."),
+    COMMUNITY_POST_NOT_FOUND(404, "존재하지 않는 게시글입니다."),
+    // 다른 글의 댓글을 parentCommentId 로 지목한 경우도 여기다 — 글 스코프 밖은 "그 글에 없는 댓글"이다.
+    COMMUNITY_COMMENT_NOT_FOUND(404, "존재하지 않는 댓글입니다."),
+
+    // 410 Gone - 커뮤니티 블라인드
+    // 이 저장소 최초의 410. 404 는 "없는 글"과 섞여 프론트가 "신고로 숨김" 안내를 못 하고, 403 은 프론트
+    // 인터셉터가 권한 문제로 오해한다. 작성자·신고자·제3자 전원에게 같은 코드가 나간다 — 작성자만
+    // 200 을 주면 수정이 블라인드 우회 수단이 된다.
+    COMMUNITY_POST_BLINDED(410, "신고로 숨김 처리된 게시글입니다."),
+    COMMUNITY_COMMENT_BLINDED(410, "신고로 숨김 처리된 댓글입니다."),
+
+    // 403 Forbidden - 커뮤니티
+    COMMUNITY_NOT_AUTHOR(403, "작성자만 수정·삭제할 수 있습니다."),
+    // 위 SELF_REPORT_NOT_ALLOWED("자신의 메시지는…")를 재사용하지 않는다 — 문구가 채팅 전용이고, 그 문구를
+    // 바꾸면 채팅 API 문서·테스트가 함께 바뀐다. 글·댓글·답글 공용 문구다.
+    COMMUNITY_SELF_REPORT_NOT_ALLOWED(403, "자신의 글은 신고할 수 없습니다."),
+
+    // 400 Bad Request - 커뮤니티 답글
+    // 깊이 1 고정. 서버는 요청의 parentCommentId 를 그 답글의 부모로 바꿔 주지 않는다 — 클라이언트 선택이다.
+    COMMUNITY_REPLY_DEPTH_EXCEEDED(400, "답글에는 답글을 달 수 없습니다."),
+
+    // 400 Bad Request - 커뮤니티 이미지
+    // PROFILE_* 세 코드와 판정 로직(선두 바이트·5MiB·파트 존재)을 공유하지만 코드는 가른다 — 문구에
+    // "프로필"이 들어 있어 커뮤니티에서 나가면 사용자가 원인을 오해한다.
+    COMMUNITY_IMAGE_REQUIRED(400, "이미지를 첨부해 주세요."),
+    INVALID_COMMUNITY_IMAGE_FORMAT(400, "JPG, PNG, WEBP 이미지만 업로드할 수 있습니다."),
+    // 거절 사유 다섯(temp 모양 아님·그 객체가 없음·남의 글의 확정 EP·중복 원소·null/빈 원소)을 한 문구로
+    // 합친 코드 — 사유를 나누면 "그 EP 가 실재하는가"를 응답으로 탐색할 수 있다(INVALID_PROFILE_IMAGE_ENDPOINT
+    // 와 같은 계열의 은닉).
+    INVALID_COMMUNITY_IMAGE_ENDPOINT(400, "유효하지 않은 이미지입니다."),
+    // ⚠ 문구의 5/3 은 CommunityImagePolicy 의 상한과 같은 값이어야 한다 — :common 은 앱 모듈을 참조할 수 없어
+    //   상수로 조립할 수 없으니 한쪽만 고치지 말 것.
+    COMMUNITY_IMAGE_LIMIT_EXCEEDED(400, "이미지는 게시글 5장, 댓글 3장까지 첨부할 수 있습니다."),
 
     // 429 Too Many Requests - 이메일 인증
     EMAIL_SEND_COOLDOWN(429, "인증번호를 방금 발송했습니다. 잠시 후 다시 시도해 주세요."),
@@ -168,6 +221,12 @@ public enum ErrorCode {
     // 창이 30분 고정이라 "잠시 후"가 문자 그대로 사실이다 — 갱신형(sliding)으로 바꾸면 계속 올리는
     // 사용자가 영영 풀리지 않아 이 문구가 거짓이 된다.
     PROFILE_IMAGE_UPLOAD_LIMIT_EXCEEDED(429, "이미지 등록 횟수를 초과했습니다. 잠시 후 다시 시도해 주세요."),
+
+    // 429 Too Many Requests - 경기별 채팅 전송(사용자 단위 1초 고정 창)
+    CHAT_RATE_LIMIT_EXCEEDED(429, "메시지를 너무 빠르게 보내고 있습니다. 잠시 후 다시 시도해 주세요."),
+
+    // 503 Service Unavailable - 경기별 채팅의 Kafka·Redis 장애 공용(재시도 대상)
+    CHAT_BROKER_UNAVAILABLE(503, "채팅 서버가 일시적으로 응답하지 않습니다. 잠시 후 다시 시도해 주세요."),
 
     // 500 Internal Server Error - 처리되지 않은 예외의 최종 방어선
     // (web-support GlobalExceptionHandler.handleUnexpected). 이 코드를 BusinessException 으로 던지지 말 것 —
