@@ -35,8 +35,8 @@
   flex-direction: column;
   width: 100%;
   max-width: var(--layout-app-width);
-  /* 디자인 높이(760)를 쓰되 작은 화면에서는 화면을 넘지 않게 잘라낸다 */
-  height: min(var(--layout-player-sheet-height), 90dvh);
+  /* 디자인 높이(760)를 상한으로, 작은 화면에서는 비율대로 줄인다(tokens.css) */
+  height: var(--layout-player-sheet-height);
   border-radius: var(--radius-40) var(--radius-40) 0 0;
   background-color: var(--color-surface);
   overflow: clip;
@@ -160,7 +160,7 @@
   min-height: 0;
   margin-top: 8px;
   padding-inline: var(--layout-gutter);
-  padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(12px + var(--safe-area-bottom));
   overflow-y: auto;
   overscroll-behavior: contain;
 }

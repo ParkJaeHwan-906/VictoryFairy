@@ -32,7 +32,7 @@
   flex-direction: column;
   width: 100%;
   max-width: var(--layout-app-width);
-  height: min(720px, 100dvh);
+  height: var(--layout-quiz-result-sheet-height);
   border-radius: var(--radius-40) var(--radius-40) 0 0;
   background-color: var(--color-surface);
   overflow: clip;

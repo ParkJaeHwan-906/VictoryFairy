@@ -17,7 +17,7 @@
   max-width: var(--layout-app-width);
   min-height: 100dvh;
   margin-inline: auto;
-  padding-bottom: calc(var(--layout-navbar-height) + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(var(--layout-navbar-height) + var(--safe-area-bottom));
 }
 
 .app-layout > * {

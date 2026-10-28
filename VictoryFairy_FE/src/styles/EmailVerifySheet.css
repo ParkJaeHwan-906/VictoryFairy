@@ -186,7 +186,7 @@
 .email-sheet__resend {
   align-self: center;
   margin-top: 16px;
-  margin-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  margin-bottom: calc(24px + var(--safe-area-bottom));
   padding: 8px;
   color: var(--color-label-alternative);
   font-size: var(--font-size-label2);
