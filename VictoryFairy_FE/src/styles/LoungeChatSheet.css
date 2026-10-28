@@ -2,7 +2,7 @@
  * LoungeChatSheet(라운지 채팅 바텀시트) 스타일.
  * Figma: SWM / [Lounge] 라운지-챗 (시안) (node 744:21903), 기준 프레임 402 x 874.
  *
- * 시트 높이는 디자인의 694px 를 기준으로 하되, 화면이 더 낮으면 화면에 맞춘다.
+ * 시트 높이는 디자인의 694px 를 상한으로 하되, 화면이 더 낮으면 프레임 비율대로 줄인다(tokens.css).
  * 시트 안은 핸들 · 제목(고정) / 메시지 목록(스크롤) / 입력창(고정) 3단이다.
  */
 
@@ -32,7 +32,7 @@
   flex-direction: column;
   width: 100%;
   max-width: var(--layout-app-width);
-  height: min(var(--layout-chat-sheet-height), 100dvh);
+  height: var(--layout-chat-sheet-height);
   border-radius: var(--radius-40) var(--radius-40) 0 0;
   background-color: var(--color-surface);
   overflow: clip;
