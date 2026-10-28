@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { getBqTopRanking } from '../api';
 import type { BqRankingEntry, Game } from '../api';
+import characterShadow from '../assets/character_shadow.svg';
+import guestMascot from '../assets/stickers/character/01.png';
 import CharacterAvatar from '../components/CharacterAvatar';
 import MatchCard from '../components/MatchCard';
 import RankingPodium from '../components/RankingPodium';
@@ -22,8 +24,13 @@ import '../styles/MainPage.css';
  * ── 로그인하지 않아도 열린다 ──────────────────────────────────────
  * App Store 심사 5.1.1(v) — 계정과 무관한 "오늘의 경기"에 가입을 요구하면 안 된다.
  * 비로그인이면 오늘의 경기를 **전 구단**(공개 `/games`)으로 보여 주고, 계정에 묶인 것
- * (닉네임 · 내 캐릭터 · 꾸미기 · 응원 구단 랭킹)은 비우거나 로그인 안내로 바꾼다.
+ * (닉네임 · 내 캐릭터 · 꾸미기 · 응원 구단 랭킹)은 로그인 안내로 바꾼다.
  * 승요 카드 배너는 그대로 두되 누르면 보호 라우트가 로그인으로 보낸다.
+ *
+ * 비운 자리를 그냥 두면 히어로가 빈 홈플레이트만 남고 랭킹 절이 밑줄 글자 한 줄이 되어
+ * 고장 난 화면처럼 보인다. 그래서 **같은 자리 · 같은 틀을 유지한 채 내용만 갈아 끼운다** —
+ * 닉네임 자리에 "야구팬님", 내 캐릭터 자리에 손 흔드는 승리요정(스티커 그림), 꾸미기 버튼
+ * 자리에 같은 흰 버튼으로 로그인, 시상대 자리에 같은 주황 카드로 로그인 안내.
  *
  * ── 히어로의 캐릭터는 "내 캐릭터"다 ────────────────────────────────
  * 자리표시가 아니라 `GET /users/me` 가 주는 실제 아바타다 —
@@ -128,17 +135,17 @@ export default function MainPage() {
     <main className="main-page">
       <header className="main-page__hero">
         <h1 className="main-page__greeting">
-          {/* 프로필이 아직 없으면 이름 줄만 비운다 — 잠깐 뒤 채워진다. */}
-          {profile && `${profile.nickname}님,`}
+          {/*
+            프로필이 아직 없으면 이름 줄만 비운다 — 잠깐 뒤 채워진다.
+            비로그인은 채워질 이름이 없어 빈 줄로 남으면 인사가 아래로 처진다 — 부를 말을 넣는다.
+          */}
+          {isLoggedIn ? profile && `${profile.nickname}님,` : '야구팬님,'}
           <br />
           만나서 반가워요!
         </h1>
 
-        {/*
-          꾸미기로 가는 문. 디자인상 글자 없이 아이콘만이라 이름은 aria-label 로 준다.
-          내 캐릭터가 없는 비로그인 상태에서는 꾸밀 것이 없어 문을 내린다.
-        */}
-        {isLoggedIn && (
+        {isLoggedIn ? (
+          /* 꾸미기로 가는 문. 디자인상 글자 없이 아이콘만이라 이름은 aria-label 로 준다. */
           <Link
             className="main-page__decorate"
             to={ROUTES.characterCustom}
@@ -146,17 +153,38 @@ export default function MainPage() {
           >
             <span className="main-page__decorate-icon" aria-hidden="true" />
           </Link>
+        ) : (
+          /*
+            비로그인은 꾸밀 캐릭터가 없다 — 같은 자리 · 같은 흰 버튼으로 로그인을 둔다.
+            로그인을 마치면 state 가 없어 홈으로 돌아온다(`readLoginRedirect`).
+          */
+          <Link className="main-page__decorate main-page__decorate--login" to={ROUTES.login}>
+            로그인하고 시작하기
+            <span className="main-page__decorate-arrow" aria-hidden="true" />
+          </Link>
         )}
 
-        {/*
-          프로필이 아직 없으면 `imgUrl` 이 null 이라 자리만 잡힌다 — 잠깐 뒤 채워진다.
-          캐릭터를 받지 못한 계정도, 비로그인도 같은 모습이다(docs/character.md 참고).
-        */}
-        <CharacterAvatar
-          className="main-page__character"
-          imgUrl={profile?.characterImgUrl ?? null}
-          items={profile?.characterItems ?? []}
-        />
+        {isLoggedIn ? (
+          /*
+            프로필이 아직 없으면 `imgUrl` 이 null 이라 자리만 잡힌다 — 잠깐 뒤 채워진다.
+            캐릭터를 받지 못한 계정도 같은 모습이다(docs/character.md 참고).
+          */
+          <CharacterAvatar
+            className="main-page__character"
+            imgUrl={profile?.characterImgUrl ?? null}
+            items={profile?.characterItems ?? []}
+          />
+        ) : (
+          /*
+            비로그인의 홈플레이트를 비워 두지 않는다 — 손 흔드는 승리요정이 맞는다.
+            "내 캐릭터"가 아니라 서비스 마스코트라 서버 아바타가 아닌 스티커 그림을 쓴다.
+            자리 · 크기 · 그림자는 `CharacterAvatar` 와 같게 맞췄다.
+          */
+          <div className="main-page__character main-page__mascot" aria-hidden="true">
+            <img className="main-page__mascot-shadow" src={characterShadow} alt="" />
+            <img className="main-page__mascot-body" src={guestMascot} alt="" />
+          </div>
+        )}
       </header>
 
       {/*
@@ -233,13 +261,29 @@ export default function MainPage() {
         {/*
           랭킹은 응원 구단 기준이라 계정 기능이다 — 비로그인이면 부르지 않고 로그인으로 가는
           길만 남긴다(로그인을 마치면 홈으로 돌아온다).
+
+          시상대와 같은 주황 카드에 **빈 시상대**(왕관 · 흐린 자리 셋)를 깔아 "여기에 순위가
+          뜬다"는 것을 보여 주고, 그 위에 안내와 버튼을 얹는다.
         */}
         {!isLoggedIn && (
-          <p className="main-page__status">
-            <Link className="main-page__status-link" to={ROUTES.login}>
-              로그인하고 랭킹 확인하기
+          <div className="main-page__ranking-guest">
+            <div className="main-page__ranking-guest-podium" aria-hidden="true">
+              {(['side', 'top', 'side'] as const).map((place, index) => (
+                <span
+                  className={`main-page__ranking-guest-seat main-page__ranking-guest-seat--${place}`}
+                  key={index}
+                />
+              ))}
+            </div>
+            <p className="main-page__ranking-guest-text">
+              로그인하면 응원 구단의
+              <br />
+              승리요정 랭킹을 볼 수 있어요
+            </p>
+            <Link className="main-page__ranking-guest-login" to={ROUTES.login}>
+              로그인하기
             </Link>
-          </p>
+          </div>
         )}
 
         {isRankingLoading && <p className="main-page__status">랭킹을 불러오는 중입니다.</p>}
