@@ -12,7 +12,7 @@
   max-width: var(--layout-app-width);
   min-height: 100dvh;
   margin-inline: auto;
-  padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(24px + var(--safe-area-bottom));
   background-color: var(--color-background-basic);
 }
 

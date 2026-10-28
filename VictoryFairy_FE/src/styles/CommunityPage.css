@@ -196,7 +196,7 @@
   position: fixed;
   right: max(var(--layout-gutter), calc(50% - var(--layout-app-width) / 2 + var(--layout-gutter)));
   /* Figma: 버튼 하단(762)이 NavBar 흰 바 위끝(786)보다 24px 위다. */
-  bottom: calc(var(--layout-navbar-height) + env(safe-area-inset-bottom, 0px) + 24px);
+  bottom: calc(var(--layout-navbar-height) + var(--safe-area-bottom) + 24px);
   display: flex;
   align-items: center;
   justify-content: center;

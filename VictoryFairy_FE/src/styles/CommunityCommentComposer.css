@@ -13,7 +13,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 12px var(--layout-gutter) calc(12px + env(safe-area-inset-bottom, 0px));
+  padding: 12px var(--layout-gutter) calc(12px + var(--safe-area-bottom));
   border-top: 1px solid var(--color-line-light);
   background-color: var(--color-background-basic);
 }
