@@ -281,7 +281,7 @@
   flex-shrink: 0;
   align-items: center;
   gap: 8px;
-  margin: 0 var(--layout-gutter) calc(16px + env(safe-area-inset-bottom, 0px));
+  margin: 0 var(--layout-gutter) calc(16px + var(--safe-area-bottom));
 }
 
 /* 하트 — 입력창과 같은 높이(48)의 원. 연한 주황 바탕에 주황 하트. */
