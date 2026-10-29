@@ -132,7 +132,33 @@ grafana:
     enabled: true
     storageClassName: gp3
     size: 2Gi
-  # ClusterIP 로만 둔다(Ingress 없음). 접근은 kubectl port-forward — 공개 ALB 에 붙이지 말 것.
+  # https://grafana.victoryfairy.com — 서비스용 ALB(group victoryfairy)에 호스트 규칙만 하나 더 얹는다.
+  #   인증서는 Terraform(modules/dns alb_extra_hosts)이 발급, DNS 는 ExternalDNS 가 host 로 만든다.
+  #   Prometheus·Alertmanager 는 자체 인증이 없어 공개하지 않는다(port-forward 로만).
+  ingress:
+    enabled: true
+    ingressClassName: alb
+    hosts:
+      - grafana.victoryfairy.com
+    annotations:
+      alb.ingress.kubernetes.io/group.name: victoryfairy
+      alb.ingress.kubernetes.io/group.order: "50"
+      # 아래 셋은 LB 단위 값이라 22-ingress.yaml 과 글자 그대로 같아야 한다(다르면 그룹 전체가 조정 실패).
+      alb.ingress.kubernetes.io/scheme: internet-facing
+      alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+      alb.ingress.kubernetes.io/ssl-redirect: '443'
+      alb.ingress.kubernetes.io/target-type: ip
+      alb.ingress.kubernetes.io/healthcheck-path: /api/health
+      # 접속 IP 제한. inbound-cidrs 는 ALB 보안그룹 전체(=서비스)에 걸리므로 쓰면 안 되고,
+      # 규칙 조건으로 건다 — 목록 밖 IP 는 이 규칙에 안 맞아 기본 응답(404)을 받는다.
+      # 키 끝의 이름은 백엔드 Service 이름(kps-grafana)과 같아야 조건이 적용된다.
+      alb.ingress.kubernetes.io/conditions.kps-grafana: >-
+        [{"field":"source-ip","sourceIpConfig":{"values":["221.143.15.225/32"]}}]
+  grafana.ini:
+    server:
+      root_url: https://grafana.victoryfairy.com
+    security:
+      cookie_secure: true
 
 kube-state-metrics:
   nodeSelector:

@@ -50,11 +50,19 @@ kubectl -n monitoring get pods -o wide          # node-exporter 외에는 전부
 kubectl -n monitoring get pvc                   # Bound 2개(prometheus 10Gi, grafana 2Gi)
 ```
 
-## 접속 (공개하지 않는다)
+## 접속
+
+Grafana: **https://grafana.victoryfairy.com** (아이디 `admin`). 허용 IP 에서만 열린다 — 그 밖에서는 404.
+허용 IP 는 values 의 `alb.ingress.kubernetes.io/conditions.kps-grafana` 에 있다. 바꾸면 helm upgrade.
+
+⚠ 인증서(Terraform `alb_extra_hosts`)가 발급된 뒤에 Ingress 를 올릴 것. 인증서 없이 올리면 LBC 가
+host 에 맞는 인증서를 못 찾아 **같은 ALB 그룹 전체(서비스 API 포함)의 조정이 실패**한다.
+
+Prometheus·Alertmanager 는 인증이 없어 공개하지 않는다.
 
 ```bash
-kubectl -n monitoring port-forward svc/kps-grafana 3000:80
 kubectl -n monitoring get secret grafana-admin -o jsonpath='{.data.admin-password}' | base64 -d
+kubectl -n monitoring port-forward svc/kps-grafana 3000:80          # 허용 IP 밖에서
 kubectl -n monitoring port-forward svc/kps-kube-prometheus-stack-prometheus 9090:9090
 kubectl -n monitoring port-forward svc/kps-kube-prometheus-stack-alertmanager 9093:9093
 ```
