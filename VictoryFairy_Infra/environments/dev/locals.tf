@@ -11,6 +11,9 @@ locals {
   # ⚠ 사용자 대면 이름이 아니다. 브라우저는 apex(victoryfairy.com)만 본다.
   api_origin_host = "origin.${var.domain_name}"
 
+  # Grafana 는 CloudFront 를 거치지 않고 ALB 로 바로 간다. k8s values 의 grafana.ingress.hosts 와 일치해야 한다.
+  grafana_host = "grafana.${var.domain_name}"
+
   # FE 정적 자산 경로는 ALB 가 아니라 CloudFront→S3 로 간다. 여기 없는 경로는 전부 S3 다.
   #   /api → user-app(인증·계정), /rt → quiz-app(채팅 SSE, realtime), /chat → chat-app(경기 채팅 SSE)
   # 셋 다 같은 behavior(캐시 끔·compress=false·AllViewer)를 받는다 — SSE 는 압축·캐시가 붙으면 스트림이 깨진다.
