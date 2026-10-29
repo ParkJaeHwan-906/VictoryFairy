@@ -169,6 +169,9 @@ module "dns" {
   # 옛 인증서 삭제가 거부된다(modules/dns/main.tf §2-1). apex 인증서는 손대지 않는다.
   origin_host = local.api_origin_host
 
+  # Grafana(k8s/61-kube-prometheus-stack.values.yaml 의 grafana.ingress)
+  alb_extra_hosts = [local.grafana_host]
+
   # Mailjet 이메일 발신 도메인 인증 레코드. DKIM·검증만 지금 등록(ExternalDNS/apex와 무충돌).
   # SPF(mailjet_spf_value)는 apex TXT ↔ ExternalDNS 소유권 TXT 충돌로 보류 — 미주입=미생성.
   mailjet_dkim_value         = "k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxm06i102hkoIV0UEihUmZjbLFVK+tYrU2JUKAOD8sSkKEUIXSXCdTe4dUCcSGoJAzf9NwuvNhChDzT8aQCBtpWzQlmAPyljd7Pkb5jsOyExoCz9vP/9pKvCTun8OIl7rGtv7mIiT5tIiSFl4dJdHzVWFPnCcA+IK/agQocbWymeRWKfsnP7Z/pqz3YERNbs10rIT11RsW09eBvqKiU8V008tkBtd43jcTMnuc0NWp2ZItHVQ9Ha8tz4dH+xI8JzPjD+wPnjlRKl4lJlo4im298RyE6GQjf07vzCa45L9pk4C8gZUA8a73SX462HyPrrfEXAdX324Wgi+vNU9CUhRGQIDAQAB"
