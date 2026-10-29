@@ -25,6 +25,11 @@ defaultRules:
     kubeProxy: false
     kubeSchedulerAlerting: false
     kubeSchedulerRecording: false
+  # "노드 1대가 죽으면 그 파드를 받아 줄 여유가 없다"는 경고. 노드그룹을 용도별 1대씩
+  # (app·monitoring, taint 로 서로 못 넘어감) 나눈 구조상 항상 참이라 상시 울린다 — 의도된 설계라 끈다.
+  disabled:
+    KubeCPUOvercommit: true
+    KubeMemoryOvercommit: true
 
 prometheusOperator:
   nodeSelector:
