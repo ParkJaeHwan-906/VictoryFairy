@@ -133,6 +133,49 @@ resource "aws_acm_certificate_validation" "origin" {
   validation_record_fqdns = [for r in aws_route53_record.origin_cert_validation : r.fqdn]
 }
 
+# ---------------------------------------------------------------------------
+# 2-1b) ALB 에 붙는 그 밖의 서브도메인(grafana 등) — 호스트마다 별도 인증서 (서울)
+#
+# origin 과 같은 이유로 apex 인증서의 SAN 에 넣지 않는다(§2-1). LBC 가 Ingress host 로 자동 탐색해
+# 같은 ALB 리스너에 SNI 로 붙인다. 목록에서 빼면 인증서가 destroy 되는데, 그 전에 해당 Ingress 를
+# 먼저 지워야 한다 — 리스너가 물고 있으면 ACM 이 삭제를 거부한다.
+# ---------------------------------------------------------------------------
+resource "aws_acm_certificate" "alb_extra" {
+  for_each = var.alb_extra_hosts
+
+  domain_name       = each.value
+  validation_method = "DNS"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = merge(var.tags, {
+    Name = each.value
+  })
+}
+
+resource "aws_route53_record" "alb_extra_cert_validation" {
+  # 인증서당 검증 옵션은 domain_name 하나뿐이라(SAN 없음) 호스트를 키로 쓴다.
+  for_each = {
+    for host, cert in aws_acm_certificate.alb_extra : host => one(cert.domain_validation_options)
+  }
+
+  zone_id         = aws_route53_zone.this.zone_id
+  name            = each.value.resource_record_name
+  type            = each.value.resource_record_type
+  records         = [each.value.resource_record_value]
+  ttl             = 60
+  allow_overwrite = true
+}
+
+resource "aws_acm_certificate_validation" "alb_extra" {
+  for_each = aws_acm_certificate.alb_extra
+
+  certificate_arn         = each.value.arn
+  validation_record_fqdns = [aws_route53_record.alb_extra_cert_validation[each.key].fqdn]
+}
+
 resource "aws_acm_certificate" "cloudfront" {
   provider = aws.us_east_1
 
