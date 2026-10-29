@@ -3,7 +3,7 @@
 #
 # 배치: operator·prometheus·alertmanager·grafana·kube-state-metrics 는 monitoring 노드그룹(t3.medium 1대)에만.
 #   node-exporter 만 DaemonSet 으로 모든 노드(app·batch·monitoring)에 뜬다.
-# 메모리 예산: monitoring 노드 allocatable ≈ 3.2Gi. 아래 requests 합 ≈ 1.1Gi, limits 합 ≈ 2.6Gi.
+# 메모리 예산: monitoring 노드 allocatable ≈ 3.2Gi. 아래 requests 합 ≈ 1.2Gi, limits 합 ≈ 3.0Gi.
 #   Prometheus 가 가장 크게 자란다 — 시리즈가 늘어 OOMKilled 가 나면 limit 보다 scrape 대상부터 줄일 것.
 
 # EKS 는 컨트롤플레인을 숨긴다. scheduler·controller-manager·etcd 는 긁을 수 없고,
@@ -120,9 +120,11 @@ grafana:
   resources:
     requests:
       cpu: 50m
-      memory: 192Mi
+      memory: 320Mi
+    # Grafana 13 은 유휴에도 ~220Mi 를 쓰고(검색 인덱스를 메모리에 올림) 대시보드를 그릴 때 튄다.
+    # 384Mi 에서는 로그인 후 첫 대시보드에 OOMKilled → ALB 502 가 났다(2026-10-29).
     limits:
-      memory: 384Mi
+      memory: 768Mi
   defaultDashboardsTimezone: Asia/Seoul
   # 비밀번호를 values 에 두지 않는다. 시크릿은 설치 전에 손으로 만든다(docs/monitoring.md).
   admin:
