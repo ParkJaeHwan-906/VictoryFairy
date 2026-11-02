@@ -4,7 +4,7 @@ import type { StickerKeyboardSource, StickerKeyboardStatus } from '../../modules
 /**
  * 승요 스티커 키보드를 앱 쪽 사정까지 포함해 감싼 층.
  *
- * 네이티브 모듈은 안드로이드에만 있고(`modules/sticker-keyboard`), 없는 기기에서는
+ * 네이티브 모듈(`modules/sticker-keyboard`)은 안드로이드·iOS 에 있고, 없는 빌드에서는
  * 모든 함수가 "키보드 없음"으로 조용히 답한다. 부르는 쪽(`useStickerKeyboard`)이
  * 플랫폼을 따로 가르지 않아도 되게 하려는 경계다.
  */

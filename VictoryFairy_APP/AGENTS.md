@@ -38,13 +38,21 @@ Read the exact versioned docs at https://docs.expo.dev/versions/v57.0.0/ before 
 인스타가 요청을 조용히 버리므로, 값이 없으면 앱이 공유 불가로 답한다.
 원리·규격·디버깅은 [`docs/instagram-share.md`](docs/instagram-share.md)에 있다.
 
-**승요 스티커 키보드(안드로이드)는 담는 것만 웹이 한다.** 사용자가 웹에서 스티커를 담고
-'SNS에 올리기'를 누르면, 웹이 담은 스티커의 그림 주소를 보내고 앱이 그림을 `filesDir`에
-받아 키보드 목록을 바꾼 뒤 인스타를 연다. 인스타 스토리 글쓰기 칸에서 키보드를 바꾸면
-스티커를 하나씩 이미지로 넣는다(`commitContent`, Gboard 스티커와 같은 경로) —
-`src/share/keyboardBridge.ts`, `modules/sticker-keyboard/`. 앱은 `WEB_URL` 아래 주소만 받는다.
-iOS에는 아직 없다(키보드 확장은 별도 타깃이 필요하다). 상태에 답하지 않는 앱이면 웹은
-예전 한 장 공유를 쓴다.
+**승요 스티커 키보드는 담는 것만 웹이 한다.** 사용자가 웹에서 스티커를 담고
+'SNS에 올리기'를 누르면, 웹이 담은 스티커의 그림 주소를 보내고 앱이 그림을 기기에
+받아 키보드 목록을 바꾼 뒤 인스타를 연다 — `src/share/keyboardBridge.ts`,
+`modules/sticker-keyboard/`. 앱은 `WEB_URL` 아래 주소만 받는다. 상태에 답하지 않는
+앱이면 웹은 예전 한 장 공유를 쓴다. 넣는 방법은 플랫폼마다 다르다.
+
+- **안드로이드**: 그림은 `filesDir`. 키보드를 바꿔 누르면 스티커가 이미지로 바로 들어간다
+  (`commitContent`, Gboard 스티커와 같은 경로).
+- **iOS**: 키보드는 앱과 다른 프로세스인 확장 타깃(`targets/sticker-keyboard/`)이라 그림을
+  App Group(`group.com.victoryfairy.mobile`) 폴더에 둔다. iOS 키보드는 입력창에 글자만 보낼 수
+  있어서, 누르면 PNG 를 **붙여넣기판에 복사**하고 인스타의 '스티커 추가'·붙여넣기로 붙인다.
+  App Group 과 붙여넣기판 둘 다 사용자가 **'전체 접근 허용'** 을 켜야 열린다. 타깃은
+  `@bacons/apple-targets`가 prebuild 때 Xcode 프로젝트에 붙인다 — `ios/`를 고치지 말고
+  `targets/`와 `app.json`을 고친다. App Group 이름은 `app.json`(entitlements · infoPlist)과
+  `targets/sticker-keyboard/Info.plist` 세 곳이 같아야 한다.
 
 ```
 웹 → 앱   postMessage({ source: 'victoryfairy-app/sticker-keyboard', type: 'share', stickers })
