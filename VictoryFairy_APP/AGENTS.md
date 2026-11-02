@@ -38,6 +38,21 @@ Read the exact versioned docs at https://docs.expo.dev/versions/v57.0.0/ before 
 인스타가 요청을 조용히 버리므로, 값이 없으면 앱이 공유 불가로 답한다.
 원리·규격·디버깅은 [`docs/instagram-share.md`](docs/instagram-share.md)에 있다.
 
+**승요 스티커 키보드(안드로이드)는 담는 것만 웹이 한다.** 사용자가 웹에서 스티커를 담고
+'SNS에 올리기'를 누르면, 웹이 담은 스티커의 그림 주소를 보내고 앱이 그림을 `filesDir`에
+받아 키보드 목록을 바꾼 뒤 인스타를 연다. 인스타 스토리 글쓰기 칸에서 키보드를 바꾸면
+스티커를 하나씩 이미지로 넣는다(`commitContent`, Gboard 스티커와 같은 경로) —
+`src/share/keyboardBridge.ts`, `modules/sticker-keyboard/`. 앱은 `WEB_URL` 아래 주소만 받는다.
+iOS에는 아직 없다(키보드 확장은 별도 타깃이 필요하다). 상태에 답하지 않는 앱이면 웹은
+예전 한 장 공유를 쓴다.
+
+```
+웹 → 앱   postMessage({ source: 'victoryfairy-app/sticker-keyboard', type: 'share', stickers })
+          postMessage({ source, type: 'status' }) · postMessage({ source, type: 'open-settings' })
+앱 → 웹   window.__victoryFairyStickerKeyboard({ available, enabled, selected, stickerCount, shareOutcome? })
+          shareOutcome: 'opened' | 'instagram-missing' | 'failed'  (share 에 대한 답일 때만)
+```
+
 **색은 `src/theme.ts`를 거친다.** 값은 `../VictoryFairy_FE/src/styles/tokens.css`의
 시맨틱 토큰에서 가져온다. 웹과 앱의 경계가 눈에 띄지 않으려면 토큰이 바뀔 때 같이 고쳐야 한다.
 
