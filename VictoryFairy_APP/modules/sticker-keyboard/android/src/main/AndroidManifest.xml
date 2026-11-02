@@ -1,0 +1,51 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+  <!--
+    'SNS에 올리기'가 인스타그램을 연다. 안드로이드 11부터는 선언하지 않은 앱이 보이지 않아
+    설치돼 있어도 "없음"으로 오인한다. 인스타 공유 모듈에도 같은 선언이 있지만, 이 모듈만
+    떼어 써도 동작하도록 따로 둔다(병합 시 하나로 합쳐진다).
+  -->
+  <queries>
+    <package android:name="com.instagram.android" />
+  </queries>
+
+  <application>
+    <!--
+      승요 스티커 키보드. 사용자가 설정 → 키보드에서 켜야 목록에 나타난다 — 앱이 대신
+      켤 수는 없다. BIND_INPUT_METHOD 권한은 시스템만 이 서비스에 붙을 수 있게 하는 표시다.
+
+      서비스는 앱과 같은 프로세스에서 돌지만 WebView 없이 뜬다. 그래서 스티커 목록은
+      웹에서 바로 읽지 못하고, 앱이 미리 내려받아 둔 파일(StickerStore)을 읽는다.
+    -->
+    <service
+      android:name="expo.modules.stickerkeyboard.StickerKeyboardService"
+      android:label="@string/sticker_keyboard_label"
+      android:permission="android.permission.BIND_INPUT_METHOD"
+      android:exported="true">
+      <intent-filter>
+        <action android:name="android.view.InputMethod" />
+      </intent-filter>
+      <meta-data
+        android:name="android.view.im"
+        android:resource="@xml/sticker_keyboard_method" />
+    </service>
+
+    <!--
+      키보드가 입력창에 넘기는 스티커 파일의 통로(content://).
+
+      인스타 공유 모듈도 FileProvider 를 쓰는데, 같은 클래스 이름으로 provider 를 두 번
+      선언하면 매니페스트 병합이 authorities 충돌로 실패한다. 그래서 빈 하위 클래스로
+      이름을 갈라 둔다.
+    -->
+    <provider
+      android:name="expo.modules.stickerkeyboard.StickerKeyboardFileProvider"
+      android:authorities="${applicationId}.stickerkeyboard.fileprovider"
+      android:exported="false"
+      android:grantUriPermissions="true">
+      <meta-data
+        android:name="android.support.FILE_PROVIDER_PATHS"
+        android:resource="@xml/sticker_keyboard_file_paths" />
+    </provider>
+  </application>
+
+</manifest>

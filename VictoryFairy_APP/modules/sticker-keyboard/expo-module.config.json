@@ -1,0 +1,9 @@
+{
+  "platforms": ["android", "apple"],
+  "apple": {
+    "modules": ["StickerKeyboardModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.stickerkeyboard.StickerKeyboardModule"]
+  }
+}
