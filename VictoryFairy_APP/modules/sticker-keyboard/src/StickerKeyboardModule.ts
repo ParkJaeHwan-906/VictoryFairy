@@ -19,12 +19,15 @@ declare class StickerKeyboardModule extends NativeModule {
    */
   openInstagramAsync(): Promise<'opened' | 'instagram-missing'>;
 
-  /** 설정 → 키보드 목록 화면을 연다. 켜는 것은 사용자가 직접 해야 한다. */
+  /**
+   * 키보드를 켜는 설정 화면을 연다. 켜는 것은 사용자가 직접 해야 한다.
+   * 안드로이드는 설정 → 키보드 목록, iOS 는 설정 → 승리요정(그 안의 '키보드'에서 '전체 접근 허용'까지).
+   */
   openSettingsAsync(): Promise<void>;
 }
 
 /**
- * 키보드는 안드로이드에만 있다. iOS 는 키보드 확장이 별도 타깃이라 이 모듈이 없고,
- * 그때 `null` 이다 — 부르는 쪽이 "이 기기에는 키보드가 없다"로 처리한다.
+ * 안드로이드와 iOS 에 있다(iOS 키보드 자체는 `targets/sticker-keyboard/` 의 확장 타깃이다).
+ * 이 모듈이 들어가기 전 빌드나 웹에서는 `null` 이다 — 부르는 쪽이 "이 기기에는 키보드가 없다"로 처리한다.
  */
 export default requireOptionalNativeModule<StickerKeyboardModule>('StickerKeyboard');
