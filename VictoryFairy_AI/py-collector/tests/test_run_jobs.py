@@ -1954,3 +1954,112 @@ def test_kbo_fallback_still_lands_state_events(monkeypatch, settings):
     (_, payload), = sink.put_json_calls
     assert payload["gameId"] == "55551026HTSS02026" and payload["status"] == "FINISHED"
     assert payload["lastInning"] == 9
+
+
+# --------------------------------------------------------------------------- records·라인업 KBO 대체
+def _kbo_fix(name):
+    import json
+    from pathlib import Path
+    return json.loads((Path(__file__).parent / "fixtures" / "kbo" / name).read_text(encoding="utf-8"))
+
+
+class _KboRecordsDb(_RecordingRecordsDb):
+    def __init__(self, codes, rows=(), **kw):
+        super().__init__(**kw)
+        self.codes, self.rows = codes, list(rows)
+
+    def games_on_date(self, date):
+        return self.rows
+
+    def player_codes_by_name(self, team_ids, team_codes):
+        return self.codes
+
+
+def _box_codes():
+    from kbo_collector import kbo_boxscore
+    box = _kbo_fix("gamecenter_20261101HTSS0_boxscore.json")
+    codes = {}
+    for idx, team in ((0, "HT"), (1, "SS")):
+        for r in kbo_boxscore._table(box["arrHitter"][idx]["table1"]):
+            codes[(team, r[2])] = f"{team}-{r[2]}"
+        for r in kbo_boxscore._table(box["arrPitcher"][idx]["table"]):
+            codes[(team, r[0])] = f"{team}-{r[0]}"
+    return codes
+
+
+def _records_naver_down(monkeypatch):
+    def _fetch(client, url, **k):
+        raise run.fetch.FetchError(f"fetch failed after 2 attempts: {url}: timed out")
+    monkeypatch.setattr(run.fetch, "fetch", _fetch)
+    monkeypatch.setattr(run.kbo_gamecenter, "fetch_day",
+                        lambda date, **k: [_kbo_fix("gamecenter_20261101HTSS0_game.json")])
+    monkeypatch.setattr(run.kbo_boxscore, "fetch_boxscore", lambda kg, **k: (
+        _kbo_fix("gamecenter_20261101HTSS0_boxscore.json"),
+        _kbo_fix("gamecenter_20261101HTSS0_scoreboard.json")))
+
+
+def test_records_falls_back_to_kbo_boxscore_when_naver_fails(monkeypatch, settings):
+    _records_naver_down(monkeypatch)
+    db = _KboRecordsDb(_box_codes(), rows=[("55551101HTSS02026", 2, 1)],
+                       player_map={}, team_ids={"SS": 2, "HT": 1})
+
+    loaded, failed = run.land_game_records("2026-11-01", settings=settings, db=db, client=object())
+
+    assert loaded == ["55551101HTSS02026"] and failed == []
+    assert [c[0] for c in db.calls] == ["game", "lineups", "purge-ghosts", "batting", "pitching"]
+    _, _, rows, _ = next(c for c in db.calls if c[0] == "batting")
+    assert len(rows) == 21
+
+
+def test_records_kbo_fallback_holds_game_with_unresolved_players(monkeypatch, settings, caplog):
+    # 반쪽 기록이 확정으로 남지 않게 그 경기는 실패로 돌려 다음 실행에서 다시 시도한다.
+    _records_naver_down(monkeypatch)
+    codes = _box_codes()
+    del codes[("SS", "김지찬")]
+    db = _KboRecordsDb(codes, rows=[("55551101HTSS02026", 2, 1)],
+                       player_map={}, team_ids={"SS": 2, "HT": 1})
+
+    with caplog.at_level("WARNING", logger="records"):
+        loaded, failed = run.land_game_records("2026-11-01", settings=settings, db=db, client=object())
+
+    assert loaded == [] and failed == ["55551101HTSS02026"] and db.calls == []
+    assert "SS:김지찬" in caplog.text
+
+
+class _LineupFallbackDb(_FallbackDb):
+    def player_codes_by_name(self, team_ids, team_codes):
+        lineup = _kbo_fix("gamecenter_20261103SSKT0_lineup.json")
+        from kbo_collector import kbo_boxscore
+        codes = {}
+        for meta, table in ((lineup[1], lineup[3]), (lineup[2], lineup[4])):
+            for r in kbo_boxscore._table(table[0]):
+                codes[(meta[0]["T_ID"], r[2])] = f"{meta[0]['T_ID']}-{r[2]}"
+        return codes
+
+
+def _today_kbo(lineup_ck):
+    return {**_kbo("20261103SSKT0", "1"), "SR_ID": 7, "S_NM": "수원", "LINEUP_CK": lineup_ck,
+            "T_PIT_P_ID": 65320, "T_PIT_P_NM": "최원태 ", "B_PIT_P_ID": 56002, "B_PIT_P_NM": "대니엘 "}
+
+
+def test_games_sync_kbo_fallback_lands_announced_lineup(monkeypatch, settings):
+    _naver_down(monkeypatch, [_today_kbo(20)])
+    monkeypatch.setattr(run.kbo_boxscore, "fetch_lineup",
+                        lambda kg, **k: _kbo_fix("gamecenter_20261103SSKT0_lineup.json"))
+    db = _LineupFallbackDb(rows=[("77771103SSKT02026", 5, 4)], team_ids={"SS": 4, "KT": 5})
+
+    run.job_games_sync(settings, db, "2026-11-03")
+
+    (game_pk, rows), = db.lineup_calls
+    assert len(rows) == 20 and {r.team_code for r in rows} == {"SS", "KT"}
+
+
+def test_games_sync_kbo_fallback_skips_lineup_call_until_announced(monkeypatch, settings):
+    _naver_down(monkeypatch, [_today_kbo(0)])
+    called = []
+    monkeypatch.setattr(run.kbo_boxscore, "fetch_lineup", lambda kg, **k: called.append(kg))
+    db = _LineupFallbackDb(rows=[("77771103SSKT02026", 5, 4)], team_ids={"SS": 4, "KT": 5})
+
+    run.job_games_sync(settings, db, "2026-11-03")
+
+    assert called == [] and db.lineup_calls == []
