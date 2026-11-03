@@ -769,8 +769,13 @@ def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=
         try:
             live_or_done = status in ("IN_PROGRESS", "FINISHED", "DRAW")
             dt = (g.get("gameDateTime") or "").replace("T", " ") or f"{date} 00:00:00"
-            stadium = (None if not naver_ok or g.get("gameId") in known_stadium
-                       else _scheduled_game_stadium(settings, client, g, status, log))
+            # 대체 경로는 KBO 목록에 구장이 이미 실려 있어 추가 호출 없이 쓴다.
+            if g.get("gameId") in known_stadium:
+                stadium = None
+            elif not naver_ok:
+                stadium = g.get("stadium")
+            else:
+                stadium = _scheduled_game_stadium(settings, client, g, status, log)
             # statusInfo 한 번 읽어 정반대 정책의 두 곳으로 나눠 보낸다.
             #
             #   current_inning/inning_half — **진행 중일 때만.** statusInfo 는 경기가
@@ -887,18 +892,23 @@ def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=
 
 
 def _kbo_fallback_games(settings, db, client, date, team_ids, log) -> list[dict]:
-    """KBO 게임센터의 그날 경기를 기존 games 행에 짝지어 네이버 모양으로 돌려준다.
+    """KBO 게임센터의 그날 경기를 네이버 모양으로 돌려준다.
 
-    짝이 없는 경기는 버린다 — 이 원천으로는 행을 만들지 않는다(모듈 주석 참고). 그날 행은
-    morning/nightly 선적재가 미리 깔아 두므로, 차단이 그 선적재 기간(+7일)보다 길어지면
-    새 날짜의 경기는 여기서 전부 빠진다.
+    이미 있는 games 행은 대진으로 짝지어 그 id 를 쓰고, 없는 경기는 G_ID 에서 만든 네이버 id 로
+    새 행이 되게 한다(kbo_gamecenter 모듈 주석). 같은 대진의 행이 있는데 짝이 모호하거나(더블헤더
+    번호 불일치), id 규칙을 모르는 시리즈면 버린다 — 엉뚱한 행을 만들거나 덮는 것보다 빠지는 게 낫다.
     """
     rows = db.games_on_date(date)
     out = []
     for kg in kbo_gamecenter.fetch_day(date, settings=settings, client=client):
         game_id = kbo_gamecenter.match_game_id(kg, rows, team_ids)
+        if game_id is None and not kbo_gamecenter.has_matchup(kg, rows, team_ids):
+            game_id = kbo_gamecenter.naver_game_id(kg)
+            if game_id is not None:
+                log.info("%s: KBO 경기 %s 를 새 행 %s 로 적재", date, kg.get("G_ID"), game_id)
         if game_id is None:
-            log.warning("%s: KBO 경기 %s 에 맞는 games 행이 없어 건너뜀", date, kg.get("G_ID"))
+            log.warning("%s: KBO 경기 %s 에 쓸 games 행을 정하지 못해 건너뜀 (SR_ID=%s)",
+                        date, kg.get("G_ID"), kg.get("SR_ID"))
             continue
         out.append(kbo_gamecenter.to_schedule_game(kg, game_id))
     return out

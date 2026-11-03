@@ -94,3 +94,23 @@ def test_fetch_day_posts_date_and_drops_unknown_teams(settings):
 
     assert [g["G_ID"] for g in games] == ["20261026HTSS0"]
     assert b"date=20261026" in route.calls[0].request.content
+
+
+def test_naver_game_id_follows_naver_rule_per_series():
+    # 정규시즌·준PO·PO 는 2026-10 실측 쌍, 한국시리즈(7)는 같은 규칙의 추정값.
+    assert kbo_gamecenter.naver_game_id({"G_ID": "20261006KTWO0", "SR_ID": 0}) == "20261006KTWO02026"
+    assert kbo_gamecenter.naver_game_id({"G_ID": "20261020HTLG0", "SR_ID": 3}) == "33331020HTLG02026"
+    assert kbo_gamecenter.naver_game_id({"G_ID": "20261025HTSS0", "SR_ID": 5}) == "55551025HTSS02026"
+    assert kbo_gamecenter.naver_game_id({"G_ID": "20261103SSKT0", "SR_ID": 7}) == "77771103SSKT02026"
+
+
+def test_naver_game_id_is_none_for_unknown_series_or_bad_id():
+    assert kbo_gamecenter.naver_game_id({"G_ID": "20260310SSKT0", "SR_ID": 1}) is None
+    assert kbo_gamecenter.naver_game_id({"G_ID": "20261103SSKT0"}) is None
+    assert kbo_gamecenter.naver_game_id({"G_ID": "bad", "SR_ID": 0}) is None
+
+
+def test_schedule_game_carries_kbo_stadium_name():
+    g = kbo_gamecenter.to_schedule_game({**_kg("20261103SSKT0", "1"), "S_NM": "수원"}, "x")
+
+    assert g["stadium"] == "수원"

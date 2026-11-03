@@ -1902,15 +1902,43 @@ def test_job_games_sync_falls_back_to_kbo_when_naver_schedule_fails(monkeypatch,
     assert "source=kbo" in caplog.text
 
 
-def test_kbo_fallback_skips_games_without_a_matching_row(monkeypatch, settings, caplog):
-    _naver_down(monkeypatch, [_kbo("20261026HTSS0", "2", 1, "T")])
+def test_kbo_fallback_creates_row_when_none_exists(monkeypatch, settings, caplog):
+    """2026-11-03 사고의 재현: 차단이 선적재 기간을 넘겨 그날 행이 없으면, G_ID 로 만든 네이버
+    id 로 새 행을 넣는다(구장은 KBO 목록 값)."""
+    _naver_down(monkeypatch, [{**_kbo("20261103SSKT0", "1"), "SR_ID": 7, "S_NM": "수원"}])
+    db = _FallbackDb(rows=[], team_ids={"SS": 4, "KT": 5})
+
+    with caplog.at_level("INFO", logger="games_sync"):
+        synced = run.job_games_sync(settings, db, "2026-11-03")
+
+    assert synced == 1
+    (call,) = db.calls
+    assert call["naver_game_id"] == "77771103SSKT02026"
+    assert (call["home_team_id"], call["away_team_id"]) == (5, 4)
+    assert call["game_dt"] == "2026-11-03 18:30:00"
+    assert call["stadium_id"] is not None and call["stadium_id"] == db.stadium_id("수원")
+
+
+def test_kbo_fallback_skips_unknown_series(monkeypatch, settings, caplog):
+    # 네이버 id 규칙을 본 적 없는 시리즈(시범경기 등)는 행을 만들지 않는다.
+    _naver_down(monkeypatch, [{**_kbo("20260310HTSS0", "1"), "SR_ID": 1}])
     db = _FallbackDb(rows=[], team_ids={"HT": 3, "SS": 4})
 
     with caplog.at_level("WARNING", logger="games_sync"):
-        synced = run.job_games_sync(settings, db, "2026-10-26")
+        synced = run.job_games_sync(settings, db, "2026-03-10")
 
     assert synced == 0 and db.calls == []
-    assert "20261026HTSS0" in caplog.text
+    assert "20260310HTSS0" in caplog.text
+
+
+def test_kbo_fallback_skips_ambiguous_matchup_instead_of_creating(monkeypatch, settings):
+    # 같은 대진 행이 둘인데 더블헤더 번호로도 못 가르면, 새 행을 만들지 않고 건너뛴다.
+    _naver_down(monkeypatch, [{**_kbo("20260801HTSS0", "1"), "SR_ID": 0}])
+    db = _FallbackDb(rows=[("20260801HTSS12026", 4, 3), ("20260801HTSS22026", 4, 3)],
+                     team_ids={"HT": 3, "SS": 4})
+
+    assert run.job_games_sync(settings, db, "2026-08-01") == 0
+    assert db.calls == []
 
 
 def test_kbo_fallback_still_lands_state_events(monkeypatch, settings):
