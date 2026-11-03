@@ -2,7 +2,10 @@ package com.skhynix.user.cleanup.service;
 
 import com.skhynix.domain.chat.repository.ChatRepository;
 import com.skhynix.domain.chat.repository.ChatroomRepository;
+import com.skhynix.domain.community.repository.CommunityCommentRepository;
+import com.skhynix.domain.community.repository.CommunityPostRepository;
 import com.skhynix.domain.quiz.repository.QuizLikeRepository;
+import com.skhynix.domain.quizroom.repository.QuizRoomRepository;
 import com.skhynix.domain.user.entity.UserAccount;
 import com.skhynix.domain.user.repository.ExpiredAccountView;
 import com.skhynix.domain.user.repository.UserRefreshTokenRepository;
@@ -27,6 +30,9 @@ public class ExpiredAccountEraser {
     private final QuizLikeRepository quizLikeRepository;
     private final ChatroomRepository chatroomRepository;
     private final ChatRepository chatRepository;
+    private final CommunityPostRepository communityPostRepository;
+    private final CommunityCommentRepository communityCommentRepository;
+    private final QuizRoomRepository quizRoomRepository;
     private final UserRepository userRepository;
     private final UserRefreshTokenRepository userRefreshTokenRepository;
 
@@ -39,21 +45,27 @@ public class ExpiredAccountEraser {
      * <ol>
      *   <li>취소한 좋아요({@code liked = false}) 삭제 — <b>계정 삭제 전에만</b> 할 수 있다. 뒤로 밀면
      *       소유자가 이미 NULL 이라 어느 행이 누구 것인지 가릴 수 없다</li>
-     *   <li>채팅방·채팅 소유권을 더미 계정으로 이관 — {@code chatrooms} 는 FK 가 NO ACTION + NOT NULL
-     *       이라 남아 있으면 3단계가 아예 실패한다</li>
+     *   <li>채팅방·채팅·커뮤니티 게시글·댓글·퀴즈방 소유권을 더미 계정으로 이관 — {@code chatrooms}·
+     *       커뮤니티 두 테이블·{@code quiz_rooms} 는 FK 가 NO ACTION + NOT NULL 이라 남아 있으면 3단계가 아예 실패한다
+     *       (삭제·블라인드 행도 거르지 않는다 — 하나라도 남으면 막힌다)</li>
      *   <li>{@code users} 행 삭제 — 나머지 자식은 DB 의 CASCADE/SET NULL 이 처리한다</li>
      * </ol>
      *
-     * <p>이 계정의 refresh 토큰·BQ·응원·퀴즈 제출을 여기서 지우지 않는 것은 빠뜨린 것이 아니라
-     * 3단계의 CASCADE 가 하는 일이다. 애플리케이션이 지우는 행은 {@code users} 하나뿐이다.
+     * <p>이 계정의 refresh 토큰·BQ·응원·퀴즈 제출·커뮤니티 반응/신고를 여기서 지우지 않는 것은 빠뜨린
+     * 것이 아니라 3단계의 CASCADE/SET NULL 이 하는 일이다. 애플리케이션이 지우는 행은 {@code users}
+     * 하나뿐이고, S3 는 여전히 부르지 않는다(이관된 글의 이미지는 그대로 남는다).
      */
     @Transactional
     public AccountEraseResult erase(ExpiredAccountView target, UserAccount unknownAccount) {
         int cancelledLikes = quizLikeRepository.deleteCancelledByUserAccountId(target.accountId());
         int chatrooms = chatroomRepository.reassignOwner(target.accountId(), unknownAccount);
         int chats = chatRepository.reassignSender(target.accountId(), unknownAccount);
+        int posts = communityPostRepository.reassignAuthor(target.accountId(), unknownAccount);
+        int comments = communityCommentRepository.reassignAuthor(target.accountId(), unknownAccount);
+        // 건수는 결과 레코드에 싣지 않는다(회차 요약 로그 형식은 그대로). 퀴즈방 답·추천·주간 베스트 지급 기록은 SET NULL 이 처리한다
+        quizRoomRepository.reassignAuthor(target.accountId(), unknownAccount);
         int removed = userRepository.deleteUserById(target.userId());
-        return new AccountEraseResult(chatrooms, chats, cancelledLikes, removed > 0);
+        return new AccountEraseResult(chatrooms, chats, posts, comments, cancelledLikes, removed > 0);
     }
 
     /**

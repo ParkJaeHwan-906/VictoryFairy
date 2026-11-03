@@ -168,7 +168,7 @@ function ItemCard({ item, isPending, onSelect }: ItemCardProps) {
 export default function CharacterCustomPage() {
   const navigate = useNavigate();
 
-  // 미리보기 아바타와 잔액은 프로필이 갖는다. 채우는 일은 ProtectedRoute 가 이미 했다.
+  // 미리보기 아바타와 잔액은 프로필이 갖는다. 채우는 일은 App 의 useProfileBootstrap 이 이미 했다.
   const profile = useMyProfile();
   const fetchProfile = useAccountStore((state) => state.fetchProfile);
   /** 보유 포인트. 프로필이 아직 없으면 0 으로 본다 — 그 사이에는 구매를 막는 쪽이 안전하다. */

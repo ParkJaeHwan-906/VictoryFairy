@@ -42,6 +42,12 @@ variable "origin_host" {
   default     = ""
 }
 
+variable "alb_extra_hosts" {
+  description = "ALB(Ingress)로 서비스하는 추가 서브도메인 목록 (예: [\"grafana.victoryfairy.com\"]). 호스트마다 서울 ACM 인증서를 따로 발급한다 — apex 인증서 SAN 에 넣지 않는 이유는 origin_host 와 같다(main.tf §2-1). DNS 레코드는 ExternalDNS 가 Ingress host 로 만든다."
+  type        = set(string)
+  default     = []
+}
+
 variable "subject_alternative_names" {
   description = "ACM 인증서에 추가할 대체 도메인(SAN) 목록 (예: [\"www.victoryfairy.com\"]). 기본은 루트 도메인만."
   type        = list(string)

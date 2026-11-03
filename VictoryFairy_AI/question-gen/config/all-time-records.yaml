@@ -7,6 +7,24 @@
 # value 열은 "첫 번째로 숫자로 보이는 열" 규칙으로 자동 선택돼 헤드라인 통계가 아닐 수
 #    있음(예: 통산 타자 — 타수; 타율이 더 적절할 수 있음) — 참고용이라 무해하나 검수 시 확인.
 # 갱신: 시즌 종료 후 1회 + 마일스톤 이벤트 시 수동.
+#
+# ⚠️ 2026-09-30: `retired`·`currentTeam` 필드 신설(RECORD_OX(perTeam) 병목 대응).
+#    예전엔 routine이 매 실행마다 "이 선수가 이 팀 소속인지" 위키를 뒤져 재확인했는데,
+#    이 카테고리 대부분이 1980~90년대 은퇴 레전드라 매번 허탕이었다(scoring.yaml
+#    "perTeam 신설" 첫 실행 관찰 — 9개 팀 중 8개가 RECORD_OX 0건). 아래는 그 확인을
+#    한 번 미리 해 둔 것이다 — `wiki/players/*.md`의 실제 현재 로스터와 이름을
+#    대조했다(추측 아님). `retired: true`면 `currentTeam`은 항상 null이고, RECORD_OX는
+#    `retired: false`인 항목만 팀별로 바인딩한다.
+#    ⚠️ 이름만으로 매칭했으므로 동명이인 위험이 있다 — 예를 들어 history-player-hitter
+#    10위 "이정훈"은 위키에 KT 소속 동명이인이 있지만, 이 카테고리 자체가 전부 1980년대
+#    데이터라(다른 9명 전원이 그 시대 은퇴 레전드) 실제로는 그 시절 선수(대부분 은퇴)를
+#    가리키는 것으로 보고 currentTeam을 채우지 않았다 — 시대가 안 맞는 매칭은 채택하지
+#    않는 것이 오답 유출보다 안전하다. `최형우`→SS·`서건창`→WO 두 건만 연대·이름 둘 다
+#    현재 로스터와 부합해 채택했다. 이 판단 자체도 사람 검수 대상이다(맨 위 "v0 초안" 참고).
+#    ⚠️ 이 enrichment로도 RECORD_OX 재료는 근본적으로 크게 늘지 않는다 — 이 파일 자체가
+#    30개 항목뿐이고 대부분 현역과 무관한 시대라서다. 팀당 매일 RECORD_OX를 안정적으로
+#    공급하려면 이 파일에 현역 중심 항목(최근 시즌 기록 등)을 사람이 추가로 채워 넣는
+#    별도 작업이 필요하다(이번 변경 범위 밖).
 asOf: '2026-07-30'
 source: KBO 공식 기록실
 categories:
@@ -18,33 +36,53 @@ categories:
   - rank: 1
     name: 백인천
     value: '250'
+    retired: true
+    currentTeam: null
   - rank: 2
     name: 장효조
     value: '317'
+    retired: true
+    currentTeam: null
   - rank: 3
     name: 이만수
     value: '300'
+    retired: true
+    currentTeam: null
   - rank: 4
     name: 장효조
     value: '346'
+    retired: true
+    currentTeam: null
   - rank: 5
     name: 장효조
     value: '304'
+    retired: true
+    currentTeam: null
   - rank: 6
     name: 장효조
     value: '284'
+    retired: true
+    currentTeam: null
   - rank: 7
     name: 김상훈
     value: '305'
+    retired: true
+    currentTeam: null
   - rank: 8
     name: 고원부
     value: '342'
+    retired: true
+    currentTeam: null
   - rank: 9
     name: 한대화
     value: '418'
+    retired: true
+    currentTeam: null
   - rank: 10
     name: 이정훈
     value: '379'
+    retired: true   # 위키에 동명이인(KT) 있으나 시대 불일치 — 머리 주석 참고, currentTeam 채우지 않음
+    currentTeam: null
 - id: history-player-pitcher
   title: 통산 투수 — 승
   sourcePage: history-player-pitcher
@@ -53,33 +91,53 @@ categories:
   - rank: 1
     name: 박철순
     value: '24'
+    retired: true
+    currentTeam: null
   - rank: 2
     name: 장명부
     value: '30'
+    retired: true
+    currentTeam: null
   - rank: 3
     name: 최동원
     value: '27'
+    retired: true
+    currentTeam: null
   - rank: 4
     name: 김시진
     value: '25'
+    retired: true
+    currentTeam: null
   - rank: 5
     name: 김일융
     value: '25'
+    retired: true
+    currentTeam: null
   - rank: 6
     name: 선동열
     value: '24'
+    retired: true
+    currentTeam: null
   - rank: 7
     name: 김시진
     value: '23'
+    retired: true
+    currentTeam: null
   - rank: 8
     name: 윤학길
     value: '18'
+    retired: true
+    currentTeam: null
   - rank: 9
     name: 선동열
     value: '21'
+    retired: true
+    currentTeam: null
   - rank: 10
     name: 선동열
     value: '22'
+    retired: true
+    currentTeam: null
 - id: history-top-hitter
   title: 역대 TOP — 기록
   sourcePage: history-top-hitter
@@ -88,30 +146,50 @@ categories:
   - rank: 1
     name: 백인천
     value: '0.412'
+    retired: true
+    currentTeam: null
   - rank: 2
     name: 이종범
     value: '0.393'
+    retired: true
+    currentTeam: null
   - rank: 3
     name: 장효조
     value: '0.387'
+    retired: true
+    currentTeam: null
   - rank: 4
     name: 테임즈
     value: '0.381'
+    retired: true
+    currentTeam: null
   - rank: 5
     name: 최형우
     value: '0.376'
+    retired: false
+    currentTeam: SS   # wiki/players/72443.md 대조 확인
   - rank: 6
     name: 마해영
     value: '0.372'
+    retired: true
+    currentTeam: null
   - rank: 7
     name: 박용택
     value: '0.372'
+    retired: true
+    currentTeam: null
   - rank: 8
     name: 홍성흔
     value: '0.371'
+    retired: true
+    currentTeam: null
   - rank: 9
     name: 서건창
     value: '0.370'
+    retired: false
+    currentTeam: WO   # wiki/players/78168.md 대조 확인
   - rank: 10
     name: 장효조
     value: '0.370'
+    retired: true
+    currentTeam: null

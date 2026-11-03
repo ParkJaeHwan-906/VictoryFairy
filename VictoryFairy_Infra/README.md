@@ -7,7 +7,7 @@ Terraform 으로 관리하는 VictoryFairy 의 AWS 인프라 코드입니다.
 ## 아키텍처
 - **네트워크**: VPC `10.0.0.0/16`. 서브넷은 2 AZ(2a/2c)에 선언하되 **노드·DB는 2a 집중, 2c는 예비**
   (2 AZ는 HA가 아니라 EKS 강제 요건 — DB가 단일 AZ라 앱만 벌리면 반쪽 HA. 자세한 근거는 ARCHITECTURE.md)
-- **앱 컴퓨트**: EKS(관리형) 프라이빗 서브넷. **노드그룹 2개** — `app`(user+quiz 공용, 둘 다 HPA/Cluster Autoscaler 오토스케일), `batch`(Spot·min0, 야간 전용)
+- **앱 컴퓨트**: EKS(관리형) 프라이빗 서브넷. **노드그룹 3개** — `app`(user+quiz 공용, 둘 다 HPA/Cluster Autoscaler 오토스케일), `batch`(Spot·min0, 야간 전용), `monitoring`(kube-prometheus-stack 전용 1대, docs/monitoring.md)
 - **DB**: **단일 고정 EC2**(비 EKS)에 MySQL + Redis 컨테이너 + EBS 영속 볼륨 (RDS 미사용, 비용 사유)
   - Redis 는 채팅·퀴즈·인증 **서비스 브로커 전용**. 앱과 격리, 스케일아웃 없음(부족 시 수직 승급)
   - MySQL 데이터는 **하루 단위로 S3 백업** (+ EBS 스냅샷 병행 권장)
@@ -28,7 +28,7 @@ VictoryFairy_Infra/
 │   └── ARCHITECTURE.md       # 확정 설계 + 결정 근거 (ADR 성격)
 ├── modules/                  # 재사용 가능한 빌딩 블록 (환경 독립적)
 │   ├── network/              # VPC, 2 AZ 서브넷(2a 운영/2c 예비), NAT, 라우팅
-│   ├── eks/                  # EKS 클러스터, 노드그룹 2개(app/batch), IRSA
+│   ├── eks/                  # EKS 클러스터, 노드그룹 3개(app/batch/monitoring), IRSA, EBS CSI
 │   ├── mysql-ec2/            # 운영 MySQL+Redis EC2 + EBS + SSM + 일 단위 S3 백업
 │   ├── dev-db/               # 개발용 DB EC2(퍼블릭·/32) — 운영 백업을 매일 restore 하는 복제본
 │   ├── alb/                  # AWS Load Balancer Controller 용 IRSA (컨트롤러 파드는 Helm)

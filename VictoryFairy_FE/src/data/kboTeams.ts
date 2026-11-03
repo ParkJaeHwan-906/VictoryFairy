@@ -45,3 +45,30 @@ const TEAM_DISPLAY: Record<string, TeamDisplay> = {
 export function getTeamDisplay(name: string): TeamDisplay | undefined {
   return TEAM_DISPLAY[name];
 }
+
+/**
+ * 구단 코드(teams.code) → 서버의 짧은 `name`.
+ *
+ * 경기 채팅은 발신자 구단을 이름이 아니라 코드(`HT`·`LG`·`OB` …)로 준다(docs/game-chat.md).
+ * 네이버 표기라 이름과 모양이 다르다. SSG 는 옛 코드(`SK`)가 남아 있을 수 있어 둘 다 받는다.
+ */
+const TEAM_NAME_BY_CODE: Record<string, string> = {
+  HT: 'KIA',
+  KT: 'KT',
+  LG: 'LG',
+  NC: 'NC',
+  SK: 'SSG',
+  SSG: 'SSG',
+  OB: '두산',
+  LT: '롯데',
+  SS: '삼성',
+  WO: '키움',
+  HH: '한화',
+};
+
+/** 구단 코드에 대응하는 표시 정보. 코드가 없거나 모르는 값이면 `undefined`. */
+export function getTeamDisplayByCode(code: string | null | undefined): TeamDisplay | undefined {
+  if (!code) return undefined;
+  const name = TEAM_NAME_BY_CODE[code];
+  return name === undefined ? undefined : TEAM_DISPLAY[name];
+}

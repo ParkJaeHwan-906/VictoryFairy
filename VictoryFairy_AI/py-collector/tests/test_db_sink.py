@@ -1,3 +1,4 @@
+from decimal import Decimal
 from types import SimpleNamespace
 
 from kbo_collector.db import (
@@ -565,3 +566,139 @@ def test_games_with_stadium_returns_known_ids():
     assert got == {"g1"}
     kind, sql, params = conn.log[0]
     assert "stadium_id IS NOT NULL" in sql and params == ["g1", "g2"]
+
+
+# --------------------------------------------------------------------------- 이닝 전환 감지용 (Task 2)
+def test_get_live_inning_state_returns_existing_row():
+    conn = FakeConn(fetch_results=[[(5, 1)]])
+    assert DbSink(None, connection=conn).get_live_inning_state("g1") == (5, 1)
+    kind, sql, params = conn.log[0]
+    assert kind == "execute" and params == ("g1",)
+    assert "current_inning, inning_half" in sql and "FROM games" in sql
+
+
+def test_get_live_inning_state_missing_game_returns_none_pair():
+    # 경기 행이 아직 없으면(games_sync 가 그 경기를 처음 보는 경우) (None, None).
+    conn = FakeConn(fetch_results=[[]])
+    assert DbSink(None, connection=conn).get_live_inning_state("new-game") == (None, None)
+
+
+# --------------------------------------------------------------------------- 상태 변화 감지용 (game-state-events)
+def test_get_game_live_state_returns_full_tuple_with_status_name():
+    conn = FakeConn(fetch_results=[[(5, 1, 3, 2, "IN_PROGRESS")]])
+    got = DbSink(None, connection=conn).get_game_live_state("g1")
+    assert got == (5, 1, 3, 2, "IN_PROGRESS")
+    kind, sql, params = conn.log[0]
+    assert kind == "execute" and params == ("g1",)
+    # 상태는 id 가 아니라 이름으로 비교해야 한다(game_statuses.id 는 환경마다 다르다).
+    assert "game_statuses" in sql and "gs.name" in sql
+
+
+def test_get_game_live_state_missing_game_returns_none():
+    # 행이 없는 것(None)과 값이 비어 있는 것(튜플 안 None)을 구분해야 첫 적재를 변화로 오인하지 않는다.
+    conn = FakeConn(fetch_results=[[]])
+    assert DbSink(None, connection=conn).get_game_live_state("new-game") is None
+
+
+# --------------------------------------------------------------------------- 승률 (COLLECTOR_WIN_RATE_ENABLED)
+def test_sync_game_without_win_rate_flag_sends_the_old_statement_verbatim():
+    # 게이트가 꺼진 호출(승률 인자 없음)은 승률 컬럼을 언급하지 않는 기존 문장을 그대로 보낸다 —
+    # 컬럼이 아직 없는 DB 에서도 upsert 가 깨지지 않아야 한다.
+    from kbo_collector.db import GAME_SYNC_UPSERT
+    conn = FakeConn()
+    DbSink(None, connection=conn).sync_game(
+        naver_game_id="g1", game_dt="2026-07-08 18:30:00",
+        home_team_id=3, away_team_id=2, home_score=5, away_score=3, status_id=7,
+        win_rate=(Decimal("35.8"), Decimal("64.2")), in_progress=True)
+    _, sql, params = conn.log[0]
+    assert sql == GAME_SYNC_UPSERT and "win_rate" not in sql
+    assert len(params) == 11
+
+
+def test_game_sync_upsert_with_win_rate_keeps_old_value_while_live_and_clears_otherwise():
+    from kbo_collector.db import GAME_SYNC_UPSERT_WITH_WIN_RATE as sql
+    assert ("last_inning, home_win_rate, away_win_rate, created_at, updated_at) ") in sql
+    assert sql.count("%s") == 15
+    update_clause = sql.split("ON DUPLICATE KEY UPDATE", 1)[1]
+    assert "home_win_rate=IF(%s, COALESCE(VALUES(home_win_rate), home_win_rate), NULL)" in update_clause
+    assert "away_win_rate=IF(%s, COALESCE(VALUES(away_win_rate), away_win_rate), NULL)" in update_clause
+
+
+def test_sync_game_with_win_rate_binds_values_and_live_flag():
+    from kbo_collector.db import GAME_SYNC_UPSERT_WITH_WIN_RATE
+    conn = FakeConn()
+    DbSink(None, connection=conn).sync_game(
+        naver_game_id="g1", game_dt="2026-07-08 18:30:00",
+        home_team_id=3, away_team_id=2, home_score=5, away_score=3, status_id=7,
+        current_inning=5, inning_half=1, last_inning=5,
+        with_win_rate=True, in_progress=True, win_rate=(Decimal("35.8"), Decimal("64.2")))
+    _, sql, params = conn.log[0]
+    assert sql == GAME_SYNC_UPSERT_WITH_WIN_RATE
+    assert params[-4:] == (Decimal("35.8"), Decimal("64.2"), 1, 1)
+    assert conn.commits == 1
+
+
+def test_sync_game_with_win_rate_not_live_sends_null_and_clear_flag():
+    conn = FakeConn()
+    DbSink(None, connection=conn).sync_game(
+        naver_game_id="g1", game_dt="2026-07-08 18:30:00",
+        home_team_id=3, away_team_id=2, home_score=5, away_score=3, status_id=7,
+        with_win_rate=True, in_progress=False, win_rate=(Decimal("98.7"), Decimal("1.3")))
+    _, _, params = conn.log[0]
+    assert params[-4:] == (None, None, 0, 0)
+
+
+def test_sync_game_with_win_rate_live_but_unknown_sends_null_and_keep_flag():
+    conn = FakeConn()
+    DbSink(None, connection=conn).sync_game(
+        naver_game_id="g1", game_dt="2026-07-08 18:30:00",
+        home_team_id=3, away_team_id=2, home_score=5, away_score=3, status_id=7,
+        with_win_rate=True, in_progress=True, win_rate=None)
+    _, _, params = conn.log[0]
+    assert params[-4:] == (None, None, 1, 1)  # 1 → COALESCE 가 직전 값을 지킨다
+
+
+def test_get_game_win_rate_returns_pair_or_none():
+    conn = FakeConn(fetch_results=[[(Decimal("35.8"), None)], []])
+    sink = DbSink(None, connection=conn)
+    assert sink.get_game_win_rate("g1") == (Decimal("35.8"), None)
+    assert sink.get_game_win_rate("new-game") is None
+    assert "home_win_rate" in conn.log[0][1] and conn.log[0][2] == ("g1",)
+
+
+def test_sync_removed_games_marks_absent_and_restores_present():
+    from kbo_collector.db import GAMES_RESTORE_REMOVED
+    conn = FakeConn(rowcounts=[2, 1])
+    removed, restored = DbSink(None, connection=conn).sync_removed_games("2026-10-21", ["a", "b"])
+
+    (_, mark_sql, mark_params), (_, restore_sql, restore_params) = conn.log
+    # 날짜는 반개구간 — game_date 가 DATETIME 이라 등치 비교는 늘 0건이다.
+    assert mark_params[:2] == ["2026-10-21 00:00:00", "2026-10-22 00:00:00"]
+    assert sorted(mark_params[2:]) == ["a", "b"]
+    assert "NOT IN (%s,%s)" in mark_sql and "removed = 1" in mark_sql
+    assert restore_sql == GAMES_RESTORE_REMOVED.format(ph="%s,%s")
+    assert sorted(restore_params) == ["a", "b"]
+    assert (removed, restored) == (2, 1)
+    assert conn.commits == 1
+
+
+def test_sync_removed_games_empty_day_marks_all_without_not_in():
+    # NOT IN () 은 MySQL 문법 오류다 — 빈 날은 조건 자체를 빼고 그날 전부를 표시한다.
+    conn = FakeConn(rowcounts=[2])
+    removed, restored = DbSink(None, connection=conn).sync_removed_games("2026-10-31", [])
+
+    assert len(conn.log) == 1
+    _, sql, params = conn.log[0]
+    assert "NOT IN" not in sql
+    assert params == ["2026-10-31 00:00:00", "2026-11-01 00:00:00"]
+    assert (removed, restored) == (2, 0)
+
+
+def test_sync_removed_games_never_marks_demo_games():
+    # 데모 경기는 네이버에 없으니 거르지 않으면 넣자마자 숨는다. pymysql 이 %% 를 % 로 바꾼다.
+    conn = FakeConn(rowcounts=[0])
+    DbSink(None, connection=conn).sync_removed_games("2026-10-31", [])
+
+    _, sql, params = conn.log[0]
+    assert "NOT LIKE 'DEMO%%'" in sql
+    assert (sql % tuple(params)).count("'DEMO%'") == 1

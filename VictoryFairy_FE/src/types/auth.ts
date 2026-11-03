@@ -31,10 +31,11 @@ export interface EmailVerifyRequest {
 /** POST /auth/signup */
 export interface SignupRequest {
   name: string;
-  /** 숫자만 10~11자리 */
-  tel: string;
+  /** 숫자만 10~11자리. 화면에서 더 이상 입력받지 않아 항상 null로 보낸다. */
+  tel: string | null;
   email: string;
-  gender: Gender;
+  /** 화면에서 더 이상 입력받지 않아 항상 null로 보낸다. */
+  gender: Gender | null;
   nickname: string;
   /** 평문. 서버에서 BCrypt 인코딩 후 저장 */
   password: string;

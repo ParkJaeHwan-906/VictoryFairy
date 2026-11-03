@@ -5,10 +5,11 @@
 # SPA fallback·압축은 아래 Response Headers Policy / CloudFront Function / compress 로 옮겨왔다.
 #
 # 오리진이 3개인 이유: 사용자 대면 도메인을 하나로 유지하기 위해서다. CloudFront 가 진입점이 되어
-#   /api/*, /rt/*                → ALB (기존 EKS 앱)
+#   /api/*, /rt/*, /chat/*       → ALB (기존 EKS 앱 — 목록은 var.api_path_patterns)
 #   /user-profile-img/*, /temp/* → S3 asset 버킷 (사용자 업로드 이미지, modules/asset)
 #   /characters/*, /items/*, /stores/*
 #                                → S3 asset 버킷 (캐릭터 꾸미기 에셋, 같은 모듈·다른 접두사)
+#   /community-img/*             → S3 asset 버킷 (커뮤니티 게시글·댓글 이미지, 프로필과 같은 성격)
 #   그 외                        → S3 fe 버킷 (정적 자산)
 # 로 갈라 보내므로 FE·API·이미지가 계속 같은 오리진이고, CORS 도 FE 번들의 절대 URL 도 필요 없다.
 #
@@ -24,8 +25,9 @@ locals {
 
   # 접두사(temp/)로 받아 경로 패턴(/temp/*)으로 바꾼다. 버킷 키와 URL 경로가 같은 문자열이라
   # 한 곳(루트 locals)에서 온 값을 양쪽이 나눠 쓰게 한다 — 어긋나면 이미지가 404 다.
-  asset_profile_path_pattern = "/${var.asset_profile_prefix}*"
-  asset_temp_path_pattern    = "/${var.asset_temp_prefix}*"
+  asset_profile_path_pattern   = "/${var.asset_profile_prefix}*"
+  asset_temp_path_pattern      = "/${var.asset_temp_prefix}*"
+  asset_community_path_pattern = "/${var.asset_community_prefix}*"
 
   # 캐릭터 꾸미기 에셋(characters/·items/·stores/). 위 둘과 같은 변환이지만 개수가 늘 수 있어
   # 목록으로 받는다 — behavior 는 아래에서 dynamic 블록으로 편다.
@@ -617,6 +619,23 @@ resource "aws_cloudfront_distribution" "this" {
       cache_policy_id            = aws_cloudfront_cache_policy.asset_static.id
       response_headers_policy_id = aws_cloudfront_response_headers_policy.asset_static.id
     }
+  }
+
+  # 커뮤니티 게시글·댓글 이미지 — 프로필 이미지와 같은 성격(UUID 키라 불변)이라 캐시·응답 헤더 정책을
+  # 그대로 재사용한다. 맨 뒤에 붙여 기존 behavior 의 precedence 번호를 밀지 않는다.
+  # ⚠ community/ 가 아니라 community-img/ 인 이유: FE 라우트 /community/posts/:id 등과 겹치면
+  #   새로고침·딥링크가 S3 asset 버킷으로 가서 403 이다.
+  # ⚠ SPA fallback 함수 없음·읽기 전용(GET/HEAD) — 프로필 이미지 behavior 와 같은 이유.
+  ordered_cache_behavior {
+    path_pattern           = local.asset_community_path_pattern
+    target_origin_id       = local.asset_origin_id
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["GET", "HEAD"]
+    cached_methods         = ["GET", "HEAD"]
+    compress               = false
+
+    cache_policy_id            = aws_cloudfront_cache_policy.asset.id
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.asset.id
   }
 
   viewer_certificate {

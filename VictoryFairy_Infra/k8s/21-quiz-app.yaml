@@ -97,13 +97,26 @@ spec:
             limits:
               cpu: "700m"
               memory: "768Mi"
+          # ⚠ startup·liveness 는 TCP, readiness 만 HTTP 다. 섞어 둔 것이 의도다.
+          #   Spring 은 ApplicationRunner(QuizIngestStartupRunner — S3 후보 적재·편성, main 스레드)가
+          #   끝나야 readiness 를 ACCEPTING_TRAFFIC 으로 바꾼다. 실측(2026-10-14) Tomcat 66초 + 러너
+          #   1분 44초 = 컨테이너 시작 후 약 175초. startupProbe 를 HTTP readiness 로 걸면 한도
+          #   30x5=150초를 넘겨 kubelet 이 컨테이너를 죽이고, 러너가 매번 처음부터 다시 돌아 재시작
+          #   루프가 된다. liveness 를 readiness 에 걸어도 같은 이유로 위험하다.
           startupProbe:
             tcpSocket: { port: 8081 }
             failureThreshold: 30
             periodSeconds: 5
+          # ALB 헬스체크(22-ingress.yaml healthcheck-path)와 같은 경로를 본다. TCP 였을 때는 포트만 열리면
+          #   Ready 로 쳐서 maxUnavailable 0 롤링이 러너 도중에 구버전을 내렸다(2026-10-14 3분 순단).
+          #   readiness 그룹은 readinessState 만 본다(db·redis 미포함) — 그룹에 외부 의존을 넣으면
+          #   의존이 흔들릴 때 전 파드가 동시에 Service 에서 빠진다.
+          #   timeoutSeconds 3: 기동 직후 CPU limit 스로틀 중에도 오탐하지 않을 여유(기본 1초).
           readinessProbe:
-            tcpSocket: { port: 8081 }
+            httpGet: { path: /rt/actuator/health/readiness, port: 8081 }
             periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
           livenessProbe:
             tcpSocket: { port: 8081 }
             periodSeconds: 15

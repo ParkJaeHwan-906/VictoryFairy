@@ -4,6 +4,7 @@ import com.skhynix.domain.user.entity.UserBq;
 import jakarta.persistence.LockModeType;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -50,14 +51,22 @@ public interface UserBqRepository extends JpaRepository<UserBq, Long> {
      * <p>정렬 축이 둘인 것은 결정성 때문이다 — 점수만으로 정렬하면 동점자의 순서가 요청마다 바뀔 수 있고,
      * 상한에서 잘리는 계정이 달라진다. 순위 숫자를 여기서 매기지 않는 이유는 윈도 함수가 JPQL 에 없어서인데,
      * 이 목록은 1 위부터의 접두이므로 호출부가 "앞 항목과 점수가 같으면 같은 순위"로 매겨도 결과가 같다.
+     *
+     * <p>{@code excludedAccountIds} 는 요청자와 차단 관계(양방향)인 계정 id 전체다({@code UserBlockRepository
+     * .findRelatedAccountIds}, {@code docs/requirements/user/user-block.md} USER-BLK-17) — 모집단에서 빼는
+     * 조건이라 상한(limit)에서 잘리는 자리를 그만큼 뒤에서 채운다(빠진 자리를 메우지 않고 뒤 순번이 당겨짐).
+     * 차단 이력이 없으면 빈 집합을 그대로 넘긴다 — Hibernate 가 빈 컬렉션 파라미터의 IN/NOT IN 절을 거짓
+     * 술어로 치환해 원래 동작과 같다.
      */
     @Query("select ua.nickname as nickname, ua.profileImgUrl as profileImgUrl, "
             + "coalesce(ub.bqScore, 0L) as bqScore "
             + "from UserSupportTeam ust join ust.userAccount ua "
             + "left join UserBq ub on ub.userAccount.id = ua.id "
             + "where ust.team.id = :teamId and ust.oppose is null "
+            + "and ua.id not in :excludedAccountIds "
             + "order by coalesce(ub.bqScore, 0L) desc, ua.id asc")
-    List<BqRankingEntryView> findTeamRanking(@Param("teamId") Long teamId, Limit limit);
+    List<BqRankingEntryView> findTeamRanking(@Param("teamId") Long teamId,
+            @Param("excludedAccountIds") Set<Long> excludedAccountIds, Limit limit);
 
     /**
      * 그 구단 모집단에서 주어진 점수보다 <b>엄격히 높은</b> 계정 수. {@code +1} 이 곧 그 점수의 순위다
@@ -65,12 +74,27 @@ public interface UserBqRepository extends JpaRepository<UserBq, Long> {
      *
      * <p>점수를 인자로 받는 이유는 {@code /me} 가 이미 읽어 둔 값을 다시 읽지 않기 위해서다 — 계정 id 로 받아
      * 안에서 점수를 다시 조회하면 그 경로의 SELECT 가 1 회가 아니라 2 회 늘어난다.
+     *
+     * <p>차단 필터가 없는 버전이다 — {@code UserProfileService}(`/me`의 {@code bqRank})가 쓰는 경로로,
+     * 그 응답은 {@code docs/requirements/user/user-block.md} 범위 밖이라 그대로 남긴다.
      */
     @Query("select count(ust.id) from UserSupportTeam ust "
             + "left join UserBq ub on ub.userAccount.id = ust.userAccount.id "
             + "where ust.team.id = :teamId and ust.oppose is null "
             + "and coalesce(ub.bqScore, 0L) > :bqScore")
     long countHigherInTeam(@Param("teamId") Long teamId, @Param("bqScore") long bqScore);
+
+    /**
+     * 위와 같지만 차단 관계(양방향)인 계정도 모집단에서 제외한다({@code docs/requirements/user/user-block.md}
+     * USER-BLK-18) — {@code GET /rankings/bq/me} 전용.
+     */
+    @Query("select count(ust.id) from UserSupportTeam ust "
+            + "left join UserBq ub on ub.userAccount.id = ust.userAccount.id "
+            + "where ust.team.id = :teamId and ust.oppose is null "
+            + "and coalesce(ub.bqScore, 0L) > :bqScore "
+            + "and ust.userAccount.id not in :excludedAccountIds")
+    long countHigherInTeam(@Param("teamId") Long teamId, @Param("bqScore") long bqScore,
+            @Param("excludedAccountIds") Set<Long> excludedAccountIds);
 
     /**
      * 한 계정의 순위표 재료(닉네임·이미지 EP·점수)를 한 번에. 계정과 점수 행을 따로 읽으면 SELECT 가 2 회다.

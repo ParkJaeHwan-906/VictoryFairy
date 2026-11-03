@@ -1,7 +1,7 @@
 # 구단(team) API 명세
 
 > **도메인** `team` — KBO 구단 참조 데이터.
-> **모듈** user (포트 8080) · **경로 접두사** `/api/teams` · **엔드포인트** 1개
+> **모듈** user · **경로 접두사** `/api/teams` · **엔드포인트** 1개
 > **컨트롤러** `user/src/main/java/com/skhynix/user/team/controller/TeamController.java` (`@RequestMapping("/teams")`)
 > **최종 갱신** 2026-08-04 — 모듈별(`user.md`) 문서를 도메인별로 분리. 계약 변경 없음.
 > 공통 규약(응답 래퍼·401 정책)은 [README.md](README.md)를 먼저 볼 것.
@@ -64,7 +64,7 @@ Authorization 헤더가 있어도(만료됐거나 서명이 무효한 access 토
 
 **예시**
 ```bash
-curl -i -X GET http://localhost:8080/api/teams
+curl -i -X GET https://victoryfairy.com/api/teams
 ```
 응답(`id`는 `infra/sql/teams-init.sql`의 `INSERT` 순서를 auto-increment가 그대로 따른다고 가정한 예시일 뿐 — PK 채번은 계약이 아니고 정렬 계약은 오직 `name`에만 있다):
 ```json
@@ -73,12 +73,12 @@ curl -i -X GET http://localhost:8080/api/teams
 
 페이징 파라미터를 붙여도 무시됨(항상 전체 10개 반환):
 ```bash
-curl -i -X GET "http://localhost:8080/api/teams?page=1&size=5"
+curl -i -X GET "https://victoryfairy.com/api/teams?page=1&size=5"
 ```
 
 비-GET 예시(405가 아니라 401):
 ```bash
-curl -i -X POST http://localhost:8080/api/teams
+curl -i -X POST https://victoryfairy.com/api/teams
 ```
 ```json
 {"success":false,"data":null,"message":"인증이 필요합니다."}

@@ -108,6 +108,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "this" {
   # ⚠ user-profile-img/ 에는 어떤 만료 규칙도 걸지 않는다(의도적 부재 — 지운 것이 아니다).
   #   걸면 사용자의 프로필 사진이 조용히 사라지고, DB 에는 URL 만 남아 이미지가 깨질 때까지
   #   아무도 모른다. 용량이 문제가 되면 만료가 아니라 스토리지 클래스 전환으로 풀 것.
+  # ⚠ community-img/ 도 같은 이유로 만료 규칙이 없다(의도적 부재). 게시글이 살아 있는 한 이미지도
+  #   살아 있어야 하고, 지우는 주체는 게시글·댓글 삭제를 처리하는 앱이다.
 
   # 멈춘 멀티파트 업로드가 요금만 먹는 것을 막는다(fe 버킷과 동일).
   rule {
@@ -139,6 +141,7 @@ data "aws_iam_policy_document" "this" {
     resources = concat(
       [
         "${aws_s3_bucket.this.arn}/${var.profile_prefix}*",
+        "${aws_s3_bucket.this.arn}/${var.community_prefix}*",
         "${aws_s3_bucket.this.arn}/${var.temp_prefix}*",
       ],
       [for prefix in var.static_prefixes : "${aws_s3_bucket.this.arn}/${prefix}*"],

@@ -58,10 +58,19 @@ format·needs·intent·distractor·settlement·difficulty)을 정하고, 이 문
   "정답 근거"로 인용하지 않는다(예측은 애초에 정답이 없으므로 evidence 필드 자체가
   `null`이다).
 - `settlement.metric`은 해당 템플릿의 `settlement` 값을 **그대로** 쓴다
-  (`WIN_TEAM` / `TOTAL_RUNS` / `SCORE_GAP` / `PITCHER_DECISION`) — LLM이 새로운
-  지표명을 만들어내지 않는다. `settlement.gameId`는 데이터 바인딩 단계에서 확정된
-  오늘 경기의 `gameId`를 그대로 넣는다.
+  (`WIN_TEAM` / `TOTAL_RUNS` / `SCORE_GAP` / `PITCHER_DECISION` /
+  `BATTER_HIT_IN_INNING`) — LLM이 새로운 지표명을 만들어내지 않는다.
+  `settlement.gameId`는 데이터 바인딩 단계에서 확정된 오늘 경기의 `gameId`를
+  그대로 넣는다.
 - `answer`/`evidence`는 예측 퀴즈에서 항상 `null`.
+- **`BATTER_HIT_IN_INNING`(`PRED_BATTER_HIT_INNING`) 전용** — 이닝 트리거 기반
+  실시간 정산이라 settlement에 필드 두 개가 더 필요하다: `settlement.inning`
+  (1~11 정수)·`settlement.half`(`"TOP"`/`"BOTTOM"` **문자열** — BE
+  `InningHalf#name()`과 같은 축이다, `0`/`1` 정수가 아니다). 선수·이닝을 고르는
+  절차와 이 지표의 실험적 성격(확정 라인업 소스 부재)은 `ROUTINE.md` §3-1 참고.
+  `subject.playerIds`에 그 선수의 `kboPlayerId`를 **반드시** 채운다(§11 — BE가
+  이 필드로 player FK를 찾아 정산 대상을 정하므로, 다른 PREDICTION과 달리 이
+  템플릿은 subject가 빠지면 영영 정산되지 않는다).
 
 ## 4. 안전 규칙 (스펙 4.2 — 생성 단계 1차 방어선)
 
@@ -99,6 +108,11 @@ format·needs·intent·distractor·settlement·difficulty)을 정하고, 이 문
 `bqReward`는 **같은 파일의 `bq` 표**를 그대로 옮겨 적는다(임의 값 부여 금지,
 이 문서에 숫자를 다시 적지 않는다 — 정본은 그 파일 하나다). 실행 시 그 파일을
 열어 현재 값을 확인하고 쓴다. 값이 바뀌어도 이 문서는 고치지 않는다.
+
+**예외: `TEAMMATE_STAT_COMPARE`**(2026-10-07)는 카탈로그 `difficulty`(MEDIUM)를
+그대로 쓰지 않는다 — 고른 지표에 따라 EASY/MEDIUM/HARD 중 하나를 그때그때
+정한다. 지표별 대응표와 자격 기준은 `question-gen/config/question-templates.yaml`의
+이 템플릿 `intent`와 `question-gen/ROUTINE.md` §3-2를 따른다.
 
 두 필드는 **둘 다 필수**이며 한 문항 안에서 같은 난이도를 가리켜야 한다. 한쪽만
 채우거나 서로 다른 난이도의 값을 쓰면 업로드 직전 게이트(`validate_candidates.py`

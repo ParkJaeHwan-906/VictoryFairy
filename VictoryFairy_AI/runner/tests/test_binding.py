@@ -18,6 +18,19 @@ def test_enumerate_entities_by_family(work):
     assert enumerate_entities(work, meme, TODAY) == ["69238"]
 
 
+def test_available_needs_includes_recent_vs_prior(work):
+    """2026-09-30 RECENT_VS_EARLY 이동창 교체 때 stats.recent_vs_prior를
+    _STANDINGS_TEAM_FAMILIES·available_needs 양쪽에 등록하는 걸 빠뜨려서
+    이 템플릿이 항상 '비가용' 판정되는 회귀가 있었다(2026-10-02 실행에서 발견)."""
+    av = available_needs(work, TODAY)
+    assert "stats.recent_vs_prior" in av
+
+
+def test_enumerate_entities_recent_vs_prior_uses_standings_teams(work):
+    tpl = {"id": "RECENT_VS_EARLY", "needs": ["stats.recent_vs_prior"]}
+    assert enumerate_entities(work, tpl, TODAY) == ["HH", "LT", "OB"]
+
+
 def test_bind_wiki_returns_doc_source(work):
     meme = {"id": "MEME_OWNER", "needs": ["wiki.별명밈"]}
     b = bind(work, meme, "69238", TODAY)

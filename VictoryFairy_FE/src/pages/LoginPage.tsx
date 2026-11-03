@@ -1,12 +1,12 @@
 import { useState, type FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ApiError, getTokenStorage, login } from '../api';
 // OAuth 연동 보류 — 소셜 로그인을 되살릴 때 아이콘 import 도 함께 푼다.
 // import googleIcon from '../assets/google.svg';
 // import kakaoIcon from '../assets/kakao.svg';
 // import naverIcon from '../assets/naver.svg';
 import { useAccountStore } from '../stores/useAccountStore';
-import { ROUTES } from '../routes';
+import { ROUTES, readLoginRedirect } from '../routes';
 import '../styles/LoginPage.css';
 
 /*
@@ -55,9 +55,14 @@ function toFieldMessages(error: unknown): FieldMessages {
  *
  * 이메일 로그인(POST /auth/login)을 연결한다. 실패 시 서버가 준 message 를
  * 해당 입력창 아래에 그대로 노출한다(문구를 프론트에서 새로 만들지 않는다).
+ *
+ * 로그인은 **계정 기능에 들어가려 할 때만** 거치는 자리다 — 홈·경기는 로그인 없이 열린다
+ * (App Store 심사 5.1.1(v)). 그래서 성공하면 들어가려던 화면(`LoginPageState.from`)으로 보내고,
+ * 로그인하지 않고 돌아갈 수 있게 "둘러보기"로 홈 길을 남긴다.
  */
 export default function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   /** 로그인 직후 프로필을 전역에 채운다 — 이후 화면들이 다시 받지 않아도 되게. */
   const fetchProfile = useAccountStore((state) => state.fetchProfile);
 
@@ -102,7 +107,8 @@ export default function LoginPage() {
       await fetchProfile();
 
       // replace — 뒤로가기로 로그인 화면에 돌아오지 않게 한다.
-      navigate(ROUTES.main, { replace: true });
+      // 보호 화면에서 왔으면 그 화면으로, 아니면 메인으로 간다.
+      navigate(readLoginRedirect(location.state), { replace: true });
     } catch (error) {
       setMessages(toFieldMessages(error));
       // 실패했을 때만 버튼을 되살린다. 성공하면 화면이 바뀌므로 눌린 상태 그대로 둔다.
@@ -216,6 +222,14 @@ export default function LoginPage() {
             회원가입
           </Link>
         </p>
+
+        {/*
+          로그인 없이 둘러보기. 홈·경기는 계정 없이 쓸 수 있는 기능이라 로그인을 강제하지 않는다.
+          replace — 뒤로가기로 이 화면에 다시 오지 않게 한다.
+        */}
+        <Link className="login-page__browse" to={ROUTES.main} replace>
+          로그인 없이 둘러보기
+        </Link>
       </section>
     </main>
   );

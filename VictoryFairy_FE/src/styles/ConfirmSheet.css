@@ -36,7 +36,7 @@
   flex-direction: column;
   width: 100%;
   max-width: var(--layout-app-width);
-  padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(24px + var(--safe-area-bottom));
   border-radius: var(--radius-40) var(--radius-40) 0 0;
   background-color: var(--color-surface);
   animation: confirm-sheet-rise 0.24s ease-out;

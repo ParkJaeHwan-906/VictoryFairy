@@ -15,9 +15,11 @@ import com.skhynix.domain.support.repository.UserSupportTeamRepository;
 import com.skhynix.domain.team.entity.Team;
 import com.skhynix.domain.user.entity.UserAccount;
 import com.skhynix.domain.user.repository.UserAccountRepository;
+import com.skhynix.domain.user.repository.UserBlockRepository;
 import com.skhynix.quiz.chat.dto.MessageEvent;
 import com.skhynix.quiz.chat.dto.MessageResponse;
-import com.skhynix.quiz.chat.profanity.ProfanityDataLoader;
+import com.skhynix.profanity.ProfanityDataLoader;
+import com.skhynix.profanity.ProfanityDetector;
 import com.skhynix.quiz.chat.profanity.ProfanityFilter;
 import com.skhynix.quiz.realtime.RealtimeEvent;
 import com.skhynix.quiz.realtime.RealtimeEventPublisher;
@@ -63,6 +65,9 @@ class ChatServiceProfanityMaskingTest {
     private UserSupportTeamRepository userSupportTeamRepository;
 
     @Mock
+    private UserBlockRepository userBlockRepository;
+
+    @Mock
     private RealtimeEventPublisher eventPublisher;
 
     @Mock
@@ -72,9 +77,9 @@ class ChatServiceProfanityMaskingTest {
 
     @BeforeEach
     void setUp() {
-        ProfanityFilter filter = new ProfanityFilter(new ProfanityDataLoader(new ObjectMapper()));
+        ProfanityFilter filter = new ProfanityFilter(new ProfanityDetector(new ProfanityDataLoader(new ObjectMapper())));
         chatService = new ChatService(chatroomRepository, chatRepository, userAccountRepository,
-                userSupportTeamRepository, eventPublisher, emitterRegistry, filter);
+                userSupportTeamRepository, userBlockRepository, eventPublisher, emitterRegistry, filter);
     }
 
     private void givenDoosanFanInDoosanRoom() {

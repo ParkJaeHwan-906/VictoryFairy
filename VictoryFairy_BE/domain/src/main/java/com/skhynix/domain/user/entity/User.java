@@ -40,14 +40,17 @@ public class User {
     private String name;
 
     /**
-     * 전화번호. 소셜 계정에서는 {@code null} 이다({@link #name} 과 같은 이유).
+     * 전화번호. 소셜 계정에서는 {@code null} 이다({@link #name} 과 같은 이유). 자체 가입에서도
+     * 선택 입력이라 {@code null} 일 수 있다({@code SignupRequest.tel} 참고).
      *
      * <p>UNIQUE 는 그대로 둔다 — MySQL 의 UNIQUE 인덱스는 NULL 중복을 허용하므로 "번호 없는 계정
      * 여러 건"과 "같은 번호 두 건 금지"가 동시에 성립한다. 제약을 풀 이유가 없다.
      *
-     * <p>⚠ 이제 <b>{@code tel} 이 NULL 인 계정이 정상적으로 존재한다.</b> 앞으로 SMS 발송·본인확인
-     * 같은 기능을 붙일 때 "전화번호는 항상 있다"를 전제로 짜면 소셜 계정에서 NPE 나 조용한 누락이
-     * 된다({@code name}·{@code gender} 도 같다).
+     * <p>⚠ {@code tel} 이 NULL 인 계정이 정상적으로 존재한다. 앞으로 SMS 발송·본인확인 같은 기능을
+     * 붙일 때 "전화번호는 항상 있다"를 전제로 짜면 NPE 나 조용한 누락이 된다({@code name}·
+     * {@code gender} 도 같다). 중복 검사에서도 {@code existsByTel(null)} 을 그대로 쓰지 말 것 —
+     * 파생 쿼리가 이를 "IS NULL" 로 해석해 무전화번호 계정끼리 서로 중복으로 오탐한다
+     * ({@code AuthService.signup} 참고).
      */
     @Column(name = "tel", length = 11, nullable = true, unique = true)
     private String tel;
@@ -55,7 +58,7 @@ public class User {
     @Column(name = "email", length = 100, nullable = false, unique = true)
     private String email;
 
-    // 소셜 계정에서는 null (name·tel 과 같은 이유)
+    // 소셜 계정에서는 null (name·tel 과 같은 이유). 자체 가입에서도 선택 입력이라 null 일 수 있다.
     @Enumerated(EnumType.ORDINAL)
     @Column(name = "gender", columnDefinition = "TINYINT", nullable = true)
     private Gender gender;

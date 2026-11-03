@@ -37,6 +37,12 @@ variable "cluster_version" {
   }
 }
 
+variable "ebs_csi_controller_node_group" {
+  description = "EBS CSI 컨트롤러를 띄울 노드그룹 키(node_groups 의 키). 그 노드그룹의 labels/taints 로 nodeSelector·toleration 을 만든다. null 이면 애드온 기본 배치(2개, taint 없는 노드)."
+  type        = string
+  default     = null
+}
+
 variable "environment" {
   description = "배포 환경 (dev / prod). 리소스 Name 태그 등에 사용."
   type        = string

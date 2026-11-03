@@ -7,31 +7,43 @@ import TeamSelectPage from './pages/TeamSelectPage';
 import MainPage from './pages/MainPage';
 import MyPage from './pages/MyPage';
 import GamePage from './pages/GamePage';
+import GameDetailPage from './pages/GameDetailPage';
 import PlayerSelectPage from './pages/PlayerSelectPage';
 import CompletePage from './pages/CompletePage';
 import InquiryPage from './pages/InquiryPage';
 import NoticePage from './pages/NoticePage';
 import NoticeDetailPage from './pages/NoticeDetailPage';
+import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
+import TermsOfServicePage from './pages/TermsOfServicePage';
 import ProfileEditPage from './pages/ProfileEditPage';
 import AccountSettingPage from './pages/AccountSettingPage';
 import NotificationSettingPage from './pages/NotificationSettingPage';
 import CharacterCustomPage from './pages/CharacterCustomPage';
+import StorySharePage from './pages/StorySharePage';
 import QuizPage from './pages/QuizPage';
 import QuizResultPage from './pages/QuizResultPage';
+import CommunityPostDetailPage from './pages/CommunityPostDetailPage';
+import CommunityPostEditorPage from './pages/CommunityPostEditorPage';
+import MyCommunityPostsPage from './pages/MyCommunityPostsPage';
+import QuizRoomPage from './pages/QuizRoomPage';
+import QuizRoomEditorPage from './pages/QuizRoomEditorPage';
 import ProtectedRoute from './components/ProtectedRoute';
 import PublicOnlyRoute from './components/PublicOnlyRoute';
+import { useProfileBootstrap } from './hooks/useProfileBootstrap';
 import { ROUTES } from './routes';
 
 export default function App() {
+  // 로그인 상태면 프로필을 채운다 — 공개 화면(홈·경기)도 지나야 해서 라우트가 아니라 여기서 부른다.
+  useProfileBootstrap();
+
   return (
     <Routes>
       {/*
-        진입 지점. 로그인으로 보내지만 세션이 남아 있으면 아래 `PublicOnlyRoute` 가 곧바로
-        메인으로 이어 보낸다 — 앱을 다시 켰을 때 로그인 화면을 거치지 않는 경로다.
-        여기서 직접 판정하지 않는 이유는, 그러면 "세션이 있으면 메인" 규칙이 두 군데로
-        갈라져 한쪽만 고치는 일이 생기기 때문이다.
+        진입 지점. 로그인 여부와 상관없이 홈으로 보낸다 — 홈·경기는 로그인 없이 둘러볼 수
+        있어야 한다(App Store 심사 5.1.1(v): 계정과 무관한 기능에 가입을 요구하지 말 것).
+        로그인은 계정 기능에 처음 들어가려 할 때 `ProtectedRoute` 가 요구한다.
       */}
-      <Route path="/" element={<Navigate to={ROUTES.login} replace />} />
+      <Route path="/" element={<Navigate to={ROUTES.main} replace />} />
       {/*
         로그인 · 회원가입은 세션이 없는 사람만 들어오는 자리다. 토큰이 남아 있는데도
         폼을 마주하지 않도록 `PublicOnlyRoute` 가 메인으로 돌려보낸다.
@@ -44,7 +56,34 @@ export default function App() {
       <Route path={ROUTES.playerSelect} element={<PlayerSelectPage />} />
       <Route path={ROUTES.complete} element={<CompletePage />} />
       {/*
-        여기부터는 로그인해야 들어올 수 있다. 위쪽 온보딩(구단 · 선수 선택 · 완료)은
+        하단 NavBar 가 붙는 화면들.
+        레이아웃에 NavBar 를 한 번만 두어, 이 안에서 화면을 옮겨 다녀도
+        NavBar 가 그대로 남고 선택 표시가 이어서 움직인다.
+
+        홈 · 경기는 **공개**다(로그인 없이 둘러보기). 라운지 · 마이는 계정 기능이라 안쪽에서
+        `ProtectedRoute` 로 다시 막는다 — 탭을 누르면 로그인으로 갔다가 그 탭으로 돌아온다.
+      */}
+      <Route element={<AppLayout />}>
+        <Route path={ROUTES.main} element={<MainPage />} />
+        <Route path={ROUTES.game} element={<GamePage />} />
+        <Route element={<ProtectedRoute />}>
+          <Route path={ROUTES.community} element={<CommunityPage />} />
+          <Route path={ROUTES.my} element={<MyPage />} />
+        </Route>
+      </Route>
+      {/*
+        경기 상세도 공개다 — 아래에 경기 채팅이 붙어 NavBar 없는 전체 화면이다.
+        채팅(과 퀴즈)만 계정 기능이라 비로그인이면 화면 안에서 로그인 안내로 바꾼다.
+      */}
+      <Route path={ROUTES.gameDetail} element={<GameDetailPage />} />
+      {/*
+        약관 두 건도 공개다 — 가입하기 전에 읽을 수 있어야 하는 글이라 로그인으로 막지 않는다.
+        마이페이지에서 들어오는 NavBar 없는 전체 화면이다.
+      */}
+      <Route path={ROUTES.privacyPolicy} element={<PrivacyPolicyPage />} />
+      <Route path={ROUTES.termsOfService} element={<TermsOfServicePage />} />
+      {/*
+        여기부터는 로그인해야 들어올 수 있는 계정 기능이다. 위쪽 온보딩(구단 · 선수 선택 · 완료)은
         회원가입으로 토큰을 막 받은 채 지나는 구간이라 어느 쪽으로도 막지 않는다 —
         `PublicOnlyRoute` 를 씌우면 가입 직후 흐름이 통째로 끊긴다.
       */}
@@ -67,19 +106,30 @@ export default function App() {
         {/* 캐릭터 꾸미기도 NavBar 없는 전체 화면이다 — 홈의 옷 버튼으로 들어온다 */}
         <Route path={ROUTES.characterCustom} element={<CharacterCustomPage />} />
         {/*
-          하단 NavBar 가 붙는 화면들.
-          레이아웃에 NavBar 를 한 번만 두어, 이 안에서 화면을 옮겨 다녀도
-          NavBar 가 그대로 남고 선택 표시가 이어서 움직인다.
+          스토리 공유도 마이페이지에서 들어오는 NavBar 없는 화면이다 — 스티커를 만드는
+          것까지가 웹이고, 인스타로 건네는 것은 앱이 한다(utils/instagramShare.ts).
         */}
-        <Route element={<AppLayout />}>
-          <Route path={ROUTES.main} element={<MainPage />} />
-          <Route path={ROUTES.game} element={<GamePage />} />
-          <Route path={ROUTES.community} element={<CommunityPage />} />
-          <Route path={ROUTES.my} element={<MyPage />} />
-        </Route>
+        <Route path={ROUTES.storyShare} element={<StorySharePage />} />
+        {/*
+          라운지 게시판의 글 상세 · 작성 · 수정. 셋 다 NavBar 없는 전체 화면이다 —
+          상세는 아래에 댓글 입력창이 붙고, 작성 · 수정은 하단 CTA 가 붙는다.
+          커뮤니티 API 는 17개 전부 인증 필수라 모두 이 보호 구역 안에 둔다.
+        */}
+        <Route path={ROUTES.communityPost} element={<CommunityPostDetailPage />} />
+        <Route path={ROUTES.communityWrite} element={<CommunityPostEditorPage />} />
+        <Route path={ROUTES.communityEdit} element={<CommunityPostEditorPage />} />
+        {/*
+          라운지 퀴즈방의 만들기 · 상세(풀이 · 결과). 둘 다 NavBar 없는 전체 화면이다.
+          퀴즈방 API 도 9개 전부 인증 필수라 게시판과 같은 보호 구역에 둔다.
+          `write` 는 정적 세그먼트라 `:roomId` 보다 먼저 매칭된다(선언 순서와 무관).
+        */}
+        <Route path={ROUTES.quizRoomWrite} element={<QuizRoomEditorPage />} />
+        <Route path={ROUTES.quizRoom} element={<QuizRoomPage />} />
+        {/* 내 게시글(신고로 숨겨진 글 포함) — 마이페이지 "활동"에서 들어온다 */}
+        <Route path={ROUTES.myCommunityPosts} element={<MyCommunityPostsPage />} />
       </Route>
-      {/* 알 수 없는 경로는 로그인으로 되돌린다 */}
-      <Route path="*" element={<Navigate to={ROUTES.login} replace />} />
+      {/* 알 수 없는 경로는 홈으로 되돌린다 — 보호 화면이면 거기서 다시 로그인으로 보낸다 */}
+      <Route path="*" element={<Navigate to={ROUTES.main} replace />} />
     </Routes>
   );
 }

@@ -100,8 +100,13 @@ H2H_SEASON_RECORD 템플릿 하나를 따라가 보자:
 - **정확한 수치는 묻지 않는다** (역대·현역 기록). 현역 선수 통산 기록은 매일 변하므로
   "누가 1위인가", "누가 최초 달성했나" 같은 순위·달성형으로만
 - **정산 못 하는 예측은 내지 않는다.** 운영 DB에 스코어와 투수 W/L/S/H밖에 없으므로
-  예측 퀴즈는 승패·득점·점수차·투수 decision으로 판정 가능한 것만. "6이닝 이상
-  던질까?" 류는 데이터가 생기기 전까지 금지
+  예측 퀴즈는 승패·득점·점수차·투수 decision으로 판정 가능한 것만이 원칙이다.
+  2026-10-04부터 예외가 하나 생겼다 — 이닝 트리거 기반 실시간 정산
+  (`PRED_BATTER_HIT_INNING`, py-collector가 이닝 종료 시 S3에 적재하는 안타
+  사실로 BE가 정산)으로 "특정 이닝에 안타를 칠까?"는 판정 가능해졌다(확정 선발
+  라인업 소스는 아직 없어 실험적/제한적 — `question-gen/ROUTINE.md` §3-1 참고).
+  그 외 "6이닝 이상 던질까?" 같은 상세 스탯 예측은 여전히 데이터가 생기기 전까지
+  금지
 - **나무위키를 복사하지 않는다.** CC BY-NC-SA(비영리) 라이선스. 기록 사실 자체는
   저작권이 없으므로 KBO 공식 기록실을 원천으로 자체 구성한다
 
@@ -138,5 +143,5 @@ H2H_SEASON_RECORD 템플릿 하나를 따라가 보자:
 ## 관련 문서
 
 - [설계 스펙](superpowers/specs/2026-07-28-llm-wiki-quiz-generation-design.md) — 아키텍처·계약·리스크
-- [question-templates.yaml](../question-gen/config/question-templates.yaml) — 템플릿 카탈로그 (34종)
+- [question-templates.yaml](../question-gen/config/question-templates.yaml) — 템플릿 카탈로그 (35종)
 - [envelope-format.md](../py-collector/docs/envelope-format.md) — 수집 파이프라인 산출물 계약

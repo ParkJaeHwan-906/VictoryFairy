@@ -186,11 +186,39 @@
    * ---------------------------------------------------------------- */
   --layout-app-width: 402px;
   --layout-gutter: 24px;
-  --layout-sheet-height: 600px;
   /* 하단 NavBar 의 흰 바 높이. 선택된 탭의 마름모는 이 위로 떠 있다. */
   --layout-navbar-height: 60px;
-  /* 라운지 채팅 바텀시트 높이(874 프레임 기준 694px) */
-  --layout-chat-sheet-height: 694px;
-  /* 선호 선수 검색 바텀시트 높이(874 프레임 기준 760px) */
-  --layout-player-sheet-height: 760px;
+
+  /*
+   * 시트 높이 — 디자인 값(874 프레임 기준 px)을 상한으로 두고, 그보다 낮은 화면에서는
+   * **프레임에서 차지하던 비율 그대로** 줄인다. `min(디자인 px, 100dvh)` 로 두면 짧은 단말
+   * (갤럭시 S 기본형 · iPhone SE 등)에서 시트가 화면을 통째로 덮어 위쪽 딤이 사라지고,
+   * 무엇 위에 떠 있는 시트인지 알 수 없게 된다. 시트 안은 모두 목록만 스크롤하는 구조라
+   * 높이가 줄어도 고정 영역(핸들 · 제목 · 입력창)은 잘리지 않는다.
+   */
+  /* 로그인 화면 하단 흰 시트의 최소 높이(600px) */
+  --layout-sheet-height: min(600px, calc(600 / 874 * 100dvh));
+  /* 라운지 채팅 바텀시트(694px) */
+  --layout-chat-sheet-height: min(694px, calc(694 / 874 * 100dvh));
+  /* 선호 선수 검색 바텀시트(760px) */
+  --layout-player-sheet-height: min(760px, calc(760 / 874 * 100dvh));
+  /* 퀴즈 문제 및 정답 바텀시트(720px — 프레임 y=154 부터 끝까지) */
+  --layout-quiz-result-sheet-height: min(720px, calc(720 / 874 * 100dvh));
+
+  /*
+   * 하단 안전 영역(홈 인디케이터 · 안드로이드 내비게이션 바). 화면들은 `env()` 를 직접
+   * 쓰지 않고 이 값만 본다 — 앱 안에서 0 으로 덮어야 하기 때문이다(아래 규칙).
+   */
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/*
+ * 앱(../VictoryFairy_APP) 안에서는 네이티브 `SafeAreaView` 가 이미 WebView 를 안전 영역
+ * 위로 올려 둔다. 그런데 안드로이드 WebView 는 그 상태에서도 `env(safe-area-inset-bottom)`
+ * 에 시스템 내비게이션 바 높이를 그대로 돌려줘서, 여백이 두 번 잡힌다 — NavBar 아래에
+ * 흰 띠가 한 번 더 깔리는 것이 이것이다(갤럭시 3버튼 내비게이션에서 특히 두껍다).
+ * 앱이 안전 영역을 맡는 곳에서는 웹이 손을 뗀다. 표시는 `main.tsx` 가 렌더 전에 붙인다.
+ */
+:root[data-shell='app'] {
+  --safe-area-bottom: 0px;
 }

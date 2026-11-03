@@ -9,8 +9,10 @@ WORKDIR /app
 #   브라우저에서 API 호출만 전부 실패한다 — 빌드가 깨지지 않으니 놓치기 쉽다.
 ARG VITE_API_USER_BASE_URL
 ARG VITE_API_GAME_BASE_URL
+ARG VITE_API_CHAT_BASE_URL
 ENV VITE_API_USER_BASE_URL=${VITE_API_USER_BASE_URL}
 ENV VITE_API_GAME_BASE_URL=${VITE_API_GAME_BASE_URL}
+ENV VITE_API_CHAT_BASE_URL=${VITE_API_CHAT_BASE_URL}
 
 # 의존성 설치를 소스 복사보다 앞에 둬서, 소스만 바뀐 빌드는 npm ci 레이어를 재사용하게 한다.
 COPY package.json package-lock.json ./

@@ -34,6 +34,23 @@ def test_check_evidence_resolves_stats_md(work):
     assert check_evidence(work, REPO, _cand(2, "STREAK_CURRENT", quote="없는 문장")) is False
 
 
+def test_check_evidence_resolves_player_season_stat(work):
+    # player_profile과 같은 "최신 파티션 1개" 동기화 패턴이라 날짜 서브디렉토리
+    # 없이 .work/player_season_stat/ 바로 아래 평평하게 내려받는다(ROUTINE.md
+    # §1) — evidence.source의 날짜 세그먼트는 _resolve가 버리고 파일명만 쓴다.
+    c = _cand(
+        3, "TEAMMATE_STAT_COMPARE",
+        quote="롯데 김민석은(는) 2026시즌 90경기 300타수 102안타(타율 0.340) "
+              "8홈런 40타점 10도루를 기록했다.",
+        source="question-source/player_season_stat/2026-10-06/"
+                "player_season_stat_53554.json")
+    assert check_evidence(work, REPO, c) is True
+    bad = _cand(4, "TEAMMATE_STAT_COMPARE", quote="없는 문장",
+                source="question-source/player_season_stat/2026-10-06/"
+                        "player_season_stat_53554.json")
+    assert check_evidence(work, REPO, bad) is False
+
+
 def test_select_final_drops_by_verdict_and_remaps_points():
     cands = [_cand(1, "A"), _cand(2, "B"), _cand(3, "C")]
     verdicts = {"RAW-01": _ok(diff="MEDIUM"), "RAW-02": _ok(fun=3),
@@ -77,6 +94,49 @@ def test_assign_and_write_orders_by_template_entity(work):
     assert first["deadlineAt"] == "2026-08-03T14:59:00Z"
 
 
+def test_assign_and_write_backfills_subject_team_codes_from_top_level(work):
+    """MEME_ORIGIN·RELATION_LINK·TEAMMATE_STAT_COMPARE는 team이 질문의 전제일
+    뿐 정답이 될 수 없는데도 subject.teamCodes를 비워 두는 경우가 실제로 있다
+    (2026-10-08 실측). BE QuizIngestService는 Quiz.team FK를 subject.teamCodes
+    에서만 읽으므로(최상위 teamCodes는 안 봄), 비워 두면 이 문항들이 전부
+    "공통"으로 잘못 분류돼 팀별 발행 쿼터를 못 채운다 — assign_and_write가
+    기록 직전에 백필해야 한다."""
+    c = _cand(1, "MEME_ORIGIN")
+    c["teamCodes"] = ["OB"]
+    c["subject"] = {"scope": "PLAYER", "playerIds": [69238], "teamCodes": [],
+                     "gameId": None}
+    paths = assign_and_write([c], {}, work, TODAY)
+    saved = json.loads(paths[0].read_text(encoding="utf-8"))
+    assert saved["subject"]["teamCodes"] == ["OB"]
+
+
+def test_assign_and_write_skips_backfill_when_team_name_in_answer_text(work):
+    """CAREER_PATH처럼 team이 실제 정답일 수 있으면(정답 보기 문면에 그 팀
+    이름이 등장) 백필하지 않는다 — 안 그러면 Quiz.team FK로 정답이 새어나간다
+    (validate_candidates.py check 9와 같은 정답 유출 규칙)."""
+    c = _cand(1, "CAREER_PATH")
+    c["teamCodes"] = ["OB"]
+    c["options"] = [{"id": "A", "text": "두산"}, {"id": "B", "text": "LG"}]
+    c["answer"] = "A"
+    c["subject"] = {"scope": "PLAYER", "playerIds": [69238], "teamCodes": [],
+                     "gameId": None}
+    paths = assign_and_write([c], {}, work, TODAY)
+    saved = json.loads(paths[0].read_text(encoding="utf-8"))
+    assert saved["subject"]["teamCodes"] == []
+
+
+def test_assign_and_write_does_not_touch_non_player_subject_scope(work):
+    """subject.scope가 PLAYER가 아니면(TEAM/MATCHUP/LEAGUE/GAME) 이미 자체
+    카디널리티 규칙이 있으므로 백필 로직이 손대지 않는다."""
+    c = _cand(1, "TEAM_RECORD")
+    c["teamCodes"] = ["OB"]
+    c["subject"] = {"scope": "TEAM", "playerIds": [], "teamCodes": ["OB"],
+                     "gameId": None}
+    paths = assign_and_write([c], {}, work, TODAY)
+    saved = json.loads(paths[0].read_text(encoding="utf-8"))
+    assert saved["subject"]["teamCodes"] == ["OB"]
+
+
 def test_select_final_applies_per_game_quota_independently():
     """경기 문항은 gameId별로 슬롯이 따로 돈다 — 한 경기 재료가 넘쳐도 다른
     경기 몫을 잡아먹지 않고, 초과분만 그 경기 사유로 폐기된다."""
@@ -106,3 +166,52 @@ def test_select_final_explicit_quota_overrides_grouping():
     final, reasons = select_final(cands, verdicts, {}, quota=[("EASY", 1)])
     assert [c["quizId"] for c in final] == ["RAW-01"]
     assert len(reasons) == 1 and "물량 슬롯 초과" in reasons[0]
+
+
+def test_select_final_applies_per_team_quota_independently_of_common():
+    """gameId 없고 teamCodes가 있는 문항은 perTeam 슬롯(팀별로 따로), teamCodes가
+    빈 문항은 여전히 common 슬롯을 쓴다 — 둘이 서로의 몫을 갉아먹지 않는다.
+    (2026-10-12 — perTeam·common이 난이도별 dict에서 단일 총량으로 바뀐
+    뒤에도 그룹 독립성은 그대로다.)"""
+    from runner.finalize import VOLUME
+    per_team_n = VOLUME["perTeam"]
+    cands, verdicts = [], {}
+    for i in range(per_team_n + 2):                 # LT 팀 특화: 슬롯보다 2개 많게
+        c = _cand(i, "A"); c["teamCodes"] = ["LT"]; cands.append(c)
+        verdicts[c["quizId"]] = _ok(fun=5 - (i % 2))
+    common_n = VOLUME["common"]
+    for i in range(per_team_n + 2, per_team_n + 2 + common_n + 1):  # 공통: 1개 많게
+        c = _cand(i, "A"); cands.append(c)          # teamCodes 없음 → common
+        verdicts[c["quizId"]] = _ok()
+
+    final, reasons = select_final(cands, verdicts, {})
+    by_team = [c for c in final if c.get("teamCodes") == ["LT"]]
+    by_common = [c for c in final if not c.get("teamCodes")]
+    assert len(by_team) == per_team_n
+    assert len(by_common) == common_n
+    assert sum("팀특화(LT)" in r for r in reasons) == 2
+    assert sum("공통" in r for r in reasons) == 1
+
+
+def test_select_final_per_team_quota_has_no_per_difficulty_subcap():
+    """perTeam이 단일 총량이 된 뒤로는(2026-10-12) 난이도 구성과 무관하게
+    fun 점수만으로 전체 슬롯을 채운다 — 한 난이도(HARD)가 재료는 많고 fun도
+    높은데 다른 난이도(EASY) 캡 때문에 못 들어가는 손실이 없어야 한다."""
+    from runner.finalize import VOLUME
+    per_team_n = VOLUME["perTeam"]
+    cands, verdicts = [], {}
+    # HARD 쪽에 슬롯보다 많은 재료 + 더 높은 fun을 둔다 — 전부 선택돼야 한다.
+    for i in range(per_team_n + 20):
+        c = _cand(i, "A", diff="HARD"); c["teamCodes"] = ["LT"]; cands.append(c)
+        verdicts[c["quizId"]] = _ok(fun=5, diff="HARD")
+    # EASY는 fun이 낮다 — 슬롯이 꽉 차 하나도 못 들어가야 한다(과거 dict
+    # 방식이면 EASY 전용 하위 캡 덕에 몇 개는 들어갔을 것).
+    for i in range(per_team_n + 20, per_team_n + 25):
+        c = _cand(i, "A", diff="EASY"); c["teamCodes"] = ["LT"]; cands.append(c)
+        verdicts[c["quizId"]] = _ok(fun=4, diff="EASY")
+
+    final, reasons = select_final(cands, verdicts, {})
+    by_team = [c for c in final if c.get("teamCodes") == ["LT"]]
+    assert len(by_team) == per_team_n
+    assert all(c["difficulty"] == "HARD" for c in by_team)
+    assert sum("팀특화(LT)" in r and "전체 100건" in r for r in reasons) == 25
