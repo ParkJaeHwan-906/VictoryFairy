@@ -9,7 +9,8 @@ from datetime import date as date_cls
 from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 
-from . import (community, dimensions, fetch, game_records, kbo_gamecenter, kbo_register,
+from . import (community, dimensions, fetch, game_records, kbo_boxscore, kbo_gamecenter,
+               kbo_register,
                kbo_schedule, kbo_trade, keys, naver)
 from .config import get_settings
 from .journal import Journal, setup_logging
@@ -501,13 +502,18 @@ def land_registrations(date=None, *, settings, db, client,
 def land_game_records(date, *, settings, db, client, team_ids=None) -> tuple[list[str], list[str]]:
     """하루치 완료 경기 record를 운영 MySQL(games/game_lineups)에 적재.
 
+    네이버 일정이 실패하면 KBO 게임센터 박스스코어로 대신 받는다(kbo_boxscore 모듈 주석).
     반환: (적재 성공 game_id, 실패 game_id).
     """
     log = logging.getLogger("records")
-    url = game_records.schedule_url(settings, date)
-    resp = fetch.fetch(client, url, settings=settings, referer=settings.naver_referer)
-    finished = game_records.list_finished_games(resp.json())
     team_ids = team_ids or db.upsert_teams(dimensions.TEAMS)
+    try:
+        resp = fetch.fetch(client, game_records.schedule_url(settings, date),
+                           settings=settings, referer=settings.naver_referer)
+    except fetch.FetchError as exc:
+        log.warning("%s: 네이버 일정 실패, KBO 박스스코어로 대체: %s", date, exc)
+        return _land_kbo_game_records(settings, db, client, date, team_ids, log)
+    finished = game_records.list_finished_games(resp.json())
     loaded, failed = [], []
     for g in finished:
         gid = g["gameId"]
@@ -518,28 +524,65 @@ def land_game_records(date, *, settings, db, client, team_ids=None) -> tuple[lis
             if not record:
                 failed.append(gid)
                 continue
-            game = game_records.parse_record(gid, record)
-            player_map = db.resolve_players(game.players, team_ids)
-            status = "DRAW" if game.winner == "draw" else "FINISHED"
-            game_pk = db.upsert_game(
-                game, team_ids=team_ids,
-                stadium_id=db.stadium_id(game.stadium),
-                status_id=db.status_id(status))
-            lineups = game_records.build_lineups(game)
-            db.upsert_lineups(game_pk, lineups, player_map, team_ids)
-            # 경기 전 preview 로 깔아둔 선발이 직전 교체됐으면 박스스코어에 없는
-            # 유령 행으로 남는다 — 확정 적재 직후 그 차집합을 걷어낸다.
-            ghosts = db.delete_lineups_except(
-                game_pk, [player_map[r.pcode] for r in lineups if r.pcode in player_map])
-            if ghosts:
-                log.info("%s: 유령 라인업 %d행 정리", gid, ghosts)
-            db.upsert_batting(game_pk, game.batting, player_map)
-            db.upsert_pitching(game_pk, game.pitching, player_map)
+            _store_game_record(db, game_records.parse_record(gid, record), team_ids, log)
             loaded.append(gid)
         except Exception as exc:  # 한 경기 실패가 백필 전체를 막지 않도록
             log.warning("record fail %s: %s", gid, exc)
             failed.append(gid)
     log.info("%s: loaded=%d failed=%d", date, len(loaded), len(failed))
+    return loaded, failed
+
+
+def _store_game_record(db, game, team_ids, log) -> None:
+    """GameRow 1건을 games·game_lineups·타자·투수 기록에 적재(원천 무관)."""
+    player_map = db.resolve_players(game.players, team_ids)
+    status = "DRAW" if game.winner == "draw" else "FINISHED"
+    game_pk = db.upsert_game(
+        game, team_ids=team_ids,
+        stadium_id=db.stadium_id(game.stadium),
+        status_id=db.status_id(status))
+    lineups = game_records.build_lineups(game)
+    db.upsert_lineups(game_pk, lineups, player_map, team_ids)
+    # 경기 전 preview 로 깔아둔 선발이 직전 교체됐으면 박스스코어에 없는
+    # 유령 행으로 남는다 — 확정 적재 직후 그 차집합을 걷어낸다.
+    ghosts = db.delete_lineups_except(
+        game_pk, [player_map[r.pcode] for r in lineups if r.pcode in player_map])
+    if ghosts:
+        log.info("%s: 유령 라인업 %d행 정리", game.game_id, ghosts)
+    db.upsert_batting(game_pk, game.batting, player_map)
+    db.upsert_pitching(game_pk, game.pitching, player_map)
+
+
+def _land_kbo_game_records(settings, db, client, date, team_ids, log) -> tuple[list, list]:
+    """records 의 KBO 대체 경로 — 그날 종료 경기의 박스스코어를 적재한다.
+
+    games 행의 네이버 id 는 games_sync 대체 경로와 같은 규칙으로 정한다(_kbo_game_id).
+    이름을 못 푼 선수가 하나라도 있으면 그 경기는 **실패로 돌린다** — 반쪽 기록이 확정
+    기록으로 남으면 다음 records 실행이 다시 덮을 계기가 없다. 실패 목록은 그대로 재시도용이다.
+    """
+    rows = db.games_on_date(date)
+    loaded, failed = [], []
+    for kg in kbo_gamecenter.fetch_day(date, settings=settings, client=client):
+        if str(kg.get("GAME_STATE_SC")) != "3" or str(kg.get("CANCEL_SC_ID") or "0") != "0":
+            continue  # 종료 경기만 — 취소·진행 중은 games_sync 몫이다
+        gid = _kbo_game_id(kg, rows, team_ids, log, date)
+        if gid is None:
+            failed.append(kg.get("G_ID"))
+            continue
+        try:
+            box, board = kbo_boxscore.fetch_boxscore(kg, settings=settings, client=client)
+            codes = db.player_codes_by_name(team_ids, (kg["AWAY_ID"], kg["HOME_ID"]))
+            game, unresolved = kbo_boxscore.parse_boxscore(kg, box, board, gid, codes)
+            if unresolved:
+                log.warning("%s: 선수 이름을 못 풀어 적재 보류 %s", gid, ", ".join(unresolved))
+                failed.append(gid)
+                continue
+            _store_game_record(db, game, team_ids, log)
+            loaded.append(gid)
+        except Exception as exc:  # 한 경기 실패가 나머지를 막지 않도록
+            log.warning("record fail %s: %s", gid, exc)
+            failed.append(gid)
+    log.info("%s: source=kbo loaded=%d failed=%d", date, len(loaded), len(failed))
     return loaded, failed
 
 
@@ -741,8 +784,8 @@ def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=
         naver_ok = True
     except fetch.FetchError as exc:
         # 네이버가 AWS 대역에 응답하지 않는 동안의 대체 경로(kbo_gamecenter 모듈 주석 참고).
-        # 아래에서 네이버를 다시 부르는 부가 기능(구장·승률·이닝 이벤트·라인업)은 전부 끈다 —
-        # 켜 두면 경기마다 타임아웃을 기다려 1분 주기를 넘긴다.
+        # 아래에서 네이버를 다시 부르는 부가 기능(승률·이닝 이벤트)은 끈다 — 켜 두면 경기마다
+        # 타임아웃을 기다려 1분 주기를 넘긴다. 구장·라인업은 KBO 값으로 대신한다.
         log.warning("%s: 네이버 일정 실패, KBO 게임센터로 대체: %s", date, exc)
         schedule = None
         games = _kbo_fallback_games(settings, db, client, date, team_ids, log)
@@ -886,32 +929,68 @@ def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=
         _sync_removed_games(db, date, schedule, games, log)
         if pending:
             lineups = _land_preview_lineups(settings, db, client, pending, team_ids, log)
+    elif pending:
+        lineups = _land_kbo_lineups(settings, db, client, pending, games, team_ids, log)
     log.info("%s: source=%s synced=%d skipped=%d failed=%d lineups=%d",
              date, "naver" if naver_ok else "kbo", synced, skipped, failed, lineups)
     return synced
 
 
-def _kbo_fallback_games(settings, db, client, date, team_ids, log) -> list[dict]:
-    """KBO 게임센터의 그날 경기를 네이버 모양으로 돌려준다.
+def _kbo_game_id(kg, rows, team_ids, log, date) -> str | None:
+    """KBO 경기 1건에 쓸 games.naver_game_id.
 
-    이미 있는 games 행은 대진으로 짝지어 그 id 를 쓰고, 없는 경기는 G_ID 에서 만든 네이버 id 로
-    새 행이 되게 한다(kbo_gamecenter 모듈 주석). 같은 대진의 행이 있는데 짝이 모호하거나(더블헤더
-    번호 불일치), id 규칙을 모르는 시리즈면 버린다 — 엉뚱한 행을 만들거나 덮는 것보다 빠지는 게 낫다.
+    이미 있는 행은 대진으로 짝지어 그 id 를 쓰고, 없는 경기는 G_ID 에서 만든 네이버 id 로 새 행이
+    되게 한다(kbo_gamecenter 모듈 주석). 같은 대진의 행이 있는데 짝이 모호하거나(더블헤더 번호
+    불일치), id 규칙을 모르는 시리즈면 None — 엉뚱한 행을 만들거나 덮는 것보다 빠지는 게 낫다.
+    """
+    game_id = kbo_gamecenter.match_game_id(kg, rows, team_ids)
+    if game_id is None and not kbo_gamecenter.has_matchup(kg, rows, team_ids):
+        game_id = kbo_gamecenter.naver_game_id(kg)
+        if game_id is not None:
+            log.info("%s: KBO 경기 %s 를 새 행 %s 로 적재", date, kg.get("G_ID"), game_id)
+    if game_id is None:
+        log.warning("%s: KBO 경기 %s 에 쓸 games 행을 정하지 못해 건너뜀 (SR_ID=%s)",
+                    date, kg.get("G_ID"), kg.get("SR_ID"))
+    return game_id
+
+
+def _kbo_fallback_games(settings, db, client, date, team_ids, log) -> list[dict]:
+    """KBO 게임센터의 그날 경기를 네이버 모양으로 돌려준다(id 규칙은 _kbo_game_id).
+
+    각 항목의 "kbo" 에 원본을 남긴다 — 라인업 대체 경로가 G_ID·SR_ID·선발투수 ID 를 읽는다.
     """
     rows = db.games_on_date(date)
     out = []
     for kg in kbo_gamecenter.fetch_day(date, settings=settings, client=client):
-        game_id = kbo_gamecenter.match_game_id(kg, rows, team_ids)
-        if game_id is None and not kbo_gamecenter.has_matchup(kg, rows, team_ids):
-            game_id = kbo_gamecenter.naver_game_id(kg)
-            if game_id is not None:
-                log.info("%s: KBO 경기 %s 를 새 행 %s 로 적재", date, kg.get("G_ID"), game_id)
-        if game_id is None:
-            log.warning("%s: KBO 경기 %s 에 쓸 games 행을 정하지 못해 건너뜀 (SR_ID=%s)",
-                        date, kg.get("G_ID"), kg.get("SR_ID"))
-            continue
-        out.append(kbo_gamecenter.to_schedule_game(kg, game_id))
+        game_id = _kbo_game_id(kg, rows, team_ids, log, date)
+        if game_id is not None:
+            out.append({**kbo_gamecenter.to_schedule_game(kg, game_id), "kbo": kg})
     return out
+
+
+def _land_kbo_lineups(settings, db, client, pending, games, team_ids, log) -> int:
+    """_land_preview_lineups 의 KBO 대체 경로. 경기 목록의 LINEUP_CK 가 켜진 경기만 부른다."""
+    by_id = {g["gameId"]: g.get("kbo") for g in games}
+    done = db.lineup_done_games([pk for _, pk in pending])
+    landed = 0
+    for gid, pk in pending:
+        kg = by_id.get(gid)
+        if pk in done or not kg or not kg.get("LINEUP_CK"):
+            continue  # 적재 완료, 또는 아직 미공시 -> 다음 폴링
+        try:
+            codes = db.player_codes_by_name(team_ids, (kg["AWAY_ID"], kg["HOME_ID"]))
+            rows, refs, unresolved = kbo_boxscore.parse_lineup(
+                kg, kbo_boxscore.fetch_lineup(kg, settings=settings, client=client), codes)
+            if unresolved:
+                log.warning("%s: 라인업 선수 이름을 못 풂 %s", gid, ", ".join(unresolved))
+            if not rows:
+                continue
+            db.upsert_lineups(pk, rows, db.resolve_players(refs, team_ids), team_ids)
+            landed += 1
+            log.info("lineup landed %s (kbo): %d rows", gid, len(rows))
+        except Exception as exc:  # 한 경기 실패가 나머지 라인업·잡을 막지 않도록
+            log.warning("kbo lineup fail %s: %s", gid, exc)
+    return landed
 
 
 def _sync_removed_games(db, date, schedule, games, log) -> None:

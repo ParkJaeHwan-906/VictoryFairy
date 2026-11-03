@@ -280,6 +280,12 @@ GAMES_ON_DATE = (
     "AND naver_game_id IS NOT NULL AND naver_game_id NOT LIKE 'DEMO%%'"
 )
 
+# KBO 박스스코어·라인업은 선수 이름만 준다(kbo_boxscore) — (구단, 이름) -> kbo_player_id 표를 만든다.
+PLAYER_CODES_BY_TEAM = (
+    "SELECT kbo_player_id, name, team_id FROM players "
+    "WHERE team_id IN ({ph}) AND kbo_player_id IS NOT NULL"
+)
+
 LINEUP_UPSERT = (
     "INSERT INTO game_lineups (game_id, team_id, player_id, bat_order, position_id, "
     " is_starter, decision, created_at, updated_at) "
@@ -532,6 +538,26 @@ class DbSink:
         with self._conn.cursor() as cur:
             cur.execute(GAMES_ON_DATE, (date, date))
             return [(r[0], r[1], r[2]) for r in cur.fetchall()]
+
+    def player_codes_by_name(self, team_ids: dict, team_codes) -> dict:
+        """{(구단 코드, 이름): kbo_player_id}. 같은 구단의 동명이인은 표에서 뺀다.
+
+        빼는 이유: 이름만으로는 둘 중 누구인지 모르고, 틀리게 붙인 기록은 조용히 남는다.
+        빠진 선수는 kbo_boxscore 가 "못 푼 선수"로 돌려주고 호출자가 경고를 남긴다.
+        """
+        ids = {team_ids[c]: c for c in team_codes if c in team_ids}
+        if not ids:
+            return {}
+        ph = ",".join(["%s"] * len(ids))
+        out, dup = {}, set()
+        for kbo_id, name, team_id in self.fetch_all(PLAYER_CODES_BY_TEAM.format(ph=ph), list(ids)):
+            key = (ids[team_id], name)
+            if key in out and out[key] != str(kbo_id):
+                dup.add(key)
+            out[key] = str(kbo_id)
+        for key in dup:
+            del out[key]
+        return out
 
     def lineup_done_games(self, game_pks) -> set:
         """선발 라인업 적재가 끝난 game PK 집합 (LINEUP_DONE_GAMES 판정).
