@@ -16,9 +16,10 @@ SCORING_PATH = (Path(__file__).resolve().parents[2]
 
 def load_scoring(path=SCORING_PATH):
     """`(points, bq, quota)`를 낸다. `volume.perGame`은 경기 하나당,
-    `volume.common`은 하루 전체 슬롯이다. 각 quota는 파일에 적힌 난이도 순서를
-    그대로 채움 우선순위로 쓴다. 값이 비면 예외를 낸다 — 기본값으로 조용히
-    되돌아가면 정본과 실제 동작이 갈라진다.
+    `volume.common`은 하루 전체(팀 색깔 없음), `volume.perTeam`은 팀마다
+    매일(2026-09-29 신설 — scoring.yaml "perTeam 신설" 절 참고) 슬롯이다. 각
+    quota는 파일에 적힌 난이도 순서를 그대로 채움 우선순위로 쓴다. 값이 비면
+    예외를 낸다 — 기본값으로 조용히 되돌아가면 정본과 실제 동작이 갈라진다.
 
     points와 bq의 난이도 키 집합이 다르면 그것도 예외다 — select_final이
     재분류 난이도 하나로 두 표를 함께 조회하기 때문에, 한쪽에만 있는 난이도는
@@ -28,11 +29,21 @@ def load_scoring(path=SCORING_PATH):
     points = doc.get("points") or {}
     bq = doc.get("bq") or {}
     volume = doc.get("volume") or {}
-    if not points or not bq or not volume.get("perGame") or not volume.get("common"):
+    if (not points or not bq or not volume.get("perGame") or not volume.get("common")
+            or not volume.get("perTeam")):
         raise ValueError(
-            f"scoring.yaml에 points/bq 또는 volume.perGame/common이 비어 있음: {path}")
-    quota = {k: [(str(d), int(n)) for d, n in volume[k].items()]
-             for k in ("perGame", "common")}
+            f"scoring.yaml에 points/bq 또는 volume.perGame/common/perTeam이 "
+            f"비어 있음: {path}")
+    # 2026-10-12 — perTeam·common은 난이도별 하위 캡 없이 묶음 전체에 단일
+    # 총량만 거는 정수 형태도 허용한다(아래 _fill 참고, 사용자 피드백: 한
+    # 난이도만 재료가 많아도 다른 난이도 캡에 막혀 버려지는 손실을 없앤다).
+    # perGame은 경기 하나당 재료가 난이도별로 뚜렷이 갈려(§3-2 등) 여전히
+    # 난이도별 dict 형태를 쓴다 — 두 형태를 섞어 써도 되므로 하나씩 판별한다.
+    quota = {}
+    for k in ("perGame", "common", "perTeam"):
+        v = volume[k]
+        quota[k] = ([(str(d), int(n)) for d, n in v.items()]
+                    if isinstance(v, dict) else int(v))
     quota["candidateMultiplier"] = float(volume.get("candidateMultiplier", 1.5))
     points = {str(k): int(v) for k, v in points.items()}
     bq = {str(k): int(v) for k, v in bq.items()}
@@ -46,6 +57,52 @@ def load_scoring(path=SCORING_PATH):
 POINTS, BQ, VOLUME = load_scoring()
 KST = timezone(timedelta(hours=9))
 
+#: 실존 KBO 10개 구단 코드→이름(_backfill_subject_team_codes의 정답 유출 검사용).
+#: 정본은 BE teams-init.sql이고, question-gen/scripts/validate_candidates.py의
+#: 동명 상수와 같은 하드코드 미러 사본이다(구단 증감 시 함께 맞출 것).
+TEAM_CODE_NAMES = {
+    "OB": "두산", "LG": "LG", "SS": "삼성", "KT": "KT", "WO": "키움",
+    "HT": "KIA", "HH": "한화", "NC": "NC", "LT": "롯데", "SK": "SSG",
+}
+
+
+def _backfill_subject_team_codes(cand: dict) -> None:
+    """최상위 `teamCodes`(귀속 축 — 이 그룹핑(`select_final`)이 이미 "팀특화"
+    분류에 쓰는 값)를 `subject.teamCodes`(주제 축)에도 반영한다.
+
+    BE `QuizIngestService.ingest()`는 `Quiz.team` FK를 `subject.teamCodes`에서만
+    읽는다(최상위 `teamCodes`는 안 봄 — 정답 유출 방지, `Quiz.java` 불변식·
+    `QuizIngestServiceTest#ingest_noSubject_leavesAllTargetFksNull` 참고). 그런데
+    MEME_ORIGIN·RELATION_LINK·TEAMMATE_STAT_COMPARE처럼 team이 질문의 전제일
+    뿐 정답이 될 수 없는 템플릿까지 `subject.teamCodes`를 비워 두면, BE가 이
+    문항들을 전부 "공통"(`team_id` NULL)으로 잘못 분류해 공통 쿼터(하루 10건)에
+    막혀 팀별 발행 쿼터(하루 200건)를 채우지 못한다(2026-10-08 실측: perTeam
+    186건 중 BE 발행은 31건뿐 — 원인 진단 세션 참고).
+
+    그래서 `subject.scope`가 PLAYER이고 `subject.teamCodes`가 비었을 때만
+    최상위 `teamCodes`를 베낀다 — 단 그 팀 이름이 정답 보기 문면에 등장하면
+    (= team이 실제로 정답일 수 있는 경우, 예: CAREER_PATH "새로 합류한 팀은?")
+    백필하지 않는다(`validate_candidates.py` check 9의 정답 유출 검사와 같은
+    규칙). TEAM/MATCHUP/LEAGUE/GAME scope는 이미 자체 카디널리티 규칙이 있어
+    손대지 않는다.
+    """
+    subject = cand.get("subject")
+    if not isinstance(subject, dict) or subject.get("scope") != "PLAYER":
+        return
+    if subject.get("teamCodes"):
+        return
+    top_codes = cand.get("teamCodes") or []
+    if not top_codes:
+        return
+    answer_text = next(
+        (o.get("text") or "" for o in (cand.get("options") or [])
+         if isinstance(o, dict) and o.get("id") == cand.get("answer")), "")
+    for code in top_codes:
+        name = TEAM_CODE_NAMES.get(code)
+        if name and name in answer_text:
+            return
+    subject["teamCodes"] = list(top_codes)
+
 
 def _resolve(work: Path, repo_root: Path, source: str) -> Path:
     base = source.split(" (")[0].split("#")[0].strip()
@@ -56,6 +113,11 @@ def _resolve(work: Path, repo_root: Path, source: str) -> Path:
         return work / base
     if base.startswith("question-source/game_result/"):
         return work / "game_result" / "/".join(base.split("/")[2:])
+    if base.startswith("question-source/player_season_stat/"):
+        # player_profile과 같은 "최신 파티션 1개" 동기화 패턴(ROUTINE.md 1단계) —
+        # 날짜 서브디렉토리 없이 .work/player_season_stat/ 바로 아래 평평하게
+        # 내려받으므로, evidence.source의 날짜 세그먼트는 버리고 파일명만 쓴다.
+        return work / "player_season_stat" / name
     return repo_root / base
 
 
@@ -77,7 +139,25 @@ def check_evidence(work, repo_root, cand) -> bool:
 
 
 def _fill(bucket, verdicts, quota, label):
-    """난이도별 슬롯을 fun 내림차순으로 채우고 (채택분, 초과 폐기 사유)를 낸다."""
+    """(채택분, 초과 폐기 사유)를 낸다.
+
+    `quota`가 정수면 난이도 구분 없이 묶음 전체에서 fun 내림차순으로 그
+    개수만 채운다(2026-10-12 신설 — perTeam·common 전용, 사용자 피드백: 난이도별
+    하위 캡이 있으면 한 난이도만 재료가 많아도 다른 난이도 캡에 막혀 멀쩍이
+    남은 재료가 그냥 버려졌다). `quota`가 `(난이도, n)` 리스트면 기존처럼
+    난이도별로 따로 슬롯을 적용한다(perGame 전용 — 경기 하나당 재료가 난이도별로
+    뚜렷이 갈려 하위 캡이 여전히 의미 있다)."""
+    if isinstance(quota, int):
+        rows = sorted(bucket, key=lambda c: verdicts[c["quizId"]].get("fun", 0),
+                      reverse=True)
+        picked = rows[:quota]
+        reasons = []
+        for c in rows[quota:]:
+            fun = verdicts[c["quizId"]].get("fun", 0)
+            reasons.append(f"{c['quizId']}: {label} 슬롯 초과(전체 {quota}건, "
+                           f"fun={fun}) — fun 낮아 폐기")
+        return picked, reasons
+
     picked, reasons = [], []
     for diff, n in quota:
         rows = [c for c in bucket if c["difficulty"] == diff]
@@ -91,10 +171,12 @@ def _fill(bucket, verdicts, quota, label):
 
 
 def select_final(candidates, verdicts, entity_of, quota=None):
-    """`quota`를 주지 않으면 후보를 `gameId`로 묶어 **경기별로 따로** 슬롯을
-    적용한다 — 경기 문항(gameId 있음)은 `volume.perGame`, 공통 문항(gameId
-    없음)은 `volume.common`. 한 경기의 재료가 부족해도 다른 경기 몫이 줄지
-    않는다. `quota`를 직접 주면 후보 전체에 그 슬롯 하나만 적용한다.
+    """`quota`를 주지 않으면 후보를 그룹으로 묶어 **그룹별로 따로** 슬롯을
+    적용한다 — 경기 문항(`gameId` 있음)은 `volume.perGame`, 팀 특화 문항
+    (`gameId` 없고 `teamCodes`에 팀이 있음, 2026-09-29 신설)은 그 팀의
+    `volume.perTeam`, 나머지 공통 문항(`gameId`도 `teamCodes`도 없음)은
+    `volume.common`. 그룹 하나의 재료가 부족해도 다른 그룹 몫이 줄지 않는다.
+    `quota`를 직접 주면 후보 전체에 그 슬롯 하나만 적용한다.
 
     entity_of는 이 단계에서는 쓰이지 않는다(assign_and_write의 정렬 키 조회용)
     — Interfaces 시그니처 유지."""
@@ -133,16 +215,28 @@ def select_final(candidates, verdicts, entity_of, quota=None):
 
     groups = {}
     for c in passed:
-        groups.setdefault(c.get("gameId"), []).append(c)
+        gid = c.get("gameId")
+        if gid is not None:
+            key = ("game", gid)
+        else:
+            team_codes = tuple(c.get("teamCodes") or [])
+            key = ("team", team_codes) if team_codes else ("common", "")
+        groups.setdefault(key, []).append(c)
+
+    # 정렬 순서: 공통 → 팀 특화(팀코드 사전순) → 경기(gameId 사전순) — 같은
+    # 입력이면 같은 출력 순서가 나오도록 고정한다.
+    _KIND_ORDER = {"common": 0, "team": 1, "game": 2}
 
     final = []
-    # 공통 문항(gameId None) 먼저, 그다음 경기 문항을 gameId 사전순으로 —
-    # 같은 입력이면 같은 출력 순서가 나오도록 고정한다.
-    for gid in sorted(groups, key=lambda g: (g is not None, g or "")):
-        is_common = gid is None
-        picked, over = _fill(groups[gid], verdicts,
-                             VOLUME["common"] if is_common else VOLUME["perGame"],
-                             "공통" if is_common else f"경기({gid})")
+    for kind, val in sorted(groups, key=lambda k: (_KIND_ORDER[k[0]], k[1])):
+        rows = groups[(kind, val)]
+        if kind == "common":
+            quota_, label = VOLUME["common"], "공통"
+        elif kind == "team":
+            quota_, label = VOLUME["perTeam"], f"팀특화({','.join(val)})"
+        else:
+            quota_, label = VOLUME["perGame"], f"경기({val})"
+        picked, over = _fill(rows, verdicts, quota_, label)
         final.extend(picked)
         reasons.extend(over)
     return final, reasons
@@ -183,6 +277,7 @@ def assign_and_write(final, entity_of, work: Path, today: str, reasons: "list | 
     paths = []
     seq = 0
     for cand in ordered:
+        _backfill_subject_team_codes(cand)
         if cand.get("kind") == "PREDICTION":
             game_id = (cand.get("settlement") or {}).get("gameId")
             payload = _schedule_payload(work, today, game_id)

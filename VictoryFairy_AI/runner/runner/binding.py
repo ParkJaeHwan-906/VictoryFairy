@@ -14,6 +14,7 @@ DEFAULT_REPO_ROOT = Path("/app/VictoryFairy_AI")
 _STANDINGS_TEAM_FAMILIES = {
     "stats.streaks", "stats.standings", "stats.home_away",
     "stats.monthly", "stats.standings_trend", "stats.recent_scoring",
+    "stats.recent_vs_prior",
 }
 _SECTION_BY_WIKI_FAMILY = {
     "wiki.별명밈": "별명·밈",
@@ -68,7 +69,8 @@ def available_needs(work: Path, today: str) -> set:
         av.add("stats.head_to_head")
     if stats_md and season.get("standings"):
         av.update({"stats.streaks", "stats.standings", "stats.home_away",
-                   "stats.monthly", "stats.standings_trend", "stats.recent_scoring"})
+                   "stats.monthly", "stats.standings_trend", "stats.recent_scoring",
+                   "stats.recent_vs_prior"})
     if (work / "stats/kbo-official.md").exists():
         av.update({"stats.season_leaders", "stats.team_history"})
     # 리포 파일(러너 이미지에 포함) — repo 루트는 work의 두 단계 위가 아니라 인자로

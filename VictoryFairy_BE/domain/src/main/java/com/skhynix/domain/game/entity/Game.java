@@ -15,6 +15,7 @@ import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.Builder;
@@ -123,6 +124,38 @@ public class Game {
      */
     @Column(name = "last_inning", columnDefinition = "INT", nullable = true)
     private Integer lastInning;
+
+    /**
+     * 진행 중 경기의 홈·원정 승리확률(%, 소수 첫째 자리). 원천은 네이버 relay 의 비공식 필드
+     * {@code metricOption} 이고 채우는 주체는 py-collector 다(이 앱에 쓰기 경로 없음 — 그래서 {@code @Builder}
+     * 에도 넣지 않는다). 값이 없거나 한쪽만 있거나 범위 밖일 수 있으므로 읽는 쪽이 방어한다
+     * ({@code GameResponse} 의 마스킹).
+     *
+     * <p>⚠ 컬럼은 {@code ddl-auto=update} 가 아니라 운영·devdb 에 손으로 돈 ALTER 로 만들었다
+     * ({@code DECIMAL(4,1) NULL}). precision·scale 을 그 타입에 맞춰 둬야 신규 환경에서도 같은 타입으로
+     * 생성된다. CHECK 제약은 일부러 선언하지 않는다 — 운영 {@code games} 는 CHECK 추가 때 Hibernate 가
+     * 테이블을 재생성한 이력이 있다(위 클래스 주석).
+     */
+    @Column(name = "home_win_rate", precision = 4, scale = 1, nullable = true)
+    private BigDecimal homeWinRate;
+
+    @Column(name = "away_win_rate", precision = 4, scale = 1, nullable = true)
+    private BigDecimal awayWinRate;
+
+    /**
+     * 네이버 일정에서 경기가 <b>사라졌다</b>. 경기 취소({@code CANCELED})와 다르다 — 취소는 네이버가 일정에
+     * 남긴 채 {@code cancel=true} 로 알려 주지만, 포스트시즌 시리즈가 일찍 끝나면 남은 경기는 표시 없이
+     * 일정에서 빠진다(2026-10-21 KIA@LG 실측). 그런 행은 수집기가 다시 건드리지 않아 예정 상태로 굳으므로,
+     * 수집기가 "그날 응답에 없는 경기"를 찾아 이 값을 켠다. 다시 나타나면 upsert 가 끈다.
+     *
+     * <p>행을 지우지 않는 이유는 라인업·퀴즈·제출 기록이 FK 로 걸려 있고, 일시적으로 빈 응답이 와도 되돌릴 수
+     * 있어야 해서다. 사용자에게 나가는 조회는 전부 이 값이 false 인 행만 본다({@code GameRepository}).
+     *
+     * <p>{@code DEFAULT 0} 은 컬럼을 손 ALTER 로 먼저 만들고 수집기를 나중에 올리는 순서 때문이다 — 그 사이
+     * 이 컬럼을 모르는 수집기의 INSERT 가 strict 모드에서 실패하지 않아야 한다.
+     */
+    @Column(name = "removed", columnDefinition = "TINYINT(1) DEFAULT 0", nullable = false)
+    private boolean removed;
 
     // 네이버 스포츠 gameId — py-collector가 재실행해도 중복 없이 upsert하기 위한 소스 자연키(UNIQUE)
     @Column(name = "naver_game_id", length = 20, unique = true)

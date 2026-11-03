@@ -1,5 +1,6 @@
 # 내 응원 구단 경기 목록 조회 요구사항
-> 상태: **승인됨 (2026-08-13, 사용자 승인)** · 모듈: user · 최종 수정: 2026-08-13
+> 상태: **승인됨 (2026-08-13, 사용자 승인)** · 모듈: user · 최종 수정: 2026-10-13
+> **2026-10-13 개정**: 경기 승률 기능 승인(`game-win-rate.md`, USER-GWR-1)에 따라 범위 절과 USER-GSP-2·3 인수 기준의 응답 필드 수를 13 → 15필드로 고쳤다(`homeTeamWinRate`·`awayTeamWinRate` 추가). 요구사항 문장·ID·다른 계약은 불변.
 > 신규 엔드포인트 1개(`GET /api/games/support`). 기존 `GET /api/games`·`GET /api/games/lineup` 의 계약은 건드리지 않는다(USER-GSP-24).
 > **2026-08-13 승인 시점 개정**: 초안의 미해결 질문 2건이 전부 A안으로 확정됐다 — `USER-GSP-16` 의 `(가정)` 표시를 떼고(활성 응원 구단 없음 → 200 + 빈 배열), 경기 없는 날의 "다음 경기" 폴백은 **도입하지 않는 것으로 확정**했다(아래 "결정 기록"). 그 외 초안 계약은 수정 없이 승인됐다.
 
@@ -13,7 +14,7 @@
   - 신규 엔드포인트 1개: `GET /games/support`(context-path 포함 실제 경로 `/api/games/support`), **인증 필수**
   - 활성 응원 구단이 **홈 또는 원정**으로 출전하는 경기만 반환하는 필터 규칙
   - 선택 쿼리 파라미터 `date`(ISO `yyyy-MM-dd`), 생략 시 `Clock`(Asia/Seoul) 기준 오늘
-  - 응답은 기존 `GET /api/games` 와 **동일한 형식**(`ApiResponse<List<GameResponse>>`, 13필드)
+  - 응답은 기존 `GET /api/games` 와 **동일한 형식**(`ApiResponse<List<GameResponse>>`, 15필드 — 2026-10-13 개정, 종전 13필드)
 - 제외
   - **응답 형식 변경** — 어느 쪽(홈/원정)이 내 응원 구단인지 알리는 전용 필드(`isHome`·`mySupportTeamId` 등)를 넣지 않는다. 클라이언트가 `homeTeamId`/`awayTeamId` 와 `GET /api/users/me` 의 `supportTeam` 을 대조한다(`game-lineup.md` 결정 5 와 같은 판단)
   - **`GET /api/games` 의 동작 변경** — 기존 경로에 응원 구단 필터를 얹지 않는다. `player-lookup-team-fallback.md` 의 "토큰이 파라미터를 오버라이딩" 방식(같은 URL 이 헤더에 따라 갈림)을 **쓰지 않고 경로를 분리**한 것이 이번 선택이다
@@ -29,8 +30,8 @@
 | ID | 유형 | 요구사항 | 인수 기준 |
 |---|---|---|---|
 | USER-GSP-1 | 이벤트 | WHEN 유효한 access 토큰과 함께 응원 구단 경기 목록 조회 요청이 들어오면, THE 시스템 SHALL 200과 `ApiResponse` 래퍼에 담긴 경기 배열을 반환한다 | 응원 구단이 6인 계정 토큰으로 `GET /api/games/support?date=2026-08-01` → 200, 본문 `{"success":true,"data":[…],"message":null}` 이고 `data` 는 배열 |
-| USER-GSP-2 | 유비쿼터스 | THE 시스템 SHALL 응답 항목의 키 집합을 `GET /api/games` 항목과 동일하게 유지한다 | `data[0]` 의 키 집합이 정확히 `{gameId, stadium, homeTeam, homeTeamId, awayTeam, awayTeamId, homeTeamScore, awayTeamScore, gameDate, gameState, cancelReason, inning, inningHalf}` 13개(추가·누락 키 없음) |
-| USER-GSP-3 | 유비쿼터스 | THE 시스템 SHALL 각 항목의 값을 `GET /api/games` 의 같은 `gameId` 항목과 동일하게 반환한다 | 같은 `date` 로 두 엔드포인트를 호출해 `gameId` 가 같은 항목끼리 비교하면 13개 필드 값이 전부 일치(`stadium`·점수·`cancelReason`·`inning`·`inningHalf` 의 `null` 여부까지 동일 — 이 경로 전용 가공·대체값 없음) |
+| USER-GSP-2 | 유비쿼터스 | THE 시스템 SHALL 응답 항목의 키 집합을 `GET /api/games` 항목과 동일하게 유지한다 | `data[0]` 의 키 집합이 정확히 `{gameId, stadium, homeTeam, homeTeamId, awayTeam, awayTeamId, homeTeamScore, awayTeamScore, gameDate, gameState, cancelReason, inning, inningHalf, homeTeamWinRate, awayTeamWinRate}` 15개(추가·누락 키 없음) (2026-10-13 인수 기준 개정: 13 → 15개, USER-GWR-1) |
+| USER-GSP-3 | 유비쿼터스 | THE 시스템 SHALL 각 항목의 값을 `GET /api/games` 의 같은 `gameId` 항목과 동일하게 반환한다 | 같은 `date` 로 두 엔드포인트를 호출해 `gameId` 가 같은 항목끼리 비교하면 15개 필드 값이 전부 일치(`stadium`·점수·`cancelReason`·`inning`·`inningHalf`·`homeTeamWinRate`·`awayTeamWinRate` 의 `null` 여부까지 동일 — 이 경로 전용 가공·대체값 없음) |
 | USER-GSP-4 | 유비쿼터스 | THE 시스템 SHALL 활성 응원 구단이 홈 구단인 경기와 원정 구단인 경기를 **모두** 포함한다 | 응원 구단 6이 홈인 경기와 원정인 경기가 같은 날 각각 있을 때 두 경기가 모두 `data` 에 있다. 원정 경기만 있는 날 요청 → 빈 배열이 아니라 그 경기 1건 |
 | USER-GSP-5 | 유비쿼터스 | THE 시스템 SHALL 활성 응원 구단이 홈도 원정도 아닌 경기를 응답에서 제외한다 | 같은 `date` 의 `GET /api/games` 응답과 비교했을 때 `data` 는 그 부분집합이며, 남은 항목은 전부 `homeTeamId == 6` 또는 `awayTeamId == 6`. 6이 안 낀 경기의 `gameId` 는 응답에 없다 |
 | USER-GSP-6 | 유비쿼터스 | THE 시스템 SHALL "활성 응원 구단"을 그 계정의 `user_support_teams` 중 `oppose IS NULL` 인 행의 구단으로 판정한다 | 구단 6을 응원 중인 계정(활성 행 1개, 취소 행 여러 개 가능) → 필터에 쓰이는 구단이 6. 취소 행의 구단 경기는 포함되지 않는다 |

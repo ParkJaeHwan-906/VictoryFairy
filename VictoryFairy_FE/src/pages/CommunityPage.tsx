@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { getBqRanking, getMyBqRanking, toAssetUrl } from '../api';
 import type { BqRankingEntry } from '../api';
+import CommunityBoard from '../components/CommunityBoard';
 import LoungeChatSheet from '../components/LoungeChatSheet';
+import NoticeSheet from '../components/NoticeSheet';
+import QuizRoomBoard from '../components/QuizRoomBoard';
 import RankingPodium from '../components/RankingPodium';
-import { ROUTES } from '../routes';
+import { readCommunityNotice, ROUTES } from '../routes';
 import { useMyProfile } from '../stores/useAccountStore';
 import { fallbackToPlaceholder, profilePlaceholder } from '../utils/avatar';
 import '../styles/CommunityPage.css';
@@ -34,8 +37,88 @@ function RankingRow({ entry, isMine = false }: { entry: BqRankingEntry; isMine?:
   );
 }
 
+/** 라운지 탭. 주소의 `?tab=` 값이다 — 없거나 모르는 값이면 랭킹. */
+type LoungeTab = 'ranking' | 'board' | 'quiz';
+
+const LOUNGE_TABS: readonly { value: LoungeTab; label: string }[] = [
+  { value: 'ranking', label: '랭킹' },
+  { value: 'board', label: '게시판' },
+  { value: 'quiz', label: '퀴즈방' },
+];
+
+/** 주소의 `?tab=` 값을 탭으로 읽는다. 모르는 값이면 랭킹이다(옛 주소·오타가 빈 화면이 되지 않게). */
+function readLoungeTab(value: string | null): LoungeTab {
+  return LOUNGE_TABS.find((item) => item.value === value)?.value ?? 'ranking';
+}
+
 /**
- * CommunityPage — 라운지 메인(승리요정 랭킹).
+ * CommunityPage — 라운지. 랭킹 · 게시판 · 퀴즈방 세 탭.
+ *
+ * 탭은 **주소(`?tab=board` · `?tab=quiz`)에 남긴다** — 게시판에서 글을(퀴즈방 탭에서 방을)
+ * 열었다가 뒤로 오면 랭킹이 아니라 그 탭으로 돌아와야 하는데, 화면 state 로 들고 있으면
+ * 상세로 가는 순간 사라진다.
+ * 탭을 바꿀 때는 `replace` 라 탭 전환이 history 에 쌓이지 않는다(앱의 뒤로가기는 탭
+ * 뿌리에서 종료 안내를 띄우는데, 탭 전환마다 한 칸씩 쌓이면 그 판정이 어긋난다).
+ *
+ * 글 삭제·신고 뒤 상세가 이 화면으로 돌려보내며 실어 보낸 한 줄 안내(`CommunityNoticeState`)를
+ * 한 번 띄우고, history state 를 비워 새로고침 때 다시 뜨지 않게 한다.
+ */
+export default function CommunityPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = readLoungeTab(searchParams.get('tab'));
+
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [notice, setNotice] = useState<string | null>(() => readCommunityNotice(location.state));
+
+  useEffect(() => {
+    if (readCommunityNotice(location.state) === null) return;
+    navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
+  }, [location.pathname, location.search, location.state, navigate]);
+
+  const selectTab = (next: LoungeTab) => {
+    if (next === tab) return;
+    // 랭킹은 기본 탭이라 주소에 남기지 않는다(`/community` 그대로).
+    setSearchParams(next === 'ranking' ? {} : { tab: next }, { replace: true });
+  };
+
+  return (
+    <main className="community-page">
+      <div className="community-page__tabs" role="tablist" aria-label="라운지">
+        {LOUNGE_TABS.map((item) => (
+          <button
+            key={item.value}
+            className={`community-page__tab${tab === item.value ? ' community-page__tab--active' : ''}`}
+            type="button"
+            role="tab"
+            id={`community-tab-${item.value}`}
+            aria-selected={tab === item.value}
+            aria-controls={`community-panel-${item.value}`}
+            onClick={() => selectTab(item.value)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+
+      <div
+        className="community-page__panel"
+        role="tabpanel"
+        id={`community-panel-${tab}`}
+        aria-labelledby={`community-tab-${tab}`}
+      >
+        {tab === 'ranking' && <LoungeRanking />}
+        {tab === 'board' && <CommunityBoard />}
+        {tab === 'quiz' && <QuizRoomBoard />}
+      </div>
+
+      {notice !== null && <NoticeSheet message={notice} onClose={() => setNotice(null)} />}
+    </main>
+  );
+}
+
+/**
+ * LoungeRanking — 라운지 랭킹 탭(승리요정 랭킹).
  * Figma: SWM / [Lounge] 라운지 메인 (수정) (node 1090:8107), 기준 프레임 402 x 874
  *
  * 상위 3명은 주황 그라데이션 카드 위에 왕관과 함께 서고, 4위 아래로는 목록이 이어진다.
@@ -55,10 +138,10 @@ function RankingRow({ entry, isMine = false }: { entry: BqRankingEntry; isMine?:
  * 내 줄을 조용히 빠뜨리면 "내가 순위 밖"이라는 뜻으로 잘못 읽힌다.
  * ──────────────────────────────────────────────────────────────────────
  */
-export default function CommunityPage() {
+function LoungeRanking() {
   const [isChatOpen, setIsChatOpen] = useState(false);
 
-  // 프로필은 보호 라우트(`ProtectedRoute`)가 채운다 — 빈 결과의 문구를 고를 때만 쓴다.
+  // 프로필은 App 의 `useProfileBootstrap` 이 채운다 — 빈 결과의 문구를 고를 때만 쓴다.
   const profile = useMyProfile();
 
   const [ranking, setRanking] = useState<BqRankingEntry[]>([]);
@@ -102,7 +185,7 @@ export default function CommunityPage() {
   const isEmpty = !isLoading && !loadFailed && ranking.length === 0;
 
   return (
-    <main className="community-page">
+    <>
       <header className="community-page__header">
         <h1 className="community-page__title">
           퀴즈를 풀고
@@ -162,6 +245,6 @@ export default function CommunityPage() {
       </button>
 
       {isChatOpen && <LoungeChatSheet onClose={() => setIsChatOpen(false)} />}
-    </main>
+    </>
   );
 }

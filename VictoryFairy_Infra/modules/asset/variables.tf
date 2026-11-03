@@ -27,6 +27,17 @@ variable "cloudfront_distribution_arn" {
   type        = string
 }
 
+variable "community_prefix" {
+  description = "확정 커뮤니티(게시글·댓글) 이미지 키 접두사(슬래시로 끝난다). BE 업로드 키·CloudFront 경로 패턴·IRSA 정책이 같은 값을 써야 한다. ⚠ 여기에는 만료 규칙을 걸지 않는다."
+  type        = string
+  default     = "community-img/"
+
+  validation {
+    condition     = endswith(var.community_prefix, "/") && !startswith(var.community_prefix, "/")
+    error_message = "community_prefix 는 슬래시로 끝나고 슬래시로 시작하지 않아야 합니다(예: community-img/)."
+  }
+}
+
 variable "profile_prefix" {
   description = "확정 프로필 이미지 키 접두사(슬래시로 끝난다). BE 업로드 키·CloudFront 경로 패턴·IRSA 정책이 같은 값을 써야 한다. ⚠ 여기에는 만료 규칙을 걸지 않는다."
   type        = string

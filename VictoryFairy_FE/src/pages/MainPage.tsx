@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { getBqTopRanking, getSupportGameList } from '../api';
+import { Link, useNavigate } from 'react-router-dom';
+import { getBqTopRanking } from '../api';
 import type { BqRankingEntry, Game } from '../api';
+import characterShadow from '../assets/character_shadow.svg';
+import guestMascot from '../assets/stickers/character/01.png';
 import CharacterAvatar from '../components/CharacterAvatar';
-import GameDetailSheet from '../components/GameDetailSheet';
 import MatchCard from '../components/MatchCard';
 import RankingPodium from '../components/RankingPodium';
-import { ROUTES } from '../routes';
+import { ROUTES, gameDetailPath, type GameDetailPageState } from '../routes';
+import { useLiveGames } from '../hooks/useLiveGames';
 import { useMyProfile } from '../stores/useAccountStore';
+import { useIsLoggedIn } from '../stores/useAuthStore';
 import { getTodayInSeoul } from '../utils/date';
 import '../styles/MainPage.css';
 
@@ -17,6 +20,17 @@ import '../styles/MainPage.css';
  *
  * 위에서부터 야구장 히어로(인사말 · 내 캐릭터 · 꾸미기 버튼), 승요 카드 배너,
  * 오늘의 경기, 승리요정 랭킹 순이다.
+ *
+ * ── 로그인하지 않아도 열린다 ──────────────────────────────────────
+ * App Store 심사 5.1.1(v) — 계정과 무관한 "오늘의 경기"에 가입을 요구하면 안 된다.
+ * 비로그인이면 오늘의 경기를 **전 구단**(공개 `/games`)으로 보여 주고, 계정에 묶인 것
+ * (닉네임 · 내 캐릭터 · 꾸미기 · 응원 구단 랭킹)은 로그인 안내로 바꾼다.
+ * 승요 카드 배너는 그대로 두되 누르면 보호 라우트가 로그인으로 보낸다.
+ *
+ * 비운 자리를 그냥 두면 히어로가 빈 홈플레이트만 남고 랭킹 절이 밑줄 글자 한 줄이 되어
+ * 고장 난 화면처럼 보인다. 그래서 **같은 자리 · 같은 틀을 유지한 채 내용만 갈아 끼운다** —
+ * 닉네임 자리에 "야구팬님", 내 캐릭터 자리에 손 흔드는 승리요정(스티커 그림), 꾸미기 버튼
+ * 자리에 같은 흰 버튼으로 로그인, 시상대 자리에 같은 주황 카드로 로그인 안내.
  *
  * ── 히어로의 캐릭터는 "내 캐릭터"다 ────────────────────────────────
  * 자리표시가 아니라 `GET /users/me` 가 주는 실제 아바타다 —
@@ -31,61 +45,66 @@ import '../styles/MainPage.css';
  * TOP 3 전용(`GET /rankings/bq/top`)이면 충분하다 — 라운지는 목록까지 함께 그려야 해서
  * TOP 10 을 받아 앞 3건을 시상대로 쓴다. "전체 보기"가 그 화면으로 가는 문이다.
  *
- * ── 아직 없는 것 ────────────────────────────────────────────────────
- * **나만의 승요 카드 만들기**는 갈 곳이 정해지지 않아 버튼만 두었다(눌러도 아무 일도
- * 하지 않는다).
+ * **나만의 승요 카드 만들기** 배너는 승리요정 스티커(`StorySharePage`)로 간다 — 캐릭터 ·
+ * 에셋 · 텍스트 · 숫자 스티커를 골라 인스타 스토리에 붙인다.
  */
 export default function MainPage() {
   // 프로필은 새로고침하면 비어 있는 상태로 시작한다(persist 하지 않는다). 채우는 일은
-  // 보호 라우트(`ProtectedRoute`)가 맡는다 — 홈만 거치는 게 아니라 어느 화면으로 바로
+  // App 의 `useProfileBootstrap` 이 맡는다 — 홈만 거치는 게 아니라 어느 화면으로 바로
   // 들어와도 채워져야 해서 여기서 부르지 않는다.
   const profile = useMyProfile();
+  const isLoggedIn = useIsLoggedIn();
 
   // 서버가 판정하는 "오늘"과 같은 기준(Asia/Seoul). 화면이 살아 있는 동안 고정이다.
   const [today] = useState(getTodayInSeoul);
-  const [games, setGames] = useState<Game[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [loadFailed, setLoadFailed] = useState(false);
-  const [selectedGame, setSelectedGame] = useState<Game | null>(null);
 
   /*
    * 랭킹 시상대. 경기와 별개 요청이라 상태도 따로 든다 — 한쪽이 실패해도 다른 쪽은
    * 그대로 그려야 하고, 두 절(節)이 각자의 안내문을 갖는다.
    */
   const [ranking, setRanking] = useState<BqRankingEntry[]>([]);
-  const [isRankingLoading, setIsRankingLoading] = useState(true);
+  const [isRankingLoading, setIsRankingLoading] = useState(isLoggedIn);
   const [rankingFailed, setRankingFailed] = useState(false);
 
   /*
-   * 내 응원 구단 경기만 받는다 — 거르는 일은 서버가 한다(`GET /games/support`).
+   * 로그인했으면 내 응원 구단 경기만 받는다 — 거르는 일은 서버가 한다(`/games/support`).
+   * 오늘 경기라 SSE(`/games/support/subscribe`)로 이닝·점수·상태를 실시간으로 갈아 끼운다.
    *
    * 프로필이 아직 안 왔더라도 그냥 부른다. 대상 계정은 본문이 아니라 토큰으로 정해지므로
    * 프로필을 기다릴 이유가 없고, 기다리면 두 응답의 도착 순서에 따라 조회가 늦어진다.
    * 프로필은 아래에서 **빈 결과의 문구를 고를 때만** 쓴다.
+   *
+   * 비로그인이면 `/games/support` 가 401 이라 부를 수 없다 — 응원 구단도 없으니 오늘
+   * **전 구단** 경기(공개 `/games` · `/games/subscribe`)를 보여 준다.
+   */
+  const { games, isLoading, loadFailed } = useLiveGames(
+    isLoggedIn ? 'support' : 'all',
+    today,
+    true,
+  );
+
+  // 카드를 누르면 경기 상세로 간다. 들고 있는 경기를 넘겨 첫 응답 전에도 바로 그린다(GamePage 와 같다).
+  const navigate = useNavigate();
+  const openGame = (game: Game) => {
+    const state: GameDetailPageState = { game };
+    navigate(gameDetailPath(game.gameId), { state });
+  };
+
+  /*
+   * 순위도 경기와 같은 규칙으로 받는다. 대상은 토큰의 응원 구단이라 넘길 값이 없다.
+   * 그래서 비로그인이면 부르지 않는다(인증 필수 · 응원 구단 기준) — 절에는 로그인 안내가 선다.
    */
   useEffect(() => {
-    // 늦게 도착한 응답이 떠난 화면을 건드리지 않게 막는다(GamePage 와 같은 방식).
+    if (!isLoggedIn) {
+      setRanking([]);
+      setRankingFailed(false);
+      setIsRankingLoading(false);
+      return;
+    }
+
     let alive = true;
-
-    getSupportGameList(today)
-      .then((list) => {
-        if (alive) setGames(list);
-      })
-      .catch(() => {
-        if (alive) setLoadFailed(true);
-      })
-      .finally(() => {
-        if (alive) setIsLoading(false);
-      });
-
-    return () => {
-      alive = false;
-    };
-  }, [today]);
-
-  // 순위도 경기와 같은 규칙으로 받는다. 대상은 토큰의 응원 구단이라 넘길 값이 없다.
-  useEffect(() => {
-    let alive = true;
+    setIsRankingLoading(true);
+    setRankingFailed(false);
 
     getBqTopRanking()
       .then((top) => {
@@ -101,7 +120,7 @@ export default function MainPage() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [isLoggedIn]);
 
   /**
    * 응원 구단을 고른 적이 없는지 여부.
@@ -116,34 +135,62 @@ export default function MainPage() {
     <main className="main-page">
       <header className="main-page__hero">
         <h1 className="main-page__greeting">
-          {/* 프로필이 아직 없으면 이름 줄만 비운다 — 잠깐 뒤 채워진다. */}
-          {profile && `${profile.nickname}님,`}
+          {/*
+            프로필이 아직 없으면 이름 줄만 비운다 — 잠깐 뒤 채워진다.
+            비로그인은 채워질 이름이 없어 빈 줄로 남으면 인사가 아래로 처진다 — 부를 말을 넣는다.
+          */}
+          {isLoggedIn ? profile && `${profile.nickname}님,` : '야구팬님,'}
           <br />
           만나서 반가워요!
         </h1>
 
-        {/* 꾸미기로 가는 문. 디자인상 글자 없이 아이콘만이라 이름은 aria-label 로 준다. */}
-        <Link
-          className="main-page__decorate"
-          to={ROUTES.characterCustom}
-          aria-label="캐릭터 꾸미기"
-        >
-          <span className="main-page__decorate-icon" aria-hidden="true" />
-        </Link>
+        {isLoggedIn ? (
+          /* 꾸미기로 가는 문. 디자인상 글자 없이 아이콘만이라 이름은 aria-label 로 준다. */
+          <Link
+            className="main-page__decorate"
+            to={ROUTES.characterCustom}
+            aria-label="캐릭터 꾸미기"
+          >
+            <span className="main-page__decorate-icon" aria-hidden="true" />
+          </Link>
+        ) : (
+          /*
+            비로그인은 꾸밀 캐릭터가 없다 — 같은 자리 · 같은 흰 버튼으로 로그인을 둔다.
+            로그인을 마치면 state 가 없어 홈으로 돌아온다(`readLoginRedirect`).
+          */
+          <Link className="main-page__decorate main-page__decorate--login" to={ROUTES.login}>
+            로그인하고 시작하기
+            <span className="main-page__decorate-arrow" aria-hidden="true" />
+          </Link>
+        )}
 
-        {/*
-          프로필이 아직 없으면 `imgUrl` 이 null 이라 자리만 잡힌다 — 잠깐 뒤 채워진다.
-          캐릭터를 받지 못한 계정도 같은 모습이다(드물다, docs/character.md 참고).
-        */}
-        <CharacterAvatar
-          className="main-page__character"
-          imgUrl={profile?.characterImgUrl ?? null}
-          items={profile?.characterItems ?? []}
-        />
+        {isLoggedIn ? (
+          /*
+            프로필이 아직 없으면 `imgUrl` 이 null 이라 자리만 잡힌다 — 잠깐 뒤 채워진다.
+            캐릭터를 받지 못한 계정도 같은 모습이다(docs/character.md 참고).
+          */
+          <CharacterAvatar
+            className="main-page__character"
+            imgUrl={profile?.characterImgUrl ?? null}
+            items={profile?.characterItems ?? []}
+          />
+        ) : (
+          /*
+            비로그인의 홈플레이트를 비워 두지 않는다 — 손 흔드는 승리요정이 맞는다.
+            "내 캐릭터"가 아니라 서비스 마스코트라 서버 아바타가 아닌 스티커 그림을 쓴다.
+            자리 · 크기 · 그림자는 `CharacterAvatar` 와 같게 맞췄다.
+          */
+          <div className="main-page__character main-page__mascot" aria-hidden="true">
+            <img className="main-page__mascot-shadow" src={characterShadow} alt="" />
+            <img className="main-page__mascot-body" src={guestMascot} alt="" />
+          </div>
+        )}
       </header>
 
-      {/* 갈 곳이 정해지지 않았다 — 눌러도 아무 일도 하지 않는다 */}
-      <button className="main-page__promo" type="button">
+      {/*
+        승리요정 스티커(스토리 공유)로 간다. 무엇을 넘길지는 그 화면에서 고른다.
+      */}
+      <Link className="main-page__promo" to={ROUTES.storyShare}>
         {/* 디자인에도 "임시 그래픽"으로 잡혀 있는 두 장의 카드다 */}
         <span className="main-page__promo-graphic" aria-hidden="true" />
         <span className="main-page__promo-text">
@@ -153,7 +200,7 @@ export default function MainPage() {
           </span>
         </span>
         <span className="main-page__promo-arrow" aria-hidden="true" />
-      </button>
+      </Link>
 
       <section className="main-page__section">
         <div className="main-page__section-head">
@@ -175,7 +222,10 @@ export default function MainPage() {
         {/* 경기가 없는 날은 빈 배열(200)이 온다 — 오류가 아니다. */}
         {!isLoading && !loadFailed && games.length === 0 && (
           <p className="main-page__status">
-            {hasSupportTeam === false ? (
+            {!isLoggedIn ? (
+              // 비로그인은 전 구단 목록이다 — 그게 비었으면 오늘은 경기가 없는 날이다.
+              '오늘은 경기가 없어요.'
+            ) : hasSupportTeam === false ? (
               // 구단이 없으면 이 목록은 영원히 비어 있다 — 고르러 갈 길을 남긴다.
               <Link className="main-page__status-link" to={ROUTES.teamSelect}>
                 응원 구단을 골라주세요
@@ -189,7 +239,11 @@ export default function MainPage() {
         {!isLoading && !loadFailed && games.length > 0 && (
           <ol className="main-page__game-list">
             {games.map((game) => (
-              <MatchCard key={game.gameId} game={game} onSelect={setSelectedGame} />
+              <MatchCard
+                key={game.gameId}
+                game={game}
+                onSelect={openGame}
+              />
             ))}
           </ol>
         )}
@@ -204,6 +258,34 @@ export default function MainPage() {
           </Link>
         </div>
 
+        {/*
+          랭킹은 응원 구단 기준이라 계정 기능이다 — 비로그인이면 부르지 않고 로그인으로 가는
+          길만 남긴다(로그인을 마치면 홈으로 돌아온다).
+
+          시상대와 같은 주황 카드에 **빈 시상대**(왕관 · 흐린 자리 셋)를 깔아 "여기에 순위가
+          뜬다"는 것을 보여 주고, 그 위에 안내와 버튼을 얹는다.
+        */}
+        {!isLoggedIn && (
+          <div className="main-page__ranking-guest">
+            <div className="main-page__ranking-guest-podium" aria-hidden="true">
+              {(['side', 'top', 'side'] as const).map((place, index) => (
+                <span
+                  className={`main-page__ranking-guest-seat main-page__ranking-guest-seat--${place}`}
+                  key={index}
+                />
+              ))}
+            </div>
+            <p className="main-page__ranking-guest-text">
+              로그인하면 응원 구단의
+              <br />
+              승리요정 랭킹을 볼 수 있어요
+            </p>
+            <Link className="main-page__ranking-guest-login" to={ROUTES.login}>
+              로그인하기
+            </Link>
+          </div>
+        )}
+
         {isRankingLoading && <p className="main-page__status">랭킹을 불러오는 중입니다.</p>}
 
         {rankingFailed && (
@@ -216,7 +298,7 @@ export default function MainPage() {
           모집단이 비어 있으면 빈 배열(200)이 온다 — 오류가 아니다. 구단을 고르지 않은
           경우도 같은 빈 배열이라, 고르러 가는 길은 위 "오늘의 경기" 절이 이미 안내한다.
         */}
-        {!isRankingLoading && !rankingFailed && ranking.length === 0 && (
+        {isLoggedIn && !isRankingLoading && !rankingFailed && ranking.length === 0 && (
           <p className="main-page__status">아직 순위에 오른 사람이 없어요.</p>
         )}
 
@@ -224,10 +306,6 @@ export default function MainPage() {
           <RankingPodium entries={ranking} />
         )}
       </section>
-
-      {selectedGame && (
-        <GameDetailSheet game={selectedGame} onClose={() => setSelectedGame(null)} />
-      )}
     </main>
   );
 }

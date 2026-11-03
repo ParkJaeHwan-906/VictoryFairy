@@ -1,0 +1,146 @@
+/**
+ * CommunityImagePicker(첨부 사진 줄) 스타일.
+ *
+ * 추가 칸은 프로필 수정의 사진 변경 배지(회색 바탕 + `plus.svg`)를 칸 크기로 키운 모양이고,
+ * 사진 칸은 게시글 줄의 썸네일과 같은 `--radius-10` 이다.
+ */
+
+.community-image-picker {
+  --picker-tile: 80px;
+
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  list-style: none;
+  scrollbar-width: none;
+}
+
+.community-image-picker::-webkit-scrollbar {
+  display: none;
+}
+
+.community-image-picker--small {
+  --picker-tile: 56px;
+}
+
+.community-image-picker__add {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: var(--picker-tile);
+  height: var(--picker-tile);
+  border-radius: var(--radius-10);
+  background-color: var(--color-background-gray);
+  color: var(--color-label-alternative);
+}
+
+.community-image-picker__add:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.community-image-picker__add-icon {
+  width: 24px;
+  height: 24px;
+  background-color: var(--color-label-alternative);
+  -webkit-mask: url('../assets/plus.svg') center / contain no-repeat;
+  mask: url('../assets/plus.svg') center / contain no-repeat;
+}
+
+.community-image-picker__count {
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+.community-image-picker__item {
+  position: relative;
+  flex-shrink: 0;
+  width: var(--picker-tile);
+  height: var(--picker-tile);
+}
+
+.community-image-picker__thumb {
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius-10);
+  background-color: var(--color-background-gray);
+  object-fit: cover;
+}
+
+.community-image-picker__thumb--uploading {
+  opacity: 0.5;
+}
+
+/* 업로드 중 표시 — 썸네일 가운데 도는 고리 */
+.community-image-picker__spinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 20px;
+  height: 20px;
+  margin: -10px 0 0 -10px;
+  border: 2px solid var(--color-white);
+  border-top-color: var(--color-primary-normal);
+  border-radius: 50%;
+  animation: community-image-picker-spin 0.8s linear infinite;
+}
+
+@keyframes community-image-picker-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 지우기 — 썸네일 오른쪽 위 모서리의 작은 먹색 원 */
+.community-image-picker__remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 50%;
+  background-color: var(--color-dim);
+}
+
+/* 20px 버튼은 손가락에 작다 — 보이지 않는 덧댐으로 누르는 범위만 넓힌다 */
+.community-image-picker__remove::after {
+  position: absolute;
+  inset: -6px;
+  content: '';
+}
+
+.community-image-picker__remove-icon {
+  width: 12px;
+  height: 12px;
+  background-color: var(--color-white);
+  -webkit-mask: url('../assets/x.svg') center / contain no-repeat;
+  mask: url('../assets/x.svg') center / contain no-repeat;
+}
+
+.community-image-picker__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .community-image-picker__spinner {
+    animation-duration: 2.4s;
+  }
+}

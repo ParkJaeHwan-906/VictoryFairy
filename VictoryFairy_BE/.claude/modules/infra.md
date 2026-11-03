@@ -1,7 +1,7 @@
 # infra 모듈 (배포 · 인프라)
 
 > 이 파일은 infra/배포 작업 시에만 로드되는 슬림 컨텍스트다.
-> 최종 업데이트: 2026-08-12
+> 최종 업데이트: 2026-10-09
 >
 > **서빙은 EKS다.** EC2+docker-compose 배포 경로는 2026-07-27 폐기됐다 — 대상 인스턴스가 이미
 > 사라져 있었고 워크플로도 실패만 하고 있었다. `deploy.yml`·`docker-compose.prod.yml`·`nginx.conf`를
@@ -12,7 +12,7 @@
 ## 서빙 구조
 
 ```
-victoryfairy.com ──HTTPS──► ALB ──► user-app(8080) / quiz-app(8081) 파드
+victoryfairy.com ──HTTPS──► ALB ──► user-app(8080) / quiz-app(8081) / chat-app(8082, 신설) 파드
                                           │
                                           └──► EC2 자체 호스팅 MySQL (victoryfairy-mysql-dev, 10.0.0.14)
 ```
@@ -33,7 +33,8 @@ victoryfairy.com ──HTTPS──► ALB ──► user-app(8080) / quiz-app(80
   - `victoryfairy-devdb-dev` — private `10.0.0.163` / public `52.78.153.242`. BE 레포 `.env`의 `DB_HOST`가
     가리키는 **로컬 개발용**(매일 새벽 프로덕션 덤프를 복원).
   - 두 DB는 데이터가 다르다.
-- **레지스트리/CI**: ECR(`victoryfairy-user`, `victoryfairy-quiz`) + GitHub Actions keyless(OIDC).
+- **레지스트리/CI**: ECR(`victoryfairy-user`, `victoryfairy-quiz`, `victoryfairy-chat`) + GitHub Actions keyless(OIDC).
+- **chat 앱(2026-10-09)**: 매니페스트 `k8s/24-chat-app.yaml` 은 **Infra 브랜치에 있고 BE 쪽 main 에는 아직 없다**(ECR `victoryfairy-chat`·CI 역할 접근 권한은 terraform apply 가 선행 조건). ALB 는 경로 rewrite 불가라 Ingress path 는 앱 context-path `/chat` 과 일치해야 하고 헬스체크는 `/chat/actuator/health/readiness`. 앱은 `KAFKA_BOOTSTRAP_SERVERS` 가 prod 필수(기본값 없음). **EKS 실배포 미검증.**
 
 ## 앱 설정 주입
 
@@ -68,7 +69,7 @@ AWS Load Balancer Controller + ExternalDNS(`k8s/23-external-dns.yaml`, apex A(AL
 
 ## CI/CD
 
-**`deploy-eks.yml` 하나뿐이다**(저장소 루트 `.github/workflows/`).
+**`deploy-eks.yml` 하나뿐이다**(저장소 루트 `.github/workflows/`). 모듈은 user·quiz·chat.
 push(main) + `workflow_dispatch` → 변경 모듈 감지 → Docker 빌드 → ECR push(**커밋 SHA 7자리**, 태그 IMMUTABLE)
 → 매니페스트(`k8s/20-user-app.yaml`·`21-quiz-app.yaml`) 렌더+치환 검증 → **`kubectl apply -f`**(파일 전체)
 → 블루-그린 롤아웃(`maxSurge 100%/maxUnavailable 0`) → **실패 시 자동 `rollout undo`**.
@@ -85,6 +86,8 @@ push(main) + `workflow_dispatch` → 변경 모듈 감지 → Docker 빌드 → 
   실패(매니페스트 누락·치환 실패)에서도 `rollout undo`가 돌아 멀쩡한 파드를 되돌린다. **합치지 말 것.**
 - `rollout undo`는 **Deployment만** 되돌린다. 같은 커밋에서 Service·HPA·SA를 함께 바꿨다면 그 변경은
   클러스터에 남으므로 직전 커밋 매니페스트를 수동 재apply해야 한다.
+- **변경 감지 그룹(2026-10-09)**: `shared`(common·domain·**web-support**·Gradle 루트 파일 등) 변경 → user quiz chat 전체 / `user`·`quiz`·`chat` 각자 / **`profanity` → quiz+chat**(user 는 의존 안 함이라 별도 그룹). 종전 shared 에 web-support 가 없어 그 모듈만 고친 커밋이 아무것도 재배포하지 않았다.
+- **Preflight 스텝**은 모듈→매니페스트 매핑만 맡는다. user·quiz·chat 모두 매니페스트가 없으면 즉시 실패한다(chat 첫 배포 때 두었던 건너뛰기 장치는 2026-10-09 가동 후 제거). ⚠ **Infra(`k8s/**`)만 바꾼 머지는 경로 필터에 안 걸려 워크플로가 돌지 않는다** → 매니페스트 변경은 `gh workflow run deploy-eks.yml -f modules=<모듈>` 로 배포. ⚠ **Ingress(`22-ingress.yaml`)는 이 워크플로가 적용하지 않는다** — 바꾸면 `kubectl apply` 로 직접 적용해야 한다(chat Ingress 도 2026-10-09 수동 적용). `workflow_dispatch` 기본값은 `user quiz chat`.
 - ⚠ **`VictoryFairy_Infra/k8s/**`만 바꾼 커밋은 이 워크플로를 트리거하지 않는다** — push 경로 필터가
   `VictoryFairy_BE/**`와 워크플로 자신뿐이다. BE 변경이 뒤따를 때까지 매니페스트만 고쳐서는 반영 안 됨.
 - 로컬 수동 배포 `VictoryFairy_Infra/scripts/deploy-app.sh`도 같은 `sed | kubectl apply -f -` 방식.
@@ -97,18 +100,20 @@ push(main) + `workflow_dispatch` → 변경 모듈 감지 → Docker 빌드 → 
   ⚠ 적용은 끝났지만 **왜 순서가 강제였는지는 남긴다**(같은 형태의 시드+부트스트랩 조합이 또 나오면 그대로 재현된다) — 코드를 먼저 배포하고 SQL을 나중에 돌리면 `chat-init.sql`의 멱등성 가드가 새 uid로 `WHERE NOT EXISTS`를 걸게 바뀌는데 DB엔 아직 옛 uid 행만 있어 SYSTEM 계정·구단 채팅방 10건이 **중복 생성**되고, `UnknownAccountBootstrapper`(`ApplicationRunner`라 **기동 경로**에 있다)는 새 uid로 `(알수없음)` 계정을 못 찾아 새로 만들려다 `users.email`/`users.tel` UNIQUE 충돌로 **INSERT가 실패해 앱이 아예 뜨지 않는다.** "SQL 먼저, 배포 나중"이 순서다. 상세는 `.claude/modules/user.md`(`UnknownAccountPolicy`)·`.claude/modules/domain.md`.
   참고: 채팅방 uid는 SSE 구독 URL 등 외부 노출 식별자라 적용 순간 그 값을 물고 있던 클라이언트 연결이 끊긴다(방 목록을 다시 받으면 새 uid로 복구되나 무중단은 아니다 — 트래픽 적은 시간대 권장). 계정 쪽 uid 2건은 로그인이 성립하지 않는 예약 계정(BCrypt 패턴이 아닌 placeholder 비밀번호)이라 발급된 토큰이 없고, 무효화되는 실사용자 토큰도 없다.
 - ~~**`infra/sql/migrate-quiz-like-account-set-null.sql`**~~ — 해소(2026-08-18, devdb·운영 DB 양쪽 적용 완료). `quizzes_like`의 계정 FK를 `ON DELETE CASCADE`→`SET NULL`로 바꾼다(만료 데이터 정리 스케줄러가 계정을 하드 삭제할 때 추천 수가 조용히 깎이지 않게 하는 선행 조건). 상세는 `.claude/modules/domain.md`.
+- **`infra/sql/migrate-community.sql`**(2026-10-08, 1회성, `data-locations` 등록 금지) — 커뮤니티 테이블이 제약 없이 먼저 생긴 환경용(계정 FK SET NULL 등 보정). 시드 `infra/sql/community-categories-init.sql` 은 반대로 `data-locations` 에 등록돼 매 기동 실행(재실행 안전). 커뮤니티 이미지 인프라(IRSA `community-img/*` Get/Put/Delete, asset 버킷 정책 CloudFront 읽기, CloudFront `/community-img/*` behavior)는 2026-10-13 운영 apply 완료·실측 확인(Infra 브랜치 `hwannee/infra/fix-community-img-prefix`).
 
 ## 로컬 개발
 
-- `docker-compose.yml` — `mysql:8.0`(3306, `mysql-data` 볼륨) + `redis:7.2-alpine`(6379). 둘 다 healthcheck 있음.
-  `user`·`quiz`는 `profiles: ["prod"]` 뒤에 숨어 있어 **기본 실행은 DB만 뜬다.** 앱까지 띄우려면 `--profile prod`.
+- `docker-compose.yml` — `mysql:8.0`(3306, `mysql-data` 볼륨) + `redis:7.2-alpine`(6379, **AOF `appendonly yes`/`everysec`** — 채팅 히스토리 보존 전제, 볼륨은 없어 재생성 시 휘발) + **`kafka`(`apache/kafka:3.9.1` KRaft 단일 노드, `kafka-data` 볼륨)**.
+  Kafka 리스너 2개: 호스트 `bootRun` 용 `localhost:29092`(EXTERNAL) / 컨테이너 네트워크용 `kafka:9092`(INTERNAL). 토픽 자동 생성 끔 → **`kafka-init`(일회성)** 이 `chat-messages`·`chat-control` 을 파티션 3 으로 만든다. 모두 healthcheck 있음.
+  `user`·`quiz`는 `profiles: ["prod"]` 뒤에 숨어 있어 **기본 실행은 DB만 뜬다.** 앱까지 띄우려면 `--profile prod`. chat 서비스는 compose 에 없다(`bootRun` 또는 `--build-arg MODULE=chat` 이미지로 검증).
 - `Dockerfile` — **EKS CI도 이 파일로 빌드한다**(`docker build --build-arg MODULE=...`). 로컬 전용이 아니므로
-  함부로 바꾸면 운영 빌드가 깨진다.
+  함부로 바꾸면 운영 빌드가 깨진다. 멀티모듈이라 `:${MODULE}:bootJar` 가 다른 모듈 소스를 요구해 **`COPY profanity`·`COPY chat` 이 모두 있어야** 한다(`EXPOSE 8082` 추가) — 새 Gradle 모듈을 만들면 여기도 추가.
 - ⚠ `docker compose down -v`는 `mysql-data` 볼륨을 지운다. 사용자가 로컬 개발 DB로 쓰고 있다.
 
 ## redis
 
-`user`: 이메일 인증 상태 저장(TTL 휘발성, 영속 볼륨 불필요). `quiz`: 용도가 둘이다 —
+`chat`(2026-10-09): 방 메타·Stream 히스토리·dedup·속도 제한(키 목록은 `.claude/modules/chat.md`) + 좋아요 pub/sub 채널 `chat:likes`(휘발, 키 아님) — **히스토리가 Redis 에만 있어 영속(AOF)이 전제**다. `user`: 이메일 인증 상태 저장(TTL 휘발성, 영속 볼륨 불필요). `quiz`: 용도가 둘이다 —
 prod 프로파일 실시간 fan-out(`RedisPubSubPublisher`) + **프로파일 무관**(2026-08-19) 보기별 투표 집계
 (`RedisQuizVoteTally`, dev도 실제 Redis에 쓴다. 상세는 `.claude/modules/quiz.md`).
 `user`·`quiz` 둘 다 `docker-compose.yml`에서 `SPRING_DATA_REDIS_HOST`/`PORT`가 주입되고, 같은

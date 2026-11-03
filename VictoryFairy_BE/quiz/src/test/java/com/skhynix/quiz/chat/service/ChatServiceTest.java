@@ -22,6 +22,7 @@ import com.skhynix.domain.support.repository.UserSupportTeamRepository;
 import com.skhynix.domain.team.entity.Team;
 import com.skhynix.domain.user.entity.UserAccount;
 import com.skhynix.domain.user.repository.UserAccountRepository;
+import com.skhynix.domain.user.repository.UserBlockRepository;
 import com.skhynix.quiz.chat.dto.MessageEvent;
 import com.skhynix.quiz.chat.dto.MessageResponse;
 import com.skhynix.quiz.chat.dto.PageResponse;
@@ -34,6 +35,7 @@ import com.skhynix.quiz.realtime.SubscriptionCloseCommand;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -93,6 +95,9 @@ class ChatServiceTest {
 
     @Mock
     private UserSupportTeamRepository userSupportTeamRepository;
+
+    @Mock
+    private UserBlockRepository userBlockRepository;
 
     @Mock
     private RealtimeEventPublisher eventPublisher;
@@ -184,6 +189,16 @@ class ChatServiceTest {
     private void givenMaskUnchanged() {
         given(profanityFilter.mask(anyString(), anyString()))
                 .willAnswer(invocation -> invocation.getArgument(0));
+    }
+
+    /** 요청자와 양방향 차단 관계인 상대가 아무도 없는 상태(USER-BLK-14 기본값). */
+    private void givenNoBlockRelations(Long userAccountId) {
+        given(userBlockRepository.findRelatedAccountIds(userAccountId)).willReturn(Set.of());
+    }
+
+    /** 요청자와 양방향 차단 관계인 상대 id 집합을 스텁한다(USER-BLK-14). */
+    private void givenBlockRelations(Long userAccountId, Set<Long> relatedAccountIds) {
+        given(userBlockRepository.findRelatedAccountIds(userAccountId)).willReturn(relatedAccountIds);
     }
 
     // ---------- getRooms ----------
@@ -792,6 +807,7 @@ class ChatServiceTest {
     void getHistory_delegatesToRepositoryWithPageableAndWrapsResult() {
         Chatroom room = activeRoom(ROOM_UID);
         givenSupportTeam(1L, team());
+        givenNoBlockRelations(1L);
         given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
         UserAccount author = userAccountWithId(1L, "닉네임", "user-profile-img/history.jpg");
         Chat chat = chatOf(room, author, "내용");
@@ -818,6 +834,7 @@ class ChatServiceTest {
     void getHistory_mixedProfileImgUrl_preservesValueAndNullPerMessage() {
         Chatroom room = activeRoom(ROOM_UID);
         givenSupportTeam(1L, team());
+        givenNoBlockRelations(1L);
         given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
         UserAccount withProfile = userAccountWithId(2L, "닉1", "user-profile-img/2.jpg");
         UserAccount withoutProfile = userAccountWithId(3L, "(알수없음)"); // 프로필 없음(기본 null)
@@ -839,6 +856,7 @@ class ChatServiceTest {
     void getHistory_neverReappliesMasking() {
         Chatroom room = activeRoom(ROOM_UID);
         givenSupportTeam(1L, team());
+        givenNoBlockRelations(1L);
         given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
         UserAccount author = userAccountWithId(2L, "닉네임");
         // 필터 도입 이전에 저장돼 원문 욕설이 그대로 남아 있는 과거 메시지
@@ -890,6 +908,101 @@ class ChatServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting(ex -> ((BusinessException) ex).getErrorCode())
                 .isEqualTo(ErrorCode.SUPPORT_TEAM_REQUIRED);
+    }
+
+    // ---------- getHistory: 차단 필터 (USER-BLK-14~16) ----------
+
+    @Test
+    @DisplayName("[USER-BLK-14] getHistory()는 요청자와 양방향 차단 관계(내가 차단한 상대 + 나를 차단한 상대 둘 다)인 "
+            + "발신자의 메시지를 content에서 제외하고, 차단 관계가 아닌 발신자의 메시지는 그대로 포함한다")
+    void getHistory_excludesMessagesFromBidirectionallyBlockedSenders() {
+        Chatroom room = activeRoom(ROOM_UID);
+        givenSupportTeam(1L, team());
+        // findRelatedAccountIds는 "내가 차단한 상대"·"나를 차단한 상대" 양쪽을 이미 합쳐 돌려준다
+        // (UserBlockRepository.findRelatedAccountIds 계약) — ChatService는 그 집합을 그대로 제외 조건으로 쓴다.
+        UserAccount iBlocked = userAccountWithId(2L, "내가차단한상대");
+        UserAccount blockedMe = userAccountWithId(3L, "나를차단한상대");
+        UserAccount unrelated = userAccountWithId(4L, "무관한상대");
+        givenBlockRelations(1L, Set.of(2L, 3L));
+        given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
+        Chat fromIBlocked = chatOf(room, iBlocked, "내가 차단한 사람 메시지");
+        Chat fromBlockedMe = chatOf(room, blockedMe, "나를 차단한 사람 메시지");
+        Chat fromUnrelated = chatOf(room, unrelated, "무관한 사람 메시지");
+        Page<Chat> repoPage = new PageImpl<>(
+                List.of(fromIBlocked, fromBlockedMe, fromUnrelated), PageRequest.of(0, 30), 3);
+        given(chatRepository.findByChatroomAndBlindFalseAndDeletedAtIsNullOrderByCreatedAtDesc(
+                eq(room), any(Pageable.class))).willReturn(repoPage);
+
+        PageResponse<MessageResponse> result = chatService.getHistory(ROOM_UID, 0, 1L);
+
+        assertThat(result.content()).hasSize(1);
+        assertThat(result.content().get(0).content()).isEqualTo("무관한 사람 메시지");
+        assertThat(result.content().get(0).senderNickname()).isEqualTo("무관한상대");
+    }
+
+    @Test
+    @DisplayName("[USER-BLK-14] 차단 필터로 content 항목 수가 줄어도 totalElements/totalPages/hasNext는 "
+            + "필터 이전(원본 쿼리) 기준 값을 그대로 유지한다")
+    void getHistory_blockFilterDoesNotAffectPaginationMetadata() {
+        Chatroom room = activeRoom(ROOM_UID);
+        givenSupportTeam(1L, team());
+        UserAccount blocked = userAccountWithId(2L, "차단상대");
+        UserAccount unrelated = userAccountWithId(4L, "무관상대");
+        givenBlockRelations(1L, Set.of(2L));
+        given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
+        Chat blockedChat = chatOf(room, blocked, "차단 메시지");
+        Chat unrelatedChat = chatOf(room, unrelated, "무관 메시지");
+        // 페이지 안 2건 중 1건이 필터로 빠지지만, total은 페이지 크기와 무관한 원본 쿼리 값(45)이다.
+        Page<Chat> repoPage = new PageImpl<>(
+                List.of(blockedChat, unrelatedChat), PageRequest.of(0, 30), 45);
+        given(chatRepository.findByChatroomAndBlindFalseAndDeletedAtIsNullOrderByCreatedAtDesc(
+                eq(room), any(Pageable.class))).willReturn(repoPage);
+
+        PageResponse<MessageResponse> result = chatService.getHistory(ROOM_UID, 0, 1L);
+
+        assertThat(result.content()).hasSize(1);
+        assertThat(result.totalElements()).isEqualTo(45);
+        assertThat(result.totalPages()).isEqualTo(repoPage.getTotalPages());
+        assertThat(result.hasNext()).isEqualTo(repoPage.hasNext());
+    }
+
+    @Test
+    @DisplayName("[USER-BLK-14] 페이지 안 메시지 전원이 차단 관계면 content는 빈 리스트가 되지만 "
+            + "예외 없이 200으로 응답한다")
+    void getHistory_allMessagesBlocked_returnsEmptyContentWithoutError() {
+        Chatroom room = activeRoom(ROOM_UID);
+        givenSupportTeam(1L, team());
+        UserAccount blocked = userAccountWithId(2L, "차단상대");
+        givenBlockRelations(1L, Set.of(2L));
+        given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
+        Chat blockedChat = chatOf(room, blocked, "차단 메시지");
+        Page<Chat> repoPage = new PageImpl<>(List.of(blockedChat), PageRequest.of(0, 30), 1);
+        given(chatRepository.findByChatroomAndBlindFalseAndDeletedAtIsNullOrderByCreatedAtDesc(
+                eq(room), any(Pageable.class))).willReturn(repoPage);
+
+        PageResponse<MessageResponse> result = chatService.getHistory(ROOM_UID, 0, 1L);
+
+        assertThat(result.content()).isEmpty();
+        assertThat(result.totalElements()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("[USER-BLK-16] sendMessage()는 수신자와 차단 관계가 있어도 전송 자체를 막지 않는다"
+            + "(차단은 수신 측 숨김으로만 작동 — userBlockRepository를 아예 조회하지 않는다)")
+    void sendMessage_succeedsRegardlessOfBlockRelation_neverConsultsUserBlockRepository() {
+        Chatroom room = activeRoom(ROOM_UID);
+        UserAccount sender = userAccountWithId(1L, "두산팬1");
+        givenSendSupportTeam(1L, team());
+        givenMaskUnchanged();
+        given(chatroomRepository.findByUidAndDeletedAtIsNull(ROOM_UID)).willReturn(Optional.of(room));
+        given(userAccountRepository.findById(1L)).willReturn(Optional.of(sender));
+        given(chatRepository.saveAndFlush(any(Chat.class))).willAnswer(invocation -> invocation.getArgument(0));
+
+        MessageResponse response = chatService.sendMessage(ROOM_UID, 1L, "안녕");
+
+        assertThat(response.content()).isEqualTo("안녕");
+        verify(chatRepository).saveAndFlush(any(Chat.class));
+        verify(userBlockRepository, never()).findRelatedAccountIds(any());
     }
 
     // ---------- reportMessage ----------

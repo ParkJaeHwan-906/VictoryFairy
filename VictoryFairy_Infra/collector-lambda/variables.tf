@@ -94,6 +94,24 @@ variable "quiz_source_jobs_enabled" {
   default     = false
 }
 
+variable "inning_events_enabled" {
+  description = "games_sync 의 이닝/공수 전환 감지 + 단일 이닝 relay 조회 + S3 inning-events/ 적재 기능 on/off. py-collector 배포 이미지가 이 분기(_sync_games_for_date)를 아는 뒤에 true 로 올린다 — quiz_source_jobs_enabled 와 같은 절차."
+  type        = bool
+  default     = false
+}
+
+variable "game_state_events_enabled" {
+  description = "games_sync 라이브 폴링의 이닝·점수·상태 변화 감지 + S3 game-state-events/ 스냅샷 적재 on/off (BE user-app 경기 SSE 원천). 위 inning_events 와 별개 스위치·별개 prefix 다. py-collector 배포 이미지가 이 분기를 아는 뒤에 true 로 올린다 — 같은 절차."
+  type        = bool
+  default     = false
+}
+
+variable "win_rate_enabled" {
+  description = "games_sync 가 진행 중 경기의 현재 이닝 relay 를 추가 조회해 games.home_win_rate/away_win_rate 에 쓰고, 승률 변화를 game-state-events changed(winRate)에 싣는 기능 on/off. 운영 DB 에 두 컬럼(DECIMAL(4,1) NULL, 수동 ALTER)이 생긴 뒤에만 true — 컬럼 없이 켜면 games upsert 가 통째로 실패한다."
+  type        = bool
+  default     = false
+}
+
 variable "kbo_records_schedule" {
   description = "KBO 기록실 스냅샷 -> S3. 기본 07:00 KST = 22:00 UTC (전날 경기가 기록실에 반영된 뒤)."
   type        = string
@@ -189,9 +207,16 @@ variable "games_sync_nightly_schedule" {
 # 밀린다. 헛도는 비용은 스케줄 API 1회뿐이다 — 라인업이 다 들어온 경기는 py-collector
 # 가 DB 판정으로 preview 호출 자체를 건너뛰고, 구장도 이미 아는 경기는 다시 받지 않는다.
 variable "games_sync_live_schedule" {
-  description = "경기 시간대 상태·선발라인업 폴링(당일만). 기본 17:00~23:59 KST 1분 간격 = 08:00~14:59 UTC."
+  # 2026-10-04 실측: 종전 기본값(17:00~23:59 KST)은 일요일 14:00 시작 경기를 놓쳤다.
+  # 네이버 schedule API 직접 조회로 09-06·09-20(둘 다 일요일) 전부 14:00 시작 확인,
+  # 당일 14:00 경기 4개가 4~5회까지 진행 중인데도(게임 자체 진행 중, 네이버 API 응답
+  # 으로 확인) 17:00 전이라 이 룰이 안 돌아 games 테이블 상태·이닝·선발 라인업이
+  # 통째로 비어 있는 것도 실측으로 확인했다. 13:00 으로 당겨서 14:00 경기의 선발
+  # 공시(경기 1시간 전 공시)를 놓치지 않게 한다 — 최근 샘플 6개 날짜
+  # (09-06/09-13/09-20/09-27/08-09/08-16)에서 14:00 보다 이른 경기는 없었다.
+  description = "경기 시간대 상태·선발라인업 폴링(당일만). 기본 13:00~23:59 KST 1분 간격 = 04:00~14:59 UTC."
   type        = string
-  default     = "cron(* 8-14 * * ? *)"
+  default     = "cron(* 4-14 * * ? *)"
 }
 
 # 상한 14 는 handler.py 의 MAX_SYNC_DAYS 와 같은 값이다. 핸들러가 어차피 자르므로
@@ -231,6 +256,19 @@ variable "export_player_profile_schedule" {
   description = "player_profile envelope -> S3 question-source/. 기본 11:30 KST = 02:30 UTC (registrations 11:00 이후)."
   type        = string
   default     = "cron(30 2 * * ? *)"
+}
+
+# 2026-10-06 exporter.py에 read_player_season_stats가 추가됐지만(TEAMMATE_STAT_COMPARE
+# 템플릿의 유일한 재료 소스) 이 EventBridge 룰을 만드는 걸 깜빡해 2026-10-07 이후
+# 파티션이 전혀 안 생겼다 — 그날 이후 TEAMMATE_STAT_COMPARE가 매일 "재료 소진"으로
+# 거의 0건만 나온 진짜 원인이었다(최신 S3 파티션 2026-10-09 기준 실측으로 확인,
+# quiz-daily routine이 매일 같은 2026-10-07 스냅샷으로 7일 비반복 윈도를 돌려서
+# 이미 소진된 조합만 남았던 것). records(03:30)·export_game_result(04:00)와 같은
+# 선행조건(그날 batter_records/pitcher_records)이라 바로 뒤에 둔다.
+variable "export_player_season_stat_schedule" {
+  description = "player_season_stat envelope -> S3 question-source/. 기본 04:10 KST = 19:10 UTC (records 03:30 이후, export_game_result 04:00 다음)."
+  type        = string
+  default     = "cron(10 19 * * ? *)"
 }
 
 variable "pii_salt" {

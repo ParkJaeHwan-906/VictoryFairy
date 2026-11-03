@@ -238,3 +238,96 @@ def test_export_game_schedule_writes_to_s3():
     key, obj = sink.puts[0]
     assert key.startswith("question-source/game_schedule/")
     assert obj["envelopeVersion"] == 1
+
+
+# ── player_season_stat (2026-10-06 신설) ──────────────────────────
+# (players.id, kbo_player_id, 이름, 팀 코드, 팀 이름, 경기수, 그 뒤는 지표 SUM)
+BATTING_ROW = (123, "53554", "김민석", "LT", "롯데", 10, 30, 10, 2, 5, 3, 7, 1)
+PITCHING_ROW = (456, "60100", "박세웅", "LT", "롯데", 20, 100, 30, 80, 70, 25, 5)
+# 겸업 선수(투수인데 타석에도 선 경우) 병합 검증용 — BATTING_ROW와 같은
+# kbo_player_id(53554)로 투수 기록도 하나 더 준다.
+TWO_WAY_PITCHING_ROW = (123, "53554", "김민석", "LT", "롯데", 1, 3, 1, 1, 1, 0, 0)
+
+
+def test_read_player_season_stats_batting_only_no_qualification_floor():
+    # batter_records는 KBO 공식 기록실 랭킹 표(자격 타석수 미달 선수는 표에
+    # 안 뜸)와 달리 "1경기라도 뛰면" 집계된다는 설계 불변식을 고정한다.
+    db = FakeDb({"FROM batter_records": [BATTING_ROW], "FROM pitcher_records": []})
+    envs = list(exporter.read_player_season_stats(db))
+    assert len(envs) == 1
+    e = envs[0]
+    assert e.doc_id == "player_season_stat:53554"
+    assert e.doc_type == "player_season_stat"
+    assert e.entities["playerUids"] == [123]
+    assert e.entities["teamCodes"] == ["LT"]
+    assert "타율 0.333" in e.content  # 10안타/30타수
+    assert "pitching" not in e.payload
+    assert e.payload["batting"]["avg"] == 0.333
+    assert "개인기록" in e.tags and "시즌통계" in e.tags
+
+
+def test_read_player_season_stats_pitching_only_era():
+    db = FakeDb({"FROM batter_records": [], "FROM pitcher_records": [PITCHING_ROW]})
+    envs = list(exporter.read_player_season_stats(db))
+    e = envs[0]
+    assert e.doc_id == "player_season_stat:60100"
+    # era = earnedRuns*27/ipOuts = 30*27/100 = 8.1
+    assert e.payload["pitching"]["era"] == 8.1
+    assert "평균자책점 8.10" in e.content
+    assert "batting" not in e.payload
+    # whip = (hits + walksHbp) * 3 / ipOuts = (70+25)*3/100 = 2.85
+    # (TEAMMATE_STAT_COMPARE HARD 지표, 2026-10-07 추가. ipOuts=100 >= 30이라 자격 충족)
+    assert e.payload["pitching"]["whip"] == 2.85
+    assert "WHIP 2.85" in e.content
+
+
+def test_read_player_season_stats_whip_null_below_innings_floor():
+    # ip_outs=29(= 9⅔이닝, 10이닝 미달)면 era는 계산되지만 whip은 자격 하한에
+    # 걸려 None이어야 한다 — era보다 더 엄격한 하한(이닝<10)을 쓰는 설계.
+    row = (456, "60100", "박세웅", "LT", "롯데", 20, 29, 10, 20, 20, 5, 1)
+    db = FakeDb({"FROM batter_records": [], "FROM pitcher_records": [row]})
+    envs = list(exporter.read_player_season_stats(db))
+    e = envs[0]
+    assert e.payload["pitching"]["era"] is not None
+    assert e.payload["pitching"]["whip"] is None
+    assert "집계불가(이닝부족)" in e.content
+
+
+def test_read_player_season_stats_whip_no_division_by_zero():
+    # ip_outs=0인 투수는 era·whip 둘 다 None(0으로 나누지 않음 — era와 같은
+    # 0-나누기 가드 패턴).
+    row = (456, "60100", "박세웅", "LT", "롯데", 1, 0, 0, 0, 0, 0, 0)
+    db = FakeDb({"FROM batter_records": [], "FROM pitcher_records": [row]})
+    envs = list(exporter.read_player_season_stats(db))
+    e = envs[0]
+    assert e.payload["pitching"]["era"] is None
+    assert e.payload["pitching"]["whip"] is None
+    assert "집계불가(무이닝)" in e.content
+    assert "집계불가(이닝부족)" in e.content
+
+
+def test_read_player_season_stats_merges_two_way_player():
+    db = FakeDb({"FROM batter_records": [BATTING_ROW],
+                 "FROM pitcher_records": [TWO_WAY_PITCHING_ROW]})
+    envs = list(exporter.read_player_season_stats(db))
+    assert len(envs) == 1
+    e = envs[0]
+    assert "batting" in e.payload and "pitching" in e.payload
+
+
+def test_read_player_season_stats_no_division_by_zero():
+    zero_ab_row = (123, "53554", "김민석", "LT", "롯데", 1, 0, 0, 0, 0, 0, 0, 0)
+    db = FakeDb({"FROM batter_records": [zero_ab_row], "FROM pitcher_records": []})
+    envs = list(exporter.read_player_season_stats(db))
+    assert envs[0].payload["batting"]["avg"] is None
+    assert "집계불가" in envs[0].content
+
+
+def test_export_player_season_stat_writes_to_s3():
+    sink = FakeSink()
+    db = FakeDb({"FROM batter_records": [BATTING_ROW], "FROM pitcher_records": []})
+    n = exporter.export("player_season_stat", settings=SimpleNamespace(), db=db, sink=sink)
+    assert n == 1
+    key, obj = sink.puts[0]
+    assert key.startswith("question-source/player_season_stat/")
+    assert obj["payload"]["playerId"] == "53554"

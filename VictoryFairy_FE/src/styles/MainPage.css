@@ -74,6 +74,31 @@
 }
 
 /*
+ * 비로그인 — 꾸미기 버튼 자리의 로그인 버튼.
+ * 같은 흰 판 · 그림자 · 높이(44)를 그대로 쓰고 아이콘 대신 글자를 얹는다. 글자는 서비스
+ * 주색으로 칠해 히어로 안에서 "누를 것"으로 읽히게 한다.
+ */
+.main-page__decorate--login {
+  gap: 2px;
+  height: 44px;
+  padding: 10px 12px 10px 16px;
+  border-radius: var(--radius-full);
+  color: var(--color-primary-normal);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  white-space: nowrap;
+}
+
+.main-page__decorate-arrow {
+  width: 16px;
+  height: 16px;
+  background-color: currentcolor;
+  -webkit-mask: url('../assets/arrow_r.svg') center / contain no-repeat;
+  mask: url('../assets/arrow_r.svg') center / contain no-repeat;
+}
+
+/*
  * 내 캐릭터. 디자인 좌표 (222, 32) — 오른쪽 끝에서 20px 떨어진 자리다.
  * 크기(160 x 200)와 안쪽 겹치기는 CharacterAvatar 가 갖는다.
  */
@@ -81,6 +106,34 @@
   position: absolute;
   top: 32px;
   right: 20px;
+}
+
+/*
+ * 비로그인 — 내 캐릭터 자리의 승리요정. `CharacterAvatar` 와 같은 160 x 200 판에
+ * 같은 발밑 그림자를 깐다. 스티커 그림은 정사각(여백 포함)이라 아래에 붙여 발이
+ * 그림자 위에 오게 한다.
+ */
+.main-page__mascot {
+  width: 160px;
+  height: 200px;
+}
+
+.main-page__mascot-shadow {
+  position: absolute;
+  bottom: 4px;
+  left: 50%;
+  width: 100px;
+  height: 20px;
+  transform: translateX(-50%);
+}
+
+.main-page__mascot-body {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: contain;
 }
 
 /* ------------------------------------------------------------------ *
@@ -249,6 +302,90 @@
 }
 
 /* ------------------------------------------------------------------ *
+ * 비로그인 랭킹 — 시상대(RankingPodium.css)와 같은 주황 카드 · 같은 반경 · 같은 여백.
+ * 빈 시상대를 흐리게 깔고 그 아래 안내와 흰 버튼을 둔다.
+ * ------------------------------------------------------------------ */
+.main-page__ranking-guest {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-inline: var(--layout-gutter);
+  padding: 20px 16px;
+  border-radius: var(--radius-20);
+  background-image: radial-gradient(
+    692px 175px at 50% 50%,
+    var(--color-primary-300),
+    var(--color-primary-500)
+  );
+  text-align: center;
+}
+
+/* 1위가 가운데 · 더 크게 — 시상대의 자리 배치를 그대로 줄여 옮겼다 */
+.main-page__ranking-guest-podium {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 24px;
+  opacity: 0.6;
+}
+
+/* 왕관 + 빈 자리 원. 왕관은 ::before, 원은 판 자체다 */
+.main-page__ranking-guest-seat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.main-page__ranking-guest-seat::before {
+  content: '';
+  width: 20px;
+  height: 20px;
+  background-color: var(--color-ivory-100);
+  -webkit-mask: url('../assets/crown.svg') center / contain no-repeat;
+  mask: url('../assets/crown.svg') center / contain no-repeat;
+}
+
+.main-page__ranking-guest-seat::after {
+  content: '';
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-ivory-100);
+  opacity: 0.5;
+}
+
+.main-page__ranking-guest-seat--top::before {
+  width: 26px;
+  height: 26px;
+}
+
+.main-page__ranking-guest-seat--top::after {
+  width: 56px;
+  height: 56px;
+}
+
+.main-page__ranking-guest-text {
+  margin: 0;
+  color: var(--color-white);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+}
+
+/* 주황 판 위라 흰 바탕 · 주색 글자로 뒤집는다 */
+.main-page__ranking-guest-login {
+  padding: 10px 24px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-surface);
+  color: var(--color-primary-normal);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+}
+
+/* ------------------------------------------------------------------ *
  * 반응형 — 402px 미만(소형 단말)에서 좌우 여백을 줄인다(다른 화면과 동일).
  * ------------------------------------------------------------------ */
 @media (max-width: 359px) {
@@ -257,7 +394,8 @@
     left: 16px;
   }
 
-  .main-page__promo {
+  .main-page__promo,
+  .main-page__ranking-guest {
     margin-inline: 16px;
   }
 

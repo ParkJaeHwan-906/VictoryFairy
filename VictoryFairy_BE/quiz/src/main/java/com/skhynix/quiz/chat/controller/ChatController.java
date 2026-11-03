@@ -1,5 +1,8 @@
 package com.skhynix.quiz.chat.controller;
 
+import com.skhynix.common.error.BusinessDataException;
+import com.skhynix.common.error.BusinessException;
+import com.skhynix.common.error.ErrorCode;
 import com.skhynix.common.response.ApiResponse;
 import com.skhynix.quiz.chat.dto.MessageResponse;
 import com.skhynix.quiz.chat.dto.PageResponse;
@@ -14,6 +17,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -79,5 +83,19 @@ public class ChatController {
             @AuthenticationPrincipal Long userAccountId) {
         chatService.reportMessage(roomUid, messageId, userAccountId);
         return ResponseEntity.ok(ApiResponse.ok(null));
+    }
+
+    // EventSource 는 Accept: text/event-stream 만 보내서, 공유 핸들러의 JSON 응답은 협상할 컨버터가 없어
+    // 예외가 컨테이너로 샌다. Content-Type 을 고정해 협상을 건너뛴다. 공유 핸들러는 user·chat 도 쓰니 건드리지 말 것.
+    @ExceptionHandler(BusinessException.class)
+    public ResponseEntity<ApiResponse<Object>> handleBusiness(BusinessException e) {
+        ErrorCode errorCode = e.getErrorCode();
+        // 하위 타입도 여기로 오므로 공유 핸들러처럼 data 를 살린다
+        ApiResponse<Object> body = e instanceof BusinessDataException dataException
+                ? ApiResponse.fail(errorCode.getMessage(), dataException.getData())
+                : ApiResponse.fail(errorCode.getMessage());
+        return ResponseEntity.status(errorCode.getStatus())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(body);
     }
 }

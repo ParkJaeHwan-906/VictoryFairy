@@ -31,6 +31,16 @@ export const GAME_BASE_URL = normalize(
 );
 
 /**
+ * chat 모듈 — 경기별 채팅(`docs/game-chat.md`, 2026-10-09 운영 가동).
+ *
+ * 구단별 채팅(GAME_BASE_URL 의 `/chat/**`)과 **다른 서버**다. base 가 이미 `/chat` 이라
+ * 경로는 `/rooms` 부터 쓴다: CHAT_BASE_URL + '/rooms' → https://victoryfairy.com/chat/rooms
+ */
+export const CHAT_BASE_URL = normalize(
+  import.meta.env.VITE_API_CHAT_BASE_URL ?? `${LOCAL_ORIGIN}/chat`,
+);
+
+/**
  * 이미지 CDN 루트 — 프로필·캐릭터 이미지를 실제로 읽어 오는 곳.
  *
  * **서버는 완성된 URL 을 주지 않는다.** 이미지는 언제나 BaseURL 을 뺀
@@ -39,7 +49,9 @@ export const GAME_BASE_URL = normalize(
  *
  * API base(`.../api`)와 **다른 값이다.** 도메인이 같아도 이쪽은 CloudFront 배포이고,
  * 읽히는 경로는 `/user-profile-img/*` · `/temp/*` · `/characters/*` · `/items/*` ·
- * `/stores/*` 다섯뿐이다(뒤 셋은 2026-08-28 캐릭터 도메인과 함께 신설). 버킷은 퍼블릭
+ * `/stores/*` · `/community/*` 여섯뿐이다(`/characters/*`~`/stores/*` 는 2026-08-28 캐릭터
+ * 도메인과, `/community/*` 는 2026-10-08 커뮤니티 도메인과 함께 신설 — 인프라 behavior 가
+ * 배포돼야 실제로 서빙된다). 버킷은 퍼블릭
  * 액세스가 막혀 있어 S3 직접 주소(`....s3.ap-northeast-2.amazonaws.com`)로는 열리지 않는다.
  */
 export const ASSET_BASE_URL = normalize(

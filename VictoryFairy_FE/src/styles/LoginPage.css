@@ -259,6 +259,18 @@
   color: var(--color-primary-400);
 }
 
+/* 로그인 없이 둘러보기 — 회원가입 안내 아래, 같은 크기의 보조 링크 */
+.login-page__browse {
+  align-self: center;
+  margin-top: 8px;
+  padding: 4px 8px;
+  color: var(--color-label-assistive);
+  font-size: var(--font-size-label2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+  text-decoration: underline;
+}
+
 /* ------------------------------------------------------------------ *
  * 반응형 — 402px 미만(소형 단말)에서 좌우 여백을 줄여 시트가 깨지지 않게 한다.
  * ------------------------------------------------------------------ */

@@ -1,6 +1,7 @@
 package com.skhynix.quiz.quiz.ingest;
 
 import com.skhynix.domain.game.entity.Game;
+import com.skhynix.domain.game.entity.InningHalf;
 import com.skhynix.domain.game.repository.GameRepository;
 import com.skhynix.domain.player.entity.Player;
 import com.skhynix.domain.player.repository.PlayerRepository;
@@ -33,6 +34,11 @@ public class QuizIngestService {
     private static final String TYPE_MULTIPLE = "객관식";
     private static final String TYPE_OX = "O/X";
 
+    private static final String KIND_PREDICTION = "PREDICTION";
+
+    /** 지금 적재를 지원하는 유일한 PREDICTION 지표. 그 외 지표는 settlement 유무와 무관하게 스킵. */
+    private static final String METRIC_BATTER_HIT_IN_INNING = "BATTER_HIT_IN_INNING";
+
     private final QuizRepository quizRepository;
     private final QuizOptionRepository quizOptionRepository;
     private final QuizTypeRepository quizTypeRepository;
@@ -44,6 +50,11 @@ public class QuizIngestService {
 
     @Transactional
     public Result ingest(QuizCandidate candidate, LocalDate quizDate) {
+        // PREDICTION 은 지원 지표(BATTER_HIT_IN_INNING) 한정으로 별도 분기를 탄다 — 그 외는
+        // ingestPrediction 내부에서도 SKIPPED_PREDICTION 으로 떨어진다(기존 스킵 로그 그대로).
+        if (KIND_PREDICTION.equals(candidate.kind())) {
+            return ingestPrediction(candidate, quizDate);
+        }
         if (!"KNOWLEDGE".equals(candidate.kind())) {
             log.info("PREDICTION 후보는 아직 미지원 — 스킵: {}", candidate.quizId());
             return Result.SKIPPED_PREDICTION;
@@ -94,6 +105,75 @@ public class QuizIngestService {
                 .quizDate(gameBound ? quizDate : null)
                 .difficulty(candidate.difficulty())
                 .templateId(candidate.templateId())
+                .build());
+
+        List<QuizOption> options = new ArrayList<>();
+        for (int i = 0; i < candidate.options().size(); i++) {
+            options.add(QuizOption.builder()
+                    .quiz(quiz)
+                    .option(i)
+                    .contents(candidate.options().get(i).text())
+                    .build());
+        }
+        quizOptionRepository.saveAll(options);
+        return Result.LOADED;
+    }
+
+    /**
+     * PREDICTION 후보 중 지표가 {@code BATTER_HIT_IN_INNING} 인 것만 적재한다. 그 외 PREDICTION
+     * 지표(또는 settlement 자체가 없는 PREDICTION)는 여전히 미지원 — 기존 스킵 로그·결과를 그대로
+     * 쓴다(이번 범위는 이 지표 하나뿐).
+     *
+     * <p>KNOWLEDGE 와 갈리는 지점은 둘이다 — ① {@code answer}를 비워 둔다(정답은 경기가 그 이닝을
+     * 지난 뒤 {@code quiz.settlement} 패키지가 채운다, {@link Quiz#settle(int)}) ② 게임 귀속 여부를
+     * {@code resolveNaverGameId}가 아니라 {@code settlement.gameId()}로 판정한다 — PREDICTION 은
+     * 정의상 특정 경기·이닝이 전제라 귀속이 선택적일 수 없다.
+     *
+     * <p><b>보기 순서는 고정 계약이다</b> — {@code options[0]}이 "적중(안타 발생)",
+     * {@code options[1]}이 "미적중"이어야 한다. {@code QuizSettlementService}가 정산 시점에 보기
+     * 텍스트를 보지 않고 이 인덱스 0/1 관례만으로 정답을 확정하기 때문이다(KNOWLEDGE의
+     * {@code answer}가 보기 '텍스트'가 아니라 '번호'인 것과 같은 설계 — 보기 행이 재생성돼도 깨지지
+     * 않는다).
+     */
+    private Result ingestPrediction(QuizCandidate candidate, LocalDate quizDate) {
+        QuizCandidate.Settlement settlement = candidate.settlement();
+        if (settlement == null || !METRIC_BATTER_HIT_IN_INNING.equals(settlement.metric())) {
+            log.info("PREDICTION 후보는 아직 미지원 — 스킵: {}", candidate.quizId());
+            return Result.SKIPPED_PREDICTION;
+        }
+        if (quizRepository.existsByExternalId(candidate.quizId())) {
+            return Result.SKIPPED_DUPLICATE;
+        }
+        if (settlement.gameId() == null || settlement.gameId().isBlank()) {
+            log.warn("PREDICTION 후보에 settlement.gameId 가 없음 — 정산 불가라 스킵: {}",
+                    candidate.quizId());
+            return Result.SKIPPED_PREDICTION;
+        }
+
+        QuizType quizType = resolveQuizType(candidate);
+        Game game = resolveGame(settlement.gameId(), candidate);
+        Team team = game != null ? game.getHomeTeam() : null;
+        Team opponentTeam = game != null ? game.getAwayTeam() : null;
+        Player player = resolvePlayer(candidate);
+        InningHalf half = InningHalf.valueOf(settlement.half());
+
+        Quiz quiz = quizRepository.save(Quiz.builder()
+                .quizType(quizType)
+                .team(team)
+                .opponentTeam(opponentTeam)
+                .player(player)
+                .game(game)
+                .content(candidate.question())
+                .answer(null)
+                .point(candidate.pointReward() == null ? null : candidate.pointReward().doubleValue())
+                .bq(resolveBq(candidate))
+                .externalId(candidate.quizId())
+                .quizDate(quizDate)
+                .difficulty(candidate.difficulty())
+                .templateId(candidate.templateId())
+                .settlementMetric(settlement.metric())
+                .settlementInning(settlement.inning())
+                .settlementHalf(half.ordinal())
                 .build());
 
         List<QuizOption> options = new ArrayList<>();

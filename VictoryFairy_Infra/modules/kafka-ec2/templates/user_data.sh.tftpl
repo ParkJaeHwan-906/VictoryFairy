@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+# =============================================================================
+# Kafka(KRaft 단일 브로커) 자체 호스팅 부트스트랩 (Amazon Linux 2023)
+# -----------------------------------------------------------------------------
+#   - apache/kafka 공식 이미지를 docker 로 띄운다(mysql-ec2 와 같은 방식).
+#   - 로그 디렉터리는 별도 EBS(gp3) 마운트 위에 둔다(영속).
+#   - advertised listener = 이 인스턴스의 프라이빗 IP:9092(IMDSv2 조회).
+#   - 토픽 자동 생성 끔. chat 토픽은 kafka-topics-init.service 가 부팅마다 if-not-exists 로 만든다.
+# ⚠ cloud-init 은 '최초 부팅'에만 이 스크립트를 실행한다. 이후 설정 변경은 SSM 으로 패치할 것
+#   (aws_instance 는 user_data 를 ignore_changes 한다).
+# =============================================================================
+set -euxo pipefail
+
+# ---------------------------------------------------------------------------
+# 0) 파라미터 (Terraform templatefile 주입)
+# ---------------------------------------------------------------------------
+DATA_DEVICE="${data_volume_device_name}"
+MOUNT_POINT="/mnt/kafka-data"
+KAFKA_IMAGE="${kafka_image}"
+KAFKA_HEAP="${kafka_heap_size}"
+KAFKA_CONTAINER_MEMORY="${kafka_container_memory}"
+CLIENT_PORT="${client_port}"
+RETENTION_HOURS="${log_retention_hours}"
+SWAP_SIZE_MB="${swap_size_mb}"
+
+# ---------------------------------------------------------------------------
+# 1) 패키지: docker
+# ---------------------------------------------------------------------------
+dnf update -y
+dnf install -y docker
+systemctl enable --now docker
+
+# ---------------------------------------------------------------------------
+# 1-1) 스왑 — 안전망. 원인 차단은 3) 의 --memory / -Xmx 쪽이다(mysql-ec2 user_data 1-1 참조).
+#      ⚠ xfs 에서 fallocate 파일은 swapon 이 거부하므로 dd 로 실제 기록한다.
+# ---------------------------------------------------------------------------
+if ! swapon --show | grep -q '/swapfile'; then
+  dd if=/dev/zero of=/swapfile bs=1M count="$SWAP_SIZE_MB" status=none
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+  grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+fi
+echo 'vm.swappiness=10' > /etc/sysctl.d/99-swappiness.conf
+sysctl -w vm.swappiness=10
+
+# ---------------------------------------------------------------------------
+# 2) EBS 데이터 볼륨 탐지 + 마운트 (Nitro 는 /dev/nvme*n1 로 보인다)
+#    파일시스템이 없을 때만 mkfs — 기존 데이터가 있으면 절대 포맷하지 않는다.
+# ---------------------------------------------------------------------------
+#    ⚠ aws_volume_attachment 는 인스턴스가 만들어진 '뒤'에 붙는다. cloud-init 이 먼저 돌면 볼륨이
+#      아직 없어 탐지가 빈 값이 되고 set -e 로 중단되므로, 보일 때까지 5초 간격 최대 5분 기다린다.
+ROOT_DISK="$(findmnt -no SOURCE / | sed 's/p\?[0-9]*$//')"
+RESOLVED_DEVICE=""
+for i in $(seq 1 60); do
+  if [ -b "$DATA_DEVICE" ]; then
+    RESOLVED_DEVICE="$DATA_DEVICE"
+  else
+    RESOLVED_DEVICE="$(lsblk -dpno NAME,TYPE,MOUNTPOINT | awk '$2=="disk" && $3=="" {print $1}' | grep -v "$ROOT_DISK" | head -n1 || true)"
+  fi
+  [ -n "$RESOLVED_DEVICE" ] && break
+  echo "waiting for Kafka data EBS ($DATA_DEVICE) to attach... ($i/60)"
+  sleep 5
+done
+if [ -z "$RESOLVED_DEVICE" ]; then
+  echo "FATAL: Kafka data EBS ($DATA_DEVICE) not attached after 300s - aborting bootstrap (check aws_volume_attachment.data)" >&2
+  exit 1
+fi
+
+if ! blkid "$RESOLVED_DEVICE"; then
+  mkfs -t xfs "$RESOLVED_DEVICE"
+fi
+
+mkdir -p "$MOUNT_POINT"
+DATA_UUID="$(blkid -s UUID -o value "$RESOLVED_DEVICE")"
+grep -q "$DATA_UUID" /etc/fstab || echo "UUID=$DATA_UUID $MOUNT_POINT xfs defaults,nofail 0 2" >> /etc/fstab
+mount -a
+mkdir -p "$MOUNT_POINT/kafka"
+# apache/kafka 이미지는 appuser(uid 1000)로 돈다.
+chown -R 1000:1000 "$MOUNT_POINT/kafka"
+
+# KRaft 클러스터 ID — 스토리지 포맷에 박히는 값이라 볼륨과 함께 살아야 한다. 최초 1회만 생성.
+if [ ! -s "$MOUNT_POINT/cluster-id" ]; then
+  docker run --rm "$KAFKA_IMAGE" /opt/kafka/bin/kafka-storage.sh random-uuid > "$MOUNT_POINT/cluster-id"
+fi
+CLUSTER_ID="$(cat "$MOUNT_POINT/cluster-id")"
+
+# ---------------------------------------------------------------------------
+# 3) Kafka 컨테이너 — host 네트워크(advertised IP 로 자기 자신에게도 붙어야 하므로 NAT 를 끼우지 않는다).
+#    컨트롤러 리스너(9093)는 127.0.0.1 에만 바인드 → 외부 노출 없음.
+#    메모리: 힙은 -Xms=-Xmx 로 고정하고, 컨테이너 --memory 로 JVM 바깥 몫까지 묶는다.
+# ---------------------------------------------------------------------------
+TOKEN="$(curl -sS -X PUT http://169.254.169.254/latest/api/token -H 'X-aws-ec2-metadata-token-ttl-seconds: 300')"
+PRIVATE_IP="$(curl -sS -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/local-ipv4)"
+
+docker run -d --name kafka --restart unless-stopped \
+  --network host \
+  --memory "$KAFKA_CONTAINER_MEMORY" \
+  -e CLUSTER_ID="$CLUSTER_ID" \
+  -e KAFKA_NODE_ID=1 \
+  -e KAFKA_PROCESS_ROLES=broker,controller \
+  -e KAFKA_LISTENERS="PLAINTEXT://0.0.0.0:$CLIENT_PORT,CONTROLLER://127.0.0.1:9093" \
+  -e KAFKA_ADVERTISED_LISTENERS="PLAINTEXT://$PRIVATE_IP:$CLIENT_PORT" \
+  -e KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT \
+  -e KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER \
+  -e KAFKA_CONTROLLER_QUORUM_VOTERS=1@127.0.0.1:9093 \
+  -e KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT \
+  -e KAFKA_AUTO_CREATE_TOPICS_ENABLE=false \
+  -e KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1 \
+  -e KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1 \
+  -e KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1 \
+  -e KAFKA_DEFAULT_REPLICATION_FACTOR=1 \
+  -e KAFKA_MIN_INSYNC_REPLICAS=1 \
+  -e KAFKA_LOG_DIRS=/var/lib/kafka/data \
+  -e KAFKA_LOG_RETENTION_HOURS="$RETENTION_HOURS" \
+  -e KAFKA_HEAP_OPTS="-Xms$KAFKA_HEAP -Xmx$KAFKA_HEAP" \
+  -v "$MOUNT_POINT/kafka:/var/lib/kafka/data" \
+  "$KAFKA_IMAGE"
+
+# ---------------------------------------------------------------------------
+# 4) 토픽 생성 — 부팅마다 도는 oneshot 유닛. --if-not-exists 라 멱등이고, 이미 있는 토픽의
+#    파티션 수는 건드리지 않는다(chat-messages 파티션 변경은 00:00 KST 직후 수동으로만).
+# ---------------------------------------------------------------------------
+RETENTION_MS=$((RETENTION_HOURS * 3600 * 1000))
+cat >/usr/local/bin/kafka-create-topics.sh <<SCRIPT
+#!/usr/bin/env bash
+set -euo pipefail
+BS="127.0.0.1:$CLIENT_PORT"
+for i in \$(seq 1 60); do
+  if docker exec kafka /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server "\$BS" >/dev/null 2>&1; then
+    break
+  fi
+  [ "\$i" = 60 ] && { echo "broker not ready after 300s" >&2; exit 1; }
+  sleep 5
+done
+%{ for name, partitions in topics ~}
+docker exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server "\$BS" --create --if-not-exists \
+  --topic ${name} --partitions ${partitions} --replication-factor 1 --config retention.ms=$RETENTION_MS
+%{ endfor ~}
+docker exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server "\$BS" --describe
+SCRIPT
+chmod +x /usr/local/bin/kafka-create-topics.sh
+
+cat >/etc/systemd/system/kafka-topics-init.service <<'UNIT'
+[Unit]
+Description=Create chat Kafka topics if missing
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/kafka-create-topics.sh
+# 브로커 대기 루프가 최대 300s 라 기본 90s 타임아웃보다 길게 준다.
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable kafka-topics-init.service
+systemctl start kafka-topics-init.service

@@ -1,0 +1,251 @@
+{
+  "code": 200,
+  "success": true,
+  "result": {
+    "textRelayData": {
+      "gameId": "20260920HHLG02026",
+      "inn": 5,
+      "textRelays": [
+        {
+          "title": "1번타자 한지윤",
+          "no": 60,
+          "inn": 5,
+          "homeOrAway": "0",
+          "textOptions": [
+            {
+              "seqno": 240,
+              "text": "1번타자 한지윤",
+              "type": 8,
+              "batterRecord": {"pcode": "60123", "name": "한지윤", "hit": 1, "ab": 2, "pa": 2}
+            },
+            {
+              "seqno": 241,
+              "text": "1구 타격",
+              "type": 1,
+              "currentGameState": {"batter": "60123", "pitcher": "54729"}
+            },
+            {
+              "seqno": 242,
+              "text": "한지윤 : 우익수 앞 1루타",
+              "type": 23,
+              "currentGameState": {"batter": "60123", "pitcher": "54729"}
+            }
+          ]
+        },
+        {
+          "title": "2번타자 최인호",
+          "no": 61,
+          "inn": 5,
+          "homeOrAway": "0",
+          "textOptions": [
+            {
+              "seqno": 243,
+              "text": "2번타자 최인호",
+              "type": 8,
+              "batterRecord": {"pcode": "60456", "name": "최인호", "hit": 1, "ab": 2, "pa": 2}
+            },
+            {
+              "seqno": 244,
+              "text": "최인호 : 우익수 앞 1루타",
+              "type": 23,
+              "currentGameState": {"batter": "60456", "pitcher": "54729"}
+            }
+          ]
+        },
+        {
+          "title": "3번타자 정은원",
+          "no": 62,
+          "inn": 5,
+          "homeOrAway": "0",
+          "textOptions": [
+            {
+              "seqno": 245,
+              "text": "3번타자 정은원",
+              "type": 8,
+              "batterRecord": {"pcode": "60789", "name": "정은원", "hit": 1, "ab": 2, "pa": 2}
+            },
+            {
+              "seqno": 246,
+              "text": "정은원 : 투수 왼쪽 번트안타",
+              "type": 13,
+              "currentGameState": {"batter": "60789", "pitcher": "54729"}
+            }
+          ]
+        },
+        {
+          "title": "4번타자 허인서",
+          "no": 63,
+          "inn": 5,
+          "homeOrAway": "0",
+          "textOptions": [
+            {
+              "seqno": 247,
+              "text": "4번타자 허인서",
+              "type": 8,
+              "batterRecord": {"pcode": "60999", "name": "허인서", "hit": 0, "ab": 1, "pa": 1}
+            },
+            {
+              "seqno": 248,
+              "text": "허인서 : 3루수 병살타 아웃 (3루수->2루수->1루수 송구아웃)",
+              "type": 13,
+              "currentGameState": {"batter": "60999", "pitcher": "54729"}
+            }
+          ]
+        },
+        {
+          "title": "5번타자 박정현",
+          "no": 64,
+          "inn": 5,
+          "homeOrAway": "0",
+          "textOptions": [
+            {
+              "seqno": 249,
+              "text": "5번타자 박정현",
+              "type": 8,
+              "batterRecord": {"pcode": "61000", "name": "박정현", "hit": 0, "ab": 1, "pa": 1}
+            },
+            {
+              "seqno": 250,
+              "text": "박정현 : 중견수 희생플라이 아웃",
+              "type": 23,
+              "currentGameState": {"batter": "61000", "pitcher": "54729"}
+            }
+          ]
+        },
+        {
+          "title": "투수 교체",
+          "no": 65,
+          "inn": 5,
+          "homeOrAway": "0",
+          "textOptions": [
+            {
+              "seqno": 251,
+              "text": "투수 카라스코 : 투수 김강률 (으)로 교체",
+              "type": 2
+            }
+          ]
+        },
+        {
+          "title": "1번타자 문정빈",
+          "no": 70,
+          "inn": 5,
+          "homeOrAway": "1",
+          "textOptions": [
+            {
+              "seqno": 260,
+              "text": "1번타자 문정빈",
+              "type": 8,
+              "batterRecord": {"pcode": "62001", "name": "문정빈", "hit": 1, "ab": 2, "pa": 2}
+            },
+            {
+              "seqno": 261,
+              "text": "문정빈 : 중견수 왼쪽 1루타",
+              "type": 23,
+              "currentGameState": {"batter": "62001", "pitcher": "55130"}
+            }
+          ]
+        },
+        {
+          "title": "2번타자 오스틴",
+          "no": 71,
+          "inn": 5,
+          "homeOrAway": "1",
+          "textOptions": [
+            {
+              "seqno": 262,
+              "text": "2번타자 오스틴",
+              "type": 8,
+              "batterRecord": {"pcode": "62002", "name": "오스틴", "hit": 1, "ab": 2, "pa": 2}
+            },
+            {
+              "seqno": 263,
+              "text": "오스틴 : 좌익수 앞 1루타",
+              "type": 23,
+              "currentGameState": {"batter": "62002", "pitcher": "55130"}
+            }
+          ]
+        },
+        {
+          "title": "3번타자 박해민",
+          "no": 72,
+          "inn": 5,
+          "homeOrAway": "1",
+          "textOptions": [
+            {
+              "seqno": 264,
+              "text": "3번타자 박해민",
+              "type": 8,
+              "batterRecord": {"pcode": "62003", "name": "박해민", "hit": 2, "ab": 3, "pa": 3}
+            },
+            {
+              "seqno": 265,
+              "text": "박해민 : 우익수 오른쪽 2루타",
+              "type": 13,
+              "currentGameState": {"batter": "62003", "pitcher": "55130"}
+            }
+          ]
+        },
+        {
+          "title": "4번타자 강백호",
+          "no": 73,
+          "inn": 5,
+          "homeOrAway": "1",
+          "textOptions": [
+            {
+              "seqno": 266,
+              "text": "4번타자 강백호",
+              "type": 8,
+              "batterRecord": {"pcode": "62004", "name": "강백호", "hit": 0, "ab": 2, "pa": 2}
+            },
+            {
+              "seqno": 267,
+              "text": "강백호 : 유격수 땅볼 아웃 (유격수->1루수 송구아웃)",
+              "type": 13,
+              "currentGameState": {"batter": "62004", "pitcher": "55130"}
+            }
+          ]
+        },
+        {
+          "title": "5번타자 송찬의",
+          "no": 74,
+          "inn": 5,
+          "homeOrAway": "1",
+          "textOptions": [
+            {
+              "seqno": 268,
+              "text": "5번타자 송찬의",
+              "type": 8,
+              "batterRecord": {"pcode": "62005", "name": "송찬의", "hit": 0, "ab": 3, "pa": 3}
+            },
+            {
+              "seqno": 269,
+              "text": "송찬의 : 삼진 아웃",
+              "type": 13,
+              "currentGameState": {"batter": "62005", "pitcher": "55130"}
+            }
+          ]
+        },
+        {
+          "title": "타자 소개 없이 pcode 만 있는 타석 (fallback 확인용)",
+          "no": 75,
+          "inn": 5,
+          "homeOrAway": "1",
+          "textOptions": [
+            {
+              "seqno": 270,
+              "text": "1구 타격",
+              "type": 1,
+              "currentGameState": {"batter": "62006", "pitcher": "55130"}
+            },
+            {
+              "seqno": 271,
+              "text": "이재원 : 좌익수 뒤 홈런 (홈런거리:140M)",
+              "type": 23,
+              "currentGameState": {"batter": "62006", "pitcher": "55130"}
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

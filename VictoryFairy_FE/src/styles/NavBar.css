@@ -36,7 +36,7 @@
       (var(--nav-bar-item-width) + var(--nav-bar-gap)) + var(--nav-bar-item-width) / 2
   );
   --nav-bar-diamond-size: 68px;
-  --nav-bar-safe-area: env(safe-area-inset-bottom, 0px);
+  --nav-bar-safe-area: var(--safe-area-bottom);
   /*
    * 건너가는 칸 수. 컴포넌트가 인라인으로 덮어쓴다.
    * 시간을 칸 수에 그대로 비례시키면 끝에서 끝(3칸)이 1초에 가까워 느리게 느껴지므로,

@@ -5,6 +5,7 @@ import App from './App';
 import { installAuthTokenStorage } from './stores/useAuthStore';
 import { getAppId } from './utils/appId';
 import { blockPinchZoom } from './utils/pinchZoom';
+import { isInApp } from './utils/pushNotification';
 import './styles/global.css';
 
 /*
@@ -24,6 +25,15 @@ getAppId();
  * viewport 메타(`index.html`)로 이미 막혀 있어, 그쪽에서는 이 호출이 하는 일이 없다.
  */
 blockPinchZoom();
+
+/*
+ * 앱 WebView 안에서 열렸다는 표시. 하단 안전 영역은 앱이 맡으므로 CSS 가 이 표시를 보고
+ * 웹 쪽 여백을 끈다(styles/tokens.css 의 `--safe-area-bottom`). 첫 페인트부터 맞아야 해서
+ * 렌더 전에 붙인다. UA 꼬리표(`applicationNameForUserAgent`)는 문서가 뜨기 전부터 있다.
+ */
+if (isInApp() || navigator.userAgent.includes('VictoryFairyApp')) {
+  document.documentElement.dataset.shell = 'app';
+}
 
 const container = document.getElementById('root');
 

@@ -232,6 +232,48 @@ def recent_scoring(games, end_date: str, days: int = 7) -> dict:
     return out
 
 
+def windowed_record(games, end_date: str, days: int = 7) -> dict:
+    """`recent_scoring`과 같은 날짜 필터링이지만 득실이 아니라 승/패/무·승률을
+    집계한다(2026-09-30 신설 — `recent_vs_prior`의 재료)."""
+    start = _shift_date(end_date, -(days - 1))
+    window = [g for g in games if start <= g.date <= end_date]
+
+    out = {t: {"wins": 0, "losses": 0, "draws": 0} for t in _teams_in(window)}
+    label = {"W": "wins", "L": "losses", "D": "draws"}
+    for g in window:
+        for team in (g.away, g.home):
+            r = _wld(team, g)
+            out[team][label[r]] += 1
+    for t in out:
+        out[t]["winPct"] = _win_pct(out[t]["wins"], out[t]["losses"])
+    return out
+
+
+def recent_vs_prior(games, end_date: str, days: int = 7) -> dict:
+    """최근 `days`일과 그 직전 `days`일의 팀별 승률을 비교한다(2026-09-30 신설).
+
+    `RECENT_VS_EARLY` 템플릿이 예전에 쓰던 `monthly`(달력 월 단위)는 "시즌 초 대비"
+    같은 고정 앵커라 하루이틀 사이 결론이 거의 안 바뀌어 7일 중복회피 창에 계속
+    걸렸다(scoring.yaml "perTeam 신설" 첫 실행 관찰 — team-*-bad.md 다수 사례).
+    이 함수는 창을 매일 하루씩 미는 이동창이라 값이 매일 실제로 달라진다.
+
+    두 창 모두에 존재하는 팀만 결과에 포함한다(창에 경기가 없어 팀이 아예
+    없으면 비교 불가로 제외 — `yoy`와 같은 원칙).
+    """
+    recent = windowed_record(games, end_date, days)
+    prior_end = _shift_date(end_date, -days)
+    prior = windowed_record(games, prior_end, days)
+
+    out = {}
+    for t in sorted(set(recent) & set(prior)):
+        out[t] = {
+            "recentWinPct": recent[t]["winPct"],
+            "priorWinPct": prior[t]["winPct"],
+            "delta": round(recent[t]["winPct"] - prior[t]["winPct"], 3),
+        }
+    return out
+
+
 def yoy(cur_games, prev_games, as_of: str) -> "dict | None":
     """prev_games가 비면 (전년 데이터 없음) None. 두 시즌 모두에 존재하는
     팀만 결과에 포함한다(한쪽에만 있는 팀은 비교 불가라 제외).
@@ -367,6 +409,7 @@ def build_season_stats(games, today: str) -> dict:
         "monthly": monthly(cur),
         "standingsTrend": standings_trend(cur),
         "recentScoring": recent_scoring(cur, end_date=today),
+        "recentVsPrior": recent_vs_prior(cur, end_date=today),
         "yoy": yoy(cur, prev, as_of=today),
     }
 
@@ -481,6 +524,19 @@ def _render_recent_scoring_section(rs: dict, as_of: str) -> str:
     return "\n".join(lines)
 
 
+def _render_recent_vs_prior_section(rvp: dict, as_of: str) -> str:
+    lines = [f"## 최근 7일 대비 직전 7일 승률 (기준일 {as_of})"]
+    if not rvp:
+        lines.append("데이터 없음")
+        return "\n".join(lines)
+    for team in sorted(rvp):
+        v = rvp[team]
+        sign = "+" if v["delta"] >= 0 else ""
+        lines.append(f"- {team}: 직전 {v['priorWinPct']:.3f} → 최근 {v['recentWinPct']:.3f} "
+                     f"({sign}{v['delta']:.3f})")
+    return "\n".join(lines)
+
+
 def _render_yoy_section(yoy_map, as_of: str) -> str:
     lines = [f"## 전년 대비 (기준일 {as_of})"]
     if yoy_map is None:
@@ -509,6 +565,7 @@ def render_season_md(stats: dict) -> str:
         _render_monthly_section(stats["monthly"], as_of),
         _render_standings_trend_section(stats["standingsTrend"], as_of),
         _render_recent_scoring_section(stats["recentScoring"], as_of),
+        _render_recent_vs_prior_section(stats["recentVsPrior"], as_of),
         _render_yoy_section(stats["yoy"], as_of),
     ]
     return "\n\n".join(sections)

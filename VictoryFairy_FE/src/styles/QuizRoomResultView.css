@@ -1,0 +1,291 @@
+/**
+ * QuizRoomResultView(퀴즈방 풀이 결과) 스타일.
+ *
+ * 문제 카드는 오늘의 퀴즈 결과 시트(`QuizResultSheet.css`)의 카드를 그대로 따른다:
+ *   흰 카드 · radius 10 · 그림자 0 0 2px Gray/200, 번호 칩 색이 곧 정오,
+ *   "내가 선택한 답 | 정답" 회색 칸, O/X 는 `o.svg` · `x.svg` 마스크 글리프.
+ * 시트와 다른 점 — 화면 본문이라 카드가 늘 펼쳐져 있고(질문 전문), 답 칸은 보기 글을
+ * 그대로 적으므로 라벨 아래로 쌓는다. 좋아요 칸 대신 선택율 펼치기가 붙는다.
+ */
+
+.quiz-room-result {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 24px var(--layout-gutter) 0;
+}
+
+/* ------------------------------------------------------------------ *
+ * 요약 — 제목 + 맞힌 수 / 전체
+ * ------------------------------------------------------------------ */
+.quiz-room-result__summary {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.quiz-room-result__title {
+  margin: 0;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-title2);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title2);
+}
+
+.quiz-room-result__score {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 4px;
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 맞힌 수 — Display1 을 주황으로. 나머지는 한 단계 낮춰 숫자 하나에 눈이 가게 한다. */
+.quiz-room-result__score-correct {
+  color: var(--color-primary-normal);
+  font-size: var(--font-size-display1);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-display1);
+  letter-spacing: var(--letter-spacing-display1);
+}
+
+.quiz-room-result__score-divider {
+  color: var(--color-label-assistive);
+  font-size: var(--font-size-title2);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+}
+
+.quiz-room-result__score-total {
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-title2);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title2);
+}
+
+/* ------------------------------------------------------------------ *
+ * 문제 카드 — `.quiz-result-sheet__cards` / `__card` 와 같은 값
+ * ------------------------------------------------------------------ */
+.quiz-room-result__cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  /* 카드 그림자가 잘리지 않게 목록 좌우로 2px 씩 숨 쉴 자리를 준다 */
+  padding: 2px;
+  list-style: none;
+}
+
+.quiz-room-result__card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  padding: 12px;
+  border-radius: var(--radius-10);
+  background-color: var(--color-surface);
+  box-shadow: 0 0 2px var(--color-gray-200);
+}
+
+.quiz-room-result__card-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+}
+
+/* 번호 칩 — 정답이면 초록, 오답이면 붉은 계열. 색이 곧 정오 표시다. */
+.quiz-room-result__chip {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  min-width: 25px;
+  padding: 2px 5px;
+  border-radius: var(--radius-15);
+  background-color: var(--color-background-red);
+  color: var(--color-error-strong);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  text-align: center;
+}
+
+.quiz-room-result__chip[data-correct] {
+  background-color: var(--color-success-light);
+  color: var(--color-success-strong);
+}
+
+/* 시트와 달리 늘 펼쳐 둔 카드라 전문을 보여 준다 */
+.quiz-room-result__question {
+  min-width: 0;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-body1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body1);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ------------------------------------------------------------------ *
+ * 답 칸 — 시트의 회색 칸과 같은 바탕 · radius 10.
+ * 보기 글이 그대로 들어오므로 각 칸을 [라벨 / 값] 세로로 쌓고 반씩 나눈다.
+ * ------------------------------------------------------------------ */
+.quiz-room-result__answers {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px 16px;
+  border-radius: var(--radius-10);
+  background-color: var(--color-background-gray);
+}
+
+.quiz-room-result__answer {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  text-align: center;
+}
+
+.quiz-room-result__answer-label {
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  white-space: nowrap;
+}
+
+.quiz-room-result__answer-divider {
+  flex-shrink: 0;
+  align-self: stretch;
+  width: 2px;
+  border-radius: 2px;
+  background-color: var(--color-label-disable);
+}
+
+.quiz-room-result__answer-text {
+  max-width: 100%;
+  color: var(--color-success-strong);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  overflow-wrap: anywhere;
+}
+
+.quiz-room-result__answer-text[data-tone='wrong'] {
+  color: var(--color-error-strong);
+}
+
+/* O·X 그림 — 시트와 같은 24px 마스크, 색은 background-color 로 들어간다 */
+.quiz-room-result__answer-glyph {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  background-color: var(--color-success-strong);
+}
+
+.quiz-room-result__answer-glyph[data-mark='o'] {
+  -webkit-mask: url('../assets/o.svg') center / contain no-repeat;
+  mask: url('../assets/o.svg') center / contain no-repeat;
+}
+
+.quiz-room-result__answer-glyph[data-mark='x'] {
+  -webkit-mask: url('../assets/x.svg') center / contain no-repeat;
+  mask: url('../assets/x.svg') center / contain no-repeat;
+}
+
+.quiz-room-result__answer-glyph[data-tone='wrong'] {
+  background-color: var(--color-error-strong);
+}
+
+.quiz-room-result__answer-none {
+  color: var(--color-label-assistive);
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------ *
+ * 선택율 펼치기 — 카드 아래 가운데 작은 글자 버튼 + 화살표(시트 카드 화살표와 같은 자산)
+ * ------------------------------------------------------------------ */
+.quiz-room-result__votes-toggle {
+  position: relative;
+  display: inline-flex;
+  align-self: center;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 8px;
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-caption1);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+}
+
+/* 작은 글자 버튼은 손가락에 작다 — 보이지 않는 덧댐으로 누르는 범위만 넓힌다 */
+.quiz-room-result__votes-toggle::after {
+  position: absolute;
+  inset: -6px -4px;
+  content: '';
+}
+
+.quiz-room-result__votes-arrow {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  background-color: var(--color-label-assistive);
+  -webkit-mask: url('../assets/arrow_d.svg') center / contain no-repeat;
+  mask: url('../assets/arrow_d.svg') center / contain no-repeat;
+  transition: transform 0.2s ease-out;
+}
+
+.quiz-room-result__votes-toggle[aria-expanded='true'] .quiz-room-result__votes-arrow {
+  transform: rotate(180deg);
+}
+
+.quiz-room-result__votes {
+  padding: 4px 4px 0;
+}
+
+.quiz-room-result__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------ *
+ * 반응형 · 접근성
+ * ------------------------------------------------------------------ */
+@media (max-width: 359px) {
+  .quiz-room-result {
+    padding-inline: 16px;
+  }
+
+  .quiz-room-result__answers {
+    padding-inline: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quiz-room-result__votes-arrow {
+    transition: none;
+  }
+}

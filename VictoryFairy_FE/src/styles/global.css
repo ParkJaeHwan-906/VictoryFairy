@@ -64,7 +64,7 @@ html {
    * 대화를 부르려던 손짓이 화면을 통째로 새로 받는 일이 된다.
    *
    * 시트 안쪽 스크롤 영역들은 이미 각자 `overscroll-behavior: contain` 을 걸어
-   * 두었다(GameDetailSheet 외) — 그건 스크롤 연쇄를 끊는 것이고, 여기 `none` 은
+   * 두었다(PlayerSearchSheet 외) — 그건 스크롤 연쇄를 끊는 것이고, 여기 `none` 은
    * 문서 바깥의 기본 동작까지 끄는 것이라 역할이 다르다.
    */
   overscroll-behavior: none;

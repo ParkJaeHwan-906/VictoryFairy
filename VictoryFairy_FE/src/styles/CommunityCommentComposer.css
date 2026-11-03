@@ -1,0 +1,169 @@
+/**
+ * CommunityCommentComposer(댓글 입력창) 스타일.
+ *
+ * 입력 상자는 라운지 채팅 입력창(`.lounge-chat__composer`)과 같은 값이다:
+ *   회색(gray-100) 바탕 · radius 10 · 12/12/12/16 여백 · 포커스 때 흰 바탕 + 회색 inset 테두리.
+ * 화면 아래에 붙어 있고(sticky), 위로 답글·수정 띠와 첨부 사진 줄이 얹힌다.
+ */
+
+.community-composer {
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px var(--layout-gutter) calc(12px + var(--safe-area-bottom));
+  border-top: 1px solid var(--color-line-light);
+  background-color: var(--color-background-basic);
+}
+
+.community-composer__mode {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius-10);
+  background-color: var(--color-primary-50);
+}
+
+.community-composer__mode-text {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--color-label-neutral);
+  font-size: var(--font-size-label2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.community-composer__mode-text strong {
+  color: var(--color-primary-normal);
+  font-weight: var(--font-weight-medium);
+}
+
+.community-composer__mode-cancel {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+}
+
+.community-composer__mode-cancel::after {
+  position: absolute;
+  inset: -10px;
+  content: '';
+}
+
+.community-composer__mode-cancel-icon {
+  width: 14px;
+  height: 14px;
+  background-color: var(--color-label-alternative);
+  -webkit-mask: url('../assets/x.svg') center / contain no-repeat;
+  mask: url('../assets/x.svg') center / contain no-repeat;
+}
+
+/* `.lounge-chat__send-error` 와 같은 자리 · 같은 색 */
+.community-composer__error {
+  margin: 0;
+  color: var(--color-error-strong);
+  font-size: var(--font-size-label2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+}
+
+.community-composer__images:empty {
+  display: none;
+}
+
+.community-composer__form {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 12px 12px 12px 16px;
+  border-radius: var(--radius-10);
+  background-color: var(--color-gray-100);
+}
+
+/* 포커스 — border 를 주면 높이가 튀므로 inset 그림자로 그린다(라운지 채팅과 같은 이유) */
+.community-composer__form:has(.community-composer__input:focus) {
+  background-color: var(--color-background-basic);
+  box-shadow: inset 0 0 0 1.5px var(--color-gray-300);
+}
+
+.community-composer__input {
+  flex: 1 0 0;
+  min-width: 0;
+  max-height: 120px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-label-normal);
+  font-size: var(--font-size-body2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body2);
+  resize: none;
+}
+
+.community-composer__input::placeholder {
+  color: var(--color-label-assistive);
+}
+
+.community-composer__input:focus {
+  outline: none;
+}
+
+.community-composer__photo,
+.community-composer__send {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+}
+
+/* 아이콘은 24px 이지만 손가락으로 누르기엔 작아 44px 히트 영역을 덧댄다(라운지 채팅과 같다) */
+.community-composer__photo::after,
+.community-composer__send::after {
+  position: absolute;
+  inset: -10px;
+  content: '';
+}
+
+.community-composer__photo:disabled,
+.community-composer__send:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.community-composer__photo-icon {
+  width: 22px;
+  height: 22px;
+  background-color: var(--color-label-alternative);
+  -webkit-mask: url('../assets/plus.svg') no-repeat center / contain;
+  mask: url('../assets/plus.svg') no-repeat center / contain;
+}
+
+.community-composer__send-icon {
+  width: 24px;
+  height: 24px;
+  background-color: var(--color-primary-normal);
+  -webkit-mask: url('../assets/send.svg') no-repeat center / contain;
+  mask: url('../assets/send.svg') no-repeat center / contain;
+}
+
+@media (max-width: 359px) {
+  .community-composer {
+    padding-inline: 16px;
+  }
+}

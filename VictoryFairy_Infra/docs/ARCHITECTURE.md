@@ -196,7 +196,7 @@ kbo-collector (Lambda)  ──▶ S3 community/{source}/{date}/{postId}.json
 
 ## 5. Terraform / Kubernetes 경계
 
-- **Terraform(`.tf`, 이 레포)**: VPC·서브넷·NAT, EKS 클러스터, 노드그룹 2개(app/batch), MySQL EC2·EBS·SG·IAM, S3, **ECR 리포지토리**, 그리고 **정제 파이프라인 일체**(Lambda 2개·SQS+DLQ·DynamoDB·S3 이벤트 알림·IAM 실행 롤). **클러스터와 노드그룹까지 + 서버리스 정제 전부.**
+- **Terraform(`.tf`, 이 레포)**: VPC·서브넷·NAT, EKS 클러스터, 노드그룹 3개(app/batch/monitoring), EBS CSI 애드온, MySQL EC2·EBS·SG·IAM, S3, **ECR 리포지토리**, 그리고 **정제 파이프라인 일체**(Lambda 2개·SQS+DLQ·DynamoDB·S3 이벤트 알림·IAM 실행 롤). **클러스터와 노드그룹까지 + 서버리스 정제 전부.**
   - ⚠️ **정제는 EKS 를 쓰지 않으므로 IRSA 가 아니라 Lambda 실행 롤**이다(§4). IRSA 는 문제 생성 단계가 EKS 로 갈 때 다시 본다.
   - ⚠️ 단, **`kbo-collector` Lambda 와 EventBridge 규칙은 `environments/dev` 소관이 아니다** — 같은 레포의 `collector-lambda/` 독립 스택이 소유한다(§4 한계).
 - **Kubernetes(YAML/Helm, `VictoryFairy_Infra/k8s/`)**: Deployment(user/quiz), HPA(user/quiz), taint↔toleration/nodeSelector. Spring `SPRING_PROFILES_ACTIVE=prod`. (앱 코드는 별도 레포/브랜치지만, 배포 매니페스트는 결합도가 큰 Terraform과 **같은 인프라 레포에 co-locate** — 도구/레이어 경계는 유지)

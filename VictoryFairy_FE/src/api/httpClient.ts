@@ -1,6 +1,6 @@
 import axios, { AxiosError, type AxiosInstance, type InternalAxiosRequestConfig } from 'axios';
 import type { TokenResponse } from '../types/auth';
-import { GAME_BASE_URL, USER_BASE_URL } from './config';
+import { CHAT_BASE_URL, GAME_BASE_URL, USER_BASE_URL } from './config';
 import { getTokenStorage } from './tokenStorage';
 import { isUnauthenticated, normalizeError } from './errors';
 
@@ -126,3 +126,9 @@ export const userClient: AxiosInstance = createClient(USER_BASE_URL);
  * 경로는 base 기준 상대 경로로 쓴다. 예) `/chat/rooms`
  */
 export const gameClient: AxiosInstance = createClient(GAME_BASE_URL);
+
+/**
+ * chat 모듈 클라이언트 — 경기별 채팅.
+ * 경로는 base(`.../chat`) 기준 상대 경로로 쓴다. 예) `/rooms`
+ */
+export const chatClient: AxiosInstance = createClient(CHAT_BASE_URL);
