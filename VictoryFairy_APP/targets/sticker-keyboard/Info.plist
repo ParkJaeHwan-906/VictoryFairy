@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  키보드 확장 설명. 이 파일은 @bacons/apple-targets 가 덮어쓰지 않는다(직접 관리).
+
+  RequestsOpenAccess 를 켜는 이유 — iOS 키보드는 '전체 접근 허용' 없이는
+  (1) 앱과 함께 쓰는 App Group 폴더를 읽을 수 없고 (2) 일반 붙여넣기판에 쓸 수도 없다.
+  스티커를 읽는 것도, 넣는 것(복사)도 이 둘이라 켜지 않으면 키보드가 할 수 있는 일이 없다.
+  네트워크는 쓰지 않는다 — 그림은 앱이 미리 받아 둔다.
+-->
+<plist version="1.0">
+<dict>
+	<key>StickerKeyboardAppGroup</key>
+	<string>group.com.victoryfairy.mobile</string>
+	<key>NSExtension</key>
+	<dict>
+		<key>NSExtensionAttributes</key>
+		<dict>
+			<key>IsASCIICapable</key>
+			<false/>
+			<key>PrefersRightToLeft</key>
+			<false/>
+			<key>PrimaryLanguage</key>
+			<string>ko-KR</string>
+			<key>RequestsOpenAccess</key>
+			<true/>
+		</dict>
+		<key>NSExtensionPointIdentifier</key>
+		<string>com.apple.keyboard-service</string>
+		<key>NSExtensionPrincipalClass</key>
+		<string>$(PRODUCT_MODULE_NAME).KeyboardViewController</string>
+	</dict>
+</dict>
+</plist>

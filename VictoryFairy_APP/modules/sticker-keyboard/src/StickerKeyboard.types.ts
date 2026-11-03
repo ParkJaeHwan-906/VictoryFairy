@@ -19,9 +19,12 @@ export interface StickerKeyboardSource {
 
 /** 키보드가 지금 쓸 수 있는 상태인지. */
 export interface StickerKeyboardStatus {
-  /** 설정 → 키보드에서 켜 두었는지. 꺼져 있으면 키보드 전환 목록에 나타나지 않는다. */
+  /**
+   * 설정 → 키보드에서 켜 두었는지. 꺼져 있으면 키보드 전환 목록에 나타나지 않는다.
+   * iOS 는 '전체 접근 허용'까지는 알 수 없다 — 꺼져 있으면 키보드가 스스로 안내한다.
+   */
   enabled: boolean;
-  /** 지금 기본 키보드로 골라 둔 상태인지. */
+  /** 지금 기본 키보드로 골라 둔 상태인지. iOS 는 알려 주지 않아 항상 `false` 다. */
   selected: boolean;
   /** 받아 둔 스티커 수. 0 이면 키보드에 빈 안내가 뜬다. */
   stickerCount: number;
