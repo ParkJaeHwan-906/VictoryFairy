@@ -92,28 +92,6 @@
   color: var(--color-error-strong);
 }
 
-/*
- * 보기가 셋 이상이면 표지 자리에 보기 이름이 들어간다 — A · B 로는 몇 번 보기인지
- * 가리킬 수 없기 때문이다. 이름은 길 수 있으므로 한 줄로 자르고 백분율을 먼저 지킨다.
- */
-.quiz-vote__name {
-  min-width: 0;
-  font-size: var(--font-size-body1);
-  font-weight: var(--font-weight-medium);
-  line-height: var(--line-height-body1);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.quiz-vote__side[data-side='left'] .quiz-vote__name {
-  color: var(--color-success-strong);
-}
-
-.quiz-vote__side[data-side='right'] .quiz-vote__name {
-  color: var(--color-error-strong);
-}
-
 /* 표지를 소리로만 읽어 주는 이름(핸들 설명과 같은 방식). */
 .quiz-vote__sr-only {
   position: absolute;
@@ -151,4 +129,78 @@
 
 .quiz-vote__bar[data-leading='right'] .quiz-vote__segment[data-filled] {
   background-color: var(--color-error-normal);
+}
+
+/* ------------------------------------------------------------------ *
+ * 보기가 셋 이상(4지선다) — 막대를 보기 수만큼 구역으로 나눈다.
+ * 색은 보기 순서대로 초록(`fill`) · 흰(`blank`)을 번갈아 쓴다. 화면 바탕이 흰색이라
+ * 흰 구역에는 회색 테두리를 둘러 막대 모양과 구역 경계가 보이게 한다.
+ * ------------------------------------------------------------------ */
+
+/* 표지 줄 — 보기 번호 칩 · 백분율을 같은 폭 칸에 하나씩 */
+.quiz-vote__labels {
+  display: grid;
+  grid-template-columns: repeat(var(--quiz-vote-columns, 4), minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.quiz-vote__label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* 보기 번호 칩 — 막대 구역과 같은 색이라 범례 노릇을 한다 */
+.quiz-vote__no {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  font-size: var(--font-size-label1);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+}
+
+.quiz-vote__label[data-tone='fill'] .quiz-vote__no {
+  background-color: var(--color-success-normal);
+  color: var(--color-white);
+}
+
+.quiz-vote__label[data-tone='blank'] .quiz-vote__no {
+  border: 1px solid var(--color-gray-300);
+  background-color: var(--color-white);
+  color: var(--color-label-normal);
+}
+
+/* 네 칸에 나눠 담으니 2지선다(title1)보다 작게 */
+.quiz-vote--multi .quiz-vote__percent {
+  font-size: var(--font-size-body1);
+  letter-spacing: normal;
+}
+
+/* 구역 — 폭은 인라인 `flex-grow`(선택율)로 정한다 */
+.quiz-vote__zone {
+  flex: 0 1 0;
+  box-sizing: border-box;
+  min-width: 0;
+  height: 100%;
+  border-radius: var(--radius-4);
+}
+
+.quiz-vote__zone[data-tone='fill'] {
+  background-color: var(--color-success-normal);
+}
+
+.quiz-vote__zone[data-tone='blank'] {
+  border: 1px solid var(--color-gray-300);
+  background-color: var(--color-white);
 }
