@@ -26,16 +26,14 @@ spec:
           value: "3,20"
         - name: ANSWER_GAP_SEC
           value: "15,60"   # 문항 사이 고민 시간 — 풀이 한 번이 몇 분에 걸쳐 투표율을 움직인다(정답률·함정 보기는 문제별 고정)
+        - name: SOLVE_CONCURRENT
+          value: "2"   # 활동 시간 내내 방마다 늘 풀고 있는 계정 수(다 풀었으면 이전 답을 지우고 다시 푼다)
         - name: FOCUS_WINDOWS
-          value: ""   # 발표 시간대 "2026-11-12 13:00-16:00;…" — 비우면 기간 전체에 고르게
+          value: ""   # (선택) 발표 시간대 "2026-11-12 13:00-16:00;…" — 이때만 FOCUS_CONCURRENT 명으로 늘린다
         - name: FOCUS_CONCURRENT
-          value: "3"   # 집중 시간대에 방마다 동시에 풀고 있는 계정 수
-        - name: FOCUS_RESERVE
-          value: "0.8"   # 집중 시간대 전까지 남겨 둘 미풀이 계정 비율
+          value: "4"
         - name: LIKE_P
           value: "0.12"   # 방문 한 번에 좋아요 확률
-        - name: SOLVE_PACE
-          value: "1.0"   # 작을수록 실제 풀이가 잦다
         - name: RELEASE_HOUR
           value: "10"   # 둘째 날부터 새 방 공개 시각
         - name: CONTENT

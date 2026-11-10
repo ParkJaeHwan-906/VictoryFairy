@@ -3,8 +3,10 @@
 1) quizzes.json 의 방을 release 날짜에 페르소나 한 명이 만든다(제목이 이미 있으면 그 방을 쓴다 — 재시작 안전).
 2) '풀이 슬롯' SOLVERS 개가 페르소나를 바꿔 가며 방에 들어오고(SSE 구독 → 풀이 중 인원 +1) 나간다(DELETE).
    방마다 인기 가중치가 달라 인원이 고르게 나뉘지 않고, 가끔 몰려 들어오기/빠지기 물결이 인다.
-3) 실제 풀이(문항별 답 제출 → SSE votes 분포가 움직임)는 계정당 방 하나에 한 번뿐이라(409) 아껴 쓴다.
-   방마다 '남은 미풀이 계정 수 ÷ 남은 활동 시간'으로 다음 풀이 시각을 잡아 기간 끝까지 고르게 퍼뜨린다.
+3) 실제 풀이(문항별 답 제출 → SSE votes 분포가 움직임)는 활동 시간 내내 방마다 SOLVE_CONCURRENT 명이 늘 하고 있다.
+   서버는 (계정, 문항)당 답 하나라(409) 안 푼 페르소나가 바닥나면, 가장 오래전에 푼 페르소나의 답을 DB 에서 지우고
+   다시 풀게 한다(recycle). 총 투표 수는 페르소나 수 근처에서 유지되고 분포만 계속 움직인다.
+   문제마다 고정 난이도와 '함정 보기'가 있어 문제별 분포 모양이 다르다.
 4) 좋아요는 풀이 여부와 상관없이 일부 계정이 누른다(작성자 본인은 누르지도 풀지도 않는다 — 주간 점수에서 빠지기도 한다).
 
 주의: 인기 탭(GET /popular)은 매주 월요일 00:10 확정분이라 이 기간에 만든 방은 11/16 전에 인기 탭에 안 뜬다.
@@ -26,18 +28,16 @@ BROWSE = [float(x) for x in os.environ.get("BROWSE_SEC", "20,140").split(",")]
 REST = [float(x) for x in os.environ.get("REST_SEC", "10,60").split(",")]
 # 문항 사이 고민 시간 — 길수록 풀이 한 번이 몇 분에 걸쳐 투표율을 조금씩 움직인다
 ANSWER_GAP = [float(x) for x in os.environ.get("ANSWER_GAP_SEC", "15,60").split(",")]
-# 발표 시간대 "2026-11-12 13:00-16:00;2026-11-13 10:00-11:30". 이 안에서는 방마다 FOCUS_CONCURRENT 명이
-# 동시에 풀고 있게 하고, 밖에서는 미풀이 계정의 FOCUS_RESERVE 만큼을 남겨 두고 천천히 쓴다.
+# 활동 시간 내내 방마다 이만큼이 늘 풀고 있다 — 투표율이 끊기지 않고 움직인다
+SOLVE_CONCURRENT = int(os.environ.get("SOLVE_CONCURRENT", "2"))
+# 발표 시간대 "2026-11-12 13:00-16:00;…" 에는 FOCUS_CONCURRENT 명으로 늘린다(선택)
 FOCUS = []
 for _w in filter(None, (x.strip() for x in os.environ.get("FOCUS_WINDOWS", "").split(";"))):
     _d, _hm = _w.split(" ")
     _a, _b = _hm.split("-")
     FOCUS.append(tuple(calendar.timegm(time.strptime(f"{_d} {x}", "%Y-%m-%d %H:%M")) - KST for x in (_a, _b)))
-FOCUS_CONCURRENT = int(os.environ.get("FOCUS_CONCURRENT", "3"))
-FOCUS_RESERVE = float(os.environ.get("FOCUS_RESERVE", "0.8"))
+FOCUS_CONCURRENT = int(os.environ.get("FOCUS_CONCURRENT", "4"))
 LIKE_P = float(os.environ.get("LIKE_P", "0.12"))        # 방문 한 번에 좋아요를 누를 확률(아직 안 눌렀으면)
-# 1보다 작으면 풀이(votes 분포 변화)가 더 잦아진다 — 대신 미풀이 계정이 기간 끝 전에 바닥날 수 있다
-SOLVE_PACE = float(os.environ.get("SOLVE_PACE", "1.0"))
 RELEASE_HOUR = int(os.environ.get("RELEASE_HOUR", "10"))  # 둘째 날부터 새 방을 여는 시각(KST)
 CONTENT = os.environ.get("CONTENT", "/bot/quizzes.json")
 SECRET = os.environ["JWT_SECRET"].encode()
@@ -64,18 +64,6 @@ def in_focus(t=None):
     return any(a <= t < b for a, b in FOCUS)
 
 
-def focus_ahead():
-    return any(b > time.time() for _, b in FOCUS)
-
-
-def active_seconds_left():
-    """지금부터 END 까지 활동 시간대(집중 시간대 제외)에 속하는 초(대략, 10분 단위)."""
-    t, n = time.time(), 0
-    while t < END:
-        if ACTIVE_FROM <= time.gmtime(t + KST).tm_hour < ACTIVE_TO and not in_focus(t):
-            n += 600
-        t += 600
-    return max(600, n)
 
 
 def count(k):
@@ -144,28 +132,23 @@ class Room:
         self.title = spec["title"]
         self.quizzes = None            # GET /quizzes 캐시
         self.solved, self.liked = set(), set()
-        self.next_solve = time.time() + random.uniform(30, 300)
+        self.solved_at = {}            # uid -> 마지막으로 다 푼 시각(재활용 순서)
         self.wave_until = self.ebb_until = 0
         self.online = 0
         self.solving = 0               # 지금 풀고 있는 계정 수
 
-    def left(self, n_users):
-        return n_users - 1 - len(self.solved) - self.solving   # 작성자 제외
+    def solve_due(self):
+        return self.solving < (FOCUS_CONCURRENT if in_focus() else SOLVE_CONCURRENT)
 
-    def solve_due(self, n_users):
-        if self.left(n_users) <= 0:
+    def may_solve(self, uid):
+        """안 푼 계정은 언제나, 푼 계정은 안 푼 계정이 바닥났을 때 가장 오래전에 푼 순서로 다시 푼다."""
+        if uid not in self.solved:
+            return True
+        unsolved = len(PERSONAS) - 1 - len(self.solved)
+        if unsolved > 0:
             return False
-        if in_focus():
-            return self.solving < FOCUS_CONCURRENT
-        if focus_ahead() and self.left(n_users) <= FOCUS_RESERVE * (n_users - 1):
-            # 발표 시간대 몫은 남겨 둔다 — 그 전에는 예약분을 넘는 만큼만 천천히 쓴다
-            return False
-        return time.time() >= self.next_solve
-
-    def schedule_next(self, n_users):
-        spare = self.left(n_users) - (FOCUS_RESERVE * (n_users - 1) if focus_ahead() else 0)
-        gap = active_seconds_left() / max(1, spare) * SOLVE_PACE
-        self.next_solve = time.time() + random.uniform(0.4, 1.6) * gap
+        oldest = sorted(self.solved_at.items(), key=lambda kv: kv[1])[:max(3, len(self.solved_at) // 4)]
+        return uid in {u for u, _ in oldest} or uid not in self.solved_at
 
 
 # ---------------------------------------------------------------- DB
@@ -206,6 +189,25 @@ def load_progress(rooms, uid_by_id):
     for rid, acc in likes:
         if acc in uid_by_id:
             by_id[rid].liked.add(uid_by_id[acc])
+
+
+def recycle(room, uid):
+    """이 페르소나가 이 방에 낸 답을 지워 다시 풀 수 있게 한다 -> 지운 행 수.
+
+    투표 분포는 DB 의 답 행을 그때그때 세서 내므로(QuizRoomVoteReader) 지운 뒤 다시 내면 분포만 바뀌고
+    총 투표 수는 그대로다. 페르소나 계정의 답만, 봇이 만든 방에서만 지운다 — 실제 사용자 답은 건드리지 않는다.
+    """
+    conn = db()
+    try:
+        with conn.cursor() as cur:
+            n = cur.execute("""DELETE a FROM quiz_room_answers a
+                               JOIN users_account ua ON ua.id = a.user_account_id
+                               JOIN users u ON u.id = ua.user_id
+                               WHERE a.room_id = %s AND ua.uid = %s AND u.email LIKE %s""", (room.rid, uid, PERSONA))
+        conn.commit()
+        return n
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------------- 방 만들기
@@ -317,6 +319,7 @@ def solve(room, uid, nick):
             return
         time.sleep(random.uniform(*ANSWER_GAP))   # 다음 문제 고민
     room.solved.add(uid)
+    room.solved_at[uid] = time.time()
     log(f"✅ #{room.rid} {room.title} — {nick} 풀이 완료 ({correct}/{len(room.quizzes)})")
 
 
@@ -367,10 +370,14 @@ def slot(rooms):
                 if st == 200:
                     room.liked.add(uid)
                     log(f"❤ #{room.rid} {room.title} — {nick} (좋아요 {data and data.get('likeCount')})")
-            if uid not in room.solved and room.solve_due(len(PERSONAS)):
-                room.schedule_next(len(PERSONAS))
+            if room.solve_due() and room.may_solve(uid):
                 room.solving += 1
                 try:
+                    if uid in room.solved:
+                        n = recycle(room, uid)
+                        room.solved.discard(uid)
+                        count("재활용")
+                        log(f"♻ #{room.rid} {room.title} — {nick} 이전 답 {n}건 지우고 다시 풂")
                     solve(room, uid, nick)
                 finally:
                     room.solving -= 1
@@ -429,7 +436,7 @@ def main():
     ensure_rooms(rooms, specs, owners)
     load_progress(rooms, {p[0]: p[1] for p in PERSONAS})
     log(f"시작 — 페르소나 {len(PERSONAS)}명, 풀이 슬롯 {SOLVERS}, 활동 {ACTIVE_FROM}~{ACTIVE_TO}시, 방 {len(rooms)}/{len(specs)}개 공개, "
-        f"집중 시간대 {os.environ.get('FOCUS_WINDOWS') or '없음'}(동시 풀이 {FOCUS_CONCURRENT}, 예약 {FOCUS_RESERVE:.0%})")
+        f"방마다 동시 풀이 {SOLVE_CONCURRENT}명(집중 시간대 {os.environ.get('FOCUS_WINDOWS') or '없음'} → {FOCUS_CONCURRENT}명)")
     for r in list(rooms.values()):
         log(f"   #{r.rid} {r.title}: 이미 푼 계정 {len(r.solved)}, 좋아요 {len(r.liked)}")
     threading.Thread(target=ticker, args=(rooms, specs, owners), daemon=True).start()
