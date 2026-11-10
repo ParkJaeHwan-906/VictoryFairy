@@ -1,4 +1,6 @@
 import { useNavigate } from 'react-router-dom';
+import signupCompleteAnimation from '../assets/animation/signup-complete.webp';
+import CharacterAnimation from '../components/CharacterAnimation';
 import { ROUTES } from '../routes';
 import '../styles/CompletePage.css';
 
@@ -23,9 +25,9 @@ export default function CompletePage() {
         모든 단계를 완료했어요!
       </h1>
 
-      {/* 디자인에도 실제 그래픽 없이 자리표시 상자만 있다 */}
-      <div className="complete-page__graphic" aria-hidden="true">
-        <p className="complete-page__graphic-placeholder">Character</p>
+      {/* 디자인의 자리표시 상자(250 x 280) 자리에 가입 완료 캐릭터 애니메이션을 넣는다 */}
+      <div className="complete-page__graphic">
+        <CharacterAnimation src={signupCompleteAnimation} className="complete-page__character" />
       </div>
 
       <p className="complete-page__description">

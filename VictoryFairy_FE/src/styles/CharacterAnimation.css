@@ -1,0 +1,21 @@
+/**
+ * CharacterAnimation — 투명 배경 캐릭터 애니메이션(정사각형).
+ * 크기는 쓰는 쪽이 `width` 로 정한다. 이미지를 받는 동안에도 자리를 잡아 두어
+ * 아래 문구가 뒤늦게 밀려 내려가지 않게 한다.
+ */
+.character-animation {
+  display: block;
+  flex-shrink: 0;
+  width: 200px;
+  max-width: 100%;
+  aspect-ratio: 1 / 1;
+  pointer-events: none;
+  user-select: none;
+}
+
+.character-animation__image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}

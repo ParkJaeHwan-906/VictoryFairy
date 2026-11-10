@@ -39,8 +39,8 @@
 }
 
 /* ------------------------------------------------------------------ *
- * Graphic Area — 디자인에도 실제 그래픽 없이 회색 상자와 "Character" 글자만 있다.
- * 캐릭터 아트가 나오면 이 상자째로 교체한다(LoginPage 의 hero 자리표시와 같은 처리).
+ * Graphic Area — 디자인의 자리표시 상자(250 x 280) 자리.
+ * 가입 완료 캐릭터 애니메이션(정사각형 영상)을 상자 폭에 맞춰 가운데 둔다.
  * ------------------------------------------------------------------ */
 .complete-page__graphic {
   display: flex;
@@ -50,18 +50,11 @@
   width: 250px;
   height: 280px;
   margin-top: 60px;
-  background-color: var(--color-gray-100);
   overflow: clip;
 }
 
-.complete-page__graphic-placeholder {
-  margin: 0;
-  color: var(--color-label-disable);
-  font-size: var(--font-size-display1);
-  font-weight: var(--font-weight-bold);
-  line-height: var(--line-height-display1);
-  letter-spacing: var(--letter-spacing-display1);
-  text-align: center;
+.complete-page__character {
+  width: 250px;
 }
 
 /* Body/Body2 — "BQ지수를 통해 이닝 시간에도 즐겁게 / 나만의 승요를 키워보세요!" */
