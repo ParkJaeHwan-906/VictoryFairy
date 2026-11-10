@@ -24,7 +24,17 @@ ACTIVE_FROM, ACTIVE_TO = (int(x) for x in os.environ.get("ACTIVE_HOURS", "8-24")
 SOLVERS = int(os.environ.get("SOLVERS", "16"))
 BROWSE = [float(x) for x in os.environ.get("BROWSE_SEC", "20,140").split(",")]
 REST = [float(x) for x in os.environ.get("REST_SEC", "10,60").split(",")]
-CORRECT_P = float(os.environ.get("CORRECT_P", "0.68"))
+# 문항 사이 고민 시간 — 길수록 풀이 한 번이 몇 분에 걸쳐 투표율을 조금씩 움직인다
+ANSWER_GAP = [float(x) for x in os.environ.get("ANSWER_GAP_SEC", "15,60").split(",")]
+# 발표 시간대 "2026-11-12 13:00-16:00;2026-11-13 10:00-11:30". 이 안에서는 방마다 FOCUS_CONCURRENT 명이
+# 동시에 풀고 있게 하고, 밖에서는 미풀이 계정의 FOCUS_RESERVE 만큼을 남겨 두고 천천히 쓴다.
+FOCUS = []
+for _w in filter(None, (x.strip() for x in os.environ.get("FOCUS_WINDOWS", "").split(";"))):
+    _d, _hm = _w.split(" ")
+    _a, _b = _hm.split("-")
+    FOCUS.append(tuple(calendar.timegm(time.strptime(f"{_d} {x}", "%Y-%m-%d %H:%M")) - KST for x in (_a, _b)))
+FOCUS_CONCURRENT = int(os.environ.get("FOCUS_CONCURRENT", "3"))
+FOCUS_RESERVE = float(os.environ.get("FOCUS_RESERVE", "0.8"))
 LIKE_P = float(os.environ.get("LIKE_P", "0.12"))        # 방문 한 번에 좋아요를 누를 확률(아직 안 눌렀으면)
 # 1보다 작으면 풀이(votes 분포 변화)가 더 잦아진다 — 대신 미풀이 계정이 기간 끝 전에 바닥날 수 있다
 SOLVE_PACE = float(os.environ.get("SOLVE_PACE", "1.0"))
@@ -49,11 +59,20 @@ def active():
     return ACTIVE_FROM <= kst_now().tm_hour < ACTIVE_TO
 
 
+def in_focus(t=None):
+    t = t or time.time()
+    return any(a <= t < b for a, b in FOCUS)
+
+
+def focus_ahead():
+    return any(b > time.time() for _, b in FOCUS)
+
+
 def active_seconds_left():
-    """지금부터 END 까지 활동 시간대에 속하는 초(대략, 10분 단위)."""
+    """지금부터 END 까지 활동 시간대(집중 시간대 제외)에 속하는 초(대략, 10분 단위)."""
     t, n = time.time(), 0
     while t < END:
-        if ACTIVE_FROM <= time.gmtime(t + KST).tm_hour < ACTIVE_TO:
+        if ACTIVE_FROM <= time.gmtime(t + KST).tm_hour < ACTIVE_TO and not in_focus(t):
             n += 600
         t += 600
     return max(600, n)
@@ -128,13 +147,24 @@ class Room:
         self.next_solve = time.time() + random.uniform(30, 300)
         self.wave_until = self.ebb_until = 0
         self.online = 0
+        self.solving = 0               # 지금 풀고 있는 계정 수
+
+    def left(self, n_users):
+        return n_users - 1 - len(self.solved) - self.solving   # 작성자 제외
 
     def solve_due(self, n_users):
-        return time.time() >= self.next_solve and len(self.solved) < n_users - 1
+        if self.left(n_users) <= 0:
+            return False
+        if in_focus():
+            return self.solving < FOCUS_CONCURRENT
+        if focus_ahead() and self.left(n_users) <= FOCUS_RESERVE * (n_users - 1):
+            # 발표 시간대 몫은 남겨 둔다 — 그 전에는 예약분을 넘는 만큼만 천천히 쓴다
+            return False
+        return time.time() >= self.next_solve
 
     def schedule_next(self, n_users):
-        left = max(1, n_users - 1 - len(self.solved))
-        gap = active_seconds_left() / left * SOLVE_PACE
+        spare = self.left(n_users) - (FOCUS_RESERVE * (n_users - 1) if focus_ahead() else 0)
+        gap = active_seconds_left() / max(1, spare) * SOLVE_PACE
         self.next_solve = time.time() + random.uniform(0.4, 1.6) * gap
 
 
@@ -253,6 +283,20 @@ def subscribe(room, uid, leave):
             conn.close()
 
 
+def choose(qz, right):
+    """문제마다 고정된 난이도(정답률)와 '함정 보기'로 고른다 — 문제마다 투표율 모양이 달라진다."""
+    nos = [o["no"] for o in qz["options"]]
+    rnd = random.Random("difficulty:" + qz["question"])
+    p = rnd.uniform(0.45, 0.88) if len(nos) == 2 else rnd.uniform(0.3, 0.9)
+    wrong = [n for n in nos if n not in right]
+    weights = [rnd.uniform(0.3, 1.2) for _ in wrong]
+    if wrong:
+        weights[rnd.randrange(len(wrong))] += 2.5   # 헷갈리는 보기 하나에 오답이 몰린다
+    if right and (random.random() < p or not wrong):
+        return right[0]
+    return random.choices(wrong, weights=weights)[0] if wrong else random.choice(nos)
+
+
 def solve(room, uid, nick):
     if room.quizzes is None:
         st, qs = call("GET", f"/{room.rid}/quizzes", uid, tag="문항조회")
@@ -264,17 +308,14 @@ def solve(room, uid, nick):
     for i, qz in enumerate(room.quizzes):
         answer_text = room.key.get(qz["question"])
         right = [o["no"] for o in qz["options"] if o["text"] == answer_text]
-        if right and random.random() < CORRECT_P:
-            pick = right[0]
-        else:
-            pick = random.choice([o["no"] for o in qz["options"]])
+        pick = choose(qz, right)
         correct += int(bool(right) and pick == right[0])
         st, data = call("POST", f"/{room.rid}/quizzes/{qz['quizId']}/answer", uid, body={"option": pick}, tag="답제출")
         if st == 409:
             break
         if st != 200:
             return
-        time.sleep(random.uniform(4, 16))   # 다음 문제 고민
+        time.sleep(random.uniform(*ANSWER_GAP))   # 다음 문제 고민
     room.solved.add(uid)
     log(f"✅ #{room.rid} {room.title} — {nick} 풀이 완료 ({correct}/{len(room.quizzes)})")
 
@@ -328,7 +369,11 @@ def slot(rooms):
                     log(f"❤ #{room.rid} {room.title} — {nick} (좋아요 {data and data.get('likeCount')})")
             if uid not in room.solved and room.solve_due(len(PERSONAS)):
                 room.schedule_next(len(PERSONAS))
-                solve(room, uid, nick)
+                room.solving += 1
+                try:
+                    solve(room, uid, nick)
+                finally:
+                    room.solving -= 1
                 time.sleep(random.uniform(10, 40))   # 결과 화면
             else:
                 until = time.time() + random.uniform(*BROWSE)
@@ -368,7 +413,8 @@ def ticker(rooms, specs, owners):
             with lock:
                 snap = dict(stats)
                 stats.clear()
-            on = " ".join(f"#{r.rid}:{r.online}명/풀이{len(r.solved)}/♥{len(r.liked)}" for r in rooms.values())
+            on = " ".join(f"#{r.rid}:{r.online}명/푸는중{r.solving}/풀이{len(r.solved)}/♥{len(r.liked)}"
+                          for r in list(rooms.values()))
             log(f"📊 {on} | " + " ".join(f"{k}={v}" for k, v in sorted(snap.items())))
 
 
@@ -382,7 +428,8 @@ def main():
     rooms = {}
     ensure_rooms(rooms, specs, owners)
     load_progress(rooms, {p[0]: p[1] for p in PERSONAS})
-    log(f"시작 — 페르소나 {len(PERSONAS)}명, 풀이 슬롯 {SOLVERS}, 활동 {ACTIVE_FROM}~{ACTIVE_TO}시, 방 {len(rooms)}/{len(specs)}개 공개")
+    log(f"시작 — 페르소나 {len(PERSONAS)}명, 풀이 슬롯 {SOLVERS}, 활동 {ACTIVE_FROM}~{ACTIVE_TO}시, 방 {len(rooms)}/{len(specs)}개 공개, "
+        f"집중 시간대 {os.environ.get('FOCUS_WINDOWS') or '없음'}(동시 풀이 {FOCUS_CONCURRENT}, 예약 {FOCUS_RESERVE:.0%})")
     for r in list(rooms.values()):
         log(f"   #{r.rid} {r.title}: 이미 푼 계정 {len(r.solved)}, 좋아요 {len(r.liked)}")
     threading.Thread(target=ticker, args=(rooms, specs, owners), daemon=True).start()

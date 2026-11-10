@@ -24,8 +24,14 @@ spec:
           value: "90,420"   # 풀지 않고 머무는 시간
         - name: REST_SEC
           value: "3,20"
-        - name: CORRECT_P
-          value: "0.68"   # 정답률
+        - name: ANSWER_GAP_SEC
+          value: "15,60"   # 문항 사이 고민 시간 — 풀이 한 번이 몇 분에 걸쳐 투표율을 움직인다(정답률·함정 보기는 문제별 고정)
+        - name: FOCUS_WINDOWS
+          value: ""   # 발표 시간대 "2026-11-12 13:00-16:00;…" — 비우면 기간 전체에 고르게
+        - name: FOCUS_CONCURRENT
+          value: "3"   # 집중 시간대에 방마다 동시에 풀고 있는 계정 수
+        - name: FOCUS_RESERVE
+          value: "0.8"   # 집중 시간대 전까지 남겨 둘 미풀이 계정 비율
         - name: LIKE_P
           value: "0.12"   # 방문 한 번에 좋아요 확률
         - name: SOLVE_PACE
