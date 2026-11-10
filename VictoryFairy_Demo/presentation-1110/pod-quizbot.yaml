@@ -19,7 +19,7 @@ spec:
         - name: ACTIVE_HOURS
           value: "8-24"
         - name: SOLVERS
-          value: "44"   # 동시에 방에 들어와 있는 슬롯 수. 접속 인원 = 고유 계정이라 페르소나 수(44)가 상한
+          value: "90"   # 동시에 방에 들어와 있는 슬롯 수. 접속 인원 = 고유 계정이라 페르소나 수(98)가 상한
         - name: BROWSE_SEC
           value: "90,420"   # 풀지 않고 머무는 시간
         - name: REST_SEC
