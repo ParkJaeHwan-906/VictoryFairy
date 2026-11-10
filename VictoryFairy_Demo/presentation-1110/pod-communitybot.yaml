@@ -1,0 +1,73 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: communitybot
+  namespace: victoryfairy
+  labels:
+    app: demo1110
+spec:
+  restartPolicy: OnFailure   # 죽으면 다시 뜬다 — 각 스크립트는 재시작해도 이어서 돈다
+  containers:
+    - name: bot
+      image: python:3.12-slim
+      envFrom:
+        - secretRef:
+            name: app-secret   # JWT_SECRET·DB_USERNAME·DB_PASSWORD
+      env:
+        - name: MODE
+          value: "run"   # cleanup 이면 START_DATE 이후 페르소나 글 삭제 후 종료
+        - name: END_AT
+          value: "2026-11-15 23:59"   # KST
+        - name: START_DATE
+          value: "2026-11-10"
+        - name: ACTIVE_HOURS
+          value: "8-24"
+        - name: SEED_POSTS
+          value: "40"   # 처음에 깔아 둘 글 수
+        - name: IMAGE_RATIO
+          value: "0.6"   # 사진 붙는 글 비율
+        - name: MAX_IMAGES
+          value: "3"
+        - name: READERS
+          value: "10"   # 동시 열람 슬롯
+        - name: NEW_POST_SEC
+          value: "180,600"   # 새 글 간격
+        - name: BUZZ_SEC
+          value: "8,35"   # 최근 글에 댓글·좋아요가 붙는 간격
+        - name: IMG_DIR
+          value: "/img"
+        - name: DB_HOST
+          value: mysql
+        - name: PYTHONUNBUFFERED
+          value: "1"
+      command: ["sh", "-c", "pip install -q pymysql && python /bot/communitybot.py"]
+      volumeMounts:
+        - name: script
+          mountPath: /bot
+        - name: img-a
+          mountPath: /img/a
+        - name: img-b
+          mountPath: /img/b
+        - name: img-c
+          mountPath: /img/c
+        - name: img-d
+          mountPath: /img/d
+      resources:
+        requests: { cpu: 50m, memory: 96Mi }
+        limits: { cpu: 500m, memory: 256Mi }
+  volumes:
+    - name: script
+      configMap:
+        name: demo1110-scripts
+    - name: img-a
+      configMap:
+        name: demo1110-img-a
+    - name: img-b
+      configMap:
+        name: demo1110-img-b
+    - name: img-c
+      configMap:
+        name: demo1110-img-c
+    - name: img-d
+      configMap:
+        name: demo1110-img-d
