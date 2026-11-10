@@ -153,6 +153,91 @@
 }
 
 /* ------------------------------------------------------------------ *
+ * 캐릭터 애니메이션 — 완료 · 남은 문제 없음 · 타임아웃(디자인 없음)
+ * ------------------------------------------------------------------ */
+.quiz-page__character {
+  width: 200px;
+}
+
+/* ------------------------------------------------------------------ *
+ * 이번 이닝에 남은 문제 없음(디자인 없음)
+ * 온보딩 완료 화면(CompletePage)의 구성을 따른다 —
+ *   Title/Title1 가운데 정렬 · Body/Body2 alternative · 바닥에 붙는 60px CTA.
+ * 캐릭터가 주인공이라 다른 상태(200px)보다 크게 둔다.
+ * ------------------------------------------------------------------ */
+.quiz-page__empty {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 40px;
+  text-align: center;
+}
+
+.quiz-page__empty-character {
+  width: 280px;
+}
+
+.quiz-page__empty-title {
+  margin: 20px 0 0;
+  padding-inline: var(--layout-gutter);
+  color: var(--color-label-normal);
+  font-size: var(--font-size-title1);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-title1);
+}
+
+.quiz-page__empty-description {
+  margin: 12px 0 0;
+  padding-inline: var(--layout-gutter);
+  color: var(--color-label-alternative);
+  font-size: var(--font-size-body2);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body2);
+}
+
+/* 위 요소들이 끝난 자리부터 바닥까지의 빈 공간을 위 여백이 가져간다(CompletePage CTA 와 같다) */
+.quiz-page__empty-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  height: 60px;
+  margin-top: auto;
+  margin-inline: var(--layout-gutter);
+  padding-inline: 16px;
+  border-radius: var(--radius-15);
+  background-color: var(--color-primary-normal);
+  color: var(--color-white);
+  font-size: var(--font-size-button2);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+}
+
+@media (max-width: 379px) {
+  .quiz-page__empty-title,
+  .quiz-page__empty-description {
+    padding-inline: 16px;
+  }
+
+  .quiz-page__empty-action {
+    margin-inline: 16px;
+  }
+}
+
+/* 타임아웃 — 빠진 카드 자리(상단 바 아래 20)를 캐릭터가 채운다 */
+.quiz-page__timeout {
+  display: flex;
+  justify-content: center;
+  margin: 60px var(--layout-gutter) 0;
+}
+
+.quiz-page__timeout-character {
+  width: 240px;
+}
+
+/* ------------------------------------------------------------------ *
  * 완료 — 세트를 다 푼 뒤(디자인 없음, 토큰 규칙만 따름)
  * ------------------------------------------------------------------ */
 .quiz-page__done {
@@ -160,7 +245,7 @@
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  margin: 80px var(--layout-gutter) 0;
+  margin: 60px var(--layout-gutter) 0;
   text-align: center;
 }
 

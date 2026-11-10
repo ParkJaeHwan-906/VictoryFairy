@@ -11,6 +11,10 @@ import {
   submitQuiz,
 } from '../api';
 import type { DailyQuiz } from '../api';
+import quizDoneAnimation from '../assets/animation/quiz-done.webp';
+import noQuizLeftAnimation from '../assets/animation/quiz-empty.webp';
+import timeoutAnimation from '../assets/animation/quiz-timeout.webp';
+import CharacterAnimation from '../components/CharacterAnimation';
 import ConfirmSheet from '../components/ConfirmSheet';
 import QuizCard, { type QuizCardExit } from '../components/QuizCard';
 import QuizVoteGauge from '../components/QuizVoteGauge';
@@ -76,6 +80,17 @@ const MAX_DECK_LAYERS = 2;
  * 시한 안에서는 여전히 미답 상태다(그리고 8분이 지나면 오답으로 확정된다).
  */
 const QUESTION_SECONDS = 15;
+
+/** 타임아웃 캐릭터 애니메이션 한 바퀴 길이(ms). `quiz-timeout.webp` 가 3초다. */
+const TIMEOUT_ANIMATION_MS = 3000;
+
+/**
+ * 타임아웃 캐릭터를 기다리는 최대 시간(ms).
+ *
+ * 보통은 이미지가 뜬 뒤 `TIMEOUT_ANIMATION_MS` 가 지나 넘어가지만, 이미지를 못 받거나
+ * 늦게 받으면 그 신호가 오지 않거나 늦는다 — 그래도 퀴즈는 넘어가야 한다.
+ */
+const TIMEOUT_ANIMATION_MAX_MS = 4500;
 
 /** 시간이 다 돼 넘어갔다는 안내. 조용히 넘기면 자기 답이 저장된 줄 안다. */
 const TIME_OVER_NOTICE = `${QUESTION_SECONDS}초가 지나 다음 문제로 넘어갔어요. 답은 반영되지 않았어요.`;
@@ -167,6 +182,8 @@ export default function QuizPage() {
 
   const [quizzes, setQuizzes] = useState<DailyQuiz[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  /** 이번 이닝 몫을 이미 받아(409) 남은 문제가 없는지. 빈 세트와 같은 캐릭터를 보여준다. */
+  const [isInningUsedUp, setIsInningUsedUp] = useState(false);
 
   const [index, setIndex] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -187,6 +204,8 @@ export default function QuizPage() {
 
   /** 지금 문제에 남은 시간(초). 0 이 되면 답하지 않은 채로 넘어간다. */
   const [secondsLeft, setSecondsLeft] = useState(QUESTION_SECONDS);
+  /** 시간이 다 돼 카드가 빠진 뒤, 다음 문제 전에 타임아웃 캐릭터를 보여주는 중인지. */
+  const [isTimeoutPlaying, setIsTimeoutPlaying] = useState(false);
 
   /** 뒤로가기를 받아 낼 자리를 이미 쌓았는지. StrictMode 가 효과를 두 번 태워도 하나만 쌓는다. */
   const backGuardRef = useRef(false);
@@ -194,6 +213,8 @@ export default function QuizPage() {
   const hasQuizRef = useRef(false);
   /** 시간이 다 돼 이미 넘긴 문제. StrictMode 가 효과를 두 번 태워도 한 번만 넘어가게 한다. */
   const timedOutQuizIdRef = useRef<number | null>(null);
+  /** `isTimeoutPlaying` 의 최신 값. 영상 `ended` 와 안전망 타이머가 둘 다 와도 한 번만 넘긴다. */
+  const isTimeoutPlayingRef = useRef(false);
 
   useEffect(() => {
     /*
@@ -214,7 +235,9 @@ export default function QuizPage() {
         if (alive) setQuizzes(list);
       })
       .catch((error: unknown) => {
-        if (alive) setLoadError(toLoadMessage(error));
+        if (!alive) return;
+        setIsInningUsedUp(isQuizAlreadyServedInInning(error));
+        setLoadError(toLoadMessage(error));
       });
 
     return () => {
@@ -378,8 +401,10 @@ export default function QuizPage() {
   /*
    * 시간이 다 됐다 — 답하지 않은 채로 넘긴다.
    *
-   * 카드는 버튼으로 골랐을 때와 같이 위로 빼고, 다 빠진 뒤에 넘긴다(고를 때와 같은 흐름).
-   * `setExit` 뒤 이 효과가 다시 돌지만 `exit !== null` 에서 멈추므로 한 번만 넘어간다.
+   * 카드는 버튼으로 골랐을 때와 같이 위로 빼고, 다 빠진 뒤 그 자리에 타임아웃 캐릭터를
+   * 한 번 보여준 다음 넘긴다(아래 `finishTimeout`). 그동안 `exit` 가 'up' 으로 남아 있어
+   * 시계는 멈춰 있다. `setExit` 뒤 이 효과가 다시 돌지만 `exit !== null` 에서 멈추므로
+   * 한 번만 넘어간다.
    */
   useEffect(() => {
     if (secondsLeft > 0 || quiz === null || isSubmitting || exit !== null) return;
@@ -388,8 +413,29 @@ export default function QuizPage() {
     timedOutQuizIdRef.current = quiz.id;
     setSkipNotice(TIME_OVER_NOTICE);
     setExit('up');
-    void wait(cardExitMs()).then(goNext);
+    void wait(cardExitMs()).then(() => {
+      isTimeoutPlayingRef.current = true;
+      setIsTimeoutPlaying(true);
+    });
   }, [secondsLeft, quiz, isSubmitting, exit]);
+
+  /** 타임아웃 캐릭터를 걷고 다음 문제로 넘긴다. 영상 `ended` 와 대기 상한 중 먼저 온 쪽만 넘긴다. */
+  const finishTimeout = () => {
+    if (!isTimeoutPlayingRef.current) return;
+    isTimeoutPlayingRef.current = false;
+    setIsTimeoutPlaying(false);
+    goNext();
+  };
+
+  /* 영상이 끝나지 않는 경우의 안전망(TIMEOUT_ANIMATION_MAX_MS 주석 참고). */
+  useEffect(() => {
+    if (!isTimeoutPlaying) return;
+
+    const timer = window.setTimeout(finishTimeout, TIMEOUT_ANIMATION_MAX_MS);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [isTimeoutPlaying]);
 
   /** 쌓아 둔 자리까지 함께 되돌려 실제로 이 화면을 뜬다. */
   const leave = () => {
@@ -436,24 +482,50 @@ export default function QuizPage() {
           <p className="quiz-page__status">퀴즈를 불러오는 중이에요</p>
         )}
 
-        {loadError !== null && (
+        {loadError !== null && !isInningUsedUp && (
           <p className="quiz-page__status quiz-page__status--error">{loadError}</p>
         )}
 
         {/*
-          빈 배열은 "줄 수 있는데 줄 게 없다"만 뜻한다(2026-08-12로 의미가 좁아졌다) —
-          오늘 세트가 없거나 이 이닝 몫을 이미 다 받은 경우다. 둘은 구분되지 않는다.
-          "지금은 줄 수 없다"에 해당하는 경우는 전부 403·409라 위 loadError 로 빠진다.
+          이번 이닝에 남은 문제가 없다 — 두 경우를 한 화면으로 보여준다.
+          · 409: 이번 이닝 몫을 이미 받았다(실패가 아니라 안내다).
+          · 빈 배열: "줄 수 있는데 줄 게 없다"만 뜻한다(2026-08-12로 의미가 좁아졌다) —
+            오늘 세트가 없거나 이 이닝 몫을 이미 다 받은 경우로, 둘은 구분되지 않는다.
+          "지금은 줄 수 없다"(403)는 위 오류 문구로 빠진다.
+          문구 구성은 온보딩 완료 화면(CompletePage)과 같은 제목 + 설명 + 하단 CTA 다.
         */}
-        {isEmpty && (
-          <p className="quiz-page__status">
-            지금 풀 수 있는 퀴즈가 없어요.
-            <br />
-            이번 이닝 몫을 이미 다 받았을 수도 있어요.
-          </p>
+        {(isEmpty || (loadError !== null && isInningUsedUp)) && (
+          <div className="quiz-page__empty">
+            <CharacterAnimation src={noQuizLeftAnimation} className="quiz-page__empty-character" />
+            <h2 className="quiz-page__empty-title">이번 이닝에 남은 문제가 없어요</h2>
+            <p className="quiz-page__empty-description">
+              다음 이닝에 새 문제가 나오면
+              <br />
+              다시 도전해 보세요!
+            </p>
+            <button
+              className="quiz-page__empty-action"
+              type="button"
+              onClick={() => navigate(ROUTES.game)}
+            >
+              경기로 돌아가기
+            </button>
+          </div>
         )}
 
-        {quiz !== null && (
+        {/* 15초가 지나 카드가 빠진 자리 — 캐릭터가 한 번 지나간 뒤 다음 문제로 넘어간다. */}
+        {isTimeoutPlaying && (
+          <div className="quiz-page__timeout">
+            <CharacterAnimation
+              src={timeoutAnimation}
+              durationMs={TIMEOUT_ANIMATION_MS}
+              onEnded={finishTimeout}
+              className="quiz-page__timeout-character"
+            />
+          </div>
+        )}
+
+        {quiz !== null && !isTimeoutPlaying && (
           <div className="quiz-page__deck">
             {layers.map((depth) => (
               <span
@@ -493,7 +565,7 @@ export default function QuizPage() {
         )}
 
         {/* 지금 문제의 보기별 선택율. 남는 공간을 위로 밀어 화면 아래에 붙는다. */}
-        {quiz !== null && (
+        {quiz !== null && !isTimeoutPlaying && (
           <div className="quiz-page__vote">
             <QuizVoteGauge quiz={quiz} />
           </div>
@@ -501,6 +573,7 @@ export default function QuizPage() {
 
         {isDone && !isEmpty && (
           <div className="quiz-page__done">
+            <CharacterAnimation src={quizDoneAnimation} className="quiz-page__character" />
             <p className="quiz-page__done-title">오늘의 퀴즈를 모두 풀었어요!</p>
             {/* 정오·적립 포인트는 채점 화면 몫이라 개수만 알린다. */}
             <p className="quiz-page__done-score">{submittedCount}문제를 풀었어요</p>
