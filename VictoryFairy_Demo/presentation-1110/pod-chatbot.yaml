@@ -31,7 +31,7 @@ spec:
         - name: LIKE_REST_SEC
           value: "3,20"
         - name: EXCLUDE_GAME_IDS
-          value: ""
+          value: "DEMO1110OBLG02026,DEMO1110KTHH02026,DEMO1110NCSK02026,DEMO1110WOLT02026,DEMO1110HTSS02026"   # 11/10 낮 경기 — 야간 경기 방에 봇을 몰려고 뺀다(다른 날엔 영향 없음)
         - name: DB_HOST
           value: mysql
         - name: PYTHONUNBUFFERED
