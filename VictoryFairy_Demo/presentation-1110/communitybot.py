@@ -6,6 +6,8 @@
     사진을 못 읽으면 이미지 없이 올린다 — 무관한 그림으로 대체하지 않는다.
   - 글감은 11월 기준(삼성 한국시리즈 우승·스토브리그·시즌 기록)으로 바꿨다.
   - '버즈' 스레드: 최근 글 몇 개에 몇십 초 간격으로 댓글·좋아요가 붙어, 상세 화면을 보고 있으면 실시간으로 늘어난다.
+  - 경기 연동: 오늘 데모 경기를 30초마다 읽어 경기 중엔 "[직관]" 글(구장 사진), 끝나면 이긴 팀·진 팀 게시판에
+    "[경기 후기]" 글을 올린다. 이런 글에는 그 경기 맥락의 댓글이 달린다. 같은 제목은 DB 로 걸러 재시작해도 한 번만 쓴다.
 
 MODE=run | cleanup(이 봇이 START_DATE 이후 페르소나로 쓴 글 삭제)
 """
@@ -33,6 +35,7 @@ PERSONA = "%@persona.victoryfairy.internal"
 lock = threading.Lock()
 stats = {}
 recent = []          # 이 실행에서 쓴 글 id(최근 순) — 버즈 대상
+context = {}         # 글 id -> 맥락 댓글 목록(경기 연동 글)
 
 
 def log(*a):
@@ -139,6 +142,27 @@ TEAM_LINES = ["올해 진짜 롤러코스터 같은 시즌이었어요.", "그�
 COMMENTS = ["공감합니다!", "ㅋㅋㅋㅋ 저도요", "사진 잘 찍으셨네요", "와 부럽다", "인정합니다", "저도 같은 생각이에요",
             "내년엔 꼭 같이 가요", "좋은 글 감사합니다", "오 꿀팁 감사해요", "그 장면 진짜 소름이었죠", "저는 좀 다르게 봤어요",
             "올해 고생 많았죠", "응원합니다!", "ㅠㅠ 벌써 그립다", "이 글 추천 누릅니다", "명경기였죠", "구장 사진 예쁘네요"]
+LIVE_POST = [
+    ("[직관] {away} vs {home} {stadium} 왔습니다", ["{stadium} 날씨 너무 좋네요.", "오늘 자리 명당 잡았어요.",
+                                                  "응원 열기 미쳤습니다.", "{inning}회인데 벌써 목 쉬었어요ㅋㅋ"]),
+    ("{away} vs {home} 지금 {score} 다들 보고 계시죠?", ["오늘 경기 흐름 장난 아니네요.", "중계로 보는데 심장 떨려요.",
+                                                         "남은 이닝 집중합시다!"]),
+    ("오늘 {team} 경기 실시간으로 보는 중", ["다들 어디서 보세요?", "치킨 시켰습니다ㅋㅋ", "이번 이닝이 승부처 같아요."]),
+]
+LIVE_COMMENTS = ["직관 부럽다ㅠㅠ", "저도 지금 보고 있어요!", "{team} 가자!!", "오늘 꼭 이기자", "사진 분위기 최고네요",
+                 "지금 {score} 맞죠?", "끝까지 응원합니다", "저도 다음 주에 {stadium} 가요!"]
+WIN_POST = [
+    ("[경기 후기] {team} {ws}:{ls} 승리!", ["오늘 경기 정말 짜릿했습니다.", "{opp} 상대로 끝까지 집중한 게 컸어요.",
+                                            "수훈 선수는 다들 누구라고 보세요?"]),
+    ("{team} 오늘 이겼다!! {ws}:{ls}", ["퇴근길이 이렇게 행복할 수가.", "내일도 이 기세로 갑시다!"]),
+]
+LOSE_POST = [
+    ("[경기 후기] 오늘 {team} 아쉽네요 {ls}:{ws}", ["졌지만 끝까지 잘 싸웠어요.", "불펜만 조금 버텼으면...", "내일은 꼭 이깁시다."]),
+]
+WIN_COMMENTS = ["오늘 진짜 명경기였어요", "{team} 최고!!", "{ws}:{ls} 기분 좋다", "하이라이트 다시 봐도 소름", "내일도 이기자!",
+                "MVP는 오늘 선발이죠", "직관 간 사람 부럽다"]
+LOSE_COMMENTS = ["내일 이기면 돼요", "그래도 잘 싸웠다", "아쉽다 진짜ㅠ", "다음 경기 응원합니다", "불펜 보강 시급..."]
+
 REPLIES = ["맞아요ㅋㅋ", "그쵸!", "감사합니다~", "저도요!", "ㅇㅈ", "다음에 꼭이요", "동의합니다"]
 
 
@@ -188,19 +212,21 @@ def comment(pid, uid, cpage=None):
         call("POST", f"/community/posts/{pid}/comments", uid,
              body={"content": random.choice(REPLIES), "parentCommentId": random.choice(live)["commentId"]}, tag="답글")
     else:
-        call("POST", f"/community/posts/{pid}/comments", uid, body={"content": random.choice(COMMENTS)}, tag="댓글")
+        pool = context.get(pid) if random.random() < 0.8 else None
+        call("POST", f"/community/posts/{pid}/comments", uid, body={"content": random.choice(pool or COMMENTS)}, tag="댓글")
 
 
-def write_post(cats, uids, by_team):
-    cat = random.choice(cats)
+def write_post(cats, uids, by_team, cat=None, title=None, content=None, image_ratio=None, ctx=None):
+    cat = cat or random.choice(cats)
     uid = random.choice(by_team.get(cat["teamId"]) or uids)
     images = []
-    if IMAGES and random.random() < IMAGE_RATIO:
+    if IMAGES and random.random() < (IMAGE_RATIO if image_ratio is None else image_ratio):
         for path in random.sample(IMAGES, min(len(IMAGES), random.randint(1, MAX_IMAGES))):
             ep = upload_image(uid, path)
             if ep:
                 images.append(ep)
-    title, content = compose(cat)
+    if title is None:
+        title, content = compose(cat)
     st, data = call("POST", "/community/posts", uid,
                     body={"categoryId": cat["id"], "title": title, "content": content, "imageUrls": images}, tag="글작성")
     if st == 201:
@@ -209,6 +235,8 @@ def write_post(cats, uids, by_team):
         with lock:
             recent.insert(0, pid)
             del recent[12:]
+            if ctx:
+                context[pid] = ctx
         return pid
     log(f"✍ 실패 {st} [{cat['name']}] {data}")
     return None
@@ -262,6 +290,81 @@ def buzz(uids):
             comment(pid, uid, cpage)
 
 
+def today_titles():
+    conn = db()
+    with conn.cursor() as cur:
+        cur.execute("SELECT title FROM community_posts WHERE created_at >= CURDATE() AND deleted_at IS NULL")
+        rows = {r[0] for r in cur.fetchall()}
+    conn.close()
+    return rows
+
+
+def game_posts(cats, uids, by_team):
+    """오늘 데모 경기와 연동한 글 — 경기 중 [직관]·실시간 글, 끝나면 이긴 팀·진 팀 후기."""
+    by_team_cat = {c["teamId"]: c for c in cats if c["teamId"]}
+    done = today_titles()
+    live_posted = {}   # gameId -> 이 경기 중에 쓴 글 수
+    while time.time() < END:
+        time.sleep(30)
+        if not active():
+            continue
+        try:
+            date = time.strftime("%Y-%m-%d", time.gmtime(time.time() + KST))
+            with urllib.request.urlopen(f"{BASE}/api/games?date={date}", timeout=10) as r:
+                games = json.load(r)["data"]
+            if time.strftime("%H%M", time.gmtime(time.time() + KST)) < "0005":
+                done, live_posted = today_titles(), {}
+        except Exception as e:
+            log(f"경기 조회 실패 {e}")
+            continue
+        for g in games:
+            gid, a, h = g["gameId"], g.get("awayTeamScore") or 0, g.get("homeTeamScore") or 0
+            fmt = {"away": g["awayTeam"], "home": g["homeTeam"], "stadium": g.get("stadium") or "야구장",
+                   "score": f"{a}:{h}", "inning": g.get("inning") or 1}
+            if g.get("gameState") == "IN_PROGRESS" and live_posted.get(gid, 0) < 2 and random.random() < 0.06:
+                tid = random.choice([g["homeTeamId"], g["awayTeamId"]])
+                cat = by_team_cat.get(tid)
+                if not cat:
+                    continue
+                team = g["homeTeam"] if tid == g["homeTeamId"] else g["awayTeam"]
+                t, lines = random.choice(LIVE_POST)
+                title = t.format(team=team, **fmt)
+                if title in done:
+                    continue
+                ctx = [c.format(team=team, **fmt) for c in LIVE_COMMENTS]
+                pid = write_post(cats, uids, by_team, cat=cat, title=title,
+                                 content=" ".join(x.format(**fmt) for x in random.sample(lines, min(2, len(lines)))),
+                                 image_ratio=0.9 if title.startswith("[직관]") else 0.3, ctx=ctx)
+                if pid:
+                    done.add(title)
+                    live_posted[gid] = live_posted.get(gid, 0) + 1
+            elif g.get("gameState") == "FINISHED" and a != h:
+                win_home = h > a
+                ws, ls = max(a, h), min(a, h)
+                for win, tid, team, opp in ((True, g["homeTeamId"] if win_home else g["awayTeamId"],
+                                             g["homeTeam"] if win_home else g["awayTeam"],
+                                             g["awayTeam"] if win_home else g["homeTeam"]),
+                                            (False, g["awayTeamId"] if win_home else g["homeTeamId"],
+                                             g["awayTeam"] if win_home else g["homeTeam"],
+                                             g["homeTeam"] if win_home else g["awayTeam"])):
+                    key = f"후기:{gid}:{win}"
+                    if key in done or (not win and random.random() < 0.4):
+                        done.add(key)
+                        continue
+                    # 경기별로 템플릿을 고정 — 재시작해도 같은 제목이라 DB 제목 비교로 한 번만 올라간다
+                    t, lines = random.Random(key).choice(WIN_POST if win else LOSE_POST)
+                    title = t.format(team=team, ws=ws, ls=ls)
+                    done.add(key)
+                    if title in done or not by_team_cat.get(tid):
+                        continue
+                    pool = WIN_COMMENTS if win else LOSE_COMMENTS
+                    if write_post(cats, uids, by_team, cat=by_team_cat[tid], title=title,
+                                  content=" ".join(x.format(opp=opp) for x in lines), image_ratio=0.5,
+                                  ctx=[c.format(team=team, ws=ws, ls=ls) for c in pool]):
+                        done.add(title)
+                    time.sleep(random.uniform(20, 90))   # 종료 직후 후기가 한 번에 쏟아지지 않게
+
+
 def stats_loop():
     while time.time() < END:
         time.sleep(60)
@@ -308,6 +411,7 @@ def main():
         threading.Thread(target=reader, args=(cats, uids), daemon=True).start()
         time.sleep(random.uniform(0.5, 3))
     threading.Thread(target=buzz, args=(uids,), daemon=True).start()
+    threading.Thread(target=game_posts, args=(cats, uids, by_team), daemon=True).start()
     while time.time() < END:
         time.sleep(random.uniform(*NEW_POST_SEC))
         if active():

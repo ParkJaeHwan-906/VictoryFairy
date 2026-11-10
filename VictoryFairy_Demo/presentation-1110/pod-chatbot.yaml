@@ -23,7 +23,7 @@ spec:
         - name: REST_SEC
           value: "15,110"   # 나갔다가 다시 들어오기까지
         - name: MSG_INTERVAL
-          value: "4"   # 방 전체 평균 채팅 간격(초)
+          value: "3"   # 방 전체 평균 채팅 간격(초) — 득점·역전 같은 이벤트 반응은 이것과 별도로 몰려 나온다
         - name: LIKES_PER_SEC
           value: "5"   # 응원 연타 속도 상한(서버 제한 10)
         - name: LIKE_BURST_SEC

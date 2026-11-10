@@ -120,6 +120,18 @@ TEAM = {
     "SSG": ["SSG 랜더스 화이팅!", "문학 직관 왔어요", "랜더스 가자", "쓱 승리"],
     "키움": ["키움 화이팅!", "영웅들 가자", "고척 출석", "히어로즈 승리!"],
 }
+# 경기 이벤트에 대한 즉각 반응 — refresh_loop 가 점수·이닝·상태 변화를 감지하면 방 전체가 몇 초 안에 반응한다
+EV_SCORE_MINE = ["와아아아 득점!!!", "{team} 가자!!!", "점수 났다!!!", "이 맛에 야구 보지", "타점 감사합니다ㅠㅠ",
+                 "{score} 좋아좋아", "흐름 왔다!!", "한 점 더!!", "소리 질러!!!"]
+EV_SCORE_THEIRS = ["아 실점...", "투수 바꿔야 한다", "괜찮아 아직 안 끝났다", "수비 집중!!", "ㅠㅠ 맞았다", "{score} 따라가자",
+                   "아 그걸 맞네", "분위기 넘어간다ㅠ"]
+EV_TIE = ["동점!!!!", "다시 원점이다", "{score} 동점 ㄷㄷ", "이제부터 진짜 경기다", "와 동점 미쳤다"]
+EV_LEAD_MINE = ["역전!!!!!!", "역전이다아아아", "드라마 쓴다", "뒤집었다!!!", "이게 야구지!!!"]
+EV_LEAD_THEIRS = ["역전 당했네ㅠㅠ", "다시 뒤집자", "아직 기회 있다", "하...역전이라니"]
+EV_INNING = ["{inning}회{half} 시작", "이번 이닝 중요해요", "클린업 나온다", "삼자범퇴 가자", "{inning}회 집중!!"]
+EV_WIN = ["이겼다!!!!", "승리!!!! 오늘 최고", "{team} 승리 축하합니다", "퇴근길 행복하다ㅠㅠ", "{score} 승!! 내일도 가자"]
+EV_LOSE = ["졌다ㅠㅠ", "내일 이기면 된다", "그래도 잘 싸웠다", "아쉽다 진짜", "다음 경기 가자"]
+
 REPLY = ["ㅋㅋㅋ ㄹㅇ", "인정", "ㅇㅈ", "그니까요", "{n}님 말이 맞음", "{n}님 ㅋㅋㅋ", "ㄴㄴ 아직 몰라요", "동의합니다"]
 
 
@@ -132,8 +144,28 @@ class Room:
         self.lock = threading.Lock()
         self.online = 0
         self.size = 1             # 배정된 봇 수 — assign 이 채운다
+        self.event = None         # (id, kind, scoring_side, until) — 반응할 경기 이벤트
+        self.event_seq = 0
         self.wave_until = 0       # 이 시각까지 '몰려 들어오기' — 휴식 중인 봇이 일찍 들어온다
         self.ebb_until = 0        # 이 시각까지 '빠지기' — 체류 중인 봇이 일찍 나간다
+
+    def event_line(self, team):
+        """지금 이벤트에 대한 이 봇의 반응. 우리 팀 쪽이면 환호, 상대 쪽이면 탄식."""
+        _, kind, side, _ = self.event
+        g = self.game
+        a, h = g.get("awayTeamScore") or 0, g.get("homeTeamScore") or 0
+        mine = side == ("home" if team == g["homeTeam"] else "away")
+        fmt = {"score": f"{a}:{h}", "inning": g.get("inning") or 1, "team": team,
+               "half": "말" if g.get("inningHalf") in ("말", "BOTTOM", 1) else "초"}
+        pool = {"score": EV_SCORE_MINE if mine else EV_SCORE_THEIRS,
+                "lead": EV_LEAD_MINE if mine else EV_LEAD_THEIRS,
+                "tie": EV_TIE,
+                "inning": EV_INNING,
+                "final": EV_WIN if mine else EV_LOSE}[kind]
+        return random.choice(pool).format(**fmt)
+
+    def event_active(self):
+        return self.event is not None and time.time() < self.event[3]
 
     def line(self, team):
         g = self.game
@@ -163,6 +195,7 @@ class Bot(threading.Thread):
         self.room, self.uid, self.nick, self.team = room, uid, nick, team_name
         self.sess_stop, self.sess_end = sess_stop, sess_end
         self.tok = token(uid, int(sess_end - time.time()) + 3600)
+        self.reacted = None
 
     def alive(self):
         return not stop.is_set() and not self.sess_stop.is_set() and time.time() < self.sess_end
@@ -199,8 +232,11 @@ class Bot(threading.Thread):
         while not leave_evt.is_set():
             # 경기 중엔 더 자주·길게 누른다
             live = self.room.game.get("gameState") == "IN_PROGRESS"
+            hot = self.room.event_active() and self.room.event[1] != "inning"
             rate = random.randint(1, max(1, int(LIKES_PER_SEC if live else LIKES_PER_SEC / 2)))
-            burst_end = time.time() + random.uniform(*LIKE_BURST) * (1 if live else 0.5)
+            if hot:
+                rate = max(rate, int(LIKES_PER_SEC) + 2)   # 이벤트 순간엔 서버 제한(10/s) 아래에서 최대로
+            burst_end = time.time() + random.uniform(*LIKE_BURST) * (1 if live else 0.5) * (2 if hot else 1)
             nxt = time.time()
             while not leave_evt.is_set() and time.time() < burst_end:
                 try:
@@ -221,12 +257,17 @@ class Bot(threading.Thread):
             if conn:   # 쉬는 동안 ALB 유휴 타임아웃에 끊기니 미리 닫는다
                 conn.close()
                 conn = None
-            leave_evt.wait(random.uniform(*LIKE_REST) * (1 if live else 2))
+            # 쉬는 중에도 득점·역전 같은 이벤트가 나면 바로 연타로 돌아온다
+            rest_until = time.time() + random.uniform(*LIKE_REST) * (1 if live else 2)
+            while not leave_evt.is_set() and time.time() < rest_until:
+                if self.room.event_active() and self.room.event[1] != "inning":
+                    break
+                leave_evt.wait(0.5)
 
-    def say(self):
-        if random.random() < 0.15 and self.room.last_nick and self.room.last_nick != self.nick:
+    def say(self, text=None):
+        if text is None and random.random() < 0.15 and self.room.last_nick and self.room.last_nick != self.nick:
             text = random.choice(REPLY).format(n=self.room.last_nick)
-        else:
+        elif text is None:
             text = self.room.line(self.team)
         st = req("POST", f"/chat/rooms/{self.room.gid}/messages", self.tok,
                  {"content": text, "clientMsgId": str(uuid.uuid4())})
@@ -262,12 +303,20 @@ class Bot(threading.Thread):
             per_bot = MSG_INTERVAL * max(1, self.room.size) * 0.6
             next_msg = time.time() + random.expovariate(1 / per_bot)
             while self.alive() and active() and time.time() < stay_until:
-                if time.time() < self.room.ebb_until and random.random() < 0.15:
+                if time.time() < self.room.ebb_until and random.random() < 0.15 and not self.room.event_active():
                     break
+                ev = self.room.event
+                if self.room.event_active() and ev[0] != self.reacted:
+                    self.reacted = ev[0]
+                    # 득점·역전·종료엔 대부분, 이닝 교대엔 일부만 — 1~8초 사이에 흩어져 반응한다
+                    if random.random() < (0.25 if ev[1] == "inning" else 0.75):
+                        self.sess_stop.wait(random.uniform(1, 8))
+                        if self.alive():
+                            self.say(self.room.event_line(self.team))
                 if time.time() >= next_msg:
                     self.say()
                     next_msg = time.time() + random.expovariate(1 / per_bot)
-                self.sess_stop.wait(2)
+                self.sess_stop.wait(1)
             leave.set()
             st = req("DELETE", f"/chat/rooms/{self.room.gid}/subscribe", self.tok)
             with self.room.lock:
@@ -285,15 +334,50 @@ def fetch_games(date):
         return json.load(r)["data"]
 
 
+def detect(old, new):
+    """이전·지금 경기 응답 -> (kind, 득점 쪽) 또는 None. 우선순위: 종료 > 역전 > 동점 > 득점 > 이닝 교대."""
+    if old.get("gameState") != "FINISHED" and new.get("gameState") == "FINISHED":
+        a, h = new.get("awayTeamScore") or 0, new.get("homeTeamScore") or 0
+        return "final", "home" if h > a else "away"
+    if new.get("gameState") != "IN_PROGRESS" or old.get("gameState") != "IN_PROGRESS":
+        return None
+    oa, oh = old.get("awayTeamScore") or 0, old.get("homeTeamScore") or 0
+    a, h = new.get("awayTeamScore") or 0, new.get("homeTeamScore") or 0
+    if (a, h) != (oa, oh):
+        side = "home" if h > oh else "away"
+        if (oh - oa) * (h - a) < 0:
+            return "lead", side
+        if a == h:
+            return "tie", side
+        return "score", side
+    if (old.get("inning"), old.get("inningHalf")) != (new.get("inning"), new.get("inningHalf")):
+        return "inning", None
+    return None
+
+
 def refresh_loop(rooms, date, sess_stop):
-    """경기 상태·점수를 갱신하고, 가끔 방마다 몰려 들어오기/빠지기 물결을 만든다."""
-    while not sess_stop.wait(30):
+    """10초마다 경기 상태·점수를 읽어 이벤트를 만들고, 30초마다 몰려 들어오기/빠지기 물결을 만든다."""
+    n = 0
+    while not sess_stop.wait(10):
+        n += 1
         try:
             for g in fetch_games(date):
-                if g["gameId"] in rooms:
-                    rooms[g["gameId"]].game = g
+                room = rooms.get(g["gameId"])
+                if room is None:
+                    continue
+                ev = detect(room.game, g)
+                room.game = g
+                if ev:
+                    room.event_seq += 1
+                    room.event = (room.event_seq, ev[0], ev[1], time.time() + (20 if ev[0] == "inning" else 35))
+                    if ev[0] != "inning":
+                        room.wave_until = time.time() + 40    # 큰 장면엔 사람이 몰려온다
+                    log(f"[{room.label}] ⚡ {ev[0]} ({ev[1] or '-'}) {g.get('awayTeamScore')}:{g.get('homeTeamScore')} "
+                        f"{g.get('inning')}회{g.get('inningHalf') or ''}")
         except Exception as e:
             log(f"경기 상태 갱신 실패 {e}")
+        if n % 3:
+            continue
         for room in rooms.values():
             roll = random.random()
             if roll < 0.08:
