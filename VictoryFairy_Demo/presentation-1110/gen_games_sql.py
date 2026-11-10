@@ -27,65 +27,68 @@ def ngid(d, a, h):
     return f"DEMO{d[5:7]}{d[8:10]}{CODE[a]}{CODE[h]}02026"
 
 
-ids = [ngid(d, a, h) for d, gs in DAYS for a, h, *_ in gs]
-assert len(ids) == len(set(ids))
-for d, gs in DAYS:
-    homes = [h for _, h, *_ in gs]
-    assert not (16 in homes and 17 in homes), d
-    assert all(x != y for _, _, x, y, _ in gs), d
+NL = chr(10)
 
-q = lambda xs: ",".join(f"'{x}'" for x in xs)
-out = []
-w = out.append
-w("-- 운영 쓰기: 2026-11-10 ~ 11-15 발표 데모 경기 30건 + 시작 이벤트 6개 + 종료 이벤트 30개 (gen_games_sql.py 로 생성)")
-w("-- 되돌리기:")
-w(f"--   DELETE FROM games WHERE naver_game_id IN ({q(ids)});")
-w("--   이벤트: SELECT CONCAT('DROP EVENT ', EVENT_NAME, ';') FROM information_schema.EVENTS")
-w("--           WHERE EVENT_NAME LIKE 'demo_games_202611%' OR EVENT_NAME LIKE 'demo_finish_DEMO11%';")
-w("SET time_zone = '+09:00';")
-w("START TRANSACTION;")
-w("INSERT INTO games (game_date, away_team_id, home_team_id, stadium_id, game_status_id, naver_game_id, created_at, updated_at)")
-w("SELECT v.gd, v.away, v.home,")
-w("       (SELECT g2.stadium_id FROM games g2 WHERE g2.home_team_id = v.home AND g2.naver_game_id LIKE '2026%'")
-w("         ORDER BY g2.game_date DESC LIMIT 1),")
-w("       (SELECT id FROM game_statuses WHERE name = 'SCHEDULED'), v.ngid, NOW(6), NOW(6)")
-w("FROM (")
-first = True
-for d, gs in DAYS:
-    for a, h, *_ in gs:
-        pre = "          SELECT" if first else "UNION ALL SELECT"
-        cols = (f"TIMESTAMP('{d} 12:00:00') gd, {a} away, {h} home, '{ngid(d, a, h)}' ngid" if first
-                else f"TIMESTAMP('{d} 12:00:00'), {a}, {h}, '{ngid(d, a, h)}'")
-        w(f"    {pre} {cols}  -- {NAME[a]}@{NAME[h]}")
-        first = False
-w(") v")
-w("WHERE NOT EXISTS (SELECT 1 FROM games g WHERE g.naver_game_id = v.ngid);")
-w("COMMIT;")
-w("")
-for i, (d, gs) in enumerate(DAYS):
-    dn = d.replace("-", "")
-    day_ids = [ngid(d, a, h) for a, h, *_ in gs]
-    # 첫날은 이 SQL 을 넣는 시점에 이미 정오가 지났다 — 과거 시각 이벤트는 실행되지 않고 바로 지워지므로 1분 뒤로
-    at = "CURRENT_TIMESTAMP + INTERVAL 1 MINUTE" if i == 0 else f"'{d} 12:00:00'"
-    w(f"-- ---------------------------------------------------------------- {d}")
-    w(f"DROP EVENT IF EXISTS demo_games_{dn}_start;")
-    w(f"CREATE EVENT demo_games_{dn}_start ON SCHEDULE AT {at} ON COMPLETION NOT PRESERVE DO")
-    w("  UPDATE games SET game_status_id = (SELECT id FROM game_statuses WHERE name = 'IN_PROGRESS'),")
-    w("         home_score = 0, away_score = 0, current_inning = 1, inning_half = 0, updated_at = NOW(6)")
-    w(f"   WHERE naver_game_id IN ({q(day_ids)}) AND game_status_id = (SELECT id FROM game_statuses WHERE name = 'SCHEDULED');")
-    for a, h, sa, sh, end in gs:
-        g = ngid(d, a, h)
-        w(f"-- {NAME[a]}@{NAME[h]} {sa}:{sh}, {end} 종료")
-        w(f"DROP EVENT IF EXISTS demo_finish_{g};")
-        w(f"CREATE EVENT demo_finish_{g} ON SCHEDULE AT '{d} {end}:00' ON COMPLETION NOT PRESERVE DO")
-        w("  UPDATE games SET game_status_id = (SELECT id FROM game_statuses WHERE name = 'FINISHED'),")
-        w(f"         away_score = {sa}, home_score = {sh}, last_inning = 9, current_inning = NULL, inning_half = NULL,")
-        w(f"         home_win_rate = NULL, away_win_rate = NULL, updated_at = NOW(6) WHERE naver_game_id = '{g}';")
+if __name__ == "__main__":   # gen_night_sql.py 가 CODE·NAME·ngid 만 가져다 쓴다 — import 로 파일을 다시 쓰지 않게
+    ids = [ngid(d, a, h) for d, gs in DAYS for a, h, *_ in gs]
+    assert len(ids) == len(set(ids))
+    for d, gs in DAYS:
+        homes = [h for _, h, *_ in gs]
+        assert not (16 in homes and 17 in homes), d
+        assert all(x != y for _, _, x, y, _ in gs), d
+
+    q = lambda xs: ",".join(f"'{x}'" for x in xs)
+    out = []
+    w = out.append
+    w("-- 운영 쓰기: 2026-11-10 ~ 11-15 발표 데모 경기 30건 + 시작 이벤트 6개 + 종료 이벤트 30개 (gen_games_sql.py 로 생성)")
+    w("-- 되돌리기:")
+    w(f"--   DELETE FROM games WHERE naver_game_id IN ({q(ids)});")
+    w("--   이벤트: SELECT CONCAT('DROP EVENT ', EVENT_NAME, ';') FROM information_schema.EVENTS")
+    w("--           WHERE EVENT_NAME LIKE 'demo_games_202611%' OR EVENT_NAME LIKE 'demo_finish_DEMO11%';")
+    w("SET time_zone = '+09:00';")
+    w("START TRANSACTION;")
+    w("INSERT INTO games (game_date, away_team_id, home_team_id, stadium_id, game_status_id, naver_game_id, created_at, updated_at)")
+    w("SELECT v.gd, v.away, v.home,")
+    w("       (SELECT g2.stadium_id FROM games g2 WHERE g2.home_team_id = v.home AND g2.naver_game_id LIKE '2026%'")
+    w("         ORDER BY g2.game_date DESC LIMIT 1),")
+    w("       (SELECT id FROM game_statuses WHERE name = 'SCHEDULED'), v.ngid, NOW(6), NOW(6)")
+    w("FROM (")
+    first = True
+    for d, gs in DAYS:
+        for a, h, *_ in gs:
+            pre = "          SELECT" if first else "UNION ALL SELECT"
+            cols = (f"TIMESTAMP('{d} 12:00:00') gd, {a} away, {h} home, '{ngid(d, a, h)}' ngid" if first
+                    else f"TIMESTAMP('{d} 12:00:00'), {a}, {h}, '{ngid(d, a, h)}'")
+            w(f"    {pre} {cols}  -- {NAME[a]}@{NAME[h]}")
+            first = False
+    w(") v")
+    w("WHERE NOT EXISTS (SELECT 1 FROM games g WHERE g.naver_game_id = v.ngid);")
+    w("COMMIT;")
     w("")
-w("-- 확인: stadium_id NULL 이 있으면 그 홈 구단의 2026 정규 실경기가 없다는 뜻 — 직접 채울 것")
-w("SELECT g.id, g.naver_game_id, g.game_date, g.away_team_id, g.home_team_id, g.stadium_id, s.name status, g.removed")
-w(f"FROM games g JOIN game_statuses s ON s.id = g.game_status_id WHERE g.naver_game_id IN ({q(ids)}) ORDER BY g.game_date, g.id;")
-w("SELECT COUNT(*) events, MIN(EXECUTE_AT), MAX(EXECUTE_AT) FROM information_schema.EVENTS WHERE EVENT_SCHEMA = DATABASE()")
-w("   AND (EVENT_NAME LIKE 'demo_games_202611%' OR EVENT_NAME LIKE 'demo_finish_DEMO11%');")
-w("SELECT @@event_scheduler, @@time_zone;")
-open("games-1110-1115.sql", "w", encoding="utf-8").write("\n".join(out) + "\n")
+    for i, (d, gs) in enumerate(DAYS):
+        dn = d.replace("-", "")
+        day_ids = [ngid(d, a, h) for a, h, *_ in gs]
+        # 첫날은 이 SQL 을 넣는 시점에 이미 정오가 지났다 — 과거 시각 이벤트는 실행되지 않고 바로 지워지므로 1분 뒤로
+        at = "CURRENT_TIMESTAMP + INTERVAL 1 MINUTE" if i == 0 else f"'{d} 12:00:00'"
+        w(f"-- ---------------------------------------------------------------- {d}")
+        w(f"DROP EVENT IF EXISTS demo_games_{dn}_start;")
+        w(f"CREATE EVENT demo_games_{dn}_start ON SCHEDULE AT {at} ON COMPLETION NOT PRESERVE DO")
+        w("  UPDATE games SET game_status_id = (SELECT id FROM game_statuses WHERE name = 'IN_PROGRESS'),")
+        w("         home_score = 0, away_score = 0, current_inning = 1, inning_half = 0, updated_at = NOW(6)")
+        w(f"   WHERE naver_game_id IN ({q(day_ids)}) AND game_status_id = (SELECT id FROM game_statuses WHERE name = 'SCHEDULED');")
+        for a, h, sa, sh, end in gs:
+            g = ngid(d, a, h)
+            w(f"-- {NAME[a]}@{NAME[h]} {sa}:{sh}, {end} 종료")
+            w(f"DROP EVENT IF EXISTS demo_finish_{g};")
+            w(f"CREATE EVENT demo_finish_{g} ON SCHEDULE AT '{d} {end}:00' ON COMPLETION NOT PRESERVE DO")
+            w("  UPDATE games SET game_status_id = (SELECT id FROM game_statuses WHERE name = 'FINISHED'),")
+            w(f"         away_score = {sa}, home_score = {sh}, last_inning = 9, current_inning = NULL, inning_half = NULL,")
+            w(f"         home_win_rate = NULL, away_win_rate = NULL, updated_at = NOW(6) WHERE naver_game_id = '{g}';")
+        w("")
+    w("-- 확인: stadium_id NULL 이 있으면 그 홈 구단의 2026 정규 실경기가 없다는 뜻 — 직접 채울 것")
+    w("SELECT g.id, g.naver_game_id, g.game_date, g.away_team_id, g.home_team_id, g.stadium_id, s.name status, g.removed")
+    w(f"FROM games g JOIN game_statuses s ON s.id = g.game_status_id WHERE g.naver_game_id IN ({q(ids)}) ORDER BY g.game_date, g.id;")
+    w("SELECT COUNT(*) events, MIN(EXECUTE_AT), MAX(EXECUTE_AT) FROM information_schema.EVENTS WHERE EVENT_SCHEMA = DATABASE()")
+    w("   AND (EVENT_NAME LIKE 'demo_games_202611%' OR EVENT_NAME LIKE 'demo_finish_DEMO11%');")
+    w("SELECT @@event_scheduler, @@time_zone;")
+    open("games-1110-1115.sql", "w", encoding="utf-8", newline=NL).write("\n".join(out) + "\n")
