@@ -15,6 +15,9 @@ games 의 자연키는 네이버 gameId 다. 이미 적재된 행은 (날짜, �
 와일드카드(4)·한국시리즈(7)는 같은 규칙으로 추정한 값이라 실측이 아니다 — 틀렸다면 네이버가
 돌아온 뒤 games_sync 의 사라진 경기 판정이 우리가 만든 행을 removed 로 걸러 준다.
 
+사라진 경기 판정은 이 경로에서도 돈다. 시리즈가 일찍 끝나면 미리 만든 예비 경기가 KBO 목록에서
+빠지는데, 판정을 끄면 그 행이 예정 상태로 앱에 남는다(2026-11-10 한국시리즈 6·7차전).
+
 상태 코드(2026-10-26 실측, 3월~10월 표본): GAME_STATE_SC 1=경기 전, 2=진행 중,
 3=종료, 4=취소(CANCEL_SC_ID 가 0 이 아님). 연장은 GAME_INN_NO 가 10·11 로 온다.
 """
@@ -41,8 +44,12 @@ def list_url(settings) -> str:
     return f"{settings.kbo_base_url}/ws/Main.asmx/GetKboGameList"
 
 
-def fetch_day(date: str, *, settings, client) -> list[dict]:
-    """date('YYYY-MM-DD') 하루의 경기 목록 원본. 팀을 모르는 경기(올스타 등)는 버린다."""
+def fetch_day(date: str, *, settings, client) -> list[dict] | None:
+    """date('YYYY-MM-DD') 하루의 경기 목록 원본. 팀을 모르는 경기(올스타 등)는 버린다.
+
+    응답에 game 배열이 없으면 None 이다 — 경기가 없는 날은 빈 배열로 온다(2026-11-10 실측
+    {"game": [], "code": "100"}). 둘을 섞으면 깨진 응답 하나에 그날 경기가 전부 사라진 경기가 된다.
+    """
     base = settings.kbo_base_url
     body = f"leId=1&srId={_SERIES}&date={date.replace('-', '')}"
     resp = client.post(list_url(settings), content=body.encode("utf-8"), headers={
@@ -52,7 +59,9 @@ def fetch_day(date: str, *, settings, client) -> list[dict]:
         "Content-Type": "application/x-www-form-urlencoded",
     })
     resp.raise_for_status()
-    games = json.loads(resp.content.decode("utf-8-sig")).get("game") or []
+    games = json.loads(resp.content.decode("utf-8-sig")).get("game")
+    if not isinstance(games, list):
+        return None
     return [g for g in games if g.get("HOME_ID") in TEAM_CODES and g.get("AWAY_ID") in TEAM_CODES]
 
 
