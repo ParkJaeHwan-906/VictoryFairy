@@ -16,7 +16,7 @@ FROM (
 WHERE NOT EXISTS (SELECT 1 FROM games g WHERE g.naver_game_id = v.ngid);
 
 DROP EVENT IF EXISTS demo_games_20261110_night_start;
-CREATE EVENT demo_games_20261110_night_start ON SCHEDULE AT '2026-11-10 17:25:00' ON COMPLETION NOT PRESERVE DO
+CREATE EVENT demo_games_20261110_night_start ON SCHEDULE AT GREATEST(TIMESTAMP('2026-11-10 17:25:00'), CURRENT_TIMESTAMP + INTERVAL 1 MINUTE) ON COMPLETION NOT PRESERVE DO
   UPDATE games SET game_status_id = (SELECT id FROM game_statuses WHERE name = 'IN_PROGRESS'),
          home_score = 0, away_score = 0, current_inning = 1, inning_half = 0, updated_at = NOW(6)
    WHERE naver_game_id IN ('DEMO1110LGOB02026','DEMO1110HHKT02026','DEMO1110SKNC02026','DEMO1110LTWO02026','DEMO1110SSHT02026') AND game_status_id = (SELECT id FROM game_statuses WHERE name = 'SCHEDULED');

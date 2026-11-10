@@ -27,7 +27,9 @@ for i, (a, h, *_rest) in enumerate(GAMES):
     out.append(f"    {pre} {cols}  -- {NAME[a]}@{NAME[h]}")
 out += [") v", "WHERE NOT EXISTS (SELECT 1 FROM games g WHERE g.naver_game_id = v.ngid);", "",
         "DROP EVENT IF EXISTS demo_games_20261110_night_start;",
-        f"CREATE EVENT demo_games_20261110_night_start ON SCHEDULE AT '{D} {START}:00' ON COMPLETION NOT PRESERVE DO",
+        # 지난 시각의 일회성 이벤트는 실행되지 않고 바로 지워진다(11/10 17:27 실제로 겪음) — 늦게 넣어도 돌게 GREATEST
+        f"CREATE EVENT demo_games_20261110_night_start ON SCHEDULE AT GREATEST(TIMESTAMP('{D} {START}:00'), "
+        "CURRENT_TIMESTAMP + INTERVAL 1 MINUTE) ON COMPLETION NOT PRESERVE DO",
         "  UPDATE games SET game_status_id = (SELECT id FROM game_statuses WHERE name = 'IN_PROGRESS'),",
         "         home_score = 0, away_score = 0, current_inning = 1, inning_half = 0, updated_at = NOW(6)",
         f"   WHERE naver_game_id IN ({q}) AND game_status_id = (SELECT id FROM game_statuses WHERE name = 'SCHEDULED');"]
