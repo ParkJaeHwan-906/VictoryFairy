@@ -19,7 +19,7 @@ spec:
         - name: ACTIVE_HOURS
           value: "8-24"
         - name: SOLVERS
-          value: "40"   # 동시에 방에 들어와 있는 슬롯 수. 접속 인원 = 고유 계정이라 페르소나 수(44)가 상한
+          value: "44"   # 동시에 방에 들어와 있는 슬롯 수. 접속 인원 = 고유 계정이라 페르소나 수(44)가 상한
         - name: BROWSE_SEC
           value: "90,420"   # 풀지 않고 머무는 시간
         - name: REST_SEC
@@ -27,7 +27,7 @@ spec:
         - name: ANSWER_GAP_SEC
           value: "15,60"   # 문항 사이 고민 시간 — 풀이 한 번이 몇 분에 걸쳐 투표율을 움직인다(정답률·함정 보기는 문제별 고정)
         - name: SOLVE_CONCURRENT
-          value: "5"   # 활동 시간 내내 방마다 늘 풀고 있는 계정 수(다 풀었으면 이전 답을 지우고 다시 푼다)
+          value: "7"   # 활동 시간 내내 방마다 늘 풀고 있는 계정 수(다 풀었으면 이전 답을 지우고 다시 푼다)
         - name: FOCUS_WINDOWS
           value: ""   # (선택) 발표 시간대 "2026-11-12 13:00-16:00;…" — 이때만 FOCUS_CONCURRENT 명으로 늘린다
         - name: FOCUS_CONCURRENT
