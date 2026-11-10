@@ -5,6 +5,7 @@
 네이버 id 규칙이 G_ID 와 다른 포스트시즌 경기를 대진으로 짝짓는지를 건다.
 """
 import httpx
+import pytest
 import respx
 
 from kbo_collector import game_records, kbo_gamecenter
@@ -94,6 +95,20 @@ def test_fetch_day_posts_date_and_drops_unknown_teams(settings):
 
     assert [g["G_ID"] for g in games] == ["20261026HTSS0"]
     assert b"date=20261026" in route.calls[0].request.content
+
+
+@respx.mock
+@pytest.mark.parametrize("body, expected", [
+    ({"game": [], "code": "100", "msg": "정상"}, []),   # 경기 없는 날(2026-11-10 실측)
+    ({"code": "500", "msg": "error"}, None),            # game 배열 없음 = 깨진 응답
+    ({"game": None}, None),
+])
+def test_fetch_day_tells_empty_day_from_broken_response(settings, body, expected):
+    # 빈 날은 사라진 경기 판정을 하고, 깨진 응답은 하지 않는다 — 둘을 같은 [] 로 돌려주면 안 된다.
+    respx.post(kbo_gamecenter.list_url(settings)).mock(return_value=httpx.Response(200, json=body))
+
+    with httpx.Client() as client:
+        assert kbo_gamecenter.fetch_day("2026-11-10", settings=settings, client=client) == expected
 
 
 def test_naver_game_id_follows_naver_rule_per_series():
