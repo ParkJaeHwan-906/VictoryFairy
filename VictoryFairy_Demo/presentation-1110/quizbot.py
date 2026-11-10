@@ -290,6 +290,8 @@ def pick_room(rooms):
             x *= 3
         if time.time() < r.ebb_until:
             x *= 0.3
+        # 사람이 몰린 방일수록 덜 고른다 — 인기 차이는 남기되 한 방이 텅 비어 보이지 않게
+        x /= 1 + max(0, r.online) / 6
         w.append(x)
     return random.choices(rs, weights=w)[0]
 
