@@ -145,7 +145,9 @@ class Room:
         if uid not in self.solved:
             return True
         unsolved = len(PERSONAS) - 1 - len(self.solved)
-        if unsolved > 0:
+        # 0 이 될 때까지 기다리면 안 된다 — 남은 몇 명이 다른 방에 있거나 쉬는 중이면 아무도 새로 못 풀어
+        # 동시 풀이 인원이 바닥난다(11/10 18:20, 92/97 에서 방마다 푸는 중 1~4명으로 떨어짐)
+        if unsolved > max(10, 2 * SOLVE_CONCURRENT):
             return False
         oldest = sorted(self.solved_at.items(), key=lambda kv: kv[1])[:max(3, len(self.solved_at) // 4)]
         return uid in {u for u, _ in oldest} or uid not in self.solved_at
