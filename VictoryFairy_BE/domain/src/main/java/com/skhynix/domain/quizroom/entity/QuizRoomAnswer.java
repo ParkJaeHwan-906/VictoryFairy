@@ -32,7 +32,7 @@ import org.hibernate.annotations.OnDeleteAction;
  */
 // uk_quiz_room_answers_account_quiz: 같은 계정의 같은 문항 동시 제출 2건 중 하나만 남게 DB 가 심판한다.
 //
-// 아래 세 인덱스는 모두 커버링이다 — 각 질의가 필요한 컬럼이 인덱스 안에 다 있어 클러스터드 인덱스(행)를 읽지 않는다.
+// 아래 앞의 세 인덱스는 모두 커버링이다 — 각 질의가 필요한 컬럼이 인덱스 안에 다 있어 클러스터드 인덱스(행)를 읽지 않는다.
 // 앞의 둘은 FK 자동 인덱스 자리를 대신한다: 선행 컬럼이 FK 컬럼이라 InnoDB 가 room_id·quiz_id 단독 인덱스를 따로
 // 만들지 않으므로(이미 있으면 MySQL 이 조용히 지운다) 인덱스 개수는 늘지 않고 뒤에 컬럼만 붙는다. (미측정, 제거하지 말 것)
 //
@@ -48,6 +48,10 @@ import org.hibernate.annotations.OnDeleteAction;
 // 낸 답"을 훑고 행마다 room_id 를 확인한다 — 스캔 길이가 그 계정의 누적 활동량에 비례한다. 이 인덱스는 방당 최대 20건.
 // 순서 근거: 두 질의 모두 두 컬럼이 등치라 어느 순서든 같은 범위를 읽는다. "계정의 답" 질의라 uk 와 같은 축으로 맞췄을 뿐이다.
 //
+// idx_quiz_room_answers_created_at(created_at): 인기 목록이 요청마다 도는 countWeeklyNewSolversByRoom 의 바깥
+// "created_at in [이번 주)" 범위용. 커버링이 아니고(바깥 질의가 room_id·user_account_id 를 행에서 다시 읽는다) 비용 대부분인
+// not exists 반조인은 그대로라 절반만 줄어든다 — 근거·측정은 그 쿼리 주석. 테이블이 이미 있는 환경엔 migrate-quiz-room-created-at-index.sql 로 건다. 제거하지 말 것.
+//
 // 이름·컬럼은 infra/sql/migrate-quiz-room.sql 과 문자 그대로 같아야 한다 — 다르면 user 의 ddl-auto=update 가 하나 더 만든다.
 @Entity
 @Table(name = "quiz_room_answers", uniqueConstraints = {
@@ -56,7 +60,8 @@ import org.hibernate.annotations.OnDeleteAction;
 }, indexes = {
         @Index(name = "idx_quiz_room_answers_room_quiz_option", columnList = "room_id, quiz_id, option_no"),
         @Index(name = "idx_quiz_room_answers_quiz_option", columnList = "quiz_id, option_no"),
-        @Index(name = "idx_quiz_room_answers_account_room", columnList = "user_account_id, room_id")
+        @Index(name = "idx_quiz_room_answers_account_room", columnList = "user_account_id, room_id"),
+        @Index(name = "idx_quiz_room_answers_created_at", columnList = "created_at")
 })
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)

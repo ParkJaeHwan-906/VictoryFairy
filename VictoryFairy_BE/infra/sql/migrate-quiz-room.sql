@@ -82,6 +82,8 @@ CREATE TABLE IF NOT EXISTS `quiz_room_answers` (
     INDEX `idx_quiz_room_answers_room_quiz_option` (`room_id`, `quiz_id`, `option_no`),
     INDEX `idx_quiz_room_answers_quiz_option` (`quiz_id`, `option_no`),
     INDEX `idx_quiz_room_answers_account_room` (`user_account_id`, `room_id`),
+    -- 인기 목록 주간 집계(countWeeklyNewSolversByRoom)의 기간 범위용. 이미 테이블이 있는 환경은 migrate-quiz-room-created-at-index.sql
+    INDEX `idx_quiz_room_answers_created_at` (`created_at`),
     CONSTRAINT `fk_quiz_room_answers_account` FOREIGN KEY (`user_account_id`)
         REFERENCES `users_account` (`id`) ON DELETE SET NULL,
     CONSTRAINT `fk_quiz_room_answers_room` FOREIGN KEY (`room_id`)
@@ -98,6 +100,8 @@ CREATE TABLE IF NOT EXISTS `quiz_room_likes` (
     `created_at`      DATETIME(6) NOT NULL,
     PRIMARY KEY (`id`),
     CONSTRAINT `uk_quiz_room_likes_account_room` UNIQUE (`user_account_id`, `room_id`),
+    -- 인기 목록 주간 집계(countWeeklyLikesByRoom)의 기간 범위용. 이미 테이블이 있는 환경은 migrate-quiz-room-created-at-index.sql
+    INDEX `idx_quiz_room_likes_created_at` (`created_at`),
     CONSTRAINT `fk_quiz_room_likes_account` FOREIGN KEY (`user_account_id`)
         REFERENCES `users_account` (`id`) ON DELETE SET NULL,
     CONSTRAINT `fk_quiz_room_likes_room` FOREIGN KEY (`room_id`)
@@ -152,6 +156,7 @@ ORDER BY TABLE_NAME, INDEX_NAME;
 -- ALTER TABLE `quiz_room_answers` ADD INDEX `idx_quiz_room_answers_room_quiz_option` (`room_id`, `quiz_id`, `option_no`);
 -- ALTER TABLE `quiz_room_answers` ADD INDEX `idx_quiz_room_answers_quiz_option` (`quiz_id`, `option_no`);
 -- ALTER TABLE `quiz_room_answers` ADD INDEX `idx_quiz_room_answers_account_room` (`user_account_id`, `room_id`);
+-- (created_at 인덱스 두 개는 여기 말고 migrate-quiz-room-created-at-index.sql 을 실행한다 — 존재 확인까지 스스로 한다)
 
 
 -- ============================================================================

@@ -6,6 +6,7 @@ import com.skhynix.domain.quizroom.entity.QuizRoom;
 import com.skhynix.domain.quizroom.entity.QuizRoomQuiz;
 import com.skhynix.domain.quizroom.entity.QuizRoomQuizOption;
 import com.skhynix.domain.quizroom.entity.QuizRoomWeeklyBest;
+import com.skhynix.domain.quizroom.repository.QuizRoomAnswerRepository;
 import com.skhynix.domain.quizroom.repository.QuizRoomLikeRepository;
 import com.skhynix.domain.quizroom.repository.QuizRoomQuizOptionRepository;
 import com.skhynix.domain.quizroom.repository.QuizRoomQuizRepository;
@@ -20,12 +21,18 @@ import com.skhynix.quiz.quizroom.dto.QuizRoomOptionResponse;
 import com.skhynix.quiz.quizroom.dto.RoomDetailResponse;
 import com.skhynix.quiz.quizroom.dto.RoomQuizResponse;
 import com.skhynix.quiz.quizroom.dto.RoomSummaryResponse;
+import com.skhynix.quiz.quizroom.weekly.QuizRoomWeeklyBestService;
+import com.skhynix.quiz.quizroom.weekly.QuizRoomWeeklyBestService.RankedRoom;
+import com.skhynix.quiz.quizroom.weekly.QuizRoomWeeks;
 import java.time.Clock;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -41,6 +48,7 @@ public class QuizRoomService {
     private final QuizRoomQuizRepository quizRepository;
     private final QuizRoomQuizOptionRepository optionRepository;
     private final QuizRoomLikeRepository likeRepository;
+    private final QuizRoomAnswerRepository answerRepository;
     private final QuizRoomWeekRepository weekRepository;
     private final QuizRoomWeeklyBestRepository bestRepository;
     private final UserAccountRepository userAccountRepository;
@@ -86,20 +94,51 @@ public class QuizRoomService {
     }
 
     /**
-     * 가장 최근에 확정된 주간 베스트를 확정 순위대로. 다음 확정 전까지 구성·순서는 그대로이고, {@code likeCount}·{@code solvingCount}
-     * 만 응답 시점 값이라 숫자와 순서가 어긋나 보일 수 있다(계약). 확정된 주가 없거나 그 주가 비었으면 빈 목록이다.
+     * 이번 주(KST 월요일 00:00 ~ 다음 월요일 00:00) 실시간 순위. 점수·정렬·0점 제외·최대 5건은 주간 확정과 같은 정의
+     * ({@link QuizRoomWeeklyBestService#rank})이고, 캐시 없이 요청마다 이번 주 추천·새 풀이자를 다시 센다.
+     *
+     * <p>5건이 안 되면 남는 자리를 가장 최근 확정된 주간 베스트의 확정 순위대로 채우되, 이미 들어간 방은 건너뛴다. 이번 주 점수가
+     * 있는 방도, 확정된 주(또는 그 주의 방)도 없으면 빈 목록이다. {@code likeCount}·{@code solvingCount} 는 응답 시점 값이라
+     * 이번 주 점수 기준인 순서와 어긋나 보일 수 있다.
      */
     @Transactional(readOnly = true)
     public List<RoomSummaryResponse> getPopularRooms() {
-        List<QuizRoomWeeklyBest> bests = weekRepository.findTopByOrderByWeekStartDesc()
-                .map(week -> bestRepository.findAllByWeek_IdOrderByRankNoAsc(week.getId()))
-                .orElse(List.of());
-        if (bests.isEmpty()) {
+        LocalDate weekStart = QuizRoomWeeks.weekStartOf(LocalDate.now(kstClock));
+        LocalDateTime start = weekStart.atStartOfDay();
+        LocalDateTime end = weekStart.plusWeeks(1).atStartOfDay();
+        List<RankedRoom> ranked = QuizRoomWeeklyBestService.rank(likeRepository.countWeeklyLikesByRoom(start, end),
+                answerRepository.countWeeklyNewSolversByRoom(start, end));
+
+        // 순위 순서를 지키며 담는다. 방은 작성자까지 한 번에 싣는다(방마다 author 를 따로 읽지 않게)
+        Map<Long, QuizRoom> popular = new LinkedHashMap<>();
+        if (!ranked.isEmpty()) {
+            Map<Long, QuizRoom> loaded = roomRepository
+                    .findAllWithAuthorByIdIn(ranked.stream().map(RankedRoom::roomId).toList()).stream()
+                    .collect(Collectors.toMap(QuizRoom::getId, Function.identity()));
+            for (RankedRoom entry : ranked) {
+                QuizRoom room = loaded.get(entry.roomId());
+                if (room != null) {
+                    popular.put(room.getId(), room);
+                }
+            }
+        }
+        if (popular.size() < QuizRoomWeeklyBestService.BEST_LIMIT) {
+            List<QuizRoomWeeklyBest> bests = weekRepository.findTopByOrderByWeekStartDesc()
+                    .map(week -> bestRepository.findAllByWeek_IdOrderByRankNoAsc(week.getId()))
+                    .orElse(List.of());
+            for (QuizRoomWeeklyBest best : bests) {
+                if (popular.size() >= QuizRoomWeeklyBestService.BEST_LIMIT) {
+                    break;
+                }
+                popular.putIfAbsent(best.getRoom().getId(), best.getRoom());
+            }
+        }
+        if (popular.isEmpty()) {
             return List.of();
         }
-        Map<Long, Long> solving = solvingCounter.counts(bests.stream().map(best -> best.getRoom().getId()).toList());
-        return bests.stream()
-                .map(best -> RoomSummaryResponse.of(best.getRoom(), solving.getOrDefault(best.getRoom().getId(), 0L)))
+        Map<Long, Long> solving = solvingCounter.counts(List.copyOf(popular.keySet()));
+        return popular.values().stream()
+                .map(room -> RoomSummaryResponse.of(room, solving.getOrDefault(room.getId(), 0L)))
                 .toList();
     }
 
