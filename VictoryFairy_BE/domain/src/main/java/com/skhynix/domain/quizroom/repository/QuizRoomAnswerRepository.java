@@ -30,11 +30,12 @@ public interface QuizRoomAnswerRepository extends JpaRepository<QuizRoomAnswer, 
      * 주간 점수의 풀이 축 — 그 방에 <b>처음 답한 시각</b>이 {@code [start, end)} 인 고유 계정 수를 방별로 센다.
      * 그 전 주에 시작한 풀이자의 이번 주 답은 {@code not exists} 가 거른다. 작성자 본인과, SET NULL 로 누구인지 모르게 된 답은 넣지 않는다.
      */
-    // created_at 인덱스는 일부러 두지 않는다 — 주 1회 확정에서만 도는 질의라 바깥은 풀스캔(일관 읽기, 락 없음)이고, 비용의 대부분은
-    // not exists 반조인이다. 반조인은 idx_quiz_room_answers_account_room 의 (user_account_id, room_id) ref 로 그 방에서 낸 답(최대 20건)만 본다.
-    // 합성 35만 행 EXPLAIN ANALYZE(MySQL 8.0): 현행 118ms, (created_at) 추가 54ms, account_room 에 created_at 을 붙여도 99ms.
-    // 인덱스 하나를 더 두면 답 제출(문항마다 INSERT)마다 유지비가 붙는다(같은 데이터 일괄 INSERT 4.2s → 6.4s).
-    // 확정이 초 단위로 길어지면 그때 다시 잰다 — 반조인 비용은 그 주 답 수에 비례해 created_at 인덱스로는 줄지 않는다
+    // 바깥 created_at 범위는 idx_quiz_room_answers_created_at 이 받는다 — 인기 목록(GET /rt/quiz-rooms/popular)이 캐시 없이 요청마다
+    // 이번 주 실시간 순위를 내느라 이 쿼리가 요청마다 돈다. 다만 비용의 대부분은 not exists 반조인이다. 반조인은
+    // idx_quiz_room_answers_account_room 의 (user_account_id, room_id) ref 로 그 방에서 낸 답(최대 20건)만 보지만, 그 주 답 행마다 돈다.
+    // 합성 35만 행 EXPLAIN ANALYZE(MySQL 8.0): 인덱스 없이 118ms → (created_at) 54ms, account_room 에 created_at 을 붙이는 안은 99ms.
+    // 대가로 답 제출(문항마다 INSERT)마다 유지비가 붙는다(같은 데이터 일괄 INSERT 4.2s → 6.4s). 제거하지 말 것.
+    // 반조인 비용은 그 주 답 수에 비례해 인덱스로는 절반만 준다 — 근본 해결은 (계정·방) 첫 풀이 시각 테이블(후속 과제)
     @Query("select new com.skhynix.domain.quizroom.repository.QuizRoomCountView(a.room.id, count(distinct a.userAccount.id)) "
             + "from QuizRoomAnswer a "
             + "where a.createdAt >= :start and a.createdAt < :end "
