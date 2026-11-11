@@ -53,8 +53,13 @@ Lambda·로컬 스크립트가 이를 얇게 호출합니다.
   **네이버 일정 호출이 실패하면 `games_sync`는 그날을 KBO 게임센터(`kbo_collector/kbo_gamecenter.py`)로
   대신 받는다** — 2026-10-26부터 네이버가 AWS 대역 요청에 응답하지 않는다(실측). 이 경로는 기존 행을
   (날짜, 홈, 원정)으로 찾아 갱신하고, 없는 경기는 G_ID 로 만든 네이버 id(정규시즌 G_ID+시즌, 포스트시즌
-  SR_ID×4+MMDD…)로 새 행을 넣는다. 구장은 KBO 목록 값을 쓰고, 네이버를 다시 부르는 부가 기능(승률·이닝
-  이벤트·라인업)과 사라진 경기 판정은 끈다.
+  SR_ID×4+MMDD…)로 새 행을 넣는다. 구장은 KBO 목록 값을 쓰고, 선발 라인업은 KBO 라인업 화면
+  (`kbo_collector/kbo_boxscore.py`)으로 받는다. 승률은 KBO 경기 목록의 상황(이닝·아웃·주자·점수)으로
+  직접 계산한다(`kbo_collector/win_expectancy.py`, 분포표 `_run_dist.py` 는 생성물). 이닝 이벤트는 끈다.
+  사라진 경기 판정은 이 경로에서도 돈다 — 시리즈가 일찍 끝나 KBO 목록에서 빠진 예비 경기가 예정 상태로 남지 않게
+  (2026-11-10 한국시리즈 6·7차전).
+  **`records`도 네이버 일정이 실패하면 KBO 박스스코어로 적재한다** — KBO 응답엔 선수 ID 가 없어
+  (구단, 이름)을 `players.kbo_player_id` 로 풀고, 못 푼 선수(동명이인 포함)가 있는 경기는 보류(failed)한다.
   **도메인 관련 코드는 domain 모듈 엔티티 파일만 참고해 작성하고, 이 리포에 DDL
   사본(schema.sql류)을 만들지 마세요** — 스키마 변경·생성은 dev_be 소관. 운영 실행은 **VPC 안
   Lambda**(`kbo-collector-db`, `VictoryFairy_Infra/collector-lambda/lambda_db.tf`(dev_infra) — records 03:30 KST ·
