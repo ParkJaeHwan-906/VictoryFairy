@@ -108,7 +108,7 @@ export function GameChatLoginPrompt() {
 /**
  * GameChat — 경기 상세 하단의 경기별 실시간 채팅(`docs/game-chat.md`).
  *
- * 생김새는 라운지 채팅(`LoungeChatSheet`)과 맞추고, 흐름은 새 API 계약을 따른다.
+ * 흐름은 경기 채팅 API 계약을 따른다.
  * 1. 방 상세를 먼저 불러 방을 만들게 한다(히스토리는 방을 지연 생성하지 않는다).
  * 2. 최신 히스토리 30건을 그리고, 그중 가장 큰 msgId 를 `Last-Event-ID` 로 실어 구독한다 —
  *    히스토리와 구독 사이에 온 메시지를 서버가 메워 준다. 재연결 복구·중복 제거는 API 계층이 한다.
@@ -386,7 +386,7 @@ export default function GameChat({ gameId, isOpenDay, onLikes }: GameChatProps) 
   };
 
   /* ---------------------------------------------------------------- *
-   * "..." 메뉴 — 신고 · 차단 (LoungeChatSheet 와 같은 흐름)
+   * "..." 메뉴 — 신고 · 차단 
    * ---------------------------------------------------------------- */
 
   const closeMenu = useCallback(() => {

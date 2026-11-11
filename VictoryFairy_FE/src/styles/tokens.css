@@ -198,8 +198,6 @@
    */
   /* 로그인 화면 하단 흰 시트의 최소 높이(600px) */
   --layout-sheet-height: min(600px, calc(600 / 874 * 100dvh));
-  /* 라운지 채팅 바텀시트(694px) */
-  --layout-chat-sheet-height: min(694px, calc(694 / 874 * 100dvh));
   /* 선호 선수 검색 바텀시트(760px) */
   --layout-player-sheet-height: min(760px, calc(760 / 874 * 100dvh));
   /* 퀴즈 문제 및 정답 바텀시트(720px — 프레임 y=154 부터 끝까지) */

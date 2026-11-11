@@ -29,7 +29,7 @@ type CommunityCommentComposerProps = {
 /**
  * CommunityCommentComposer — 글 상세 아래에 붙는 댓글 입력창.
  *
- * 라운지 채팅 입력창(`.lounge-chat__composer`)과 같은 모양이고, 그 위에 답글 · 수정 중임을
+ * 경기 채팅 입력창(`.game-chat__composer`)과 같은 모양이고, 그 위에 답글 · 수정 중임을
  * 알리는 띠와 첨부 사진 줄이 얹힌다.
  *
  * ── 계약 ──────────────────────────────────────────────────────────────
