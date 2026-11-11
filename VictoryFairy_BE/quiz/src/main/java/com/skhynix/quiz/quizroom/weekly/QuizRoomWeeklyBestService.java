@@ -36,7 +36,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class QuizRoomWeeklyBestService {
 
-    static final int BEST_LIMIT = 5;
+    public static final int BEST_LIMIT = 5;
     static final int REWARD_POINT = 500;
 
     private final QuizRoomWeekRepository weekRepository;
@@ -76,9 +76,8 @@ public class QuizRoomWeeklyBestService {
         }
         LocalDateTime start = weekStart.atStartOfDay();
         LocalDateTime end = weekStart.plusWeeks(1).atStartOfDay();
-        List<RankedRoom> ranked = rank(
-                toMap(likeRepository.countWeeklyLikesByRoom(start, end)),
-                toMap(answerRepository.countWeeklyNewSolversByRoom(start, end)));
+        List<RankedRoom> ranked = rank(likeRepository.countWeeklyLikesByRoom(start, end),
+                answerRepository.countWeeklyNewSolversByRoom(start, end));
 
         // 심판 행을 계정 락보다 먼저 넣고 flush 한다 — 늦은 인스턴스가 계정 락을 쥔 채 기다리지 않게(교착 여지 제거)
         QuizRoomWeek week = weekRepository.saveAndFlush(QuizRoomWeek.builder()
@@ -131,6 +130,14 @@ public class QuizRoomWeeklyBestService {
         return owners;
     }
 
+    /**
+     * 주간 점수 질의 결과({@code countWeeklyLikesByRoom}·{@code countWeeklyNewSolversByRoom})로 순위를 낸다. 주간 확정과 인기 목록
+     * (이번 주 실시간 순위)이 같은 정의를 쓰도록 둘 다 이 메서드를 거친다.
+     */
+    public static List<RankedRoom> rank(List<QuizRoomCountView> likes, List<QuizRoomCountView> solvers) {
+        return rank(toMap(likes), toMap(solvers));
+    }
+
     /** 점수 = 추천 + 새 풀이자. 0점 제외, 점수 내림차순·동점은 roomId 내림차순, 최대 5. */
     static List<RankedRoom> rank(Map<Long, Long> likes, Map<Long, Long> solvers) {
         Map<Long, Long> scores = new HashMap<>(likes);
@@ -148,7 +155,7 @@ public class QuizRoomWeeklyBestService {
         return views.stream().collect(Collectors.toMap(QuizRoomCountView::roomId, QuizRoomCountView::count, Long::sum));
     }
 
-    record RankedRoom(long roomId, long score) {
+    public record RankedRoom(long roomId, long score) {
     }
 
     /** {@code confirmed=false} 면 이미 확정된 주라 아무것도 바꾸지 않았다는 뜻이다. */

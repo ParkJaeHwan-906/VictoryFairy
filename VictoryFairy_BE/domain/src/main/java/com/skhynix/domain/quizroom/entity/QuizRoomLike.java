@@ -8,6 +8,7 @@ import jakarta.persistence.ForeignKey;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
@@ -26,10 +27,16 @@ import org.hibernate.annotations.OnDeleteAction;
  *
  * <p>계정 FK SET NULL — 하드 삭제 뒤에도 행이 남아 카운터와 행 수가 어긋나지 않는다.
  */
+// idx_quiz_room_likes_created_at(created_at): 인기 목록(GET /rt/quiz-rooms/popular)이 요청마다 도는
+// countWeeklyLikesByRoom 의 "created_at in [이번 주)" 범위를 받는다. 없으면 요청마다 풀스캔이다(근거·측정은 그 쿼리 주석).
+// 이름·컬럼은 infra/sql/migrate-quiz-room.sql·migrate-quiz-room-created-at-index.sql 과 문자 그대로 같아야 한다 — 다르면 user 의
+// ddl-auto=update 가 같은 컬럼에 인덱스를 하나 더 만든다(update 는 이름으로만 대조한다). 제거하지 말 것.
 @Entity
 @Table(name = "quiz_room_likes", uniqueConstraints = {
         @UniqueConstraint(name = "uk_quiz_room_likes_account_room",
                 columnNames = {"user_account_id", "room_id"})
+}, indexes = {
+        @Index(name = "idx_quiz_room_likes_created_at", columnList = "created_at")
 })
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)

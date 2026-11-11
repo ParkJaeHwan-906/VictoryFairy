@@ -174,6 +174,23 @@ class QuizRoomWeeklyBestServiceTest {
         assertThat(QuizRoomWeeklyBestService.rank(Map.of(10L, 1L, 11L, 1L), Map.of())).hasSize(2);
     }
 
+    @Test
+    @DisplayName("[QUIZ-CQR-150, QUIZ-CQR-137] rank(List, List) 오버로드는 rank(Map, Map) 과 같은 순위를 낸다 (같은 방의 중복 행은 합산)")
+    void rank_listOverload_matchesMapOverload() {
+        List<QuizRoomCountView> likes = List.of(new QuizRoomCountView(1L, 9L), new QuizRoomCountView(2L, 7L),
+                new QuizRoomCountView(3L, 5L), new QuizRoomCountView(4L, 5L), new QuizRoomCountView(5L, 5L),
+                new QuizRoomCountView(6L, 2L), new QuizRoomCountView(7L, 0L));
+        List<QuizRoomCountView> solvers = List.of(new QuizRoomCountView(6L, 3L), new QuizRoomCountView(8L, 1L));
+
+        List<RankedRoom> fromLists = QuizRoomWeeklyBestService.rank(likes, solvers);
+        List<RankedRoom> fromMaps = QuizRoomWeeklyBestService.rank(
+                Map.of(1L, 9L, 2L, 7L, 3L, 5L, 4L, 5L, 5L, 5L, 6L, 2L, 7L, 0L), Map.of(6L, 3L, 8L, 1L));
+
+        assertThat(fromLists).isEqualTo(fromMaps);
+        assertThat(fromLists).extracting(RankedRoom::roomId).containsExactly(1L, 2L, 6L, 5L, 4L);
+        assertThat(fromLists).extracting(RankedRoom::score).containsExactly(9L, 7L, 5L, 5L, 5L);
+    }
+
     // ---- 확정 흐름 ----
 
     @Test
