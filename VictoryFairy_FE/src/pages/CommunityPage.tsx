@@ -3,7 +3,6 @@ import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-do
 import { getBqRanking, getMyBqRanking, toAssetUrl } from '../api';
 import type { BqRankingEntry } from '../api';
 import CommunityBoard from '../components/CommunityBoard';
-import LoungeChatSheet from '../components/LoungeChatSheet';
 import NoticeSheet from '../components/NoticeSheet';
 import QuizRoomBoard from '../components/QuizRoomBoard';
 import RankingPodium from '../components/RankingPodium';
@@ -122,7 +121,6 @@ export default function CommunityPage() {
  * Figma: SWM / [Lounge] 라운지 메인 (수정) (node 1090:8107), 기준 프레임 402 x 874
  *
  * 상위 3명은 주황 그라데이션 카드 위에 왕관과 함께 서고, 4위 아래로는 목록이 이어진다.
- * 오른쪽 아래 채팅 버튼을 누르면 라운지 채팅 바텀시트가 올라온다.
  *
  * ── 두 번 부르고, 세 번 부르지 않는다 ─────────────────────────────────
  * 시상대와 목록은 `GET /rankings/bq`(TOP 10) **한 응답을 나눠 쓴다.** TOP 3 전용 경로가
@@ -139,8 +137,6 @@ export default function CommunityPage() {
  * ──────────────────────────────────────────────────────────────────────
  */
 function LoungeRanking() {
-  const [isChatOpen, setIsChatOpen] = useState(false);
-
   // 프로필은 App 의 `useProfileBootstrap` 이 채운다 — 빈 결과의 문구를 고를 때만 쓴다.
   const profile = useMyProfile();
 
@@ -233,18 +229,6 @@ function LoungeRanking() {
           {myRanking && <RankingRow entry={myRanking} isMine />}
         </ol>
       )}
-
-      <button
-        className="community-page__chat-fab"
-        type="button"
-        onClick={() => setIsChatOpen(true)}
-        aria-label="라운지 채팅 열기"
-        aria-expanded={isChatOpen}
-      >
-        <span className="community-page__chat-fab-icon" aria-hidden="true" />
-      </button>
-
-      {isChatOpen && <LoungeChatSheet onClose={() => setIsChatOpen(false)} />}
     </>
   );
 }

@@ -91,28 +91,6 @@ export {
   SUPPORT_PLAYER_MAX,
 } from './support';
 
-// 채팅(game 모듈) 엔드포인트 함수
-export {
-  getChatRooms,
-  getChatRoom,
-  findMyTeamChatRoom,
-  subscribeChatRoom,
-  leaveChatRoom,
-  sendChatMessage,
-  getChatMessages,
-  reportChatMessage,
-  validateChatMessageContent,
-  isChatRoomNotFound,
-  isChatMessageNotFound,
-  isSelfReport,
-  isSupportTeamRequired,
-  isChatTeamMismatch,
-  CHAT_ERROR_MESSAGE,
-  CHAT_MESSAGE_PAGE_SIZE,
-  CHAT_MESSAGE_MAX_LENGTH,
-} from './chat';
-export type { ChatSubscription, ChatSubscriptionHandlers } from './chat';
-
 // 경기별 채팅(chat 모듈, `/chat` base) 엔드포인트 함수 — 여덟 개 전부 인증이 필수다
 export {
   getGameChatRooms,
@@ -314,13 +292,6 @@ export type {
   SupportTeamSelection,
   SupportPlayer,
 } from '../types/support';
-export type {
-  ChatRoom,
-  ChatMessage,
-  ChatMessageEvent,
-  ChatMessagePage,
-  SendChatMessageRequest,
-} from '../types/chat';
 export type {
   GameChatRoom,
   GameChatMessage,

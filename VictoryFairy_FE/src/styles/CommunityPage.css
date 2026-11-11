@@ -187,44 +187,6 @@
 }
 
 /* ------------------------------------------------------------------ *
- * Chat FAB — 오른쪽 아래 채팅 버튼
- * 디자인에선 NavBar 바로 위에 놓이지만, NavBar 를 아직 그리지 않으므로
- * 화면 오른쪽 아래(여백 24px)에 고정한다.
- * 402px 보다 넓은 화면에서도 앱 폭 안쪽에 머물도록 right 를 계산한다.
- * ------------------------------------------------------------------ */
-.community-page__chat-fab {
-  position: fixed;
-  right: max(var(--layout-gutter), calc(50% - var(--layout-app-width) / 2 + var(--layout-gutter)));
-  /* Figma: 버튼 하단(762)이 NavBar 흰 바 위끝(786)보다 24px 위다. */
-  bottom: calc(var(--layout-navbar-height) + var(--safe-area-bottom) + 24px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 68px;
-  height: 68px;
-  border-radius: var(--radius-35);
-  background-image: linear-gradient(
-    138.19deg,
-    var(--color-primary-200) 2.49%,
-    var(--color-primary-500) 97.51%
-  );
-  box-shadow: 0 0 4px 0 var(--color-gray-300);
-}
-
-/*
- * 말풍선 아이콘.
- * 프로젝트 자산 `chat2.svg` 의 fill 이 검정이라, LoginPage 의 에러 아이콘과 같은
- * 방식으로 mask 로 오려내고 흰색으로 칠한다.
- */
-.community-page__chat-fab-icon {
-  width: 32px;
-  height: 32px;
-  background-color: var(--color-white);
-  -webkit-mask: url('../assets/chat2.svg') no-repeat center / contain;
-  mask: url('../assets/chat2.svg') no-repeat center / contain;
-}
-
-/* ------------------------------------------------------------------ *
  * 반응형 — 402px 미만(소형 단말)에서 좌우 여백을 줄여 레이아웃이 깨지지 않게 한다.
  * ------------------------------------------------------------------ */
 @media (max-width: 359px) {
