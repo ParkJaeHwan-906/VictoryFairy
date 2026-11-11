@@ -18,7 +18,7 @@ type CommunityMoreMenuProps = {
 /**
  * CommunityMoreMenu — "⋯" 트리거와 그 아래 붙는 작은 팝오버 메뉴.
  *
- * 라운지 채팅 말풍선의 신고 · 차단 메뉴(`LoungeChatSheet` 의 `lounge-chat__menu`)와 같은
+ * 경기 채팅 말풍선의 신고 · 차단 메뉴(`GameChat` 의 `game-chat__menu`)와 같은
  * 모양 · 같은 닫기 규칙이다: 열려 있는 동안만 바깥 누르기 · Esc 를 감시해 닫는다.
  * 항목을 고르면 먼저 닫고 나서 `onSelect` 를 부른다 — 대개 확인 시트가 뒤따라 뜬다.
  */

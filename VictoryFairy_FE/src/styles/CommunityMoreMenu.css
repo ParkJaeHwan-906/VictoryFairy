@@ -1,6 +1,6 @@
 /**
  * CommunityMoreMenu("⋯" 메뉴) 스타일.
- * 라운지 채팅의 `.lounge-chat__menu-*`(LoungeChatSheet.css)와 같은 값이다.
+ * 경기 채팅의 `.game-chat__menu-*`(GameChat.css)와 같은 값이다.
  */
 
 .community-more-menu {

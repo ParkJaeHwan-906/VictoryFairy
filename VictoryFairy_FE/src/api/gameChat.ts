@@ -3,7 +3,6 @@ import { chatClient } from './httpClient';
 import { CHAT_BASE_URL } from './config';
 import { openSseSubscription, type SseLifecycleHandlers, type SseSubscription } from './sseSubscription';
 import { ApiError } from './errors';
-import { validateChatMessageContent } from './chat';
 import type { ApiResponse } from '../types/api';
 import type {
   GameChatDeletedEvent,
@@ -18,8 +17,7 @@ import type {
 /**
  * 경기별 채팅 API (chat 모듈, `docs/game-chat.md`).
  *
- * 구단별 채팅(`api/chat.ts`, `/rt/chat/**`)과 병행 운영 중인 **다른 서버**다. 방이 구단이 아니라
- * 오늘 경기(`gameId`)이고, 응원 구단 가드가 없다. base 가 `.../chat` 이므로 경로는 `/rooms` 부터 쓴다.
+ * 방은 구단이 아니라 오늘 경기(`gameId`)이고, 응원 구단 가드가 없다. base 가 `.../chat` 이므로 경로는 `/rooms` 부터 쓴다.
  *
  * 8개 엔드포인트 전부 인증 필수라 모두 `requiresAuth: true` — 토큰 주입·refresh 회전·에러
  * 정규화는 chatClient 인터셉터가 처리한다. 성공 응답은 SSE 구독과 좋아요(202 무본문)를 빼고
@@ -108,10 +106,17 @@ export function isGameChatBrokerUnavailable(error: unknown): boolean {
 
 /**
  * 전송 전 클라이언트 사전 검사. 위반 시 사유, 통과 시 null.
- * 규칙(공백 불가·500자)이 구단 채팅과 같아 그 검사를 그대로 쓴다.
+ * 서버 검증의 대체가 아니라 왕복을 아끼기 위한 것이다.
+ *
+ * 서버는 Java `String.length()` 기준으로 세어 이모지를 2자로 계산하는데,
+ * JS `String.length`도 UTF-16 코드 유닛 수라 같은 값이 나온다.
  */
 export function validateGameChatMessageContent(content: string): string | null {
-  return validateChatMessageContent(content);
+  if (content.trim().length === 0) return '공백일 수 없습니다';
+  if (content.length > GAME_CHAT_MESSAGE_MAX_LENGTH) {
+    return `메시지는 ${GAME_CHAT_MESSAGE_MAX_LENGTH}자를 넘을 수 없습니다`;
+  }
+  return null;
 }
 
 /**
