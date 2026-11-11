@@ -25,39 +25,21 @@ import '../styles/MyPage.css';
  *   - `point`   — 재화. 캐릭터를 사면 줄어든다(`CharacterCustomPage`).
  *   - `bqScore` — 랭킹 축. 적립만 되고 줄지 않는다(라운지 랭킹 · 퀴즈 결과 화면).
  *
- * 정답률은 **야구 타율처럼 할·푼·리로** 읽어 그린다(`toBattingAverage`) — 이 앱의 숫자 중
+ * 정답률은 **야구 타율처럼 `0.256` 꼴로** 그린다(`toBattingAverage`) — 이 앱의 숫자 중
  * 유일하게 0~1 사이 비율이라, 퍼센트로 적으면 옆의 포인트와 자릿수가 비슷해 헷갈린다.
  */
 
 /** 앱 버전. 배포 파이프라인이 주입하기 전까지는 화면에 고정값으로 둔다. */
 const APP_VERSION = 'v 1.0.0';
 
-/** 소수 첫째·둘째·셋째 자리에 붙는 단위. 야구 중계가 타율을 부르는 그 이름이다. */
-const RATE_UNITS = ['할', '푼', '리'] as const;
-
 /**
- * 정답률(`0`~`1`)을 **할·푼·리**로 읽어 준다 — `0.256` → `2할5푼6리`.
- *
- * 소수 첫째 자리가 할, 둘째가 푼, 셋째가 리다. 중계에서 부르는 방식 그대로
- * **0 인 자리는 통째로 건너뛴다** — `0.305` 는 "3할0푼5리"가 아니라 `3할5리` 이고,
- * `0.250` 은 `2할5푼` 이다(뒤가 비면 말하지 않는다).
+ * 정답률(`0`~`1`)을 타율처럼 소수 셋째 자리까지 적는다 — `0.256` → `0.256`, `1` → `1.000`.
  *
  * 서버는 셋째 자리까지 반올림해 주지만 후행 0 을 지워서 보내므로(`0.5` 는 `0.500` 이
- * 아니다) 자릿수를 여기서 셋으로 맞춘 뒤 읽는다 — `toFixed(3)` 은 그 패딩만 한다.
- *
- * 두 끝은 자리 규칙으로 만들 수 없어 따로 둔다: 전부 0 이면 `0할`(아무 자리도 남지
- * 않아 빈 문자열이 된다), 10할은 `할` 자리가 두 자리라 규칙 밖이다.
+ * 아니다) 자릿수를 여기서 셋으로 맞춘다 — `toFixed(3)` 은 그 패딩만 한다.
  */
 function toBattingAverage(accuracy: number): string {
-  const clamped = Math.min(Math.max(accuracy, 0), 1);
-  if (clamped === 1) return '10할';
-
-  const digits = clamped.toFixed(3).slice(2);
-  const spoken = RATE_UNITS.map((unit, index) =>
-    digits[index] === '0' ? '' : `${digits[index]}${unit}`,
-  ).join('');
-
-  return spoken === '' ? '0할' : spoken;
+  return Math.min(Math.max(accuracy, 0), 1).toFixed(3);
 }
 
 /**
@@ -310,8 +292,7 @@ export default function MyPage() {
               <p className="my-page__stat-label">평균 정답률</p>
               {/*
                 프로필이 아직 안 왔을 때만 `-` 다 — 퀴즈를 한 번도 안 받은 계정은
-                `null` 이 아니라 `0` 이 오므로 `0할` 로 그린다.
-                할·푼·리는 글자라 낭독기가 그대로 읽어 준다(숨긴 대체 문구가 필요 없다).
+                `null` 이 아니라 `0` 이 오므로 `0.000` 으로 그린다.
               */}
               <p className="my-page__stat-value">
                 {profile === null ? '-' : toBattingAverage(profile.quizAccuracy)}
