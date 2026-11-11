@@ -10,8 +10,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 
 from . import (community, dimensions, fetch, game_records, kbo_boxscore, kbo_gamecenter,
-               kbo_register,
-               kbo_schedule, kbo_trade, keys, naver)
+               kbo_register, kbo_schedule, kbo_trade, keys, naver, win_expectancy)
 from .config import get_settings
 from .journal import Journal, setup_logging
 from .sink import S3RawSink
@@ -784,8 +783,8 @@ def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=
         naver_ok = True
     except fetch.FetchError as exc:
         # 네이버가 AWS 대역에 응답하지 않는 동안의 대체 경로(kbo_gamecenter 모듈 주석 참고).
-        # 아래에서 네이버를 다시 부르는 부가 기능(승률·이닝 이벤트)은 끈다 — 켜 두면 경기마다
-        # 타임아웃을 기다려 1분 주기를 넘긴다. 구장·라인업은 KBO 값으로 대신한다.
+        # 아래에서 네이버를 다시 부르는 부가 기능(이닝 이벤트)은 끈다 — 켜 두면 경기마다
+        # 타임아웃을 기다려 1분 주기를 넘긴다. 구장·라인업·승률은 KBO 값으로 대신한다.
         log.warning("%s: 네이버 일정 실패, KBO 게임센터로 대체: %s", date, exc)
         schedule = None
         games = _kbo_fallback_games(settings, db, client, date, team_ids, log)
@@ -850,11 +849,12 @@ def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=
             new_away_score = g.get("awayTeamScore") if live_or_done else None
             win_rate_on = settings.win_rate_enabled
             new_win_rate = None
-            # 대체 경로에서는 승률을 못 구한다. 진행 중이면 upsert 가 직전 값을 그대로 두고
-            # (값 없음 = 모름), 경기가 끝나면 지운다.
-            if win_rate_on and live and naver_ok and new_current_inning is not None:
-                new_win_rate = _fetch_live_win_rate(
-                    settings, client, g["gameId"], new_current_inning, log)
+            # 대체 경로는 KBO 경기 목록의 상황(이닝·아웃·주자·점수)으로 승률을 직접 계산한다
+            # (win_expectancy). 못 읽으면 None = 모름 — upsert 가 직전 값을 지킨다.
+            if win_rate_on and live and new_current_inning is not None:
+                new_win_rate = (_fetch_live_win_rate(
+                    settings, client, g["gameId"], new_current_inning, log) if naver_ok
+                    else win_expectancy.from_kbo_game(g.get("kbo") or {}))
             old_state = None
             old_win_rate = None
             if settings.game_state_events_enabled and sink is not None and live_window:

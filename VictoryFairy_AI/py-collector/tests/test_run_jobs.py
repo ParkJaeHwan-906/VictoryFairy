@@ -2063,3 +2063,30 @@ def test_games_sync_kbo_fallback_skips_lineup_call_until_announced(monkeypatch, 
     run.job_games_sync(settings, db, "2026-11-03")
 
     assert called == [] and db.lineup_calls == []
+
+
+def test_kbo_fallback_computes_win_rate_from_live_state(monkeypatch, settings):
+    from kbo_collector import win_expectancy
+    live = {**_kbo("20261103SSKT0", "2", 6, "B", away="3", home="2"), "SR_ID": 7,
+            "OUT_CN": 1, "B1_BAT_ORDER_NO": 4, "B2_BAT_ORDER_NO": 0, "B3_BAT_ORDER_NO": 0}
+    _naver_down(monkeypatch, [live])
+    monkeypatch.setattr(settings, "win_rate_enabled", True)
+    db = _WinRateDb(rows=[("77771103SSKT02026", 5, 4)], team_ids={"SS": 4, "KT": 5})
+
+    run.job_games_sync(settings, db, "2026-11-03")
+
+    assert db.win_rate_kwargs["77771103SSKT02026"] == dict(
+        with_win_rate=True, in_progress=True,
+        win_rate=win_expectancy.win_rate(6, 1, 1, 1, 2, 3, win_expectancy.POSTSEASON_MAX_INNING))
+
+
+class _WinRateDb(_FallbackDb):
+    def __init__(self, rows, **kw):
+        super().__init__(rows, **kw)
+        self.win_rate_kwargs = {}
+
+    def sync_game(self, *, with_win_rate=False, in_progress=False, win_rate=None, **kw):
+        pk = super().sync_game(**kw)
+        self.win_rate_kwargs[kw["naver_game_id"]] = dict(
+            with_win_rate=with_win_rate, in_progress=in_progress, win_rate=win_rate)
+        return pk
