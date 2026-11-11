@@ -10,13 +10,13 @@ import java.time.temporal.TemporalAdjusters;
  * <p>입력 날짜는 반드시 KST 기준으로 구한 것이어야 한다({@code LocalDate.now(kstClock)}). 파드 JVM 은 UTC 라
  * {@code LocalDate.now()} 를 넘기면 월요일 00:00~09:00 KST 동안 아직 지난주로 판정된다.
  */
-final class QuizRoomWeeks {
+public final class QuizRoomWeeks {
 
     private QuizRoomWeeks() {
     }
 
     /** {@code date} 가 속한 주의 월요일. */
-    static LocalDate weekStartOf(LocalDate date) {
+    public static LocalDate weekStartOf(LocalDate date) {
         return date.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
     }
 

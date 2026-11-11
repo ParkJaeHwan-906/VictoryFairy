@@ -11,8 +11,10 @@ import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 
 import com.skhynix.common.error.BusinessException;
 import com.skhynix.common.error.ErrorCode;
@@ -22,6 +24,8 @@ import com.skhynix.domain.quizroom.entity.QuizRoomQuizOption;
 import com.skhynix.domain.quizroom.entity.QuizRoomQuizType;
 import com.skhynix.domain.quizroom.entity.QuizRoomWeek;
 import com.skhynix.domain.quizroom.entity.QuizRoomWeeklyBest;
+import com.skhynix.domain.quizroom.repository.QuizRoomAnswerRepository;
+import com.skhynix.domain.quizroom.repository.QuizRoomCountView;
 import com.skhynix.domain.quizroom.repository.QuizRoomLikeRepository;
 import com.skhynix.domain.quizroom.repository.QuizRoomQuizOptionRepository;
 import com.skhynix.domain.quizroom.repository.QuizRoomQuizRepository;
@@ -44,6 +48,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -77,6 +82,8 @@ class QuizRoomServiceTest {
     @Mock
     private QuizRoomLikeRepository likeRepository;
     @Mock
+    private QuizRoomAnswerRepository answerRepository;
+    @Mock
     private QuizRoomWeekRepository weekRepository;
     @Mock
     private QuizRoomWeeklyBestRepository bestRepository;
@@ -92,7 +99,7 @@ class QuizRoomServiceTest {
     @BeforeEach
     void setUp() {
         service = new QuizRoomService(roomRepository, quizRepository, optionRepository, likeRepository,
-                weekRepository, bestRepository, userAccountRepository, solvingCounter, CLOCK);
+                answerRepository, weekRepository, bestRepository, userAccountRepository, solvingCounter, CLOCK);
     }
 
     private static QuizItem mcItem(String question, List<String> options, int answer) {
@@ -287,7 +294,7 @@ class QuizRoomServiceTest {
         assertThat(response.hasNext()).isFalse();
     }
 
-    // ---- 인기 (주간 확정 결과 조회) ----
+    // ---- 인기 (이번 주 실시간 순위 + 확정 주간 베스트로 보충) ----
 
     private QuizRoomWeek confirmedWeek(long weekId) {
         QuizRoomWeek week = QuizRoomWeek.builder().weekStart(LocalDate.of(2026, 10, 5))
@@ -300,104 +307,250 @@ class QuizRoomServiceTest {
         return QuizRoomWeeklyBest.builder().week(week).rankNo(rank).room(room).score(10L - rank).build();
     }
 
-    @Test
-    @DisplayName("[QUIZ-CQR-130] 가장 최근 확정 주의 방을 확정 순위 순서 그대로 반환한다 (likeCount 가 더 큰 방이 뒤에 있어도 재정렬하지 않는다)")
-    void getPopularRooms_keepsConfirmedRankOrder() {
-        QuizRoomWeek week = confirmedWeek(5L);
-        QuizRoom first = room(7L, author, 1, 0);
-        QuizRoom second = room(3L, author, 1, 99);
-        QuizRoom third = room(9L, author, 1, 50);
+    private static QuizRoomCountView count(long roomId, long count) {
+        return new QuizRoomCountView(roomId, count);
+    }
+
+    /** 이번 주 집계를 심고, 순위에 든 방은 요청된 id 중 {@code loadable} 에 있는 것만 (역순으로) 돌려준다 — 정렬을 리포지토리 순서에 기대지 않게. */
+    private void stubThisWeek(List<QuizRoomCountView> likes, List<QuizRoomCountView> solvers, QuizRoom... loadable) {
+        given(likeRepository.countWeeklyLikesByRoom(any(), any())).willReturn(likes);
+        given(answerRepository.countWeeklyNewSolversByRoom(any(), any())).willReturn(solvers);
+        if (loadable.length > 0) {
+            given(roomRepository.findAllWithAuthorByIdIn(anyCollection())).willAnswer(invocation -> {
+                Collection<Long> ids = invocation.getArgument(0);
+                List<QuizRoom> found = new ArrayList<>(
+                        java.util.Arrays.stream(loadable).filter(r -> ids.contains(r.getId())).toList());
+                java.util.Collections.reverse(found);
+                return found;
+            });
+        }
+    }
+
+    private void stubLatestConfirmed(QuizRoomWeek week, QuizRoom... ranked) {
         given(weekRepository.findTopByOrderByWeekStartDesc()).willReturn(Optional.of(week));
-        given(bestRepository.findAllByWeek_IdOrderByRankNoAsc(5L))
-                .willReturn(List.of(best(week, 1, first), best(week, 2, second), best(week, 3, third)));
-        given(solvingCounter.counts(List.of(7L, 3L, 9L))).willReturn(Map.of());
+        List<QuizRoomWeeklyBest> bests = new ArrayList<>();
+        for (int i = 0; i < ranked.length; i++) {
+            bests.add(best(week, i + 1, ranked[i]));
+        }
+        given(bestRepository.findAllByWeek_IdOrderByRankNoAsc(week.getId())).willReturn(bests);
+    }
 
-        List<RoomSummaryResponse> popular = service.getPopularRooms();
-
-        assertThat(popular).extracting(RoomSummaryResponse::roomId).containsExactly(7L, 3L, 9L);
+    private List<Long> popularIds() {
+        return service.getPopularRooms().stream().map(RoomSummaryResponse::roomId).toList();
     }
 
     @Test
-    @DisplayName("[QUIZ-CQR-130] 순위는 최신 확정 주의 id 로만 읽는다 (다른 주를 훑지 않는다)")
-    void getPopularRooms_readsOnlyLatestConfirmedWeek() {
-        QuizRoomWeek week = confirmedWeek(5L);
-        given(weekRepository.findTopByOrderByWeekStartDesc()).willReturn(Optional.of(week));
-        given(bestRepository.findAllByWeek_IdOrderByRankNoAsc(5L)).willReturn(List.of());
+    @DisplayName("[QUIZ-CQR-150] 이번 주 점수 내림차순, 동점은 roomId 내림차순으로 앞에 놓고 0점 방은 뺀다 (방1=4, 방2=7, 방3=4, 방4=0 -> [2,3,1])")
+    void getPopularRooms_ranksThisWeekByScoreDescThenRoomIdDesc_excludingZero() {
+        stubThisWeek(List.of(count(1, 4), count(2, 7), count(3, 4), count(4, 0)), List.of(),
+                room(1L, author, 1, 0), room(2L, author, 1, 0), room(3L, author, 1, 0), room(4L, author, 1, 0));
 
+        assertThat(popularIds()).containsExactly(2L, 3L, 1L);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CQR-150, QUIZ-CQR-151] 점수는 추천 수와 새 풀이자 수의 합이다 (방1 추천2+풀이3=5 가 방2 추천4 보다 앞)")
+    void getPopularRooms_scoreIsLikesPlusNewSolvers() {
+        stubThisWeek(List.of(count(1, 2), count(2, 4)), List.of(count(1, 3)),
+                room(1L, author, 1, 0), room(2L, author, 1, 0));
+
+        assertThat(popularIds()).containsExactly(1L, 2L);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CQR-150] 점수 1 이상인 방이 6개 이상이면 상위 5개뿐이고, 5개가 찼으므로 확정 주간 베스트는 읽지 않는다")
+    void getPopularRooms_capsAtFive_andSkipsConfirmedLookupWhenFull() {
+        stubThisWeek(List.of(count(1, 9), count(2, 8), count(3, 7), count(4, 6), count(5, 5), count(6, 4)), List.of(),
+                room(1L, author, 1, 0), room(2L, author, 1, 0), room(3L, author, 1, 0), room(4L, author, 1, 0),
+                room(5L, author, 1, 0), room(6L, author, 1, 0));
+
+        assertThat(popularIds()).containsExactly(1L, 2L, 3L, 4L, 5L);
+        verifyNoInteractions(weekRepository, bestRepository);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CQR-150] 이번 주 구간은 [이번 주 월요일 00:00, 다음 월요일 00:00) KST 로 두 집계에 똑같이 전달된다 (수요일 -> 10/12 ~ 10/19)")
+    void getPopularRooms_queriesCurrentWeekWindow() {
         service.getPopularRooms();
 
+        LocalDateTime start = LocalDateTime.of(2026, 10, 12, 0, 0);
+        LocalDateTime end = LocalDateTime.of(2026, 10, 19, 0, 0);
+        verify(likeRepository).countWeeklyLikesByRoom(start, end);
+        verify(answerRepository).countWeeklyNewSolversByRoom(start, end);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CQR-151] 파드 UTC 일요일 14:59:59 (KST 일요일 23:59:59) 는 아직 지난 주 구간이다")
+    void getPopularRooms_sundayJustBeforeKstMidnight_isStillOldWeek() {
+        QuizRoomService atSunday = serviceAt(Instant.parse("2026-10-18T14:59:59Z"));
+
+        atSunday.getPopularRooms();
+
+        verify(likeRepository).countWeeklyLikesByRoom(LocalDateTime.of(2026, 10, 12, 0, 0),
+                LocalDateTime.of(2026, 10, 19, 0, 0));
+        verify(answerRepository).countWeeklyNewSolversByRoom(LocalDateTime.of(2026, 10, 12, 0, 0),
+                LocalDateTime.of(2026, 10, 19, 0, 0));
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CQR-151] 파드 UTC 일요일 15:00:00 (KST 월요일 00:00:00) 부터는 새 주 구간이 된다")
+    void getPopularRooms_utcSunday1500_isKstMondayAndStartsNewWeek() {
+        QuizRoomService atMonday = serviceAt(Instant.parse("2026-10-18T15:00:00Z"));
+
+        atMonday.getPopularRooms();
+
+        verify(likeRepository).countWeeklyLikesByRoom(LocalDateTime.of(2026, 10, 19, 0, 0),
+                LocalDateTime.of(2026, 10, 26, 0, 0));
+        verify(answerRepository).countWeeklyNewSolversByRoom(LocalDateTime.of(2026, 10, 19, 0, 0),
+                LocalDateTime.of(2026, 10, 26, 0, 0));
+    }
+
+    private QuizRoomService serviceAt(Instant instant) {
+        return new QuizRoomService(roomRepository, quizRepository, optionRepository, likeRepository,
+                answerRepository, weekRepository, bestRepository, userAccountRepository, solvingCounter,
+                Clock.fixed(instant, KST));
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CQR-152] 이번 주 순위가 5개 미만이면 남는 자리를 가장 최근 확정 주간 베스트의 확정 순위 순서로 채운다 ([9] + 확정 [7,3] -> [9,7,3])")
+    void getPopularRooms_fillsRemainingSlotsFromLatestConfirmedInRankOrder() {
+        QuizRoomWeek week = confirmedWeek(5L);
+        stubThisWeek(List.of(count(9, 3)), List.of(), room(9L, author, 1, 0));
+        stubLatestConfirmed(week, room(7L, author, 1, 0), room(3L, author, 1, 99));
+
+        assertThat(popularIds()).containsExactly(9L, 7L, 3L);
         verify(bestRepository).findAllByWeek_IdOrderByRankNoAsc(5L);
-        verify(weekRepository, never()).findAll();
     }
 
     @Test
-    @DisplayName("[QUIZ-CQR-132] likeCount 는 방의 현재 값, solvingCount 는 응답 시점의 Redis 인원으로 채우고 순서는 바뀌지 않는다 (QUIZ-CQR-131)")
-    void getPopularRooms_fillsCountsAtResponseTime() {
+    @DisplayName("[QUIZ-CQR-152] 채우기는 5건까지만이다 (이번 주 3개 + 확정 4개 -> 앞의 2개만 보충해 5건)")
+    void getPopularRooms_fillStopsAtFive() {
         QuizRoomWeek week = confirmedWeek(5L);
-        QuizRoom first = room(7L, author, 1, 4);
-        QuizRoom second = room(3L, author, 1, 0);
-        given(weekRepository.findTopByOrderByWeekStartDesc()).willReturn(Optional.of(week));
-        given(bestRepository.findAllByWeek_IdOrderByRankNoAsc(5L))
-                .willReturn(List.of(best(week, 1, first), best(week, 2, second)));
-        given(solvingCounter.counts(List.of(7L, 3L))).willReturn(Map.of(3L, 6L));
+        stubThisWeek(List.of(count(1, 3), count(2, 2), count(3, 1)), List.of(),
+                room(1L, author, 1, 0), room(2L, author, 1, 0), room(3L, author, 1, 0));
+        stubLatestConfirmed(week, room(14L, author, 1, 0), room(15L, author, 1, 0), room(16L, author, 1, 0),
+                room(17L, author, 1, 0));
 
-        List<RoomSummaryResponse> popular = service.getPopularRooms();
-
-        assertThat(popular).extracting(RoomSummaryResponse::likeCount).containsExactly(4L, 0L);
-        assertThat(popular).extracting(RoomSummaryResponse::solvingCount).containsExactly(0L, 6L);
-
-        first.increaseLikeCount();
-        List<RoomSummaryResponse> later = service.getPopularRooms();
-        assertThat(later).extracting(RoomSummaryResponse::roomId).containsExactly(7L, 3L);
-        assertThat(later.get(0).likeCount()).isEqualTo(5L);
+        assertThat(popularIds()).containsExactly(1L, 2L, 3L, 14L, 15L);
     }
 
     @Test
-    @DisplayName("[QUIZ-CQR-131] 인원이 아무리 많아도 확정 결과만 읽을 뿐 방 후보 쿼리를 쓰지 않는다")
-    void getPopularRooms_neverQueriesRoomCandidates() {
+    @DisplayName("[QUIZ-CQR-152] 이번 주 활동이 전혀 없으면 확정 주간 베스트가 확정 순위 그대로 나온다 (QUIZ-CQR-138 의 인기 목록 순서 = 확정 순위)")
+    void getPopularRooms_noActivity_showsConfirmedBestAsIs() {
         QuizRoomWeek week = confirmedWeek(5L);
-        given(weekRepository.findTopByOrderByWeekStartDesc()).willReturn(Optional.of(week));
-        given(bestRepository.findAllByWeek_IdOrderByRankNoAsc(5L))
-                .willReturn(List.of(best(week, 1, room(7L, author, 1, 0)), best(week, 2, room(3L, author, 1, 0))));
-        given(solvingCounter.counts(List.of(7L, 3L))).willReturn(Map.of(3L, 100L));
+        stubLatestConfirmed(week, room(7L, author, 1, 0), room(3L, author, 1, 99), room(9L, author, 1, 50));
 
-        List<Long> before = service.getPopularRooms().stream().map(RoomSummaryResponse::roomId).toList();
-        List<Long> after = service.getPopularRooms().stream().map(RoomSummaryResponse::roomId).toList();
-
-        assertThat(after).isEqualTo(before).containsExactly(7L, 3L);
-        verifyNoInteractions(roomRepository);
+        assertThat(popularIds()).containsExactly(7L, 3L, 9L);
+        verify(roomRepository, never()).findAllWithAuthorByIdIn(anyCollection());
     }
 
     @Test
-    @DisplayName("[QUIZ-CQR-147] 확정된 주가 한 번도 없으면 null 이 아닌 빈 목록이고 Redis 인원도 읽지 않는다")
-    void getPopularRooms_noConfirmedWeek_isEmpty() {
+    @DisplayName("[QUIZ-CQR-153] 이번 주 순위에 이미 든 방은 채우기에서 건너뛴다 (이번 주 [3,9] + 확정 [7,3,5,8] -> [3,9,7,5,8])")
+    void getPopularRooms_skipsRoomsAlreadyRankedThisWeek() {
+        QuizRoomWeek week = confirmedWeek(5L);
+        stubThisWeek(List.of(count(3, 9), count(9, 5)), List.of(), room(3L, author, 1, 0), room(9L, author, 1, 0));
+        stubLatestConfirmed(week, room(7L, author, 1, 0), room(3L, author, 1, 0), room(5L, author, 1, 0),
+                room(8L, author, 1, 0));
+
+        assertThat(popularIds()).containsExactly(3L, 9L, 7L, 5L, 8L);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CQR-153, QUIZ-CQR-34] 확정 결과가 이미 든 방 하나뿐이면 중복 없이 길이 2다 (이번 주 [3,9] + 확정 [3] -> [3,9])")
+    void getPopularRooms_confirmedOnlyDuplicate_addsNothing() {
+        QuizRoomWeek week = confirmedWeek(5L);
+        stubThisWeek(List.of(count(3, 9), count(9, 5)), List.of(), room(3L, author, 1, 0), room(9L, author, 1, 0));
+        stubLatestConfirmed(week, room(3L, author, 1, 0));
+
+        assertThat(popularIds()).containsExactly(3L, 9L);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CQR-34] 이번 주 점수 1 이상인 방 1개 + 확정 주간 베스트 1개(다른 방) -> 길이 2")
+    void getPopularRooms_oneThisWeekPlusOneConfirmed_hasSizeTwo() {
+        QuizRoomWeek week = confirmedWeek(5L);
+        stubThisWeek(List.of(count(4, 2)), List.of(), room(4L, author, 1, 0));
+        stubLatestConfirmed(week, room(8L, author, 1, 0));
+
+        assertThat(popularIds()).containsExactly(4L, 8L);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CQR-154, QUIZ-CQR-34] 이번 주 점수 방도 확정된 주도 없으면 null 이 아닌 빈 목록이고 Redis 인원도 방 로딩도 하지 않는다")
+    void getPopularRooms_nothingAtAll_isEmptyAndSkipsRedis() {
         given(weekRepository.findTopByOrderByWeekStartDesc()).willReturn(Optional.empty());
 
         assertThat(service.getPopularRooms()).isNotNull().isEmpty();
-        verifyNoInteractions(bestRepository, solvingCounter);
+        verifyNoInteractions(solvingCounter, bestRepository, roomRepository);
     }
 
     @Test
-    @DisplayName("[QUIZ-CQR-34, QUIZ-CQR-136] 최신 확정 주가 비어 있으면(0건 확정) 빈 목록이고 Redis 인원도 읽지 않는다")
-    void getPopularRooms_confirmedButEmptyWeek_isEmpty() {
-        QuizRoomWeek week = confirmedWeek(5L);
-        given(weekRepository.findTopByOrderByWeekStartDesc()).willReturn(Optional.of(week));
-        given(bestRepository.findAllByWeek_IdOrderByRankNoAsc(5L)).willReturn(List.of());
+    @DisplayName("[QUIZ-CQR-154, QUIZ-CQR-34] 이번 주 점수가 전부 0이고 가장 최근 확정 결과가 빈 목록이어도 빈 목록이고 Redis 인원을 읽지 않는다")
+    void getPopularRooms_zeroScoresAndEmptyConfirmedWeek_isEmpty() {
+        stubThisWeek(List.of(count(1, 0)), List.of(count(2, 0)));
+        stubLatestConfirmed(confirmedWeek(5L));
 
         assertThat(service.getPopularRooms()).isNotNull().isEmpty();
-        verifyNoInteractions(solvingCounter);
+        verifyNoInteractions(solvingCounter, roomRepository);
     }
 
     @Test
-    @DisplayName("[QUIZ-CQR-34] 확정된 방이 2건이면 2건을 반환한다")
-    void getPopularRooms_fewerThanFive() {
+    @DisplayName("[QUIZ-CQR-132] likeCount 는 방의 현재 값, solvingCount 는 응답 시점 Redis 인원이다 (이번 주 방·채워진 방 모두)")
+    void getPopularRooms_fillsCountsAtResponseTime_forRankedAndFilledRooms() {
         QuizRoomWeek week = confirmedWeek(5L);
-        given(weekRepository.findTopByOrderByWeekStartDesc()).willReturn(Optional.of(week));
-        given(bestRepository.findAllByWeek_IdOrderByRankNoAsc(5L))
-                .willReturn(List.of(best(week, 1, room(2L, author, 1, 0)), best(week, 2, room(1L, author, 1, 0))));
-        given(solvingCounter.counts(List.of(2L, 1L))).willReturn(Map.of());
+        QuizRoom ranked = room(9L, author, 1, 4);
+        QuizRoom filled = room(7L, author, 1, 11);
+        stubThisWeek(List.of(count(9, 1)), List.of(), ranked);
+        stubLatestConfirmed(week, filled);
+        given(solvingCounter.counts(List.of(9L, 7L))).willReturn(Map.of(7L, 6L));
 
-        assertThat(service.getPopularRooms()).hasSize(2);
+        List<RoomSummaryResponse> popular = service.getPopularRooms();
+
+        assertThat(popular).extracting(RoomSummaryResponse::roomId).containsExactly(9L, 7L);
+        assertThat(popular).extracting(RoomSummaryResponse::likeCount).containsExactly(4L, 11L);
+        assertThat(popular).extracting(RoomSummaryResponse::solvingCount).containsExactly(0L, 6L);
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CQR-155] 캐시가 없다 - 연속 호출이 매번 집계를 다시 조회하고 바뀐 점수가 바로 순서에 반영된다")
+    void getPopularRooms_noCache_recomputesOnEveryCall() {
+        QuizRoom room1 = room(1L, author, 1, 0);
+        QuizRoom room2 = room(2L, author, 1, 0);
+        given(roomRepository.findAllWithAuthorByIdIn(anyCollection())).willReturn(List.of(room1, room2));
+        given(likeRepository.countWeeklyLikesByRoom(any(), any()))
+                .willReturn(List.of(count(1, 3), count(2, 2)))
+                .willReturn(List.of(count(1, 3), count(2, 4)))
+                .willReturn(List.of(count(1, 3), count(2, 2)));
+        given(answerRepository.countWeeklyNewSolversByRoom(any(), any())).willReturn(List.of());
+        given(weekRepository.findTopByOrderByWeekStartDesc()).willReturn(Optional.empty());
+
+        assertThat(popularIds()).containsExactly(1L, 2L);
+        assertThat(popularIds()).containsExactly(2L, 1L);
+        assertThat(popularIds()).containsExactly(1L, 2L);
+
+        verify(likeRepository, times(3)).countWeeklyLikesByRoom(any(), any());
+        verify(answerRepository, times(3)).countWeeklyNewSolversByRoom(any(), any());
+    }
+
+    @Test
+    @DisplayName("[QUIZ-CQR-156] 인기 목록 조회는 주간 베스트를 확정하지 않고 소유자 point 도 건드리지 않는다 (읽기 호출 외에 아무것도 호출하지 않는다)")
+    void getPopularRooms_neverConfirmsOrRewards() {
+        QuizRoomWeek week = confirmedWeek(5L);
+        stubThisWeek(List.of(count(9, 3)), List.of(count(9, 2)), room(9L, author, 1, 0));
+        stubLatestConfirmed(week, room(7L, author, 1, 0));
+
+        for (int i = 0; i < 100; i++) {
+            service.getPopularRooms();
+        }
+
+        verify(weekRepository, times(100)).findTopByOrderByWeekStartDesc();
+        verifyNoMoreInteractions(weekRepository);
+        verify(bestRepository, times(100)).findAllByWeek_IdOrderByRankNoAsc(5L);
+        verifyNoMoreInteractions(bestRepository);
+        verify(roomRepository, times(100)).findAllWithAuthorByIdIn(anyCollection());
+        verifyNoMoreInteractions(roomRepository);
+        verifyNoInteractions(userAccountRepository);
+        assertThat(author.getPoint()).isEqualTo(0L);
     }
 
     // ---- 상세 ----

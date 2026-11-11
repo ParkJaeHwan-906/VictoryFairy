@@ -3,6 +3,8 @@ package com.skhynix.domain.quizroom.repository;
 import com.skhynix.domain.quizroom.entity.QuizRoom;
 import com.skhynix.domain.user.entity.UserAccount;
 import jakarta.persistence.LockModeType;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -21,6 +23,10 @@ public interface QuizRoomRepository extends JpaRepository<QuizRoom, Long> {
 
     @EntityGraph(attributePaths = "author")
     Optional<QuizRoom> findWithAuthorById(Long id);
+
+    // 인기 목록(실시간 순위, 최대 5건)이 author(LAZY)를 읽는다 — 방마다 따로 싣지 않게 한 번에. 순서는 보장하지 않는다
+    @EntityGraph(attributePaths = "author")
+    List<QuizRoom> findAllWithAuthorByIdIn(Collection<Long> ids);
 
     /**
      * 추천 변경 전용 — 방 행을 비관적 쓰기 락으로 잡아 같은 방의 {@code like_count} 갱신을 직렬화한다.
