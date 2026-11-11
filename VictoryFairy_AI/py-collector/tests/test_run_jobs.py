@@ -1878,7 +1878,7 @@ def _kbo(g_id, state, inn=None, tb=None, away="0", home="0"):
 
 def test_job_games_sync_falls_back_to_kbo_when_naver_schedule_fails(monkeypatch, settings, caplog):
     """2026-10-26 차단 사고의 재현: 네이버 일정이 타임아웃이면 KBO 게임센터 값으로 기존 행을
-    갱신한다. 네이버를 다시 부르는 단계(구장·라인업)와 사라진 경기 판정은 돌지 않아야 한다."""
+    갱신한다. 네이버를 다시 부르는 단계(구장·라인업)는 돌지 않아야 한다."""
     urls = _naver_down(monkeypatch, [
         _kbo("20261026LGOB0", "2", 9, "T", away="5", home="1"),
         _kbo("20261026HTSS0", "1"),
@@ -1898,7 +1898,8 @@ def test_job_games_sync_falls_back_to_kbo_when_naver_schedule_fails(monkeypatch,
     assert live["game_dt"] == "2026-10-26 18:30:00"
     assert by_id["20261026HTSS02026"]["status_id"] == 1
     assert len(urls) == 1  # 실패한 일정 호출 하나뿐 — 구장 상세·preview 를 부르지 않았다
-    assert db.removed_sync_calls == [] and db.lineup_calls == []
+    assert db.lineup_calls == []
+    assert db.removed_sync_calls == [("2026-10-26", ["20261026HTSS02026", "55551026LGOB02026"])]
     assert "source=kbo" in caplog.text
 
 
@@ -1939,6 +1940,53 @@ def test_kbo_fallback_skips_ambiguous_matchup_instead_of_creating(monkeypatch, s
 
     assert run.job_games_sync(settings, db, "2026-08-01") == 0
     assert db.calls == []
+
+
+def test_kbo_fallback_marks_series_leftover_as_removed(monkeypatch, settings):
+    """2026-11-10 사고의 재현: 한국시리즈가 5차전에 끝나 KBO 목록이 빈 날, 미리 만든 6차전 행이
+    예정 상태로 앱에 남았다. 빈 목록도 판정한다 — present 가 비어 그날 행 전부가 사라진 경기가 된다."""
+    _naver_down(monkeypatch, [])
+    db = _FallbackDb(rows=[("77771110SSKT02026", 5, 4)], team_ids={"SS": 4, "KT": 5})
+
+    assert run.job_games_sync(settings, db, "2026-11-10") == 0
+    assert db.removed_sync_calls == [("2026-11-10", [])]
+
+
+def test_kbo_fallback_keeps_rows_it_could_not_pair(monkeypatch, settings):
+    # 짝이 모호해 건너뛴 경기도 일정에는 있다 — 같은 대진의 행은 사라진 경기로 찍히면 안 된다.
+    _naver_down(monkeypatch, [{**_kbo("20260801HTSS0", "1"), "SR_ID": 0},
+                              {**_kbo("20260801OBLG0", "1"), "SR_ID": 0}])
+    db = _FallbackDb(rows=[("20260801HTSS12026", 4, 3), ("20260801HTSS22026", 4, 3),
+                           ("20260801OBLG02026", 2, 1), ("20260801KTNC02026", 7, 6)],
+                     team_ids={"OB": 1, "LG": 2, "HT": 3, "SS": 4, "NC": 7, "KT": 6})
+
+    run.job_games_sync(settings, db, "2026-08-01")
+
+    # KT@NC 만 KBO 목록에 없다 — 그 행만 present 에서 빠진다
+    assert db.removed_sync_calls == [("2026-08-01", sorted(
+        ["20260801HTSS12026", "20260801HTSS22026", "20260801OBLG02026"]))]
+
+
+def test_kbo_fallback_counts_newly_created_row_as_present(monkeypatch, settings):
+    # 새로 만든 행이 present 에서 빠지면 만들자마자 같은 실행에서 숨는다.
+    _naver_down(monkeypatch, [{**_kbo("20261103SSKT0", "1"), "SR_ID": 7, "S_NM": "수원"}])
+    db = _FallbackDb(rows=[], team_ids={"SS": 4, "KT": 5})
+
+    run.job_games_sync(settings, db, "2026-11-03")
+
+    assert db.removed_sync_calls == [("2026-11-03", ["77771103SSKT02026"])]
+
+
+def test_kbo_fallback_skips_removed_check_on_malformed_response(monkeypatch, settings, caplog):
+    # game 배열이 없는 KBO 응답은 빈 날과 다르다 — 판정하면 그날 경기가 전부 사라진다.
+    _naver_down(monkeypatch, None)
+    db = _FallbackDb(rows=[("20261026HTSS02026", 4, 3)], team_ids={"HT": 3, "SS": 4})
+
+    with caplog.at_level("WARNING", logger="games_sync"):
+        assert run.job_games_sync(settings, db, "2026-10-26") == 0
+
+    assert db.removed_sync_calls == [] and db.calls == []
+    assert "사라진 경기 판정을 건너뜀" in caplog.text
 
 
 def test_kbo_fallback_still_lands_state_events(monkeypatch, settings):

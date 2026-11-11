@@ -780,14 +780,16 @@ def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=
                            settings=settings, referer=settings.naver_referer)
         schedule = resp.json()
         games = game_records.list_kbo_games(schedule)
+        # games 배열이 없는 응답은 빈 날과 다르다 — 여기서 판단하면 그날 경기가 전부 사라진다
+        present = ([g.get("gameId") for g in games]
+                   if isinstance((schedule.get("result") or {}).get("games"), list) else None)
         naver_ok = True
     except fetch.FetchError as exc:
         # 네이버가 AWS 대역에 응답하지 않는 동안의 대체 경로(kbo_gamecenter 모듈 주석 참고).
         # 아래에서 네이버를 다시 부르는 부가 기능(이닝 이벤트)은 끈다 — 켜 두면 경기마다
         # 타임아웃을 기다려 1분 주기를 넘긴다. 구장·라인업·승률은 KBO 값으로 대신한다.
         log.warning("%s: 네이버 일정 실패, KBO 게임센터로 대체: %s", date, exc)
-        schedule = None
-        games = _kbo_fallback_games(settings, db, client, date, team_ids, log)
+        games, present = _kbo_fallback_games(settings, db, client, date, team_ids, log)
         naver_ok = False
     # 구장은 한 번 채우면 변하지 않는다 — 아는 경기는 상세 API 를 다시 부르지 않는다.
     known_stadium = db.games_with_stadium([g.get("gameId") for g in games])
@@ -924,11 +926,9 @@ def _sync_games_for_date(settings, db, client, date, team_ids, log, live_window=
             failed += 1
             log.warning("경기 동기화 실패 %s: %s", g.get("gameId"), exc)
     lineups = 0
-    if naver_ok:
-        # 대체 경로에서 돌리면 매칭 못 한 경기가 "일정에서 사라짐"으로 찍힌다.
-        _sync_removed_games(db, date, schedule, games, log)
-        if pending:
-            lineups = _land_preview_lineups(settings, db, client, pending, team_ids, log)
+    _sync_removed_games(db, date, present, log)
+    if naver_ok and pending:
+        lineups = _land_preview_lineups(settings, db, client, pending, team_ids, log)
     elif pending:
         lineups = _land_kbo_lineups(settings, db, client, pending, games, team_ids, log)
     log.info("%s: source=%s synced=%d skipped=%d failed=%d lineups=%d",
@@ -954,18 +954,33 @@ def _kbo_game_id(kg, rows, team_ids, log, date) -> str | None:
     return game_id
 
 
-def _kbo_fallback_games(settings, db, client, date, team_ids, log) -> list[dict]:
-    """KBO 게임센터의 그날 경기를 네이버 모양으로 돌려준다(id 규칙은 _kbo_game_id).
+def _kbo_fallback_games(settings, db, client, date, team_ids, log) -> tuple[list[dict], list | None]:
+    """KBO 게임센터의 그날 경기를 네이버 모양으로 -> (경기 목록, 사라진 경기 판정용 present id).
+
+    이미 있는 games 행은 대진으로 짝지어 그 id 를 쓰고, 없는 경기는 G_ID 에서 만든 네이버 id 로
+    새 행이 되게 한다(kbo_gamecenter 모듈 주석). 같은 대진의 행이 있는데 짝이 모호하거나(더블헤더
+    번호 불일치), id 규칙을 모르는 시리즈면 버린다(_kbo_game_id).
 
     각 항목의 "kbo" 에 원본을 남긴다 — 라인업 대체 경로가 G_ID·SR_ID·선발투수 ID 를 읽는다.
+
+    present 에는 KBO 목록에 같은 대진이 있는 행을 짝 여부와 상관없이 전부 넣는다. 버린 경기도
+    일정에는 있다 — 빼면 짝을 못 지었다는 이유로 그 행이 사라진 경기가 된다. 응답이 깨졌으면 None.
     """
     rows = db.games_on_date(date)
+    kbo_games = kbo_gamecenter.fetch_day(date, settings=settings, client=client)
+    if kbo_games is None:
+        log.warning("%s: KBO 응답에 game 배열이 없음", date)
+        return [], None
+    matchups = {(team_ids.get(kg.get("HOME_ID")), team_ids.get(kg.get("AWAY_ID"))) for kg in kbo_games}
+    present = [nid for nid, h, a in rows if (h, a) in matchups]
     out = []
-    for kg in kbo_gamecenter.fetch_day(date, settings=settings, client=client):
+    for kg in kbo_games:
         game_id = _kbo_game_id(kg, rows, team_ids, log, date)
-        if game_id is not None:
-            out.append({**kbo_gamecenter.to_schedule_game(kg, game_id), "kbo": kg})
-    return out
+        if game_id is None:
+            continue
+        out.append({**kbo_gamecenter.to_schedule_game(kg, game_id), "kbo": kg})
+        present.append(game_id)
+    return out, list(dict.fromkeys(present))  # 짝지은 행은 대진 쪽에서 이미 들어가 있다
 
 
 def _land_kbo_lineups(settings, db, client, pending, games, team_ids, log) -> int:
@@ -993,21 +1008,21 @@ def _land_kbo_lineups(settings, db, client, pending, games, team_ids, log) -> in
     return landed
 
 
-def _sync_removed_games(db, date, schedule, games, log) -> None:
+def _sync_removed_games(db, date, present, log) -> None:
     """그날 응답에 없는 경기를 games.removed 로 표시하고, 다시 나타난 경기는 되돌린다.
 
-    응답에 games 배열이 없으면(깨진 응답) 판단하지 않는다 — 빈 배열과 달리 "그날 경기가 없다"는
-    뜻이 아니다. 빈 배열은 그대로 판단한다: 시리즈가 끝난 날의 응답이 바로 빈 배열이다.
+    present 가 None 이면(깨진 응답) 판단하지 않는다 — 빈 목록과 달리 "그날 경기가 없다"는
+    뜻이 아니다. 빈 목록은 그대로 판단한다: 시리즈가 끝난 날의 응답이 바로 빈 배열이다.
     present 는 상태 판정에서 skip 된 경기까지 포함한다 — 상태를 못 읽었을 뿐 일정에는 있다.
 
     실패는 경고만 남긴다. removed 컬럼을 손 ALTER 로 만들기 전에 이 코드가 먼저 배포돼도
     상태 동기화는 그대로 돌아야 한다.
     """
-    if not isinstance((schedule.get("result") or {}).get("games"), list):
+    if present is None:
         log.warning("%s: 일정 응답에 games 가 없어 사라진 경기 판정을 건너뜀", date)
         return
     try:
-        removed, restored = db.sync_removed_games(date, [g.get("gameId") for g in games])
+        removed, restored = db.sync_removed_games(date, present)
     except Exception as exc:
         log.warning("%s: 사라진 경기 판정 실패: %s", date, exc)
         return
